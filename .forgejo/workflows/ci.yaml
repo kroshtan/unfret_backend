@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
+  cancel-in-progress: ${{ forgejo.event_name == 'pull_request' }}
+
+jobs:
+  # The public runner: an unprivileged throwaway container with no docker socket and no secrets.
+  # No deploy job yet: the domain and the Kamal config are still to be decided.
+  check:
+    runs-on: kroshtan-public
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: veridex
+          POSTGRES_PASSWORD: veridex
+          POSTGRES_DB: veridex
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install dependencies
+        run: uv sync --all-groups --frozen
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+      - name: Audit dependencies
+        run: make audit
+      - name: Run tests
+        run: uv run pytest
+        env:
+          VERIDEX_TEST_POSTGRES_URI: postgresql://veridex:veridex@postgres:5432/veridex

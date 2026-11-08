@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Install the extension · Veridex</title>
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  <main>
+    <h1>Install the Veridex extension</h1>
+    <p>Veridex is distributed from this server, not from Google's or Mozilla's store: a signed package that updates
+      itself from here. The code is open and releases are reproducible, so anyone can check that a download matches
+      the source.</p>
+
+    <section aria-labelledby="release-heading">
+      <h2 id="release-heading">Current release</h2>
+      {{release}}
+    </section>
+
+    <section aria-labelledby="linux-heading">
+      <h2 id="linux-heading">Brave, Chromium or Chrome on Linux</h2>
+      <p>Chromium browsers install extensions from outside the Chrome Web Store through a browser policy. Run the
+        command for your browser, restart it, and Veridex appears in the toolbar. It then updates itself from this
+        server.</p>
+      <h3>Brave</h3>
+      <pre><code>{{brave}}</code></pre>
+      <h3>Chromium</h3>
+      <pre><code>{{chromium}}</code></pre>
+      <h3>Google Chrome</h3>
+      <pre><code>{{chrome}}</code></pre>
+      <p class="muted">Check <code>brave://policy</code> (or <code>chrome://policy</code>) after restarting. A
+        policy-installed extension can't be removed from the extensions page: delete the <code>veridex.json</code>
+        file you created and restart to uninstall.</p>
+    </section>
+
+    <section aria-labelledby="ungoogled-heading">
+      <h2 id="ungoogled-heading">ungoogled-chromium</h2>
+      <ol>
+        <li>Open <code>chrome://flags/#extension-mime-request-handling</code>, set it to <strong>Always prompt for
+          install</strong> and restart.</li>
+        <li>Paste <code>{{crx_url}}</code> into the address bar and confirm the install prompt.</li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="other-heading">
+      <h2 id="other-heading">Windows and macOS</h2>
+      <p>On a personal Windows or macOS computer, Chromium browsers only accept policy-installed extensions from
+        outside the Chrome Web Store when the device is managed (Active Directory or device management). Otherwise:
+        download the zip above, unzip it, open <code>brave://extensions</code>, turn on <strong>Developer mode</strong>,
+        click <strong>Load unpacked</strong> and pick the folder. That works, but the browser shows a developer-mode
+        notice and there are no automatic updates.</p>
+    </section>
+
+    <section aria-labelledby="verify-heading">
+      <h2 id="verify-heading">Verify a download</h2>
+      <p>From the extension's source repository: <code>make install &amp;&amp; make verify-release
+        CRX=veridex-&lt;version&gt;.crx</code> checks the signature, the extension ID and that the contents are
+        byte-identical to your own build.</p>
+    </section>
+
+    <footer><a href="/connect">Sign in</a> · <a href="/checkout">Buy credits</a> · <a href="/llms.txt">For AI
+      agents</a></footer>
+  </main>
+</body>
+</html>

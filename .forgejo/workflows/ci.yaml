@@ -66,6 +66,11 @@ jobs:
         env:
           VERIDEX_LLM_API_KEY: ${{ secrets.VERIDEX_LLM_API_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          # Optional: unset repo secrets arrive empty and keep their feature off.
+          VERIDEX_SESSION_SECRET: ${{ secrets.VERIDEX_SESSION_SECRET }}
+          VERIDEX_HOT_WALLET_KEY: ${{ secrets.VERIDEX_HOT_WALLET_KEY }}
+          VERIDEX_COLD_ADDRESS: ${{ secrets.VERIDEX_COLD_ADDRESS }}
+          VERIDEX_TINEYE_API_KEY: ${{ secrets.VERIDEX_TINEYE_API_KEY }}
         run: |
           set -euo pipefail
           # `details` echoes its docker ps command (which names the container), so match a running row instead.

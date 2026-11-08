@@ -115,11 +115,7 @@
     },
     "supplier_photos": {
       "title": "Zelfde foto's op groothandelsites",
-      "detail": "Dezelfde productfoto staat ook op {sites}."
-    },
-    "photo_predates": {
-      "title": "Oudere foto's",
-      "detail": "De productfoto stond al online voordat dit aanbod verscheen."
+      "detail": "Deze foto staat ook op {count} {listings} van {sites}."
     },
     "missing_trust_info": {
       "title": "Weinig winkelinformatie",
@@ -273,10 +269,12 @@
     "reverse_image.searched": "Fotozoekopdracht gedaan",
     "reverse_image.supplier_hits": "Zelfde foto's op groothandelsites",
     "reverse_image.log_matches": "Foto elders gevonden",
-    "reverse_image.image_age_years": "Leeftijd van de foto online",
-    "reverse_image.photo_predates_listing": "Foto ouder dan het aanbod"
+    "reverse_image.supplier_full": "Identieke foto op groothandelssites",
+    "reverse_image.log_full_matches": "Identieke kopieën van de foto online"
   },
   "no_check_used": "Er is geen check gebruikt.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "en"
+  "and": "en",
+  "listing_one": "aanbieding",
+  "listing_many": "aanbiedingen"
 }

@@ -57,7 +57,6 @@ REASON_SEVERITY: dict[str, Severity] = {
     "dropshipping_tools": "medium",
     "supplier_links": "medium",
     "supplier_photos": "high",
-    "photo_predates": "medium",
     "missing_trust_info": "medium",
     "no_withdrawal": "medium",
     "no_imprint": "medium",
@@ -106,7 +105,7 @@ CONTEXT_FEATURES = frozenset(
         "domain_age.cert_age_years",
         "reverse_image.searched",
         "reverse_image.log_matches",
-        "reverse_image.image_age_years",
+        "reverse_image.log_full_matches",
     }
 )
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
@@ -119,6 +118,7 @@ _GROUPS = (
     ("was_never_charged", "implausible_discount", "big_discount"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+_SUPPLIERS_RE = re.compile(r"appears on \d+ (.+?) listings?")
 _NUMBERS_RE = re.compile(r"\d+(?:\.\d+)?")
 _QUOTED_RE = re.compile(r'"([^"]{1,150})"')
 
@@ -427,12 +427,12 @@ def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["dropshipping_tools"] = {}
     if e.f("html_source_signals.supplier_trace") >= 1:
         fired["supplier_links"] = {}
-    if e.f("reverse_image.supplier_hits") >= 1:
+    if (hits := int(e.f("reverse_image.supplier_hits"))) >= 1:
         photo = e.first("supplier_photo")
-        sites = photo.evidence.rsplit(" on ", 1)[-1].rstrip(".") if photo else e.phrase("wholesale_sites")
-        fired["supplier_photos"] = {"sites": sites[:120]}
-    if e.f("reverse_image.photo_predates_listing") >= 1:
-        fired["photo_predates"] = {}
+        named = _SUPPLIERS_RE.search(photo.evidence) if photo else None
+        sites = named.group(1) if named else e.phrase("wholesale_sites")
+        listings = e.phrase("listing_one" if hits == 1 else "listing_many")
+        fired["supplier_photos"] = {"count": e.number(hits), "sites": sites[:80], "listings": listings}
 
 
 def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:

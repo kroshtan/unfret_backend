@@ -57,10 +57,10 @@ async def test_cached_fact_uses_postgres(pool: asyncpg.Pool) -> None:
 
 
 async def test_postgres_budget_caps_per_period(pool: asyncpg.Pool) -> None:
-    budget = PostgresBudget(pool, "tineye")
+    budget = PostgresBudget(pool, "vision")
     assert [await budget.reserve("2026-11", 2) for _ in range(3)] == [True, True, False]
     assert await budget.reserve("2026-12", 2) is True
-    assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'tineye' AND period = '2026-11'") == 2
+    assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'vision' AND period = '2026-11'") == 2
 
 
 async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncpg.Pool) -> None:

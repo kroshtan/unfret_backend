@@ -53,12 +53,12 @@ class Settings(BaseSettings):
     price_observations: bool = True
     price_history_min_days: int = Field(default=30, ge=1)
 
-    # TinEye reverse image search (paid per search): off while the key is unset; at most this many searches per
-    # calendar month, after which the skill reports itself unavailable instead of spending more.
-    tineye_api_key: SecretStr = SecretStr("")
-    tineye_api_url: str = "https://api.tineye.com/rest/"
-    tineye_monthly_budget: int = 1_000
-    # Expensive skill runs (e.g. TinEye searches) the triage may spend on one analysis.
+    # Google Cloud Vision web detection (where else the product photo appears; paid per image): off while the key
+    # is unset; at most this many images per calendar month, after which the photo lookup is skipped, not billed.
+    vision_api_key: SecretStr = SecretStr("")
+    vision_api_url: str = "https://vision.googleapis.com/v1/images:annotate"
+    vision_monthly_budget: int = Field(default=3_000, ge=0)
+    # Expensive skill runs the triage may spend on one analysis.
     triage_max_expensive_runs: int = 2
 
     # Database
@@ -206,7 +206,7 @@ class Settings(BaseSettings):
             "quote_tolerance_bps": self.quote_tolerance_bps,
             "pyth_account": self.pyth_sol_usd_account,
             "swaps": self.solana_network == "solana-mainnet",
-            "tineye": bool(self.tineye_api_key.get_secret_value()),
+            "vision": bool(self.vision_api_key.get_secret_value()),
         }
 
     @property

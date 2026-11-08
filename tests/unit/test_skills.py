@@ -1,5 +1,6 @@
 """Tests for the analysis skills, with the LLM, embeddings and outside services stubbed."""
 
+import base64
 import io
 import json
 import math
@@ -12,10 +13,10 @@ from langchain_core.runnables import RunnableLambda
 from PIL import Image
 from pydantic import SecretStr
 
-from veridex import fact_cache, tineye
+from veridex import fact_cache, vision
 from veridex.config import settings
 from veridex.facts import Checkbox, PageFacts, Review
-from veridex.graph.skills import content, domain_age, reviews
+from veridex.graph.skills import content, domain_age, reverse_image, reviews
 from veridex.graph.skills.content import ContentSkill
 from veridex.graph.skills.dark_patterns import DarkPatternsSkill, checkout_total
 from veridex.graph.skills.domain_age import DomainAgeSkill, earliest_certificate, parse_rdap
@@ -437,50 +438,109 @@ async def test_eu_registry_without_vies_never_looks_up(monkeypatch: pytest.Monke
     assert "eu_registry.vat_valid" not in f
 
 
-SANDBOX_RESPONSE = {
-    "results": {
-        "matches": [
-            {"domain": "www.aliexpress.com", "backlinks": [{"crawl_date": "2024-02-13", "url": "a", "backlink": "b"}]},
-            {"domain": "shop.temu.com", "backlinks": [{"crawl_date": "2025-01-01"}]},
-            {"domain": "blog.example.org", "backlinks": [{"crawl_date": "bad"}]},
-        ]
-    },
-    "stats": {"total_results": 3},
+WEB_DETECTION = {
+    "fullMatchingImages": [{"url": "https://ae01.alicdn.com/kf/lamp.jpg"}],
+    "partialMatchingImages": [{"url": "https://img.kwcdn.com/lamp.jpg"}, {"url": "https://cdn.example/l.jpg"}],
+    "pagesWithMatchingImages": [
+        {"url": "https://www.aliexpress.com/item/1.html", "pageTitle": "Lamp", "fullMatchingImages": [{"url": "x"}]},
+        {"url": "https://nl.aliexpress.com/item/2.html", "partialMatchingImages": [{"url": "y"}]},
+        {"url": "https://www.temu.com/lamp-g-3.html", "partialMatchingImages": [{"url": "z"}]},
+        {"url": "https://blog.example.org/review", "partialMatchingImages": [{"url": "w"}]},
+    ],
 }
 
 
-def test_tineye_summarise() -> None:
-    assert tineye.summarise(SANDBOX_RESPONSE) == {
-        "total": 3,
-        "supplier_domains": ["aliexpress.com", "temu.com"],
-        "domains": ["aliexpress.com", "example.org", "temu.com"],
-        "earliest_crawl": "2024-02-13",
+def test_vision_summary_counts_supplier_pages() -> None:
+    assert vision.summarise(WEB_DETECTION) == {
+        "full": 1,
+        "partial": 2,
+        "pages": 4,
+        "supplier_pages": 3,
+        "supplier_full": 1,
+        "suppliers": ["AliExpress", "Temu"],
+        "examples": [
+            "https://www.aliexpress.com/item/1.html",
+            "https://nl.aliexpress.com/item/2.html",
+            "https://www.temu.com/lamp-g-3.html",
+        ],
     }
 
 
-async def test_tineye_search_sends_key_and_respects_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "tineye_api_key", SecretStr("test-key"))
-    monkeypatch.setattr(settings, "tineye_monthly_budget", 1)
-    tineye.use_budget(tineye.MemoryBudget())
+async def test_vision_request_format_key_header_and_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "vision_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(settings, "vision_monthly_budget", 1)
+    vision.use_budget(vision.MemoryBudget())
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(200, json=SANDBOX_RESPONSE)
+        return httpx.Response(200, json={"responses": [{"webDetection": WEB_DETECTION}]})
 
-    summary = await tineye.search("https://shop.test/p.jpg", transport=httpx.MockTransport(handler))
-    assert summary["supplier_domains"] == ["aliexpress.com", "temu.com"]
-    assert seen[0].headers["x-api-key"] == "test-key"
-    assert seen[0].url.params["image_url"] == "https://shop.test/p.jpg"
-    with pytest.raises(tineye.BudgetExceededError):
-        await tineye.search("https://shop.test/p.jpg", transport=httpx.MockTransport(handler))
+    summary = await vision.web_detection(b"\x89PNG-bytes", transport=httpx.MockTransport(handler))
+
+    assert summary["supplier_pages"] == 3
+    request = seen[0]
+    assert (request.method, str(request.url)) == ("POST", "https://vision.googleapis.com/v1/images:annotate")
+    assert request.headers["x-goog-api-key"] == "test-key"
+    assert "key=" not in str(request.url)  # never in the URL, where it would be logged
+    body = json.loads(request.content)
+    assert body == {
+        "requests": [
+            {
+                "image": {"content": base64.b64encode(b"\x89PNG-bytes").decode()},
+                "features": [{"type": "WEB_DETECTION", "maxResults": 50}],
+            }
+        ]
+    }
+    with pytest.raises(vision.BudgetExceededError):
+        await vision.web_detection(b"x", transport=httpx.MockTransport(handler))
     assert len(seen) == 1
 
 
+async def test_vision_errors_inside_a_200_raise() -> None:
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, json={"responses": [{"error": {"message": "bad"}}]}))
+    vision.use_budget(vision.MemoryBudget())
+    with pytest.raises(httpx.HTTPStatusError):
+        await vision.web_detection(b"x", transport=transport)
+
+
 async def test_reverse_image_is_off_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "tineye_api_key", SecretStr(""))
+    monkeypatch.setattr(settings, "vision_api_key", SecretStr(""))
     out = await ReverseImageSkill().run(state(PageFacts(image_urls=["https://shop.test/p.jpg"])))
     assert out["features"] == {"reverse_image.searched": 0.0}
+
+
+async def test_reverse_image_tries_the_second_photo_only_when_the_first_is_inconclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "vision_api_key", SecretStr("k"))
+    monkeypatch.setattr(fact_cache, "_store", fact_cache.MemoryStore())
+    gradient = io.BytesIO()
+    Image.linear_gradient("L").rotate(90).convert("RGB").save(gradient, format="PNG")  # a different hash
+    photos = {"https://shop.test/1.jpg": _png((0, 0, 0), (64, 32)), "https://shop.test/2.jpg": gradient.getvalue()}
+    looked_up: list[bytes] = []
+
+    async def fetch(url: str, **_: Any) -> bytes:
+        return photos[url]
+
+    async def detect(image: bytes) -> dict[str, Any]:
+        looked_up.append(image)
+        empty = vision.summarise({})
+        return empty if image == photos["https://shop.test/1.jpg"] else vision.summarise(WEB_DETECTION)
+
+    monkeypatch.setattr(reverse_image, "fetch_public", fetch)
+    monkeypatch.setattr(vision, "web_detection", detect)
+    facts = PageFacts(image_urls=[*photos, "https://shop.test/3.jpg"])
+
+    out = await ReverseImageSkill().run(state(facts))
+
+    assert len(looked_up) == 2  # main photo, then the second; never the third
+    f = out["features"]
+    assert (f["reverse_image.supplier_hits"], f["reverse_image.supplier_full"]) == (3.0, 1.0)
+    assert out["findings"][0].evidence == "This photo also appears on 3 AliExpress/Temu listings (1 identical)."
+
+    again = await ReverseImageSkill().run(state(facts))  # cached by perceptual hash: no new requests
+    assert len(looked_up) == 2 and again["features"] == f
 
 
 def _png(color: tuple[int, int, int], size: tuple[int, int]) -> bytes:

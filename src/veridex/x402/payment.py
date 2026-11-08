@@ -1,7 +1,8 @@
 """
 x402 v2, ``exact`` scheme on Solana: what we ask for and how a payment is checked.
 
-The client builds and signs a transaction that pays exactly the price in wSOL into the hot wallet's wSOL account:
+The client builds and signs a transaction that pays the price in wSOL or USDC into the hot wallet's token account
+for that mint:
 a plain ``TransferChecked`` from a standard wallet, or any program instructions that achieve it, such as a smart
 wallet (Squads and other program-controlled wallets) paying by CPI. Veridex verifies it, co-signs as fee payer and
 submits it. Verification is behaviour-based, in two stages:
@@ -9,8 +10,11 @@ submits it. Verification is behaviour-based, in two stages:
 1. :func:`precheck` (no network): the hot wallet appears in no instruction, so its signature can only pay the fee;
    every other required signature is present and valid; compute budget and priority fee are capped; exactly one
    memo (the spec's uniqueness nonce); no signature-verification precompiles (they add fee-paid signatures); size.
-2. :func:`confirm_by_simulation`: a simulation shows the hot wallet's wSOL account growing by exactly the price
-   and the hot wallet losing no more than the computed fee.
+2. :func:`confirm_by_simulation`: a simulation shows the hot wallet's token account for the paid mint growing by
+   exactly the accepted amount and the hot wallet losing no more than the computed fee.
+
+USDC amounts are converted from the SOL price list at quote time, so an accepted USDC amount may differ from the
+current quote by up to a tolerance (see :func:`precheck`); wSOL amounts must match exactly.
 
 After settlement the service checks the real on-chain delta again (``X402.settle``).
 """
@@ -35,7 +39,7 @@ MAX_TRANSACTION_BYTES = 1_232  # Solana's packet limit for a serialised transact
 _REQUEST_HEAP_FRAME, _SET_COMPUTE_UNIT_LIMIT, _SET_COMPUTE_UNIT_PRICE, _SET_LOADED_ACCOUNTS_DATA_SIZE = 1, 2, 3, 4
 _MAX_MEMO_BYTES = 256
 # Each signature these programs verify is charged to the fee payer like a transaction signature.
-_PRECOMPILES = frozenset(
+PRECOMPILES = frozenset(
     Pubkey.from_string(p)
     for p in (
         "Ed25519SigVerify111111111111111111111111111",
@@ -88,15 +92,22 @@ def decode_header(value: str) -> dict[str, Any]:
 
 
 def requirements(
-    *, network: str, amount: int, pay_to: Pubkey, fee_payer: Pubkey, timeout_s: int = 60
+    *,
+    network: str,
+    amount: int,
+    pay_to: Pubkey,
+    fee_payer: Pubkey,
+    asset: Pubkey = WSOL_MINT,
+    timeout_s: int = 60,
 ) -> dict[str, Any]:
     """
-    Build the ``PaymentRequirements`` for one check.
+    Build the ``PaymentRequirements`` for one check in one asset.
 
     :param network: The CAIP-2 network identifier.
-    :param amount: The price in lamports of wSOL.
-    :param pay_to: The merchant wallet (``payTo``); the payment goes to its wSOL associated token account.
+    :param amount: The price in the asset's base units (lamports of wSOL, or USDC with 6 decimals).
+    :param pay_to: The merchant wallet (``payTo``); the payment goes to its associated token account for ``asset``.
     :param fee_payer: Our sponsor key, which pays the network fee.
+    :param asset: The mint to pay in (wSOL by default).
     :param timeout_s: How long the client has to complete the payment.
     :return: The requirements object.
     """
@@ -104,7 +115,7 @@ def requirements(
         "scheme": "exact",
         "network": network,
         "amount": str(amount),
-        "asset": str(WSOL_MINT),
+        "asset": str(asset),
         "payTo": str(pay_to),
         "maxTimeoutSeconds": timeout_s,
         # Settlement happens before the analysis runs: it can take longer than a blockhash lives.
@@ -120,6 +131,7 @@ class Precheck:
     payer: Pubkey
     amount: int
     max_fee: int
+    mint: Pubkey = WSOL_MINT
 
 
 _VERIFIED = object()  # only confirm_by_simulation can mint a VerifiedPayment
@@ -133,6 +145,7 @@ class VerifiedPayment:
     payer: Pubkey
     amount: int
     max_fee: int
+    mint: Pubkey
     _token: object = field(repr=False)
 
     def __post_init__(self) -> None:
@@ -165,7 +178,7 @@ def references(message: Message | MessageV0, index: int) -> bool:
     return any(ix.program_id_index == index or index in bytes(ix.accounts) for ix in message.instructions)
 
 
-def _compute_budget(message: Message | MessageV0, max_units: int, max_price: int) -> int:
+def compute_budget(message: Message | MessageV0, max_units: int, max_price: int) -> int:
     """
     Check the compute budget instructions and return the largest priority fee they allow, in lamports.
 
@@ -199,22 +212,51 @@ def _compute_budget(message: Message | MessageV0, max_units: int, max_price: int
     return math.ceil((limit or 0) * price / 1_000_000)
 
 
+def matching_option(
+    accepted: dict[str, Any], options: list[dict[str, Any]], tolerance_bps: dict[str, int]
+) -> dict[str, Any]:
+    """
+    Find our option the client accepted.
+
+    Same scheme, network, asset and payTo, and the same amount; for an asset priced by conversion, an amount within
+    its tolerance of the current quote.
+
+    :param accepted: The client's ``accepted`` requirements.
+    :param options: The ``accepts`` we offer right now.
+    :param tolerance_bps: Allowed amount deviation per asset (base58 mint), in basis points; missing means exact.
+    :return: Our matching option.
+    :raises PaymentError: If none matches.
+    """
+    for option in options:
+        if any(accepted.get(key) != option[key] for key in ("scheme", "network", "asset", "payTo")):
+            continue
+        try:
+            paid, quoted = int(str(accepted.get("amount"))), int(option["amount"])
+        except ValueError:
+            break
+        if paid > 0 and abs(paid - quoted) * 10_000 <= quoted * tolerance_bps.get(option["asset"], 0):
+            return option
+    raise PaymentError("requirements_mismatch")
+
+
 def precheck(  # noqa: C901, PLR0912
     header_value: str,
-    expected: dict[str, Any],
+    expected: dict[str, Any] | list[dict[str, Any]],
     *,
     fee_payer: Pubkey,
     max_compute_units: int,
     max_compute_unit_price: int,
+    tolerance_bps: dict[str, int] | None = None,
 ) -> Precheck:
     """
     Run every check that needs no network on a ``PAYMENT-SIGNATURE`` header.
 
     :param header_value: The base64 ``PaymentPayload``.
-    :param expected: The ``PaymentRequirements`` we issued for this request.
+    :param expected: The ``PaymentRequirements`` we offer for this request (one, or the whole ``accepts`` list).
     :param fee_payer: Our sponsor key (the hot wallet).
     :param max_compute_units: Largest accepted compute unit limit.
     :param max_compute_unit_price: Largest accepted compute unit price (micro-lamports).
+    :param tolerance_bps: How far an accepted amount may be from our current quote, per asset (default: exact).
     :return: The prechecked payment.
     :raises PaymentError: With a reason, if anything does not match.
     """
@@ -222,10 +264,10 @@ def precheck(  # noqa: C901, PLR0912
     if payload.get("x402Version") != X402_VERSION:
         raise PaymentError("unsupported_x402_version")
     accepted = payload.get("accepted")
-    if not isinstance(accepted, dict) or any(
-        accepted.get(key) != expected[key] for key in ("scheme", "network", "amount", "asset", "payTo")
-    ):
+    if not isinstance(accepted, dict):
         raise PaymentError("requirements_mismatch")
+    options = expected if isinstance(expected, list) else [expected]
+    option = matching_option(accepted, options, tolerance_bps or {})
     if (accepted.get("extra") or {}).get("feePayer") != str(fee_payer):
         raise PaymentError("fee_payer_mismatch")
 
@@ -251,27 +293,28 @@ def precheck(  # noqa: C901, PLR0912
         raise PaymentError("invalid_client_signature")
     if references(message, 0):
         raise PaymentError("fee_payer_not_isolated")
-    if any(keys[ix.program_id_index] in _PRECOMPILES for ix in message.instructions):
+    if any(keys[ix.program_id_index] in PRECOMPILES for ix in message.instructions):
         raise PaymentError("precompile_not_allowed")
 
-    priority_fee = _compute_budget(message, max_compute_units, max_compute_unit_price)
+    priority_fee = compute_budget(message, max_compute_units, max_compute_unit_price)
     memos = [bytes(ix.data) for ix in message.instructions if keys[ix.program_id_index] == MEMO_PROGRAM]
     if len(memos) != 1 or not 0 < len(memos[0]) <= _MAX_MEMO_BYTES:
         raise PaymentError("memo_required")
-    if (required_memo := (expected.get("extra") or {}).get("memo")) and memos[0] != required_memo.encode():
+    if (required_memo := (option.get("extra") or {}).get("memo")) and memos[0] != required_memo.encode():
         raise PaymentError("memo_mismatch")
 
     return Precheck(
         transaction=tx,
         payer=keys[1],
-        amount=int(expected["amount"]),
+        amount=int(str(accepted["amount"])),
         max_fee=LAMPORTS_PER_SIGNATURE * signers + priority_fee,
+        mint=Pubkey.from_string(option["asset"]),
     )
 
 
 async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey) -> VerifiedPayment:
     """
-    Simulate the payment: exactly the price into ``pay_to``'s wSOL account, and no hot-wallet debit beyond the fee.
+    Simulate the payment: exactly the amount into ``pay_to``'s account for the paid mint, no debit beyond the fee.
 
     Call it with settlements serialised (``X402`` holds a lock), so no payment of ours lands between the balance
     read and the simulation.
@@ -282,19 +325,24 @@ async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey
     :return: The verified payment.
     :raises PaymentError: If the simulation fails or shows any other outcome.
     """
-    account = associated_token_address(pay_to)
-    before_wsol = await rpc.token_balance(account)
-    if before_wsol is None:
+    account = associated_token_address(pay_to, pre.mint)
+    before_token = await rpc.token_balance(account)
+    if before_token is None:
         raise PaymentError("pay_to_account_not_ready")
     before_sol = await rpc.get_balance(pay_to)
     error, (after_account, after_payer) = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
     if error is not None or after_account is None or after_payer is None:
         raise PaymentError("simulation_failed")
-    after_wsol = int(after_account["data"]["parsed"]["info"]["tokenAmount"]["amount"])
-    if after_wsol - before_wsol != pre.amount:
+    after_token = int(after_account["data"]["parsed"]["info"]["tokenAmount"]["amount"])
+    if after_token - before_token != pre.amount:
         raise PaymentError("wrong_amount")
     if before_sol - int(after_payer["lamports"]) > pre.max_fee:
         raise PaymentError("fee_payer_debited")
     return VerifiedPayment(
-        transaction=pre.transaction, payer=pre.payer, amount=pre.amount, max_fee=pre.max_fee, _token=_VERIFIED
+        transaction=pre.transaction,
+        payer=pre.payer,
+        amount=pre.amount,
+        max_fee=pre.max_fee,
+        mint=pre.mint,
+        _token=_VERIFIED,
     )

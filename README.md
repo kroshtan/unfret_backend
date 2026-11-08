@@ -94,12 +94,22 @@ analysed (score `-1`) don't count towards the quota.
 
 `POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call
 over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL; no stablecoins). Without a
-`PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header. The client signs a wSOL
-`TransferChecked` to the **hot wallet**; Veridex verifies it strictly, co-signs as **fee payer** with the same hot
-wallet (agents pay only the price: quick 0.0001 SOL, deep 0.0015 SOL), submits it and waits for confirmation
-(`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score, confidence, flags,
-…}` plus `PAYMENT-RESPONSE`. `warn` means "ask your human". A page that can't be fetched is refused before any money
-moves. Nothing about the payment or the page is stored.
+`PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header. The client signs a transaction that
+pays exactly the price in wSOL into the **hot wallet**'s wSOL account: a plain `TransferChecked` from a standard
+wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Veridex co-signs as **fee
+payer** with the same hot wallet (agents pay only the price: quick 0.0001 SOL, deep 0.0015 SOL), submits it and waits
+for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
+confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
+human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
+stored.
+
+Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
+instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
+fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly
+one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's wSOL
+account growing by exactly the price with the hot wallet paying no more than the fee. After settlement the real
+on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails after a
+payment settled, the response says so; refunding such payments as credits to the paying key is planned for phase 4.
 
 Money flows through: a background sweep (one atomic transaction) unwraps the hot wallet's wSOL, recreates its wSOL
 account, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot

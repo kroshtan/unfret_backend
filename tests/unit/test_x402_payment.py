@@ -2,6 +2,7 @@ import base64
 import json
 
 import pytest
+from solders.compute_budget import set_compute_unit_limit
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -37,7 +38,11 @@ def check(header: str, amount: int = 100_000) -> Precheck:
 
 
 def header_for(
-    instructions: list[Instruction], *, fee_payer: Pubkey | None = None, sign: bool = True, signers: list[Keypair] | None = None
+    instructions: list[Instruction],
+    *,
+    fee_payer: Pubkey | None = None,
+    sign: bool = True,
+    signers: list[Keypair] | None = None,
 ) -> str:
     tx = sign_payment(instructions, fee_payer or HOT.pubkey(), signers or [CLIENT], sign=sign)
     return payment_header(tx, expected(HOT.pubkey()))
@@ -82,8 +87,6 @@ def test_missing_cosigner_signature_is_rejected() -> None:
     cosigner = Keypair()
     ixs = payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
     ixs[3] = Instruction(MEMO_PROGRAM, b"0123456789abcdef", [AccountMeta(cosigner.pubkey(), True, False)])
-    tx = sign_payment(ixs, HOT.pubkey(), [CLIENT, cosigner])
-    tx.signatures[2]  # present
     unsigned = sign_payment(ixs, HOT.pubkey(), [CLIENT, cosigner], sign=False)
     assert reason(payment_header(unsigned, expected(HOT.pubkey()))) == "invalid_client_signature"
 
@@ -116,7 +119,6 @@ def test_excessive_compute_price_is_rejected() -> None:
 
 
 def test_excessive_compute_limit_is_rejected() -> None:
-    from solders.compute_budget import set_compute_unit_limit
 
     ixs = payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
     ixs[0] = set_compute_unit_limit(400_001)

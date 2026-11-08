@@ -7,7 +7,14 @@ import httpx
 import pytest
 from solders.keypair import Keypair
 
-from tests.unit.x402_helpers import FakeRpc, configured, payment_header, payment_instructions, sign_payment
+from tests.unit.x402_helpers import (
+    FakeRpc,
+    configured,
+    cpi_payment_instructions,
+    payment_header,
+    payment_instructions,
+    sign_payment,
+)
 from veridex.config import Settings
 from veridex.main import app
 from veridex.x402.payment import decode_header
@@ -98,11 +105,33 @@ async def test_paid_request_settles_then_returns_verdict(
 
 
 async def test_wrong_payment_is_refused_without_settling(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
+    rpc.sim_delta = 1  # what the chain would show for this underpayment
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header(amount=1)})
 
     assert response.status_code == 402
     assert decode_header(response.headers["PAYMENT-REQUIRED"])["error"] == "wrong_amount"
     assert rpc.sent == []
+
+
+async def test_smart_wallet_payment_is_accepted(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
+    ixs = cpi_payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
+    x402: X402 = app.x402
+    header = payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), x402.requirements("quick"))
+
+    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": header})
+
+    assert response.status_code == 200
+    assert decode_header(response.headers["PAYMENT-RESPONSE"])["success"] is True
+
+
+async def test_payment_that_landed_differently_gets_no_analysis(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph
+) -> None:
+    rpc.landed_delta = 0
+    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
+    assert response.status_code == 402
+    assert decode_header(response.headers["PAYMENT-RESPONSE"])["errorReason"] == "settlement_mismatch"
+    assert graph.calls == []
 
 
 async def test_malformed_payment_is_400(client: httpx.AsyncClient) -> None:

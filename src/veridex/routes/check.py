@@ -216,11 +216,12 @@ def _discovery() -> dict[str, Any]:
             "action": "allow|warn|block (warn = ask your human)",
             "risk_score": "0..1",
             "confidence": "0..1",
-            "flags": [{"type": "string", "evidence": "string", "weight": "0..1"}],
+            "flags": [{"type": "string", "evidence": "string", "weight": ">= 0 (contribution to the risk)"}],
             "policy_applied": "string",
             "tier": "string",
             "cached": "bool",
             "checked_at": "ISO-8601",
+            "model_version": "string|null (the scorer model that set risk_score)",
         },
     }
 
@@ -265,7 +266,7 @@ price: quick = {quick / 1e9:.4f} SOL, deep = {deep / 1e9:.4f} SOL. A page we can
 ## Response
 
 {{"action": "allow|warn|block", "risk_score": 0..1, "confidence": 0..1, "flags": [{{"type", "evidence", "weight"}}],
-"policy_applied", "tier", "cached", "checked_at"}}. "warn" means: ask your human before buying.
+"policy_applied", "tier", "cached", "checked_at", "model_version"}}. "warn" means: ask your human before buying.
 
 ## Machine-readable
 

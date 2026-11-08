@@ -6,10 +6,17 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from tests.unit.x402_helpers import FakeRpc, configured, payment_header, payment_instructions, sign_payment
+from tests.unit.x402_helpers import (
+    FakeRpc,
+    configured,
+    cpi_payment_instructions,
+    payment_header,
+    payment_instructions,
+    sign_payment,
+)
 from veridex.config import Settings
-from veridex.x402.payment import verify_payment
-from veridex.x402.service import X402, DuplicateSettlementError
+from veridex.x402.payment import PaymentError
+from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
 from veridex.x402.solana import associated_token_address
 from veridex.x402.wallet import SYSTEM_PROGRAM, check_sweep
 
@@ -76,23 +83,72 @@ async def test_rpc_failure_pauses_payments() -> None:
     assert (await service(Down()).health()).status == "rpc_unavailable"
 
 
+def prechecked(x402: X402, instructions: list[Any] | None = None) -> Any:
+    ixs = instructions or payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
+    tx = sign_payment(ixs, HOT.pubkey(), [CLIENT])
+    return x402.precheck(payment_header(tx, x402.requirements("quick")), "quick")
+
+
 async def test_settles_once_and_rejects_duplicates() -> None:
     rpc = FakeRpc()
     x402 = service(rpc)
-    tx = sign_payment(payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000), HOT.pubkey(), [CLIENT])
-    payment = verify_payment(
-        payment_header(tx, x402.requirements("quick")),
-        x402.requirements("quick"),
-        pay_to=HOT.pubkey(),
-        fee_payer=HOT.pubkey(),
-        max_compute_units=400_000,
-        max_compute_unit_price=50_000,
-    )
+    pre = prechecked(x402)
 
-    assert await x402.settle(payment)
+    settlement = await x402.settle(pre)
+
+    assert (settlement.payer, settlement.amount) == (CLIENT.pubkey(), 100_000)
     assert len(rpc.simulated) == len(rpc.sent) == 1
     with pytest.raises(DuplicateSettlementError):
-        await x402.settle(payment)
+        await x402.settle(pre)
+
+
+async def test_settles_a_smart_wallet_cpi_payment() -> None:
+    rpc = FakeRpc()
+    x402 = service(rpc)
+    settlement = await x402.settle(prechecked(x402, cpi_payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)))
+    assert settlement.signature
+    assert len(rpc.sent) == 1
+
+
+async def test_simulation_showing_another_outcome_submits_nothing() -> None:
+    rpc = FakeRpc()
+    rpc.sim_delta = 99_999
+    x402 = service(rpc)
+    with pytest.raises(PaymentError, match="wrong_amount"):
+        await x402.settle(prechecked(x402))
+    assert rpc.sent == []
+
+
+async def test_landed_amount_different_from_simulation_alerts() -> None:
+    rpc = FakeRpc()
+    rpc.landed_delta = 0  # the simulation promised the price; the real transaction moved nothing
+    x402 = service(rpc)
+
+    with pytest.raises(SettlementMismatchError):
+        await x402.settle(prechecked(x402))
+
+    assert "post_settlement_mismatch" in (await x402.health()).alerts
+
+
+async def test_landed_fee_above_the_allowed_maximum_alerts() -> None:
+    rpc = FakeRpc()
+    rpc.landed_fee = 2 * 5_000 + 200 + 1
+    x402 = service(rpc)
+    with pytest.raises(SettlementMismatchError):
+        await x402.settle(prechecked(x402))
+
+
+async def test_post_settlement_check_falls_back_to_the_balance(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Unindexed(FakeRpc):
+        async def parsed_transaction(self, signature: str) -> dict[str, Any] | None:
+            return None
+
+    monkeypatch.setattr("veridex.x402.service._META_RETRIES", 1)
+    rpc = Unindexed()
+    x402 = service(rpc)
+    # The fake's wSOL balance doesn't move, so the fallback sees no payment arrive.
+    with pytest.raises(SettlementMismatchError, match="balance fallback"):
+        await x402.settle(prechecked(x402))
 
 
 def sent_sweep(rpc: FakeRpc) -> VersionedTransaction:

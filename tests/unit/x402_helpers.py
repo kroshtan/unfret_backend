@@ -66,8 +66,12 @@ def sign_payment(
     instructions: list[Instruction], fee_payer: Pubkey, signers: list[Keypair], *, sign: bool = True
 ) -> VersionedTransaction:
     message = MessageV0.try_compile(fee_payer, instructions, [], Hash.default())
+    by_key = {kp.pubkey(): kp for kp in signers}
     signatures = [Signature.default()]
-    signatures += [kp.sign_message(to_bytes_versioned(message)) if sign else Signature.default() for kp in signers]
+    # Signatures go in the message's signer order, which compile sorts, not in the order the signers were given.
+    for key in message.account_keys[1 : message.header.num_required_signatures]:
+        kp = by_key.get(key)
+        signatures.append(kp.sign_message(to_bytes_versioned(message)) if kp and sign else Signature.default())
     return VersionedTransaction.populate(message, signatures)
 
 

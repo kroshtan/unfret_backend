@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # Credits door: wallets sign in with SIWS and spend a balance of micro-dollars (POST /v1/analyze). Sign-in is
     # off (503) until the session secret is set; buying credits also needs the x402 hot wallet, which receives them.
     session_secret: SecretStr = SecretStr("")
+    # Bearer token for the operator endpoints (/v1/admin/…) and the detailed readiness report; off while empty.
+    admin_token: SecretStr = SecretStr("")
     siws_domain: str = "veridex.kroshtan.com"
     session_ttl_s: int = 30 * 24 * 3600
     nonce_ttl_s: int = 300

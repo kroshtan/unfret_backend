@@ -171,10 +171,13 @@ def test_repr_hides_the_secret() -> None:
     assert str(HOT) not in repr(WALLET)
 
 
-def parsed(*instructions: dict[str, Any], inner: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def parsed(
+    *instructions: dict[str, Any], inner: list[dict[str, Any]] | None = None, signer: bool = True, err: Any = None
+) -> dict[str, Any]:
+    keys = [{"pubkey": str(HOT.pubkey()), "signer": signer, "writable": True}]
     return {
-        "transaction": {"message": {"instructions": list(instructions)}},
-        "meta": {"innerInstructions": [{"instructions": inner or []}]},
+        "transaction": {"message": {"accountKeys": keys, "instructions": list(instructions)}},
+        "meta": {"err": err, "innerInstructions": [{"instructions": inner or []}]},
     }
 
 
@@ -224,3 +227,14 @@ def test_outflow_audit_flags_transfers_elsewhere() -> None:
     inner_out = parsed(inner=[system_transfer(HOT.pubkey(), ELSEWHERE)])
     for tx in (sol_out, token_out, inner_out):
         assert unexpected_outflows(tx, HOT.pubkey(), COLD)
+
+
+def test_failed_or_unsigned_transactions_are_not_outflows() -> None:
+    # A failed transaction only cost its fee; one the hot wallet didn't sign can't spend its value. Both used to
+    # raise compromise_suspected, which only a restart cleared.
+    assert (
+        unexpected_outflows(parsed(system_transfer(HOT.pubkey(), ELSEWHERE), err={"x": 1}), HOT.pubkey(), COLD) == []
+    )
+    assert (
+        unexpected_outflows(parsed(system_transfer(HOT.pubkey(), ELSEWHERE), signer=False), HOT.pubkey(), COLD) == []
+    )

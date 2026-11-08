@@ -149,6 +149,7 @@ class FakeRpc(SolanaRpc):
         self.sim_debit = 0
         self.sim_error: Any = None
         self.sim_inner: list[int] | None = None
+        self.failed: set[str] = set()
         self.landed_delta: int | None = None
         self.landed_fee = 10_000
         self.sent: list[bytes] = []
@@ -172,6 +173,23 @@ class FakeRpc(SolanaRpc):
 
     async def recent_signatures(self, address: Pubkey, limit: int = 20) -> list[str]:
         return self.signatures
+
+    async def signature_page(
+        self,
+        address: Pubkey,
+        *,
+        before: str | None = None,
+        until: str | None = None,
+        limit: int = 1000,
+        commitment: str = "finalized",
+    ) -> list[dict[str, Any]]:
+        """``signatures`` (newest first) as ``getSignaturesForAddress`` pages them; ``failed`` ones carry an error."""
+        page = list(self.signatures)
+        if until in page:
+            page = page[: page.index(until)]
+        if before in page:
+            page = page[page.index(before) + 1 :]
+        return [{"signature": s, "err": {"x": 1} if s in self.failed else None} for s in page[:limit]]
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]

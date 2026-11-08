@@ -326,6 +326,9 @@ def unexpected_outflows(  # noqa: C901
     for more SOL in. A token transfer by the hot wallet is legitimate only inside a transaction whose net effect is
     such a swap (:func:`is_swap_into_sol`); approvals, authority changes and closing to a foreign account never are.
 
+    A failed transaction moved nothing but its fee, and one the hot wallet didn't sign can't have moved its value
+    (it is a key pair: it can only authorise as a header signer), so neither is an outflow.
+
     :param tx: A ``getTransaction`` result in ``jsonParsed`` encoding.
     :param hot: The hot wallet.
     :param cold: The cold address.
@@ -334,6 +337,11 @@ def unexpected_outflows(  # noqa: C901
     :return: Human-readable descriptions of each unexpected outflow (empty if none).
     """
     hot_s, allowed = str(hot), {str(cold), str(associated_token_address(hot))}
+    if (tx.get("meta") or {}).get("err") is not None:
+        return []
+    keys = tx.get("transaction", {}).get("message", {}).get("accountKeys") or []
+    if not any(isinstance(k, dict) and k.get("pubkey") == hot_s and k.get("signer") for k in keys):
+        return []
     if usdc_mint is not None:
         allowed.add(str(associated_token_address(hot, usdc_mint)))
     swap = usdc_mint is not None and is_swap_into_sol(tx, hot, usdc_mint, min_lamports_per_usdc)

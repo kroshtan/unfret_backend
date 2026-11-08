@@ -29,6 +29,7 @@ Open-source release.
 ### Security
 
 * x402 fee drain closed: payments may not reference slot-dependent sysvars or use address lookup tables, may run only known wallet programs (System, Token, ATA, Compute Budget, Memo, Squads v3/v4, Lighthouse; checked at top level and, from the simulation, by CPI), and may set a priority fee of at most 5% of the tier's price. A failed-settlement breaker (per payer, per visitor network, global, per hour) answers `503 SETTLEMENTS_PAUSED` once failures that cost the hot wallet a fee pile up
+* Readiness shows the hot wallet's balances and the alert names only with `VERIDEX_ADMIN_TOKEN` (others get the alert count)
 * Paddle webhook now fails closed when no secret is configured, rejects stale signatures, and can no longer modify admin or blocked accounts
 * Image and review-page downloads are protected against SSRF (private/link-local addresses blocked, redirects re-validated, size capped)
 * Login no longer leaks whether a username exists through response timing; bcrypt runs off the event loop
@@ -39,6 +40,7 @@ Open-source release.
 
 ### Bug Fixes
 
+* The outflow audit no longer raises a compromise signal for failed transactions or ones the hot wallet didn't sign, pages back to the last audited transaction instead of looking at the newest 20 (a burst of payments could hide an outflow), keeps a bounded memory, and its sticky alerts can be cleared by the operator (`POST /v1/admin/x402/clear-alerts`) instead of only by a restart
 * A credit purchase, or a memo naming a wallet, no longer uses up that wallet's free trial (a `trial_granted` flag replaces "has a row")
 * Passwords longer than 72 bytes caused a 500 on login
 * Relative "see reviews" links were resolved against the site root instead of the page

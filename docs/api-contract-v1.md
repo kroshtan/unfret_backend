@@ -217,3 +217,9 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   IDs in the query (`?id=`, `?product_id=`, `?variant=`) do.
 - **`assessment.degraded`:** `true` when the content read failed. The score then rests on the other signals, the
   confidence is at most 0.3, and `/v1/check` never answers `allow` on it.
+- The headline is at most 25 words. Without an LLM sentence (and always for `/v1/check`, whose callers read the
+  flags) it names the verdict and its two strongest reasons ("Be careful: fake countdown timer and pre-ticked paid
+  add-on.").
+- **Fake discounts:** new reasons `implausible_discount`, `reference_anchor` (the "was" price is an RRP/"usually"
+  price), `permanent_sale` and, once a product has a month of anonymous price observations, `was_never_charged`.
+  New features under `pricing.*`; none are in the scorer yet. `GET /privacy` is the privacy statement.

@@ -41,6 +41,16 @@ def connect() -> HTMLResponse:
     return _page("connect.html")
 
 
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy() -> HTMLResponse:
+    """
+    The privacy statement the extension's consent screen links to.
+
+    :return: The page.
+    """
+    return _page("privacy.html")
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout() -> HTMLResponse:
     """

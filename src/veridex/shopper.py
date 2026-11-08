@@ -48,6 +48,10 @@ REASON_SEVERITY: dict[str, Severity] = {
     "implausible_claims": "medium",
     "pushy_copy": "medium",
     "big_discount": "medium",
+    "was_never_charged": "high",
+    "implausible_discount": "high",
+    "reference_anchor": "medium",
+    "permanent_sale": "medium",
     "seller_not_brand": "low",
     "ships_from_far": "low",
     "dropshipping_tools": "medium",
@@ -112,8 +116,10 @@ _GROUPS = (
     ("no_withdrawal", "no_imprint", "missing_trust_info"),
     ("hidden_ai_text", "ai_text"),
     ("supplier_photos", "supplier_links"),
+    ("was_never_charged", "implausible_discount", "big_discount"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+_NUMBERS_RE = re.compile(r"\d+(?:\.\d+)?")
 _QUOTED_RE = re.compile(r'"([^"]{1,150})"')
 
 
@@ -156,6 +162,45 @@ def copy_for(language: str) -> dict[str, Any]:
     lang = language if language in LANGUAGES else DEFAULT_LANGUAGE
     data: dict[str, Any] = json.loads((COPY_DIR / f"{lang}.json").read_text(encoding="utf-8"))
     return data
+
+
+HEADLINE_MAX_WORDS = 25
+
+
+def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy: dict[str, Any]) -> str:
+    """
+    The headline without an LLM: the verdict label and its (up to two) strongest concerns, else the band's sentence.
+
+    :param band: The verdict band.
+    :param fired: The keys of the reasons that fired, strongest first.
+    :param reasons: The verdict's reasons (same order).
+    :param copy: The language's copy catalogue.
+    :return: The headline.
+    """
+    sentence: str = copy["headlines"][band]
+    if band == "reliable" or not fired:
+        return sentence
+    titles = [r.title[0].lower() + r.title[1:] for r in reasons[: len(fired)] if r.title]
+    for count in (2, 1):
+        if len(titles) >= count:
+            joined = f" {copy['and']} ".join(titles[:count])
+            headline = str(copy["headline_reasons"].format(label=copy["labels"][band], reasons=joined))
+            if len(headline.split()) <= HEADLINE_MAX_WORDS:
+                return headline
+    return sentence
+
+
+def fit_headline(text: str) -> str | None:
+    """
+    A written headline, if it is one sentence of at most :data:`HEADLINE_MAX_WORDS` words.
+
+    :param text: The LLM's sentence.
+    :return: The sentence, stripped, or ``None`` when it is empty or too long (the template is used instead).
+    """
+    text = " ".join(text.split())
+    if not text or len(text.split()) > HEADLINE_MAX_WORDS:
+        return None
+    return text
 
 
 def pick_language(accept_language: str | None) -> str:
@@ -267,6 +312,16 @@ class _Evidence:
         n = round(days / 365)
         return f"{n} {units['year'][0 if n == 1 else 1]}"
 
+    def money(self, amount: str) -> str:
+        symbol = {"EUR": "€", "USD": "$", "GBP": "£"}.get((self.facts.currency or "").upper(), "")
+        try:
+            text = f"{float(amount):,.2f}"
+        except ValueError:
+            return amount
+        if self.language == "nl":
+            text = text.replace(",", "_").replace(".", ",").replace("_", ".")
+        return f"{symbol}{text}" if symbol else text
+
     def number(self, n: int) -> str:
         text = f"{n:,}"
         return text.replace(",", ".") if self.language == "nl" else text
@@ -314,6 +369,20 @@ def _pressure(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["pushy_copy"] = {}
     if e.f("listing.discount_pct") >= 0.5:
         fired["big_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}
+    _discounts(e, fired)
+
+
+def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Fake discounts: implausible depth, reference-price anchors, endless sales, a 'was' price never charged."""
+    if e.f("pricing.was_above_30d_low") >= 1 and (seen := e.first("was_never_charged")):
+        low, was = _NUMBERS_RE.findall(seen.evidence)[:2] or ("?", "?")
+        fired["was_never_charged"] = {"low": e.money(low), "was": e.money(was)}
+    if e.f("pricing.implausible_discount") >= 1:
+        fired["implausible_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}
+    if e.f("pricing.reference_anchor") >= 1:
+        fired["reference_anchor"] = {"anchor": _quoted(e.first("reference_anchor")) or "…"}
+    if e.storefront and e.f("pricing.permanent_sale") >= 1:
+        fired["permanent_sale"] = {"phrase": _quoted(e.first("permanent_sale")) or "…"}
 
 
 def _reviews(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
@@ -486,7 +555,7 @@ def build(
     return Verdict(
         band=band,
         label=copy["labels"][band],
-        headline=headline or copy["headlines"][band],
+        headline=headline or template_headline(band, keys[:2], reasons, copy),
         reasons=reasons,
         positives=positives,
         language=language,

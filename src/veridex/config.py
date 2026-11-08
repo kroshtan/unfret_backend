@@ -1,6 +1,6 @@
 from typing import Any, Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     llm_explanations: bool = True
     # Embeddings for review/title similarity, from the same OpenAI-compatible provider.
     embedding_model: str = "bge-multilingual-gemma2"
+    # At most this many LLM/embedding calls in flight per process; a rate-limited (429) call is retried after a
+    # jittered exponential backoff (base seconds), up to llm_max_retries times (as are dropped connections, 5xx).
+    llm_max_concurrency: int = Field(default=8, ge=1)
+    llm_backoff_base_s: float = Field(default=1.0, ge=0)
 
     # Analysis limits
     max_page_bytes: int = 2 * 1024 * 1024
@@ -43,6 +47,11 @@ class Settings(BaseSettings):
     rdap_bootstrap_url: str = "https://rdap.org/domain/"
     crtsh_url: str = "https://crt.sh/"
     vies_url: str = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
+
+    # Anonymous price observations (veridex.price_store): today's price of every analysed product page with a
+    # public product ID, kept 90 days. The "was price never charged" check needs this many days of observations.
+    price_observations: bool = True
+    price_history_min_days: int = Field(default=30, ge=1)
 
     # TinEye reverse image search (paid per search): off while the key is unset; at most this many searches per
     # calendar month, after which the skill reports itself unavailable instead of spending more.

@@ -152,6 +152,26 @@ async def test_ordinary_shop_wording_is_not_an_injection() -> None:
     assert out["findings"] == []
 
 
+def test_content_output_is_trimmed_not_rejected() -> None:
+    # A model that over-delivers (seven quotes, a score of 1.2) has still read the page; failing validation would
+    # take the whole content read down and degrade the assessment.
+    signals = content._Signals.model_validate(
+        {
+            "scam_copy": 1.2,
+            "generic_product": -0.1,
+            "brand_recognized": False,
+            "implausible_claims": 0.5,
+            "implausible_claim_examples": ["x"] * 9,
+            "missing_trust_info": 0.0,
+            "addresses_the_reader_ai": False,
+            "evidence": ["q" * 1000] * 7,
+        }
+    )
+    assert (signals.scam_copy, signals.generic_product) == (1.0, 0.0)
+    assert len(signals.evidence) == 6 and len(signals.evidence[0]) == 300
+    assert len(signals.implausible_claim_examples) == 5
+
+
 async def test_content_wraps_untrusted_page(monkeypatch: pytest.MonkeyPatch) -> None:
     prompts: list[Any] = []
 

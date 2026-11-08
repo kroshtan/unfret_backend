@@ -19,6 +19,7 @@ from veridex.graph.skills.eu_registry import EuRegistrySkill
 from veridex.graph.skills.html_source_signals import HtmlSourceSignalsSkill
 from veridex.graph.skills.injection import InjectionSkill
 from veridex.graph.skills.listing import ListingSkill
+from veridex.graph.skills.pricing import PricingSkill
 from veridex.graph.skills.reverse_image import ReverseImageSkill
 from veridex.graph.skills.reviews import ReviewsSkill
 from veridex.graph.state import AnalysisState
@@ -30,6 +31,7 @@ logger = structlog.get_logger("veridex")
 SKILLS: list[Skill] = [
     ContentSkill(),
     ListingSkill(),
+    PricingSkill(),
     ReviewsSkill(),
     HtmlSourceSignalsSkill(),
     DarkPatternsSkill(),

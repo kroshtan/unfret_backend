@@ -20,6 +20,14 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield client
 
 
+async def test_privacy_statement_names_the_price_observations(client: httpx.AsyncClient) -> None:
+    response = await client.get("/privacy")
+
+    assert response.status_code == 200
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert "90 days" in response.text and "90 dagen" in response.text
+
+
 @pytest.mark.parametrize(
     ("path", "script"), [("/connect", "/static/connect.js"), ("/checkout", "/static/checkout.js")]
 )

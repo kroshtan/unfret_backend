@@ -126,7 +126,35 @@ def _params(key: str, language: str) -> dict[str, str]:
         "seller": "“HUAXINGDA”",
         "place": "China",
         "sites": "aliexpress.com",
+        "low": "€19.95",
+        "was": "€79.95",
+        "anchor": "“adviesprijs”",
+        "phrase": "“alles moet weg”",
     }
+
+
+@pytest.mark.parametrize("language", shopper.LANGUAGES)
+def test_fake_discount_reasons(language: str) -> None:
+    findings = [
+        Finding(skill="pricing", type="reference_anchor", evidence='"adviesprijs"'),
+        Finding(
+            skill="pricing",
+            type="was_never_charged",
+            evidence="Lowest price in the last 30 days: 19.95; 'was' price: 79.95.",
+        ),
+    ]
+    features = {
+        "listing.discount_pct": 0.75,
+        "pricing.implausible_discount": 1.0,
+        "pricing.reference_anchor": 1.0,
+        "pricing.was_above_30d_low": 1.0,
+    }
+    verdict = build(30, features, findings=findings, facts=PageFacts(currency="EUR"), language=language)
+    types = [r.type for r in verdict.reasons]
+
+    assert "was_never_charged" in types and "big_discount" not in types and "implausible_discount" not in types
+    never = next(r for r in verdict.reasons if r.type == "was_never_charged")
+    assert ("€19,95" if language == "nl" else "€19.95") in never.detail
 
 
 def test_strongest_reasons_first_and_groups_collapse() -> None:
@@ -240,10 +268,27 @@ def test_accept_language(header: str | None, language: str) -> None:
     assert shopper.pick_language(header) == language
 
 
+@pytest.mark.parametrize("language", ["en", "nl"])
+def test_template_headlines_fit_the_word_limit(language: str) -> None:
+    # The longest reason titles a low verdict can name, in each language.
+    copy = shopper.copy_for(language)
+    titles = sorted((r["title"] for r in copy["reasons"].values()), key=len, reverse=True)[:2]
+    reasons = [shopper.Reason(type="x", title=t, detail="d", severity="high") for t in titles]
+    for band in ("reliable", "concerns", "careful", "junk_or_scam"):
+        headline = shopper.template_headline(band, ["a", "b"], reasons, copy)
+        assert len(headline.split()) <= shopper.HEADLINE_MAX_WORDS, headline
+
+
+def test_written_headlines_are_capped() -> None:
+    assert shopper.fit_headline("  Looks   fine. ") == "Looks fine."
+    assert shopper.fit_headline(" ".join(["w"] * 26)) is None
+    assert shopper.fit_headline("") is None
+
+
 def test_labels_and_headline_follow_the_language() -> None:
     nl = build(10, {"dark_patterns.timer_resets": 1.0}, language="nl")
     assert (nl.label, nl.reasons[0].title) == ("Waarschijnlijk rommel of oplichting", "Neppe afteltimer")
-    assert nl.headline == shopper.copy_for("nl")["headlines"]["junk_or_scam"]
+    assert nl.headline == "Waarschijnlijk rommel of oplichting: neppe afteltimer."
     assert build(10, {}, language="xx").language == "en"
 
 

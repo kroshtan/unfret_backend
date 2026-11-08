@@ -16,7 +16,9 @@ lint:  ## Run all pre-commit hooks (ruff, mypy, pydoclint, ...) on every file
 
 audit:  ## Check the locked dependencies for known vulnerabilities (pip-audit)
 	uv export --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements.txt
-	uvx pip-audit -r .audit-requirements.txt --no-deps --disable-pip; status=$$?; rm -f .audit-requirements.txt; exit $$status
+	uv export --project mcp --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements-mcp.txt
+	uvx pip-audit -r .audit-requirements.txt -r .audit-requirements-mcp.txt --no-deps --disable-pip; status=$$?; \
+		rm -f .audit-requirements.txt .audit-requirements-mcp.txt; exit $$status
 
 test-unit:  ## Run unit tests (no external services needed)
 	uv run pytest tests/unit

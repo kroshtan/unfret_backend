@@ -11,5 +11,7 @@ class VeridexAPI(FastAPI):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the Veridex API application."""
         super().__init__(*args, **kwargs)
-        self.graph: CompiledStateGraph | None = None  # set during lifespan
+        self.graph: CompiledStateGraph | None = None  # set during lifespan; every skill (the deep tier)
+        self.quick_graph: CompiledStateGraph | None = None  # set during lifespan; the x402 quick tier
         self.db_pool: asyncpg.Pool | None = None  # set during lifespan
+        self.x402: Any = None  # veridex.x402.service.X402, created on first use

@@ -79,10 +79,36 @@ auth.
 | `POST` | `/v1/admin/accounts/{username}/downgrade` \| `/block` | Revoke premium / block, cancelling any Paddle subscription |
 | `POST` | `/v1/paddle/webhook` | Paddle Billing webhook (`subscription.activated` / `subscription.canceled`) |
 | `GET` | `/v1/health` | Liveness probe |
-| `GET` | `/v1/health/ready` | Readiness probe (checks the database) |
+| `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 status, the hot wallet's balances and alerts) |
+| `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
+| `GET` | `/llms.txt` \| `/.well-known/x402` | Machine-readable description of `/v1/check`, its tiers and prices |
 
 Accounts are `free` (5 analyses/day), `premium` (25/day), `admin` (unlimited) or `blocked`. Pages that are not
 analysed (score `-1`) don't count towards the quota.
+
+### Pay-per-check for agents (x402)
+
+`POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call
+over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL; no stablecoins). Without a
+`PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header. The client signs a wSOL
+`TransferChecked` to the **hot wallet**; Veridex verifies it strictly, co-signs as **fee payer** with the same hot
+wallet (agents pay only the price: quick 0.0001 SOL, deep 0.0015 SOL), submits it and waits for confirmation
+(`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score, confidence, flags,
+…}` plus `PAYMENT-RESPONSE`. `warn` means "ask your human". A page that can't be fetched is refused before any money
+moves. Nothing about the payment or the page is stored.
+
+Money flows through: a background sweep (one atomic transaction) unwraps the hot wallet's wSOL, recreates its wSOL
+account, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot
+wallet holds more than `VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). All signing goes through one function that accepts
+only verified payments (as fee payer, never referenced by an instruction) and sweeps to the cold address. Alerts are
+logged at error level and shown in readiness: value stuck above 1.5x the threshold (sweeps failing), SOL for fees
+below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), and any transfer from the hot wallet to anywhere but cold,
+checked from its recent transactions (payments pause; a compromise signal).
+
+The feature is off (`503`) until `VERIDEX_HOT_WALLET_KEY` and `VERIDEX_COLD_ADDRESS` (a cold wallet; the server never
+holds its key) are set. Devnet is the default, and mainnet needs `VERIDEX_X402_ALLOW_MAINNET=true`. Run one instance:
+the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
+spend cap.
 
 ## Running it
 

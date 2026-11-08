@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -14,6 +16,8 @@ from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
 from veridex.schemas.errors import CustomAPIError
+from veridex.x402.service import X402
+from veridex.x402.verdict import skills_for
 
 logger = structlog.get_logger("veridex")
 
@@ -23,11 +27,19 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
     logger.info("Veridex backend service starting")
     api.graph = build_graph(SKILLS)
+    api.quick_graph = build_graph(skills_for("quick", SKILLS))
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
+    api.x402 = X402(settings)
+    # Single instance: the sweep to cold is not coordinated across processes.
+    sweeper = asyncio.create_task(api.x402.run_forever()) if api.x402.configured else None
     try:
         yield
     finally:
+        if sweeper:
+            sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper
         await api.db_pool.close()
     logger.info("Veridex backend service shutting down")
 
@@ -48,7 +60,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE"],
+    expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
 
 

@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     siws_domain: str = "veridex.kroshtan.com"
     session_ttl_s: int = 30 * 24 * 3600
     nonce_ttl_s: int = 300
+    pairing_ttl_s: int = 300  # phone sign-in pairings (in memory)
+    pairing_per_ip: int = 10  # pairings a visitor may start per 10 minutes
     analysis_price_lamports: int = 1_500_000
     # (minimum purchase in lamports, bonus percent), e.g. ≥0.05 SOL buys 10% more balance.
     credit_bonus_tiers: list[tuple[int, int]] = [(50_000_000, 10), (250_000_000, 20)]

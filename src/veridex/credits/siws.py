@@ -110,6 +110,19 @@ def message_text(fields: SignInFields) -> str:
     return "\n".join(lines)
 
 
+def statement_of(text: str) -> str:
+    """
+    The statement line of a sign-in text (``""`` when the message has none).
+
+    :param text: The signed text.
+    :return: The statement.
+    """
+    lines = text.split("\n")
+    if len(lines) > 4 and lines[2] == "" and lines[4] == "":  # noqa: PLR2004 - header, address, blank, statement, blank
+        return lines[3]
+    return ""
+
+
 def parse_message(text: str) -> dict[str, str]:
     """
     Read the fields of a sign-in text, tolerating the optional ones a wallet may leave out or add.
@@ -130,7 +143,14 @@ def parse_message(text: str) -> dict[str, str]:
 
 
 def verify_sign_in(
-    secret: str, *, domain: str, address: str, signed_message: bytes, signature: bytes, now: float | None = None
+    secret: str,
+    *,
+    domain: str,
+    address: str,
+    signed_message: bytes,
+    signature: bytes,
+    statement: str | None = None,
+    now: float | None = None,
 ) -> str:
     """
     Check a signed sign-in message and return the wallet address it proves control of.
@@ -140,6 +160,7 @@ def verify_sign_in(
     :param address: The address the client claims (base58).
     :param signed_message: The exact bytes the wallet signed.
     :param signature: The 64-byte ed25519 signature.
+    :param statement: When given, the statement the message must carry exactly (a phone pairing's).
     :param now: Current time (injectable for tests).
     :return: The verified address (base58, canonical).
     :raises SignInError: On any mismatch: domain, address, nonce, times or signature.
@@ -159,10 +180,16 @@ def verify_sign_in(
         raise SignInError("The message is for another site.")
     if fields["address"] != str(pubkey):
         raise SignInError("The message is for another wallet.")
+    if statement is not None and statement_of(text) != statement:
+        raise SignInError("The message was signed for another device.")
     if "nonce" not in fields:
         raise SignInError("The message has no nonce.")
     check_nonce(secret, fields["nonce"], now)
-    current = time.time() if now is None else now
+    _check_times(fields, time.time() if now is None else now)
+    return str(pubkey)
+
+
+def _check_times(fields: dict[str, str], current: float) -> None:
     try:
         expires = _parse_iso(fields["expiration_time"]) if "expiration_time" in fields else None
         not_before = _parse_iso(fields["not_before"]) if "not_before" in fields else None
@@ -172,7 +199,6 @@ def verify_sign_in(
         raise SignInError("The sign-in message expired.")
     if not_before is not None and not_before > current:
         raise SignInError("The sign-in message is not valid yet.")
-    return str(pubkey)
 
 
 def _b64(data: bytes) -> str:
@@ -221,7 +247,9 @@ def check_token(secret: str, token: str, now: float | None = None) -> str:
     return address
 
 
-def nonce_response(secret: str, *, domain: str, uri: str, chain_id: str, ttl_s: int) -> dict[str, str]:
+def nonce_response(
+    secret: str, *, domain: str, uri: str, chain_id: str, ttl_s: int, statement: str = STATEMENT
+) -> dict[str, str]:
     """
     Everything a client needs to build the sign-in message (``GET /v1/auth/nonce``).
 
@@ -230,6 +258,7 @@ def nonce_response(secret: str, *, domain: str, uri: str, chain_id: str, ttl_s: 
     :param uri: The site URI.
     :param chain_id: ``mainnet`` or ``devnet``.
     :param ttl_s: Nonce lifetime.
+    :param statement: The statement to sign (a phone pairing names its confirmation code).
     :return: The sign-in input fields.
     """
     now = time.time()
@@ -237,7 +266,7 @@ def nonce_response(secret: str, *, domain: str, uri: str, chain_id: str, ttl_s: 
     return {
         "domain": domain,
         "uri": uri,
-        "statement": STATEMENT,
+        "statement": statement,
         "nonce": nonce,
         "issued_at": _iso(now),
         "expiration_time": _iso(expires),

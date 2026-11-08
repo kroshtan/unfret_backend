@@ -41,10 +41,22 @@ async def test_assets_are_served(client: httpx.AsyncClient, asset: str) -> None:
     assert response.headers["content-type"].split(";")[0] in {"text/javascript", "application/javascript", "text/css"}
 
 
+# Links the user may click to reopen /connect inside a wallet app's browser: navigations, never requests.
+WALLET_UNIVERSAL_LINKS = ("https://phantom.app/ul/browse/", "https://solflare.com/ul/v1/browse/")
+
+
 def test_scripts_make_no_third_party_requests() -> None:
     for script in STATIC_DIR.glob("*.js"):
         text = script.read_text()
+        for link in WALLET_UNIVERSAL_LINKS:
+            text = text.replace(f"`{link}", "`")
         assert "https://" not in text and "http://" not in text, script.name
+
+
+def test_wallet_links_are_only_assigned_as_hrefs() -> None:
+    script = (STATIC_DIR / "connect.js").read_text()
+    for link in WALLET_UNIVERSAL_LINKS:
+        assert f".href =\n  `{link}" in script  # assigned to a link the user clicks, not fetched
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
@@ -63,3 +75,13 @@ def test_js_sign_in_text_matches_the_server(tmp_path: Path) -> None:
 
     python_text = siws.message_text(siws.SignInFields(address=address, **fields))
     assert js_text == python_text
+
+
+def test_connect_page_has_a_phone_pairing_mode() -> None:
+    html = (STATIC_DIR / "connect.html").read_text()
+    script = (STATIC_DIR / "connect.js").read_text()
+    for element in ('id="pairing"', 'id="pair-code"', 'id="pair-error"', 'id="pair-done"'):
+        assert element in html
+    assert "Sign in to the device showing" in html
+    assert "/v1/auth/pair/" in script and "pairId" in script
+    assert "pair_id: pairId" in (STATIC_DIR / "wallet.js").read_text()

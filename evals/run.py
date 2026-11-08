@@ -83,8 +83,8 @@ async def evaluate(
     async def one(record: LabelRecord) -> Outcome:
         assert record.label is not None  # noqa: S101 - only labelled records are selected
         usage = UsageMetadataCallbackHandler()
-        start = time.perf_counter()
         async with semaphore:
+            start = time.perf_counter()
             try:
                 async with asyncio.timeout(settings.analysis_timeout_s * 2):
                     result = await graph.ainvoke(
@@ -135,11 +135,15 @@ def main() -> None:
     parser.add_argument("--skills", nargs="+", default=[s.name for s in SKILLS if s.name not in DEFAULT_EXCLUDED])
     parser.add_argument("--with-url", action="store_true")
     parser.add_argument("--split", choices=["test", "train", "all"], default="test", help="which split to score")
-    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--concurrency", type=int, default=2)
     args = parser.parse_args()
 
     corpus = Corpus()
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
+    # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
+    # turning them into "skill unavailable" findings or failed pages.
+    settings.llm_max_retries = max(settings.llm_max_retries, 6)
+    llm.get_llm.cache_clear()
     if args.replay and not settings.llm_api_key.get_secret_value():
         # The client refuses to start without a key; in replay mode it never sends one.
         settings.llm_api_key = SecretStr("replay")

@@ -7,6 +7,7 @@ by the exact prompt and model settings; replaying serves them back. In strict (r
 """
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from langchain_core.caches import RETURN_VAL_TYPE, BaseCache
@@ -28,6 +29,8 @@ class SQLiteLLMCache(BaseCache):
         :param strict: Raise :class:`CacheMissError` on a miss instead of letting the call through.
         """
         self.strict = strict
+        # LangChain runs async cache calls in worker threads; one connection must not be used concurrently.
+        self._lock = threading.Lock()
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.execute(
@@ -44,25 +47,28 @@ class SQLiteLLMCache(BaseCache):
         :return: The generations, or ``None`` on a miss.
         :raises CacheMissError: On a miss in strict mode.
         """
-        row = self._db.execute(
-            "SELECT value FROM llm_cache WHERE prompt = ? AND llm = ?", (prompt, llm_string)
-        ).fetchone()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT value FROM llm_cache WHERE prompt = ? AND llm = ?", (prompt, llm_string)
+            ).fetchone()
         if row is None and self.strict:
             raise CacheMissError("No recorded LLM response for this prompt; run without --replay to record it.")
         return loads(row[0]) if row else None
 
     def update(self, prompt: str, llm_string: str, return_val: RETURN_VAL_TYPE) -> None:
         """Store the generations for a prompt and model."""
-        self._db.execute(
-            "INSERT OR REPLACE INTO llm_cache VALUES (?, ?, ?)", (prompt, llm_string, dumps(list(return_val)))
-        )
-        self._db.commit()
+        value = dumps(list(return_val))
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO llm_cache VALUES (?, ?, ?)", (prompt, llm_string, value))
+            self._db.commit()
 
     def clear(self, **kwargs: object) -> None:
         """Remove every cached response."""
-        self._db.execute("DELETE FROM llm_cache")
-        self._db.commit()
+        with self._lock:
+            self._db.execute("DELETE FROM llm_cache")
+            self._db.commit()
 
     def size(self) -> int:
         """Number of cached responses."""
-        return int(self._db.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0])
+        with self._lock:
+            return int(self._db.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0])

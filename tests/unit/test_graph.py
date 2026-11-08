@@ -1,9 +1,11 @@
+import asyncio
 from typing import Any
 
 import pytest
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
+from veridex.config import settings
 from veridex.graph import build_graph, nodes
 from veridex.graph.skills import Skill
 from veridex.graph.state import AnalysisState, PageType
@@ -100,3 +102,31 @@ async def test_no_active_skills_still_judges(fake_llm: FakeLLM) -> None:
     )
 
     assert result["score"] == 50
+
+
+class _BrokenSkill(_RecordingSkill):
+    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+        raise RuntimeError("upstream exploded")
+
+
+class _HangingSkill(_RecordingSkill):
+    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+        await asyncio.sleep(3600)
+        return {"skill_results": []}
+
+
+@pytest.mark.parametrize("failing", [_BrokenSkill("bad"), _HangingSkill("bad")], ids=["raises", "hangs"])
+async def test_failing_skill_degrades_instead_of_failing(
+    fake_llm: FakeLLM, monkeypatch: pytest.MonkeyPatch, failing: Skill
+) -> None:
+    monkeypatch.setattr(settings, "skill_timeout_s", 0.05)
+    fake_llm.outputs[nodes._ClassifyOutput] = nodes._ClassifyOutput(page_type="storefront", platform="", reasoning="r")
+    fake_llm.outputs[nodes._JudgeOutput] = nodes._JudgeOutput(score=60, explanation="Partial evidence.")
+
+    result = await build_graph([_RecordingSkill("good"), failing]).ainvoke(
+        {"page_content": PAGE, "url": "", "flags": []}
+    )
+
+    assert result["score"] == 60
+    assert "[bad]\nSkill unavailable." in result["skill_results"]
+    assert "[good]\nok" in result["skill_results"]

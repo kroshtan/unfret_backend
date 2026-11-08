@@ -1,4 +1,4 @@
-.PHONY: help install lint test test-unit test-integration db-up db-down run docker-up clean
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -13,6 +13,10 @@ install:  ## Install the package with dev dependencies and pre-commit hooks
 
 lint:  ## Run all pre-commit hooks (ruff, mypy, pydoclint, ...) on every file
 	uv run pre-commit run --all-files
+
+audit:  ## Check the locked dependencies for known vulnerabilities (pip-audit)
+	uv export --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements.txt
+	uvx pip-audit -r .audit-requirements.txt --no-deps --disable-pip; status=$$?; rm -f .audit-requirements.txt; exit $$status
 
 test-unit:  ## Run unit tests (no external services needed)
 	uv run pytest tests/unit

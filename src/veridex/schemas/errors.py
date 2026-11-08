@@ -82,3 +82,17 @@ class InternalServerError(CustomAPIError):
 
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code = "INTERNAL_ERROR"
+
+
+class GatewayTimeoutError(CustomAPIError):
+    """An upstream dependency (the analysis pipeline) took too long."""
+
+    status_code = status.HTTP_504_GATEWAY_TIMEOUT
+    error_code = "GATEWAY_TIMEOUT"
+
+
+class ServiceUnavailableError(CustomAPIError):
+    """A dependency (such as the database) is not available yet."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "SERVICE_UNAVAILABLE"

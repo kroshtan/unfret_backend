@@ -30,7 +30,7 @@ def hostname(url: str) -> str:
     return (parsed.hostname or "").removeprefix("www.")
 
 
-async def _assert_public(url: str) -> None:
+async def _assert_public(url: str) -> str:
     """
     Ensure ``url`` is http(s) and every address its host resolves to is public.
 
@@ -38,6 +38,7 @@ async def _assert_public(url: str) -> None:
     link-local (cloud metadata) and other reserved ranges.
 
     :param url: Absolute URL to validate.
+    :return: One of the validated addresses, for the caller to connect to.
     :raises UnsafeURLError: If the scheme or any resolved address is not allowed.
     """
     parsed = urlparse(url)
@@ -48,9 +49,33 @@ async def _assert_public(url: str) -> None:
         infos = await asyncio.get_running_loop().getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise UnsafeURLError(f"Cannot resolve host {parsed.hostname!r}") from exc
-    for *_, sockaddr in infos:
-        if not ipaddress.ip_address(sockaddr[0]).is_global:
-            raise UnsafeURLError(f"Host {parsed.hostname!r} resolves to a non-public address")
+    addresses = [ipaddress.ip_address(sockaddr[0]) for *_, sockaddr in infos]
+    if not addresses or not all(address.is_global for address in addresses):
+        raise UnsafeURLError(f"Host {parsed.hostname!r} resolves to a non-public address")
+    return str(addresses[0])
+
+
+def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.Request:
+    """
+    Build a GET for ``url`` that connects to ``address`` instead of resolving the host again.
+
+    Resolving twice would let a hostile DNS server answer with a public address for the check and a private
+    one for the connection (DNS rebinding). The original host still goes in the ``Host`` header and in TLS SNI,
+    so virtual hosting and certificate verification work as usual.
+
+    :param client: The client the request will be sent with.
+    :param url: The validated URL.
+    :param address: A validated address of the URL's host.
+    :return: The request, ready to send.
+    """
+    target = httpx.URL(url)
+    host_header = target.host if target.port is None else f"{target.host}:{target.port}"
+    return client.build_request(
+        "GET",
+        target.copy_with(host=address),
+        headers={"Host": host_header},
+        extensions={"sni_hostname": target.host},
+    )
 
 
 async def fetch_public(
@@ -75,8 +100,9 @@ async def fetch_public(
     """
     async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": _USER_AGENT}, transport=transport) as client:
         for _ in range(_MAX_REDIRECTS + 1):
-            await _assert_public(url)
-            async with client.stream("GET", url) as response:
+            address = await _assert_public(url)
+            response = await client.send(_pinned_request(client, url, address), stream=True)
+            try:
                 if response.is_redirect:
                     url = urljoin(url, response.headers["location"])
                     continue
@@ -87,4 +113,6 @@ async def fetch_public(
                     if len(body) > max_bytes:
                         raise ValueError(f"Response from {url} exceeds {max_bytes} bytes")
                 return bytes(body)
+            finally:
+                await response.aclose()
     raise httpx.TooManyRedirects(f"More than {_MAX_REDIRECTS} redirects fetching {url}")

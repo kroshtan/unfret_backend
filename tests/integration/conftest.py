@@ -22,7 +22,7 @@ class FakeGraph:
         self.error: Exception | None = None
         self.calls: list[dict[str, Any]] = []
 
-    async def ainvoke(self, state: dict[str, Any]) -> dict[str, Any]:
+    async def ainvoke(self, state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
         self.calls.append(state)
         if self.error:
             raise self.error

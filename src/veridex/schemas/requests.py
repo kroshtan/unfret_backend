@@ -1,12 +1,17 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from veridex.auth import BCRYPT_MAX_PASSWORD_BYTES
+from veridex.config import settings
 
 
 class AnalyzeRequest(BaseModel):
     """Request body for the analyze endpoint."""
 
-    page_content: str = Field(min_length=1, description="Raw HTML or text content of the product page.")
+    page_content: str = Field(
+        min_length=1,
+        max_length=settings.max_page_bytes,
+        description="Raw HTML or text content of the product page.",
+    )
     url: str = Field(default="", description="URL of the product page.")
     flags: list[str] = Field(
         default_factory=list, description="Names of optional skills to activate in addition to the default set."

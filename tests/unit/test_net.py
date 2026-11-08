@@ -57,12 +57,32 @@ async def test_blocks_redirect_to_internal_address(fake_dns: dict[str, str]) -> 
     fake_dns["shop.test"] = "93.184.216.34"
     fake_dns["metadata.test"] = "169.254.169.254"
     transport = httpx.MockTransport(
-        lambda request: httpx.Response(302, headers={"location": "http://metadata.test/latest"})
-        if request.url.host == "shop.test"
-        else httpx.Response(200, content=b"secret")
+        lambda request: (
+            httpx.Response(302, headers={"location": "http://metadata.test/latest"})
+            if request.headers["host"] == "shop.test"
+            else httpx.Response(200, content=b"secret")
+        )
     )
     with pytest.raises(UnsafeURLError):
         await fetch_public("https://shop.test/img.jpg", transport=transport)
+
+
+async def test_connects_to_the_validated_address(fake_dns: dict[str, str]) -> None:
+    """The request goes to the address that was checked, so a second DNS answer cannot redirect it."""
+    fake_dns["shop.test"] = "93.184.216.34"
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        fake_dns["shop.test"] = "127.0.0.1"  # a rebinding DNS server would answer this on the next lookup
+        return httpx.Response(200, content=b"ok")
+
+    assert await fetch_public("https://shop.test:8443/img.jpg", transport=httpx.MockTransport(respond)) == b"ok"
+    (request,) = seen
+    assert request.url.host == "93.184.216.34"
+    assert request.url.port == 8443
+    assert request.headers["host"] == "shop.test:8443"
+    assert request.extensions["sni_hostname"] == "shop.test"
 
 
 async def test_rejects_oversized_body(fake_dns: dict[str, str]) -> None:

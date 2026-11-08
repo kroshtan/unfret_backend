@@ -34,8 +34,8 @@ class Account:
         if self.subscription_status == "admin":
             return None
         if self.subscription_status == "premium":
-            return int(settings.premium_daily_limit)
-        return int(settings.free_daily_limit)
+            return settings.premium_daily_limit
+        return settings.free_daily_limit
 
 
 async def hash_password(password: str) -> str:

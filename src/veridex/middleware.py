@@ -1,38 +1,101 @@
-from collections.abc import Callable
+import json
 from time import perf_counter
 
-import structlog
-from fastapi import Request, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+# JSON escaping and the other request fields make the body somewhat larger than the page it carries.
+_BODY_HEADROOM_BYTES = 64 * 1024
 
 
-def create_process_time_middleware(logger: structlog.stdlib.BoundLogger) -> Callable:
+async def _reject(send: Send, max_bytes: int) -> None:
+    body = json.dumps(
+        {"detail": f"Request body exceeds {max_bytes} bytes.", "error_code": "PAYLOAD_TOO_LARGE"}
+    ).encode()
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
+class _GuardedExchange:
+    """The ``receive``/``send`` pair of one HTTP request, counting body bytes and timing the response."""
+
+    def __init__(self, receive: Receive, send: Send, max_bytes: int) -> None:
+        self._receive = receive
+        self._send = send
+        self._max_bytes = max_bytes
+        self._start = perf_counter()
+        self._received = 0
+        self._response_started = False
+        self.rejected = False
+
+    async def receive(self) -> Message:
+        message = await self._receive()
+        if message["type"] != "http.request" or self.rejected:
+            return message
+        self._received += len(message.get("body", b""))
+        if self._received <= self._max_bytes:
+            return message
+        # Answer 413 ourselves and tell the app the client went away, so it stops reading. Whatever the app
+        # then tries to send (typically a 500 for the disconnect) is dropped.
+        self.rejected = True
+        if not self._response_started:
+            await _reject(self._send, self._max_bytes)
+        return {"type": "http.disconnect"}
+
+    async def send(self, message: Message) -> None:
+        if self.rejected:
+            return
+        if message["type"] == "http.response.start":
+            self._response_started = True
+            elapsed = f"{perf_counter() - self._start:.3f}".encode()
+            message = {**message, "headers": [*message.get("headers", []), (b"x-process-time", elapsed)]}
+        await self._send(message)
+
+
+class RequestGuardMiddleware:
     """
-    Create a middleware function that adds process time headers to responses.
+    Pure ASGI middleware: cap request body size and add an ``x-process-time`` response header.
 
-    :param logger: A structlog logger instance from the calling service.
-    :return: An async middleware dispatch function.
+    The cap is checked against ``Content-Length`` up front and again while a chunked body streams in, so
+    an oversized page is refused before it is buffered and parsed.
     """
 
-    async def add_process_time_header(request: Request, call_next: Callable) -> Response:
+    def __init__(self, app: ASGIApp, max_body_bytes: int) -> None:
         """
-        Add an ``x-process-time`` header and log requests whose client disconnected.
+        Wrap ``app``.
 
-        :param request: The request object.
-        :param call_next: The next middleware or route handler.
-        :return: The response object.
+        :param app: The ASGI application to protect.
+        :param max_body_bytes: Largest accepted page; the limit adds headroom for the JSON envelope.
         """
-        # Start the timer and forward the request to the next middleware or route handler
-        start_time = perf_counter()
-        response: Response = await call_next(request)
+        self.app = app
+        self.max_bytes = max_body_bytes + _BODY_HEADROOM_BYTES
 
-        # Add the process time to the response header
-        process_time = round(perf_counter() - start_time, 3)
-        response.headers["x-process-time"] = str(process_time)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """
+        Handle one ASGI call.
 
-        # Check if the request is still expected, otherwise uvicorn will drop the response and not show it in logs
-        if await request.is_disconnected():
-            logger.warning("Request disconnected", duration_s=process_time)
+        :param scope: The connection scope.
+        :param receive: Receives request messages.
+        :param send: Sends response messages.
+        :raises Exception: Whatever the wrapped app raises, unless the body was already rejected with 413.
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        return response
+        content_length = dict(scope["headers"]).get(b"content-length", b"")
+        if content_length.isdigit() and int(content_length) > self.max_bytes:
+            await _reject(send, self.max_bytes)
+            return
 
-    return add_process_time_header
+        exchange = _GuardedExchange(receive, send, self.max_bytes)
+        try:
+            await self.app(scope, exchange.receive, exchange.send)
+        except Exception:
+            if not exchange.rejected:
+                raise

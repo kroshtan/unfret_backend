@@ -82,6 +82,9 @@ class SwapRpc(SolanaRpc):
     async def token_balance(self, account: Pubkey) -> int | None:
         return {USDC_ATA: self.usdc, WSOL_ATA: self.wsol}.get(account)
 
+    async def balances(self, owner: Pubkey, token_accounts: list[Pubkey]) -> tuple[int, list[int | None]]:
+        return await self.get_balance(owner), [await self.token_balance(a) for a in token_accounts]
+
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
     ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:

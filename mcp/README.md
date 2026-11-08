@@ -16,6 +16,12 @@ price. Veridex pays the network fee, so the agent pays only the price. The serve
 | --- | --- | --- |
 | `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.15), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
 | `explain_flag` | `flag_type` | A one-paragraph explanation for the end user |
+| `get_pricing` | — | The current prices (free): tiers in dollars, live USDC and SOL amounts |
+
+Every result has `status` and `ok`: `ok` (a verdict), `not_paid` (refused before any money moved), `unavailable`
+(Veridex is paused or rate-limiting; retry later), `pending` or `unknown` (the payment may have been taken: don't pay
+again for that page; if it landed without a verdict Veridex credits its price to the paying wallet). A `next_step`
+says what to do whenever there is something to do.
 
 `action` is `allow`, `warn` (ask your human first) or `block`, at thresholds set by the chosen `policy`. Flags are
 factual evidence, never a "scam" label. Send `page_content` for marketplaces such as Amazon, which block server-side

@@ -16,6 +16,7 @@ from veridex_mcp.payer import (
     PaymentFailedError,
     SpendGuard,
     SpendRefusedError,
+    UnavailableError,
     build_payment,
     choose_requirement,
 )
@@ -432,3 +433,22 @@ def test_usdc_payment_transfers_usdc_with_six_decimals() -> None:
     )
     assert accounts[:3] == [source, mint, destination]
     assert bytes(transfer.data)[9] == 6
+
+
+async def test_a_paused_service_is_unavailable_not_a_failed_payment() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = {"detail": "paused", "error_code": "SETTLEMENTS_PAUSED"}
+        return httpx.Response(503, headers={"Retry-After": "120"}, json=body)
+
+    guard = SpendGuard(250_000, 2_500_000)
+    payer = Payer(
+        api_url="http://api",
+        agent=AGENT,
+        rpc=FakeRpc(),
+        network="solana-devnet",
+        guard=guard,
+        transport=httpx.MockTransport(handle),
+    )
+    with pytest.raises(UnavailableError, match="SETTLEMENTS_PAUSED") as raised:
+        await payer.check({"url": "u"})
+    assert (raised.value.retry_after, guard.spent) == (120, 0)

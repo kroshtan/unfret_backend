@@ -172,6 +172,9 @@ class FakeRpc(SolanaRpc):
     async def latest_blockhash(self) -> str:
         return BLOCKHASH
 
+    async def balances(self, owner: Pubkey, token_accounts: list[Pubkey]) -> tuple[int, list[int | None]]:
+        return await self.get_balance(owner), [await self.token_balance(a) for a in token_accounts]
+
     async def signature_status(self, signature: str) -> dict[str, Any] | None:
         return self.statuses.get(signature)
 

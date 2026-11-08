@@ -165,6 +165,25 @@ for 15 minutes (concurrent retries wait for the first) and is never charged twic
 (Cloudflare, DataDome, PerimeterX, Amazon) are refused as `422 PAGE_BLOCKED` before any money moves, and
 `/v1/check` takes `VERIDEX_X402_CHECK_PER_MINUTE` (30) requests per visitor network.
 
+Every error from the API is JSON with `detail` and `error_code` (validation errors add `errors`). For `/v1/check`:
+
+| error_code | HTTP | charged | what to do |
+| --- | --- | --- | --- |
+| `PAYMENT_REQUIRED` | 402 | no | pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why |
+| `INVALID_PAYMENT` | 400 | no | the PAYMENT-SIGNATURE header couldn't be decoded |
+| `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`) |
+| `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |
+| `PAGE_BLOCKED` | 422 | no | the page is a bot check: send the real page as page_content |
+| `RATE_LIMITED` | 429 | no | wait Retry-After seconds |
+| `PRICE_UNAVAILABLE` | 503 | no | nothing can be priced right now: retry after Retry-After |
+| `SETTLEMENTS_PAUSED` | 503 | no | too many failed settlements: retry after Retry-After |
+| `SERVICE_UNAVAILABLE` | 503 | no | payments or analysis are off: retry later |
+| `SETTLEMENT_FAILED` | 402 | no | the network refused the payment: pay again |
+| `SETTLEMENT_PENDING` | 402 | maybe | don't pay again; if it lands within 2 min its price is credited |
+| `SETTLEMENT_MISMATCH` | 402 | yes | it landed differently than simulated: no verdict (alerted) |
+| `GATEWAY_TIMEOUT` | 504 | refunded | the analysis timed out: the price is credited to the paying wallet |
+| `INTERNAL_ERROR` | 500 | refunded | the analysis failed: the price is credited to the paying wallet |
+
 Money flows through, and the cold wallet only ever receives SOL. On mainnet, USDC the hot wallet received is swapped to
 wSOL once it holds `VERIDEX_SWAP_THRESHOLD_USDC` (5 USDC), or dust older than a day: Jupiter's swap API
 (`VERIDEX_SWAP_API_URL`, self-hostable) builds the route, and the transaction is **verified by simulation before the

@@ -17,13 +17,15 @@ import json
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
+import httpx
 from mcp.server.mcpserver import MCPServer
+from pydantic import Field
 from solders.keypair import Keypair
 
 from veridex_mcp.explain import explain
-from veridex_mcp.payer import Payer, PaymentFailedError, SpendGuard, SpendRefusedError
+from veridex_mcp.payer import Payer, PaymentFailedError, SpendGuard, SpendRefusedError, UnavailableError
 from veridex_mcp.price import SolUsd
 from veridex_mcp.solana import Rpc
 
@@ -66,7 +68,7 @@ def payer() -> Payer:
     if _payer is None:
         network = os.environ.get("VERIDEX_MCP_NETWORK", "solana-devnet")
         _payer = Payer(
-            api_url=os.environ.get("VERIDEX_API_URL", "https://veridex.kroshtan.com"),
+            api_url=_api_url(),
             agent=_load_agent(),
             rpc=Rpc(os.environ.get("VERIDEX_MCP_RPC_URL", _DEFAULT_RPC[network])),
             network=network,
@@ -80,12 +82,27 @@ def payer() -> Payer:
     return _payer
 
 
+def _api_url() -> str:
+    return os.environ.get("VERIDEX_API_URL", "https://veridex.kroshtan.com").rstrip("/")
+
+
 @server.tool()
 async def check_store(
-    url: str,
-    tier: Literal["quick", "deep"] = "quick",
-    policy: Literal["strict", "balanced", "lenient"] = "balanced",
-    page_content: str | None = None,
+    url: Annotated[str, Field(description="The store or product page URL (https).")],
+    tier: Annotated[
+        Literal["quick", "deep"],
+        Field(description="quick: page and domain checks, $0.01. deep: all checks, reverse image search too, $0.15."),
+    ] = "quick",
+    policy: Annotated[
+        Literal["strict", "balanced", "lenient"],
+        Field(description="How cautious the returned action is; strict warns and blocks soonest."),
+    ] = "balanced",
+    page_content: Annotated[
+        str | None,
+        Field(
+            description="The page's HTML, if you have it. Needed for marketplaces such as Amazon, which block fetches."
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """
     Check a store or product page for scam, dropshipping and dark-pattern risk. Paid per call in USDC or wSOL.
@@ -96,19 +113,53 @@ async def check_store(
     :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.15).
     :param policy: How cautious the returned action is: strict, balanced or lenient.
     :param page_content: The page's HTML, if available.
-    :return: The verdict (action, risk_score, confidence, flags) plus the payment transaction.
+    :return: ``status`` (ok, not_paid, pending, unknown, unavailable), ``ok``, the ``verdict`` (action, risk_score,
+        confidence, flags) or ``error``, the payment, and ``next_step`` when there's something to do.
     """
     body: dict[str, Any] = {"url": url, "tier": tier, "policy": policy}
     if page_content:
         body["page_content"] = page_content
     try:
         return await payer().check(body)
-    except (SpendRefusedError, PaymentFailedError) as exc:
-        return {"status": "not_paid", "error": str(exc)}
+    except UnavailableError as exc:
+        wait = f"in {exc.retry_after} s" if exc.retry_after else "later"
+        return {
+            "status": "unavailable",
+            "ok": False,
+            "error": str(exc),
+            "next_step": f"Nothing was paid; retry {wait}.",
+        }
+    except SpendRefusedError as exc:
+        return {
+            "status": "not_paid",
+            "ok": False,
+            "error": str(exc),
+            "next_step": "Nothing was paid: the spend cap refused it. Ask your human before raising the cap.",
+        }
+    except PaymentFailedError as exc:
+        return {"status": "not_paid", "ok": False, "error": str(exc), "next_step": "Nothing was paid."}
 
 
 @server.tool()
-def explain_flag(flag_type: str) -> str:
+async def get_pricing() -> dict[str, Any]:
+    """
+    Veridex's current prices (free, no payment): the check tiers in dollars, and the live USDC and SOL amounts.
+
+    :return: ``status``, ``ok`` and the price list (``x402``: ``quick_usd_micros``, ``deep_usd_micros``; ``usdc``;
+        ``sol``), or ``error``.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(f"{_api_url()}/v1/pricing")
+            response.raise_for_status()
+            prices = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"status": "unavailable", "ok": False, "error": type(exc).__name__, "next_step": "Retry later."}
+    return {"status": "ok", "ok": True, "pricing": prices}
+
+
+@server.tool()
+def explain_flag(flag_type: Annotated[str, Field(description="A flag's `type` from a verdict.")]) -> str:
     """
     Explain what a flag in a Veridex verdict means, in one paragraph for the end user.
 

@@ -7,6 +7,9 @@ from veridex.graph.state import AnalysisState, Finding, PageType
 
 Tier = Literal["cheap", "expensive"]
 
+# Feature suffix a failed skill reports instead of its features (see Skill.unavailable and veridex.scoring).
+UNAVAILABLE = "unavailable"
+
 PRODUCT_PAGES: frozenset[PageType] = frozenset({"aggregate_listing", "storefront"})
 STOREFRONTS: frozenset[PageType] = frozenset({"storefront"})
 MARKETPLACES: frozenset[PageType] = frozenset({"aggregate_listing"})
@@ -85,8 +88,15 @@ class Skill(ABC):
 
     def unavailable(self) -> SkillOutput:
         """
-        The state update for a skill that failed or timed out: no features, and a marker line.
+        The state update for a skill that failed or timed out: an "unavailable" marker and a marker line.
+
+        The marker (``<skill>.unavailable``) tells the scorer that this skill's features were never measured, so
+        it scores them as neutral instead of reading their absence as "nothing suspicious found".
 
         :return: The update.
         """
-        return {"features": {}, "findings": [], "skill_results": [f"[{self.name}]\nSkill unavailable."]}
+        return {
+            "features": {f"{self.name}.{UNAVAILABLE}": 1.0},
+            "findings": [],
+            "skill_results": [f"[{self.name}]\nSkill unavailable."],
+        }

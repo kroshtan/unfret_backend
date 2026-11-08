@@ -2,9 +2,10 @@ import asyncio
 import json
 import re
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
+import anyio
 import structlog
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -72,21 +73,29 @@ async def _debit(request: Request, address: str) -> int:
 
 
 async def _refund(request: Request, address: str) -> int:
-    # Pages that couldn't be analysed (score -1) and failed analyses cost nothing.
-    return await ledger.credit(request.app.db_pool, address, settings.analysis_price_lamports)
+    # Pages that couldn't be analysed (score -1) and failed analyses cost nothing. Shielded: this often runs while
+    # a client disconnect is cancelling the request, and a cancelled refund would keep the money.
+    with anyio.CancelScope(shield=True):
+        balance = await ledger.credit(request.app.db_pool, address, settings.analysis_price_lamports)
+    return balance
 
 
 async def _balance(request: Request, address: str) -> int:
     return await ledger.balance(request.app.db_pool, address) or 0
 
 
-def _cache_key(body: AnalyzeRequest, language: str) -> str | None:
-    # A supplied checkout page changes the result, so those analyses aren't cached. The verdict is in the
-    # shopper's language, so each language is its own entry.
-    if body.checkout_content:
-        return None
-    content = body.page_content or (body.page_facts.model_dump_json() if body.page_facts else "")
-    return f"{result_cache.listing_key(body.url, content)}|{','.join(sorted(body.flags))}|{language}"
+def _cache_key(body: AnalyzeRequest, language: str) -> str:
+    # Keyed on exactly what was sent (see veridex.result_cache): a result is only reused for identical input, so
+    # one caller's crafted facts are never served to another.
+    return result_cache.key_for(
+        url=body.url,
+        page_content=body.page_content or "",
+        page_facts_json=body.page_facts.model_dump_json() if body.page_facts else "",
+        checkout_content=body.checkout_content or "",
+        tier="full",
+        language=language,
+        flags=body.flags,
+    )
 
 
 def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
@@ -124,7 +133,7 @@ async def analyze_page(
     facts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a
     reliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis
     price is taken from the balance up front and refunded when the page can't be analysed (score -1) or the
-    analysis fails. The same listing analysed again within the hour is served from an in-memory cache, free of
+    analysis fails. The same input analysed again within the hour is served from an in-memory cache, free of
     charge. Nothing about the page or the result is stored.
 
     :param body: The request body containing the page content and flags.
@@ -133,10 +142,11 @@ async def analyze_page(
     :return: Reliability score (0–100), explanation, verdict, the scorer's assessment and the balance left.
     :raises InternalServerError: If the graph fails.
     :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
+    :raises asyncio.CancelledError: If the client hung up (after the refund).
     """
     graph, state = _graph_input(body, request)
     key = _cache_key(body, str(state["language"]))
-    cached = result_cache.get(key) if key else None
+    cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")
         return _response(cached, await _balance(request, address), charged=False)
@@ -150,14 +160,16 @@ async def analyze_page(
         logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
         await _refund(request, address)
         raise GatewayTimeoutError("Analysis took too long.") from exc
+    except asyncio.CancelledError:
+        await _refund(request, address)  # the client went away before the result
+        raise
     except Exception as exc:
         logger.exception("graph_execution_failed")
         await _refund(request, address)
         raise InternalServerError("Analysis failed.") from exc
     finally:
         _log_usage(usage)
-    if key:
-        result_cache.put(key, {k: result[k] for k in _RESULT_KEYS if k in result})
+    result_cache.put(key, {k: result[k] for k in _RESULT_KEYS if k in result})
     skill_counts = Counter(
         m.group(1) for entry in result.get("skill_results", []) if (m := _SKILL_TAG_RE.match(entry))
     )
@@ -175,6 +187,8 @@ def _event(name: str, data: dict[str, Any]) -> str:
 def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
     # One LangGraph "updates" chunk ({node: state update}) → one `step` event per finished node (contract v1:
     # {"skill", "findings"}, plus "page_type" from the classifier); the score is collected in `final` for `result`.
+    # Steps carry progress only: which skill finished and the types of what it found, never the evidence. The
+    # evidence comes with the (charged) result, so reading the steps and hanging up early gets nothing for free.
     events: list[str] = []
     for node, values in update.items():
         if not isinstance(values, dict):
@@ -182,8 +196,11 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
         final |= {k: values[k] for k in _RESULT_KEYS if k in values}
         if "score" in values:
             continue  # the judge (or the early exit): reported as the `result` event
-        findings = [f.model_dump() if isinstance(f, Finding) else dict(f) for f in values.get("findings", []) or []]
-        step: dict[str, Any] = {"skill": node, "findings": findings}
+        found = [f.model_dump() if isinstance(f, Finding) else dict(f) for f in values.get("findings", []) or []]
+        step: dict[str, Any] = {
+            "skill": node,
+            "findings": [{"skill": f.get("skill", node), "type": f.get("type", "")} for f in found],
+        }
         if "page_type" in values:
             step["page_type"] = values["page_type"]
         events.append(_event("step", step))
@@ -197,12 +214,13 @@ async def analyze_page_stream(
     address: str = Depends(require_wallet),
 ) -> StreamingResponse:
     """
-    Analyse a page like ``POST /v1/analyze``, streaming the findings as server-sent events while skills finish.
+    Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.
 
-    Events: one ``step`` per finished node (``{"skill", "findings"}``, with ``page_type`` once classified), then a
-    final ``result`` (the ``POST /v1/analyze`` body) or ``error``. A client (the browser extension) can show progress
-    instead of a spinner. Charged like ``POST /v1/analyze``: free on a cache hit (the result comes at once),
-    refunded on ``error``, a score of -1, or when the stream ends before the result was sent.
+    Events: one ``step`` per finished node (``{"skill", "findings"}`` with the finding types, plus ``page_type``
+    once classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.
+    Charged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score
+    of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client
+    that lost the connection gets it again for free by repeating the request.
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
@@ -211,7 +229,7 @@ async def analyze_page_stream(
     """
     graph, state = _graph_input(body, request)
     key = _cache_key(body, str(state["language"]))
-    cached = result_cache.get(key) if key else None
+    cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")
         hit = _response(cached, await _balance(request, address), charged=False)
@@ -230,22 +248,22 @@ async def _replay(hit: AnalyzeResponse) -> AsyncIterator[str]:
 
 
 async def _live_events(
-    request: Request, address: str, graph: Any, state: dict[str, object], *, key: str | None, left: int
-) -> AsyncIterator[str]:
+    request: Request, address: str, graph: Any, state: dict[str, object], *, key: str, left: int
+) -> AsyncGenerator[str]:
     """
-    Run the graph and stream its steps, then the result; refund unless a charged result was handed over.
+    Run the graph and stream its steps, then the result; refund unless the analysis finished.
 
     :param request: The FastAPI request.
     :param address: The signed-in wallet (already debited).
     :param graph: The compiled graph.
     :param state: The graph input.
-    :param key: The result cache key, if the result may be cached.
+    :param key: The result cache key.
     :param left: The balance after the debit.
     :yield: Server-sent events.
     """
     usage = UsageMetadataCallbackHandler()
     final: dict[str, Any] = {}
-    refund = True  # until a charged result has been handed over
+    refund = True  # until the analysis has finished (its result is then cached and handed over)
     try:
         try:
             async with asyncio.timeout(settings.analysis_timeout_s):
@@ -265,8 +283,7 @@ async def _live_events(
         if "score" not in final:
             yield _event("error", {"detail": "Analysis failed.", "error_code": "INTERNAL_ERROR"})
             return
-        if key:
-            result_cache.put(key, dict(final))
+        result_cache.put(key, dict(final))
         refund = False
         if final["score"] == -1:
             result = _response(final, await _refund(request, address), charged=False)

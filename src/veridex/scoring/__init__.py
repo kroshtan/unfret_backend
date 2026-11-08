@@ -43,6 +43,9 @@ class Assessment:
     confidence: float
     flags: list[Flag] = field(default_factory=list)
     model_version: str = ""
+    # A key skill (the content read) failed: the score rests on partial evidence, confidence is capped, and an
+    # automated caller should not "allow" on it alone.
+    degraded: bool = False
 
 
 @dataclass(frozen=True)
@@ -83,11 +86,17 @@ class Model:
         """
         Each feature's contribution to the log-odds (standardised value times coefficient).
 
-        :param features: Skill features; missing ones count as 0.
+        A skill that ran but had nothing to report leaves its features out, and training read those as 0, so
+        missing ones count as 0. A skill that *failed* (it reports ``<skill>.unavailable``) never measured
+        anything: its features are scored at the training mean, a contribution of 0, so a failure (an LLM outage,
+        a timeout) can't make a page look safer than its evidence says.
+
+        :param features: Skill features.
         :return: One contribution per model feature.
         """
+        failed = unavailable_skills(features)
         return [
-            c * (features.get(name, 0.0) - m) / s
+            0.0 if name.split(".", 1)[0] in failed else c * (features.get(name, 0.0) - m) / s
             for name, m, s, c in zip(self.features, self.means, self.scales, self.coefficients, strict=True)
         ]
 
@@ -101,6 +110,23 @@ class Model:
         logit = self.intercept + sum(self.contributions(features))
         raw = 1 / (1 + math.exp(-max(min(logit, 30.0), -30.0)))
         return _interpolate(self.calibration, raw) if self.calibration else raw
+
+
+_UNAVAILABLE_SUFFIX = ".unavailable"  # = f".{veridex.graph.skills.UNAVAILABLE}" (no import: the graph imports us)
+# Skills whose failure makes an assessment unreliable: the content read carries most of the model's weight.
+KEY_SKILLS = frozenset({"content"})
+
+
+def unavailable_skills(features: dict[str, float]) -> set[str]:
+    """
+    The skills that failed or timed out on this page.
+
+    :param features: Skill features (a failed skill reports only ``<skill>.unavailable``).
+    :return: Their names.
+    """
+    return {
+        name.removesuffix(_UNAVAILABLE_SUFFIX) for name, v in features.items() if v and name.endswith(".unavailable")
+    }
 
 
 def _interpolate(points: list[tuple[float, float]], x: float) -> float:
@@ -155,8 +181,14 @@ def score(
     if model is None:
         return None
     risk = model.probability(features)
-    measured = sum(1 for name in model.features if name in features) / len(model.features)
+    failed = unavailable_skills(features)
+    measured = sum(1 for name in model.features if name in features and name.split(".", 1)[0] not in failed) / len(
+        model.features
+    )
     confidence = abs(2 * risk - 1) * (0.5 + 0.5 * measured)
+    degraded = bool(failed & KEY_SKILLS)
+    if degraded:
+        confidence = min(confidence, 0.3)
 
     by_skill: dict[str, list[Finding]] = {}
     for f in findings or []:
@@ -175,5 +207,9 @@ def score(
         evidence = _evidence(name, by_skill.get(name.split(".", 1)[0], []))
         flags.append(Flag(type=name, evidence=evidence, weight=round(contribution, 3)))
     return Assessment(
-        risk_score=round(risk, 4), confidence=round(confidence, 4), flags=flags, model_version=model.version
+        risk_score=round(risk, 4),
+        confidence=round(confidence, 4),
+        flags=flags,
+        model_version=model.version,
+        degraded=degraded,
     )

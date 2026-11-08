@@ -183,3 +183,23 @@ async def test_judge_falls_back_to_the_full_model_without_a_quick_artifact(monke
     result = await nodes.make_judge_node(scoring.MODEL_QUICK_PATH)(state)
 
     assert result["assessment"]["model_version"] == "v1-test"
+
+
+def test_a_failed_skill_scores_as_neutral_not_as_safe() -> None:
+    # Regression (audit M3): a failed content skill left its features out, which the model read as 0 ("brand not
+    # recognised" etc.), so an LLM outage moved every page's score.
+    model = Model.from_dict(ARTIFACT)
+    failed = {"listing.discount_pct": 0.6, "content.unavailable": 1.0}
+
+    assert model.contributions(failed) == pytest.approx([4.0, 0.0, -0.3])  # content at its training mean
+
+
+def test_a_failed_content_read_degrades_the_assessment() -> None:
+    model = Model.from_dict(ARTIFACT)
+    healthy = scoring.score(dict.fromkeys(FEATURES, 0.0), model=model)
+    degraded = scoring.score({"listing.discount_pct": 0.0, "content.unavailable": 1.0}, model=model)
+
+    assert healthy is not None and degraded is not None
+    assert (healthy.degraded, degraded.degraded) == (False, True)
+    assert degraded.confidence <= 0.3
+    assert not any(f.type.endswith(".unavailable") for f in degraded.flags)

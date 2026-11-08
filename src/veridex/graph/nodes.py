@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from veridex import scoring, shopper
 from veridex.config import settings
 from veridex.facts import PageFacts, parse_page
+from veridex.graph.skills import injection
 from veridex.graph.state import AnalysisState, PageType
 from veridex.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
 
@@ -97,6 +98,35 @@ Return the most specific match. When the platform is a known marketplace, includ
 _MARKETPLACE_NAMES = {"amazon": "Amazon", "bol.com": "bol.com"}
 
 
+_EARLY_EXIT_TYPES = frozenset({"article", "non_product", "other"})
+
+
+def _is_product_ld(item: dict) -> bool:
+    kind = item.get("@type")
+    kinds = kind if isinstance(kind, list) else [kind]
+    return any(isinstance(k, str) and k.lower() in {"product", "productgroup", "offer"} for k in kinds)
+
+
+def strong_product_signals(facts: PageFacts | None, state: AnalysisState) -> bool:
+    """
+    Whether the extracted facts already show a product for sale, so the page must be analysed.
+
+    :param facts: The page facts.
+    :param state: The graph state (a supplied checkout page counts too).
+    :return: ``True`` for a titled page with a price, Product JSON-LD, or a checkout page.
+    """
+    if state.get("checkout_content"):
+        return True
+    if facts is None:
+        return False
+    return bool((facts.title and facts.price) or any(_is_product_ld(item) for item in facts.json_ld))
+
+
+def _addresses_an_ai(facts: PageFacts | None, cleaned: str) -> bool:
+    hidden = " ".join(facts.hidden_text) if facts is not None else ""
+    return bool(injection.instructions(hidden, hidden=True) or injection.instructions(cleaned, hidden=False))
+
+
 async def classify_node(state: AnalysisState) -> dict:
     """
     Classify the page type before skills run.
@@ -120,6 +150,14 @@ async def classify_node(state: AnalysisState) -> dict:
             "skill_results": [f"[classify]\nPage type: aggregate_listing ({name})\nA product page on {name}."],
         }
 
+    if strong_product_signals(facts, state):
+        # Facts the extractor found (a price on a titled page, Product JSON-LD, a checkout page) settle it without
+        # an LLM call, and an injected "this is not a shop" can't talk the page out of being analysed.
+        return {
+            "page_type": "storefront",
+            "skill_results": ["[classify]\nPage type: storefront\nThe page lists a product with a price."],
+        }
+
     output: _ClassifyOutput = await get_structured_llm(_ClassifyOutput).ainvoke(
         [
             SystemMessage(content=_CLASSIFY_SYSTEM.format(UNTRUSTED_NOTICE=UNTRUSTED_NOTICE)),
@@ -128,6 +166,9 @@ async def classify_node(state: AnalysisState) -> dict:
     )
 
     page_type: PageType = output.page_type
+    if page_type in _EARLY_EXIT_TYPES and _addresses_an_ai(facts, state["cleaned_content"]):
+        # The page talks to an AI and the AI says there's nothing to check: don't take its word for it.
+        page_type = "storefront"
 
     label: str = output.page_type
     if output.platform:

@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import asyncpg
@@ -7,6 +8,7 @@ import pytest
 
 from tests.integration.conftest import FakeGraph
 from veridex.config import settings
+from veridex.routes import analyze
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports
@@ -221,15 +223,45 @@ async def test_language_follows_accept_language_and_has_its_own_cache_entry(
     assert dutch.json()["verdict"] == DUTCH_VERDICT
 
 
-async def test_checkout_pages_bypass_the_cache(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
+async def test_a_different_checkout_page_is_a_new_analysis(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
     _, headers = await wallet(2 * PRICE)
-    body = {**PAGE, "checkout_content": "<p>Total: €40</p>"}
 
-    await client.post("/v1/analyze", json=body, headers=headers)
-    await client.post("/v1/analyze", json=body, headers=headers)
+    await client.post("/v1/analyze", json={**PAGE, "checkout_content": "<p>Total: €40</p>"}, headers=headers)
+    await client.post("/v1/analyze", json={**PAGE, "checkout_content": "<p>Total: €95</p>"}, headers=headers)
 
     assert len(graph.calls) == 2
     assert graph.calls[0]["checkout_content"] == "<p>Total: €40</p>"
+
+
+async def test_crafted_input_never_reaches_other_callers(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
+    # Regression (security audit H1): the cache was keyed on the URL alone, so one caller's crafted "clean" page
+    # for a scam shop's URL was served to everyone checking that URL for an hour.
+    _, attacker = await wallet(PRICE)
+    _, victim = await wallet(PRICE)
+    graph.result = {**graph.result, "score": 95}
+    await client.post("/v1/analyze", json={**PAGE, "page_content": "<h1>Totally legit</h1>"}, headers=attacker)
+    graph.result = {**graph.result, "score": 12}
+
+    response = await client.post("/v1/analyze", json=PAGE, headers=victim)
+
+    assert response.json()["score"] == 12
+    assert len(graph.calls) == 2
+
+
+async def test_product_ids_in_the_query_are_different_listings(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
+    _, headers = await wallet(2 * PRICE)
+    url = "https://shop.example/index.php?route=product/product&product_id="
+
+    await client.post("/v1/analyze", json={**PAGE, "url": f"{url}42"}, headers=headers)
+    await client.post("/v1/analyze", json={**PAGE, "url": f"{url}43"}, headers=headers)
+
+    assert len(graph.calls) == 2
 
 
 async def test_assessment_is_returned(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
@@ -253,11 +285,30 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert names == ["step", "step", "result"]
     assert events[0][1] == 'data: {"skill": "classify", "findings": [], "page_type": "storefront"}'
     assert events[1][1].startswith('data: {"skill": "listing", "findings": [{')
-    assert '"evidence": "85% off."' in events[1][1]
+    assert '"type": "discount"' in events[1][1]
+    assert "85% off" not in events[1][1]  # steps are progress only: the evidence comes with the charged result
     assert events[2][1] == (
         'data: {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 0, "charged": true}'
     )
     assert await balance(pool, address) == 0
+
+
+async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
+    graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
+) -> None:
+    # Regression (audit M5): the refund in the stream's `finally` ran in a scope the disconnect was cancelling,
+    # and the steps carried every finding's evidence: read them, hang up, and the check was free.
+    address, _ = await wallet(PRICE)
+    request: Any = SimpleNamespace(app=SimpleNamespace(db_pool=pool))
+    left = await analyze._debit(request, address)
+    events = analyze._live_events(request, address, graph, {}, key="k", left=left)
+
+    first = await anext(events)
+    second = await anext(events)
+    await events.aclose()  # the client went away before the result
+
+    assert "85% off" not in first + second
+    assert await balance(pool, address) == PRICE
 
 
 async def test_stream_needs_credits(client: httpx.AsyncClient, wallet: Any) -> None:

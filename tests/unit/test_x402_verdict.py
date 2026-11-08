@@ -84,6 +84,15 @@ def test_verdict_uses_the_scorer_assessment() -> None:
     assert verdict.model_version == "v1-20261108-B"
 
 
+def test_a_degraded_assessment_never_allows() -> None:
+    assessment = {"risk_score": 0.05, "confidence": 0.3, "flags": [], "model_version": "v1", "degraded": True}
+    result = {"score": 95, "explanation": "x", "skill_results": [], "assessment": assessment}
+    healthy = {**result, "assessment": {**assessment, "degraded": False}}
+
+    assert to_verdict(result, policy="lenient", tier="deep").action == "warn"
+    assert to_verdict(healthy, policy="lenient", tier="deep").action == "allow"
+
+
 def test_falls_back_to_the_judge_without_an_assessment() -> None:
     verdict = to_verdict({"score": 80, "explanation": "x", "skill_results": []}, policy="strict", tier="quick")
     assert (verdict.risk_score, verdict.model_version) == (0.2, None)

@@ -206,3 +206,14 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - `GET /v1/health/ready` gives `x402_alert_count` to everyone. The balances and alert names require the operator token.
 - `POST /v1/admin/x402/clear-alerts` (operator token) clears a suspected compromise after investigation.
 - The API's OpenAPI document is pinned by `tests/snapshots/openapi.json`, so a contract change shows up in review.
+
+## Changes (wave B: analysis fixes)
+
+- **Stream steps carry progress, not evidence:** `event: step` findings are `{"skill", "type"}` only. The evidence
+  arrives with the charged `result` (`verdict.reasons[].detail`, `assessment.flags[].evidence`). A client that hangs
+  up before the result is refunded; a finished result is cached first, so repeating the request gets it free.
+- **Cache:** results are reused only for identical input (same listing, page content, facts, checkout page, tier,
+  language and flags). Tracking parameters (`utm_*`, `gclid`, `fbclid`, `ref`, …) don't make a new listing; product
+  IDs in the query (`?id=`, `?product_id=`, `?variant=`) do.
+- **`assessment.degraded`:** `true` when the content read failed. The score then rests on the other signals, the
+  confidence is at most 0.3, and `/v1/check` never answers `allow` on it.

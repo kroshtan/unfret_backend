@@ -14,8 +14,7 @@ from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
-from tests.unit.test_prices import StaticOracle
-from tests.unit.x402_helpers import configured
+from tests.unit.x402_helpers import StaticOracle, configured
 from veridex.prices import PriceBook
 from veridex.x402.service import X402
 from veridex.x402.solana import USDC_MINTS, WSOL_MINT, SolanaRpc, associated_token_address

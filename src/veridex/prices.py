@@ -1,11 +1,13 @@
 """
 Every price Veridex charges, in one place: :meth:`PriceBook.price` and the conversions built on it.
 
-The canonical price list is in SOL (lamports). USDC amounts are derived from it at payment time with Pyth's SOL/USD
-price, read on chain through our own RPC from the Pyth receiver's ``PriceUpdateV2`` account: the update must be fully
+The canonical price list is in US dollars, kept as integer micro-dollars (1 USD = 1,000,000), which is also USDC's
+base unit: USDC prices are exact. SOL (wSOL) amounts are derived at quote and payment time from Pyth's SOL/USD price,
+read on chain through our own RPC from the Pyth receiver's ``PriceUpdateV2`` account: the update must be fully
 verified, at most ``pyth_max_age_s`` old and its confidence interval at most ``pyth_max_conf_bps`` of the price.
-When it isn't, USDC is refused (:class:`PriceUnavailableError`) rather than mispriced. A ``fixed`` mode with
-per-currency USDC settings exists as an explicit fallback; it is off by default.
+When it isn't, SOL is refused (:class:`PriceUnavailableError`) rather than mispriced, and USDC still works.
+
+Credit balances are micro-dollars too (:mod:`veridex.credits.ledger`), so a check keeps its value whatever SOL does.
 """
 
 import base64
@@ -26,6 +28,7 @@ Currency = Literal["SOL", "USDC"]
 
 LAMPORTS_PER_SOL = 1_000_000_000
 USDC_UNITS = 1_000_000  # USDC has 6 decimals
+MICRO_USD = 1_000_000  # canonical prices and balances are integer micro-dollars (= USDC base units)
 
 # Pyth's Solana receiver program; it owns the sponsored push-feed accounts (shard 0).
 PYTH_RECEIVER_PROGRAM = Pubkey.from_string("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ")
@@ -178,38 +181,64 @@ def usdc_to_lamports(usdc: int, usd_per_sol: Decimal) -> int:
     return math.floor(Decimal(usdc) * LAMPORTS_PER_SOL / (usd_per_sol * USDC_UNITS))
 
 
+def usd_to_lamports(micro_usd: int, usd_per_sol: Decimal) -> int:
+    """
+    The lamports to charge for a dollar price, rounded up so a conversion never undercharges.
+
+    :param micro_usd: The price in micro-dollars.
+    :param usd_per_sol: The SOL/USD price.
+    :return: Lamports.
+    """
+    return math.ceil(Decimal(micro_usd) * LAMPORTS_PER_SOL / (usd_per_sol * MICRO_USD))
+
+
+def lamports_to_usd(lamports: int, usd_per_sol: Decimal) -> int:
+    """
+    The dollar value of a lamport amount, rounded down so a conversion never over-credits.
+
+    :param lamports: The SOL amount.
+    :param usd_per_sol: The SOL/USD price.
+    :return: Micro-dollars.
+    """
+    return math.floor(Decimal(lamports) * usd_per_sol * MICRO_USD / LAMPORTS_PER_SOL)
+
+
+def format_usd(micro_usd: int) -> str:
+    """
+    Format micro-dollars for people, e.g. ``"$0.15"`` (cents, or more places when a price needs them).
+
+    :param micro_usd: The amount.
+    :return: The formatted amount.
+    """
+    cents = Decimal(micro_usd) / MICRO_USD
+    text = f"{cents:.2f}" if micro_usd % 10_000 == 0 else format(cents.normalize(), "f")
+    return f"${text}"
+
+
 class PriceBook:
-    """The price list: canonical SOL prices, USDC derived from them (mode ``sol``) or fixed (mode ``fixed``)."""
+    """The price list: canonical dollar prices; USDC is exact, SOL converted with the oracle."""
 
     def __init__(self, settings: Settings, oracle: PythSolUsd | None) -> None:
         """
         Configure the book.
 
         :param settings: The service settings.
-        :param oracle: The SOL/USD reader (required for USDC in mode ``sol``).
+        :param oracle: The SOL/USD reader (required for SOL prices and for valuing SOL).
         """
         self.settings, self.oracle = settings, oracle
 
-    def lamports(self, product: Product) -> int:
+    def usd(self, product: Product) -> int:
         """
-        The canonical SOL price of a product.
+        The canonical price of a product.
 
         :param product: What is bought.
-        :return: Lamports.
+        :return: Micro-dollars.
         """
         s = self.settings
         return {
-            "analysis": s.analysis_price_lamports,
-            "x402_quick": s.x402_price_quick_lamports,
-            "x402_deep": s.x402_price_deep_lamports,
-        }[product]
-
-    def _fixed_usdc(self, product: Product) -> int:
-        s = self.settings
-        return {
-            "analysis": s.fixed_analysis_price_usdc,
-            "x402_quick": s.fixed_x402_price_quick_usdc,
-            "x402_deep": s.fixed_x402_price_deep_usdc,
+            "analysis": s.analysis_price_usd_micros,
+            "x402_quick": s.x402_price_quick_usd_micros,
+            "x402_deep": s.x402_price_deep_usd_micros,
         }[product]
 
     async def sol_usd(self, now: float | None = None) -> SolUsd:
@@ -226,43 +255,50 @@ class PriceBook:
 
     async def price(self, product: Product, currency: Currency, now: float | None = None) -> int:
         """
-        The price of ``product`` in ``currency``: lamports for SOL, USDC base units for USDC.
+        The price of ``product`` in ``currency``: USDC base units (exact) or lamports (converted, rounded up).
 
-        A USDC price that can't be given right now raises :class:`PriceUnavailableError`.
+        A SOL price that can't be given right now raises :class:`PriceUnavailableError`.
 
         :param product: What is bought.
         :param currency: ``SOL`` or ``USDC``.
         :param now: The current unix time (injectable for tests).
         :return: The price in base units.
         """
-        if currency == "SOL":
-            return self.lamports(product)
-        if self.settings.price_mode == "fixed":
-            return self._fixed_usdc(product)
-        return lamports_to_usdc(self.lamports(product), (await self.sol_usd(now)).usd_per_sol)
+        return await self.amount(self.usd(product), currency, now)
 
-    async def converted(self, currency: Currency) -> bool:
+    async def amount(self, micro_usd: int, currency: Currency, now: float | None = None) -> int:
+        """
+        A dollar amount in ``currency``'s base units (SOL rounded up; it can raise :class:`PriceUnavailableError`).
+
+        :param micro_usd: The dollar amount.
+        :param currency: ``SOL`` or ``USDC``.
+        :param now: The current unix time (injectable for tests).
+        :return: Base units.
+        """
+        if currency == "USDC":
+            return micro_usd
+        return usd_to_lamports(micro_usd, (await self.sol_usd(now)).usd_per_sol)
+
+    def converted(self, currency: Currency) -> bool:
         """
         Whether ``currency``'s prices come from the oracle (and so may drift between quote and payment).
 
         :param currency: ``SOL`` or ``USDC``.
-        :return: ``True`` for USDC in mode ``sol``.
+        :return: ``True`` for SOL.
         """
-        return currency == "USDC" and self.settings.price_mode == "sol"
+        return currency == "SOL"
 
-    async def lamports_for(self, amount: int, currency: Currency, now: float | None = None) -> int:
+    async def value(self, amount: int, currency: Currency, now: float | None = None) -> int:
         """
-        The canonical (lamport) value of a payment, e.g. to credit a USDC purchase.
+        The dollar value of a payment, e.g. to credit a purchase (SOL rounded down).
 
-        USDC that can't be valued right now raises :class:`PriceUnavailableError`.
+        SOL that can't be valued right now raises :class:`PriceUnavailableError`.
 
         :param amount: The amount paid, in the currency's base units.
         :param currency: ``SOL`` or ``USDC``.
         :param now: The current unix time (injectable for tests).
-        :return: Lamports.
+        :return: Micro-dollars.
         """
-        if currency == "SOL":
+        if currency == "USDC":
             return amount
-        if self.settings.price_mode == "fixed":
-            return amount * self.lamports("analysis") // self._fixed_usdc("analysis")
-        return usdc_to_lamports(amount, (await self.sol_usd(now)).usd_per_sol)
+        return lamports_to_usd(amount, (await self.sol_usd(now)).usd_per_sol)

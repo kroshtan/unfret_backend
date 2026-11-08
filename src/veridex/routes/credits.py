@@ -24,8 +24,11 @@ class CreditsResponse(BaseModel):
     """A wallet's balance."""
 
     address: str
-    balance_lamports: int
+    balance_usd_micros: int = Field(description="The balance in micro-dollars (1 USD = 1,000,000).")
     checks_remaining: int
+    balance_lamports: int = Field(
+        description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
+    )
 
 
 class PurchaseRequest(BaseModel):
@@ -66,7 +69,7 @@ class PurchaseResponse(BaseModel):
 @router.get("/v1/pricing")
 async def get_pricing(request: Request) -> dict[str, Any]:
     """
-    The canonical SOL prices (analysis, x402 tiers), bonuses, packs and limits, plus a live USDC quote.
+    The dollar prices (analysis, x402 tiers), bonuses, packs and limits, with exact USDC amounts and a live SOL quote.
 
     :param request: The incoming request.
     :return: The price list.
@@ -84,9 +87,12 @@ async def get_balance(request: Request, address: str = Depends(require_wallet)) 
     :param address: The signed-in wallet.
     :return: The balance, and how many analyses it covers.
     """
-    lamports = await ledger.balance(request.app.db_pool, address) or 0
+    balance = await ledger.balance(request.app.db_pool, address) or 0
     return CreditsResponse(
-        address=address, balance_lamports=lamports, checks_remaining=lamports // settings.analysis_price_lamports
+        address=address,
+        balance_usd_micros=balance,
+        checks_remaining=balance // settings.analysis_price_usd_micros,
+        balance_lamports=balance,
     )
 
 
@@ -98,7 +104,7 @@ async def _hot_for_purchase(request: Request, amount: int, currency: Currency = 
     try:
         low, high = await purchase_limits(settings, door.book, currency)
     except PriceUnavailableError as exc:
-        raise ServiceUnavailableError("USDC can't be priced right now; pay in SOL or try again shortly.") from exc
+        raise ServiceUnavailableError("SOL can't be priced right now; pay in USDC or try again shortly.") from exc
     if not low <= amount <= high:
         raise BadRequestError("Amount out of range.", metadata={"currency": currency, "min": low, "max": high})
     return door.hot
@@ -119,9 +125,9 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
     """
     Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.
 
-    Credits arrive once the transfer is finalized (about 15–30 seconds): its SOL value (USDC converted at crediting
-    time) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's memo (the
-    paying wallet unless ``beneficiary`` says otherwise). No sign-in needed: anyone may fund any wallet.
+    Credits arrive once the transfer is finalized (about 15–30 seconds): its dollar value (SOL converted at crediting
+    time, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's
+    memo (the paying wallet unless ``beneficiary`` says otherwise). No sign-in needed: anyone may fund any wallet.
 
     :param body: Who buys how much, in which currency.
     :param request: The incoming request.

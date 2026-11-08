@@ -7,14 +7,15 @@ Configuration (environment):
     VERIDEX_MCP_NETWORK               solana-devnet (default) or solana-mainnet
     VERIDEX_MCP_RPC_URL               defaults to the public RPC of that network
     VERIDEX_MCP_PAY_WITH              USDC (default: USDC when offered and held, else SOL) or SOL (always SOL)
-    VERIDEX_MCP_MAX_PRICE_LAMPORTS    refuse any single SOL check above this (default 2_000_000 = 0.002 SOL)
-    VERIDEX_MCP_SESSION_CAP_LAMPORTS  refuse once a session has spent this in SOL (default 20_000_000 = 0.02 SOL)
-    VERIDEX_MCP_MAX_PRICE_USDC        refuse any single USDC check above this, base units (default 250_000 = $0.25)
-    VERIDEX_MCP_SESSION_CAP_USDC      refuse once a session has spent this in USDC (default 2_500_000 = $2.50)
+    VERIDEX_MCP_MAX_PRICE_USD         refuse any single check worth more than this many dollars (default 0.25)
+    VERIDEX_MCP_SESSION_CAP_USD       refuse once a session has spent this many dollars (default 2.50)
+    VERIDEX_MCP_PRICE_RPC_URL         mainnet RPC for the agent's own Pyth SOL/USD reading, which values wSOL
+                                      payments (default: mainnet's public RPC)
 """
 
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +24,7 @@ from solders.keypair import Keypair
 
 from veridex_mcp.explain import explain
 from veridex_mcp.payer import Payer, PaymentFailedError, SpendGuard, SpendRefusedError
+from veridex_mcp.price import SolUsd
 from veridex_mcp.solana import Rpc
 
 _DEFAULT_RPC = {
@@ -34,8 +36,8 @@ server = MCPServer(
     "veridex",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
-        "is paid from your own Solana wallet in USDC or wSOL (quick 0.0001 SOL, deep 0.0015 SOL, or the same in USDC "
-        "at the current SOL price) within a spend cap. "
+        "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.15; wSOL at the current SOL "
+        "price) within a dollar spend cap. "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
     ),
 )
@@ -48,6 +50,10 @@ def _load_agent() -> Keypair:
     if secret := os.environ.get("VERIDEX_MCP_SECRET_KEY"):
         return Keypair.from_base58_string(secret)
     raise RuntimeError("set VERIDEX_MCP_KEYPAIR (keypair file) or VERIDEX_MCP_SECRET_KEY")
+
+
+def _usd_micros(name: str, default: str) -> int:
+    return int(Decimal(os.environ.get(name, default)) * 1_000_000)
 
 
 def payer() -> Payer:
@@ -65,11 +71,10 @@ def payer() -> Payer:
             rpc=Rpc(os.environ.get("VERIDEX_MCP_RPC_URL", _DEFAULT_RPC[network])),
             network=network,
             guard=SpendGuard(
-                max_per_call=int(os.environ.get("VERIDEX_MCP_MAX_PRICE_LAMPORTS", "2000000")),
-                session_cap=int(os.environ.get("VERIDEX_MCP_SESSION_CAP_LAMPORTS", "20000000")),
-                usdc_max_per_call=int(os.environ.get("VERIDEX_MCP_MAX_PRICE_USDC", "250000")),
-                usdc_session_cap=int(os.environ.get("VERIDEX_MCP_SESSION_CAP_USDC", "2500000")),
+                max_per_call=_usd_micros("VERIDEX_MCP_MAX_PRICE_USD", "0.25"),
+                session_cap=_usd_micros("VERIDEX_MCP_SESSION_CAP_USD", "2.50"),
             ),
+            sol_usd=SolUsd(Rpc(os.environ.get("VERIDEX_MCP_PRICE_RPC_URL", _DEFAULT_RPC["solana-mainnet"]))),
             prefer="SOL" if os.environ.get("VERIDEX_MCP_PAY_WITH", "USDC").upper() == "SOL" else "USDC",
         )
     return _payer
@@ -88,7 +93,7 @@ async def check_store(
     Pass page_content (the page's HTML) for marketplaces such as Amazon, which block server-side fetches.
 
     :param url: The store or product page URL.
-    :param tier: quick (cheap checks, 0.0001 SOL) or deep (everything incl. reverse image search, 0.0015 SOL).
+    :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.15).
     :param policy: How cautious the returned action is: strict, balanced or lenient.
     :param page_content: The page's HTML, if available.
     :return: The verdict (action, risk_score, confidence, flags) plus the payment transaction.

@@ -1,8 +1,8 @@
 """
-The credits ledger: ``pubkey → balance_lamports``, and nothing else about anyone.
+The credits ledger: ``pubkey → balance`` in micro-dollars plus a trial flag, and nothing else about anyone.
 
-No purchase history (the chain is the ledger), no analysis log, no URLs. A row's existence also records that the
-wallet has had its free trial (or bought before signing in), so a wallet gets at most one.
+No purchase history (the chain is the ledger), no analysis log, no URLs. Balances are micro-dollars (1 USD =
+1,000,000), so a check keeps its value whatever SOL does.
 """
 
 import asyncpg
@@ -16,67 +16,80 @@ async def balance(db: Executor, pubkey: str) -> int | None:
 
     :param db: A pool or connection.
     :param pubkey: The wallet (base58).
-    :return: Lamports, or ``None`` if the wallet has no row.
+    :return: Micro-dollars, or ``None`` if the wallet has no row.
     """
-    value = await db.fetchval("SELECT balance_lamports FROM wallets WHERE pubkey = $1", pubkey)
+    value = await db.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", pubkey)
     return None if value is None else int(value)
 
 
-async def create(db: Executor, pubkey: str, lamports: int) -> bool:
+async def trial_used(db: Executor, pubkey: str) -> bool:
     """
-    Create a wallet's row with an opening balance, unless it already exists.
+    Whether a wallet has already had its free trial.
 
     :param db: A pool or connection.
     :param pubkey: The wallet (base58).
-    :param lamports: The opening balance (e.g. the free trial).
-    :return: ``True`` if the row was created.
+    :return: ``True`` once the trial was granted.
     """
-    created = await db.fetchval(
-        "INSERT INTO wallets (pubkey, balance_lamports) VALUES ($1, $2) ON CONFLICT (pubkey) DO NOTHING "
-        "RETURNING TRUE",
+    return bool(await db.fetchval("SELECT trial_granted FROM wallets WHERE pubkey = $1", pubkey))
+
+
+async def grant_trial(db: Executor, pubkey: str, amount: int) -> bool:
+    """
+    Add the free trial to a wallet's balance, at most once per wallet (a wallet that bought first still gets it).
+
+    :param db: A pool or connection.
+    :param pubkey: The wallet (base58).
+    :param amount: The trial's value in micro-dollars.
+    :return: ``True`` if the trial was granted now.
+    """
+    granted = await db.fetchval(
+        "INSERT INTO wallets (pubkey, balance_usd_micros, trial_granted) VALUES ($1, $2, TRUE) "
+        "ON CONFLICT (pubkey) DO UPDATE SET trial_granted = TRUE, "
+        "balance_usd_micros = wallets.balance_usd_micros + EXCLUDED.balance_usd_micros "
+        "WHERE NOT wallets.trial_granted RETURNING TRUE",
         pubkey,
-        lamports,
+        amount,
     )
-    return bool(created)
+    return bool(granted)
 
 
-async def credit(db: Executor, pubkey: str, lamports: int) -> int:
+async def credit(db: Executor, pubkey: str, amount: int) -> int:
     """
     Add to a wallet's balance, creating the row if needed.
 
     :param db: A pool or connection.
     :param pubkey: The wallet (base58).
-    :param lamports: The amount to add (positive).
+    :param amount: The micro-dollars to add (positive).
     :return: The new balance.
-    :raises ValueError: If ``lamports`` is not positive.
+    :raises ValueError: If ``amount`` is not positive.
     """
-    if lamports <= 0:
+    if amount <= 0:
         raise ValueError("credit must be positive")
     return int(
         await db.fetchval(
-            "INSERT INTO wallets (pubkey, balance_lamports) VALUES ($1, $2) ON CONFLICT (pubkey) "
-            "DO UPDATE SET balance_lamports = wallets.balance_lamports + EXCLUDED.balance_lamports "
-            "RETURNING balance_lamports",
+            "INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2) ON CONFLICT (pubkey) "
+            "DO UPDATE SET balance_usd_micros = wallets.balance_usd_micros + EXCLUDED.balance_usd_micros "
+            "RETURNING balance_usd_micros",
             pubkey,
-            lamports,
+            amount,
         )
     )
 
 
-async def debit(db: Executor, pubkey: str, lamports: int) -> int | None:
+async def debit(db: Executor, pubkey: str, amount: int) -> int | None:
     """
-    Take ``lamports`` from a wallet atomically, only if it has enough (concurrent debits never overspend).
+    Take ``amount`` from a wallet atomically, only if it has enough (concurrent debits never overspend).
 
     :param db: A pool or connection.
     :param pubkey: The wallet (base58).
-    :param lamports: The amount to take.
+    :param amount: The micro-dollars to take.
     :return: The new balance, or ``None`` if the balance was insufficient (or the wallet unknown).
     """
     value = await db.fetchval(
-        "UPDATE wallets SET balance_lamports = balance_lamports - $2 "
-        "WHERE pubkey = $1 AND balance_lamports >= $2 RETURNING balance_lamports",
+        "UPDATE wallets SET balance_usd_micros = balance_usd_micros - $2 "
+        "WHERE pubkey = $1 AND balance_usd_micros >= $2 RETURNING balance_usd_micros",
         pubkey,
-        lamports,
+        amount,
     )
     return None if value is None else int(value)
 

@@ -1,6 +1,6 @@
 // /checkout: buy credits with SOL or USDC. The wallet signs and sends a transfer to Veridex's hot wallet; the server
-// credits the sending wallet once the transfer is final (USDC at its SOL value then). Phone wallets can pay the same
-// request by QR code. Prices are set in SOL; the USDC amounts come from the live quote in /v1/pricing.
+// credits the sending wallet once the transfer is final (SOL at its dollar value then). Phone wallets can pay the same
+// request by QR code. Prices are in US dollars: USDC pays them exactly, SOL at the live quote in /v1/pricing.
 import {
   api,
   chainOf,
@@ -26,36 +26,44 @@ const shop = document.getElementById("shop");
 const unavailable = document.getElementById("unavailable");
 const currencyField = document.getElementById("currency");
 const usdcNote = document.getElementById("usdc-note");
-const customUnit = document.getElementById("custom-unit");
 
 let pricing = null;
-let lamports = 0; // what is being bought, by SOL value
+let usd = 0; // what is being bought, in micro-dollars (1 USD = 1,000,000)
 let currency = "SOL";
 // Signed in on /connect in this tab: phone payments credit that wallet (a memo), whoever pays.
 const signedIn = recallAny();
 
-function bonusFor(amount) {
-  const pct = Math.max(0, ...pricing.bonuses.filter((b) => amount >= b.min_lamports).map((b) => b.bonus_pct));
-  return { pct, credited: amount + Math.floor((amount * pct) / 100) };
+function bonusFor(value) {
+  const pct = Math.max(0, ...pricing.bonuses.filter((b) => value >= b.min_usd_micros).map((b) => b.bonus_pct));
+  return { pct, credited: value + Math.floor((value * pct) / 100) };
 }
 
-// The amount to pay in the chosen currency's base units, for a SOL value (USDC rounded up, as the server prices it).
+function formatUsd(micros) {
+  return `$${(micros / 1e6).toFixed(2)}`;
+}
+
+// The amount to pay in the chosen currency's base units for a dollar value: USDC exactly, SOL at the live quote
+// (rounded up, as the server prices it).
 function payAmount(value) {
-  if (currency === "SOL") return value;
-  return Math.ceil((value * pricing.usdc.analysis_units) / pricing.analysis_lamports);
+  if (currency === "USDC") return value;
+  return Math.ceil((value * 1000) / Number(pricing.sol.usd_per_sol));
 }
 
 function formatPay(amount) {
   return currency === "SOL" ? formatSol(amount) : `${(amount / 1e6).toFixed(2)} USDC`;
 }
 
+function checksWord(n) {
+  return `${n} ${n === 1 ? "check" : "checks"}`;
+}
+
 function choose(value) {
-  lamports = value;
+  usd = value;
   const amount = payAmount(value);
   const { pct, credited } = bonusFor(value);
-  const checks = Math.floor(credited / pricing.analysis_lamports);
-  summary.textContent =
-    `${formatPay(amount)} buys ${checks} ${checks === 1 ? "analysis" : "analyses"}` + (pct ? ` (includes a ${pct}% bonus).` : ".");
+  const checks = Math.floor(credited / pricing.analysis_usd_micros);
+  const paid = currency === "SOL" ? `${formatUsd(value)} (${formatPay(amount)})` : formatPay(amount);
+  summary.textContent = `${paid} buys ${checksWord(checks)}` + (pct ? ` (includes a ${pct}% bonus).` : ".");
   let url;
   let src = `/v1/credits/solana-pay.svg?currency=${currency}&amount=${amount}`;
   if (currency === "SOL") {
@@ -86,33 +94,29 @@ function renderPacks() {
       const input = document.createElement("input");
       input.type = "radio";
       input.name = "pack";
-      input.value = String(pack.lamports);
+      input.value = String(pack.usd_micros);
       input.checked = pack === selected;
-      input.addEventListener("change", () => choose(pack.lamports));
-      label.append(input, ` ${pack.checks} analyses · ${formatPay(payAmount(pack.lamports))}`);
+      input.addEventListener("change", () => choose(pack.usd_micros));
+      const sol = currency === "SOL" ? ` ≈ ${formatPay(payAmount(pack.usd_micros))}` : "";
+      label.append(input, ` ${checksWord(pack.checks)} · ${formatUsd(pack.usd_micros)}${sol}`);
       return label;
     }),
   );
-  if (selected) choose(selected.lamports);
-  else if (preset) choose(preset * pricing.analysis_lamports);
+  if (selected) choose(selected.usd_micros);
+  else if (preset) choose(preset * pricing.analysis_usd_micros);
 }
 
 custom.addEventListener("input", () => {
   const value = Number(custom.value);
   if (value > 0) {
     packs.querySelectorAll("input").forEach((input) => (input.checked = false));
-    // Typed in the chosen currency; kept internally by SOL value.
-    const asLamports =
-      currency === "SOL"
-        ? Math.round(value * 1e9)
-        : Math.floor((value * 1e6 * pricing.analysis_lamports) / pricing.usdc.analysis_units);
-    choose(asLamports);
+    // Typed in dollars, whatever the currency.
+    choose(Math.round(value * 1e6));
   }
 });
 
 currencyField.addEventListener("change", (event) => {
-  currency = event.target.value === "USDC" && pricing.usdc ? "USDC" : "SOL";
-  customUnit.textContent = currency;
+  currency = event.target.value === "SOL" && pricing.sol ? "SOL" : "USDC";
   custom.value = "";
   renderPacks();
 });
@@ -122,7 +126,7 @@ async function waitForCredits(token, before) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
     try {
       const credits = await api("/v1/credits", { headers: { Authorization: `Bearer ${token}` } });
-      if (credits.balance_lamports > before) return credits;
+      if ((credits.balance_usd_micros ?? credits.balance_lamports) > before) return credits;
     } catch {
       // keep polling
     }
@@ -131,7 +135,7 @@ async function waitForCredits(token, before) {
 }
 
 async function buy(wallet) {
-  if (!lamports) return;
+  if (!usd) return;
   const send = wallet.features["solana:signAndSendTransaction"];
   if (!send) {
     setStatus(status, `${wallet.name} can't send transactions from this page; use the QR code instead.`, "error");
@@ -147,8 +151,9 @@ async function buy(wallet) {
       setStatus(status, "Sign in first, so this page can show when your credits arrive (no spending rights).");
       ({ session } = await signIn(wallet));
     }
-    const before = (await api("/v1/credits", { headers: { Authorization: `Bearer ${session.token}` } })).balance_lamports;
-    const amount = payAmount(lamports);
+    const balance = await api("/v1/credits", { headers: { Authorization: `Bearer ${session.token}` } });
+    const before = balance.balance_usd_micros ?? balance.balance_lamports;
+    const amount = payAmount(usd);
     const purchase = await api("/v1/credits/purchase-tx", {
       method: "POST",
       body: JSON.stringify({ address: account.address, currency, amount }),
@@ -162,7 +167,7 @@ async function buy(wallet) {
     setStatus(status, "Payment sent. Credits arrive once it is final, usually within 30 seconds…");
     const credits = await waitForCredits(session.token, before);
     if (credits) {
-      setStatus(status, `Done: you have ${credits.checks_remaining} analyses (${formatSol(credits.balance_lamports)}).`, "ok");
+      setStatus(status, `Done: you have ${checksWord(credits.checks_remaining)} (${formatUsd(credits.balance_usd_micros)}).`, "ok");
     } else {
       setStatus(status, "The payment is still settling. Your credits will appear in the extension shortly.", "info");
     }
@@ -192,14 +197,17 @@ async function start() {
   if (pricing.network !== "solana-mainnet") {
     document.getElementById("network").textContent = "Test network (devnet): no real SOL.";
   }
+  const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');
-  if (pricing.usdc) {
-    const rate = pricing.usdc.sol_usd ? ` at ${Number(pricing.usdc.sol_usd).toFixed(2)} USD/SOL` : "";
-    usdcNote.textContent = `USDC amounts are the SOL prices converted${rate}.`;
+  if (pricing.sol) {
+    usdcNote.textContent = `SOL amounts are the dollar prices at ${Number(pricing.sol.usd_per_sol).toFixed(2)} USD/SOL.`;
   } else {
-    usdcRadio.disabled = true;
-    usdcNote.textContent = "USDC is unavailable right now (no fresh price); pay in SOL.";
+    solRadio.disabled = true;
+    usdcRadio.checked = true;
+    currency = "USDC";
+    usdcNote.textContent = "SOL is unavailable right now (no fresh price); pay in USDC.";
   }
+  custom.min = String(pricing.purchase.min_usd_micros / 1e6);
   renderPacks();
   renderWallets([]);
   discoverWallets(renderWallets);

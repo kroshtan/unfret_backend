@@ -132,3 +132,52 @@ async def test_judge_uses_the_scorer_and_only_asks_the_llm_to_explain(monkeypatc
     assert schema is nodes._Explanation
     assert f"{expected}/100" in messages[0].content
     assert "listing.discount_pct" in messages[1].content
+
+
+def test_unmeasured_features_are_never_flagged() -> None:
+    # A missing feature still counts as 0 in the probability (as in training), but a flag would claim evidence
+    # ("brand not recognised") for something this page was never checked for.
+    model = Model.from_dict(ARTIFACT)
+    assessment = scoring.score({"listing.discount_pct": 0.85}, model=model)
+
+    assert assessment is not None
+    assert model.contributions({"listing.discount_pct": 0.85})[1] > 0.05  # it would have been flagged
+    assert [f.type for f in assessment.flags] == ["listing.discount_pct"]
+
+
+async def test_judge_scores_with_the_model_it_was_built_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    quick = Model.from_dict({**ARTIFACT, "version": "v1-quick-test"})
+    full = Model.from_dict(ARTIFACT)
+    paths: list[Path] = []
+
+    def load(path: Path = scoring.MODEL_PATH) -> Model:
+        paths.append(path)
+        return quick if path == scoring.MODEL_QUICK_PATH else full
+
+    monkeypatch.setattr(scoring, "load_model", load)
+    monkeypatch.setattr(
+        nodes, "get_structured_llm", lambda schema: RunnableLambda(lambda _: nodes._Explanation(explanation="x"))
+    )
+    state: Any = {"features": {"listing.discount_pct": 0.5}, "findings": [], "skill_results": []}
+
+    quick_result = await nodes.make_judge_node(scoring.MODEL_QUICK_PATH)(state)
+    full_result = await nodes.judge_node(state)
+
+    assert quick_result["assessment"]["model_version"] == "v1-quick-test"
+    assert full_result["assessment"]["model_version"] == "v1-test"
+    assert paths[0] == scoring.MODEL_QUICK_PATH
+
+
+async def test_judge_falls_back_to_the_full_model_without_a_quick_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    full = Model.from_dict(ARTIFACT)
+    monkeypatch.setattr(
+        scoring, "load_model", lambda path=scoring.MODEL_PATH: None if path == scoring.MODEL_QUICK_PATH else full
+    )
+    monkeypatch.setattr(
+        nodes, "get_structured_llm", lambda schema: RunnableLambda(lambda _: nodes._Explanation(explanation="x"))
+    )
+    state: Any = {"features": {"listing.discount_pct": 0.5}, "findings": [], "skill_results": []}
+
+    result = await nodes.make_judge_node(scoring.MODEL_QUICK_PATH)(state)
+
+    assert result["assessment"]["model_version"] == "v1-test"

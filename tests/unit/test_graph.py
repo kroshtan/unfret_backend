@@ -138,7 +138,7 @@ async def test_judge_sees_findings_in_a_stable_order(fake_llm: FakeLLM) -> None:
     fake_llm.outputs[nodes._JudgeOutput] = nodes._JudgeOutput(score=50, explanation="x")
     state: dict[str, Any] = {"skill_results": ["[zeta]\nz", "[alpha]\na", "[classify]\nPage type: storefront"]}
 
-    await nodes.judge_node(state)  # type: ignore[arg-type]
+    await nodes.judge_node(state)
 
     prompt = fake_llm.prompts[-1][1].content
     assert prompt.index("[classify]") < prompt.index("[alpha]") < prompt.index("[zeta]")

@@ -1,7 +1,12 @@
 import pytest
 
+from veridex import scoring
 from veridex.graph import SKILLS
+from veridex.graph.skills.eu_registry import EuRegistrySkill
 from veridex.x402.verdict import QUICK_SKILLS, action_for, skills_for, to_verdict
+
+# Captured at import, before the suite's autouse fixture hides the shipped model.
+_LOAD_MODEL = scoring.load_model
 
 
 @pytest.mark.parametrize(
@@ -83,5 +88,25 @@ def test_unassessable_page_asks_the_human() -> None:
 def test_quick_tier_runs_no_fetching_skills() -> None:
     names = {s.name for s in skills_for("quick", SKILLS)}
     assert names == QUICK_SKILLS
-    assert not names & {"reverse_image", "domain_age", "eu_registry"}
+    assert not names & {"reverse_image", "domain_age"}  # eu_registry runs, without VIES (next test)
     assert skills_for("deep", SKILLS) == SKILLS
+
+
+def test_quick_tier_keeps_eu_registry_local() -> None:
+    quick = {s.name: s for s in skills_for("quick", SKILLS)}
+    deep = {s.name: s for s in skills_for("deep", SKILLS)}
+
+    assert isinstance(quick["eu_registry"], EuRegistrySkill) and quick["eu_registry"].vies is False
+    assert isinstance(deep["eu_registry"], EuRegistrySkill) and deep["eu_registry"].vies is True
+    assert {"domain_age", "reverse_image"}.isdisjoint(quick)
+
+
+def test_quick_tier_computes_every_feature_of_the_full_model_or_ships_its_own() -> None:
+    # Scoring a feature the tier never computed as 0 reads "never checked" as "absent". Either the quick tier covers
+    # every feature of the shipped model, or a quick-tier model (evals.train --quick) must be shipped.
+    model = _LOAD_MODEL.__wrapped__(scoring.MODEL_PATH)
+    if model is None:
+        pytest.skip("no model shipped")
+    computed = {f"{s.name}.{f}" for s in skills_for("quick", SKILLS) for f in s.features}
+    missing = set(model.features) - computed
+    assert not missing or scoring.MODEL_QUICK_PATH.exists(), f"quick tier lacks {sorted(missing)}"

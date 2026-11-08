@@ -8,7 +8,7 @@ import structlog
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from veridex import __version__, fact_cache, tineye
+from veridex import __version__, fact_cache, scoring, tineye
 from veridex.api import VeridexAPI
 from veridex.config import settings
 from veridex.db import PostgresBudget, PostgresFactStore, create_pool, init_db
@@ -27,7 +27,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
     logger.info("Veridex backend service starting")
     api.graph = build_graph(SKILLS)
-    api.quick_graph = build_graph(skills_for("quick", SKILLS))
+    api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
     # Store-level facts and the TinEye spending cap persist in Postgres, shared across restarts and workers.

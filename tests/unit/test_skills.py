@@ -246,6 +246,22 @@ async def test_eu_registry_without_network(monkeypatch: pytest.MonkeyPatch) -> N
     assert "eu_registry.vat_valid" not in f
 
 
+async def test_eu_registry_without_vies_never_looks_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The quick tier's instance: no outbound request even when network lookups are on, same features as offline.
+    monkeypatch.setattr(settings, "network_lookups", True)
+
+    async def no_lookup(*_: Any, **__: Any) -> None:
+        raise AssertionError("VIES must not be called")
+
+    monkeypatch.setattr("veridex.graph.skills.eu_registry.cached_fact", no_lookup)
+    facts = PageFacts(vat_ids=["NL123456789B01"], legal_mentions=["KvK 12345678. 14 dagen bedenktijd."])
+    out = await EuRegistrySkill(vies=False).run(state(facts, page_type="storefront"))
+
+    f = out["features"]
+    assert (f["eu_registry.vat_present"], f["eu_registry.withdrawal_right"], f["eu_registry.imprint"]) == (1, 1, 1)
+    assert "eu_registry.vat_valid" not in f
+
+
 SANDBOX_RESPONSE = {
     "results": {
         "matches": [

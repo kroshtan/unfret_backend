@@ -14,6 +14,10 @@ measure too:
 - **C**: B without the feature columns that mirror the rule features, an estimate of how much the score leans on
   re-learning the rules.
 
+``--quick`` trains on the quick tier's skills only and ships ``model-quick.json``. Needed only once the full model
+uses features the quick tier doesn't compute (e.g. network lookups); until then the quick tier falls back to the
+full model, which ``tests/unit/test_x402_verdict.py`` checks.
+
 Each is a standardised logistic regression with its regularisation chosen by cross-validation on TRAIN, calibrated
 with isotonic regression on cross-validated TRAIN predictions, and scored once on TEST. A gradient-boosted model is
 reported for comparison only. The shipped artifact goes to ``src/veridex/scoring/model.json``; the report to
@@ -38,7 +42,8 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from veridex.graph import SKILLS
-from veridex.scoring import MODEL_PATH, Model
+from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model
+from veridex.x402.verdict import QUICK_SKILLS
 
 UNRELIABLE = {"junk", "scam"}
 # Skill features that mirror the weak-labelling rules (evals/sources/amazon2023.py), for variant C.
@@ -282,6 +287,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--features", type=Path, default=None, help="a *-features.jsonl from evals.run")
     parser.add_argument("--ship", choices=["A", "B", "C", "none"], default="B")
+    parser.add_argument(
+        "--quick", action="store_true", help="train on the quick tier's skills only; ship model-quick.json"
+    )
     args = parser.parse_args()
 
     corpus = Corpus()
@@ -290,8 +298,11 @@ def main() -> None:
     features = load_features(path)
     labelled = [r for r in corpus.labels().values() if r.label and r.split in {"train", "test"}]
     names = feature_names()
+    if args.quick:
+        names = [n for n in names if n.split(".", 1)[0] in QUICK_SKILLS]
     rule_columns = {c for cols in RULE_MIRRORS.values() for c in cols}
     stamp = datetime.now(UTC).strftime("%Y%m%d")
+    tag = "quick-" if args.quick else ""
 
     variants = {
         "A": ("all features, all training labels", names, lambda r: True),
@@ -308,7 +319,7 @@ def main() -> None:
     for key, (description, cols, keep) in variants.items():
         train = build([r for r in labelled if r.split == "train" and keep(r)], features, cols)
         test = build(test_records, features, cols)
-        model = fit(train, cols, f"v1-{stamp}-{key}")
+        model = fit(train, cols, f"v1-{tag}{stamp}-{key}")
         models[key] = model
         report["variants"][key] = {
             "description": description,
@@ -334,10 +345,10 @@ def main() -> None:
             "trained_on": {"features_file": path.name, "train_n": report["variants"][args.ship]["train_n"]},
             "test": {k: report["variants"][args.ship]["test"][k] for k in ("roc_auc", "brier", "thresholds")},
         }
-        MODEL_PATH.write_text(json.dumps(artifact, indent=1) + "\n")
-    dump_json(reports / f"scorer-{stamp}.json", report)
+        (MODEL_QUICK_PATH if args.quick else MODEL_PATH).write_text(json.dumps(artifact, indent=1) + "\n")
+    dump_json(reports / f"scorer-{tag}{stamp}.json", report)
     markdown = to_markdown(report)
-    (reports / f"scorer-{stamp}.md").write_text(markdown)
+    (reports / f"scorer-{tag}{stamp}.md").write_text(markdown)
     print(markdown)  # noqa: T201 - command-line report
 
 

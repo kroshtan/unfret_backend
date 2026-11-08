@@ -26,7 +26,8 @@ ssh:
 
 proxy:
   hosts:
-    - veridex.kroshtan.com
+    - unfret.kroshtan.com  # the product's name since the rebrand
+    - veridex.kroshtan.com  # old name; its DNS record is gone, kept until the cutover
   # Caddy owns 80/443 on the server and terminates TLS. kamal-proxy runs behind it on the `kamal` network,
   # unpublished, and routes plain HTTP by Host header.
   run:
@@ -51,6 +52,8 @@ builder:
 
 env:
   clear:
+    VERIDEX_SIWS_DOMAIN: unfret.kroshtan.com
+    VERIDEX_PUBLIC_BASE_URL: https://unfret.kroshtan.com
     VERIDEX_LLM_BASE_URL: https://api.scaleway.ai/v1
     VERIDEX_LLM_MODEL: mistral-small-3.2-24b-instruct-2506
   secret:

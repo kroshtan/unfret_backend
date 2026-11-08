@@ -63,3 +63,13 @@ def test_js_sign_in_text_matches_the_server(tmp_path: Path) -> None:
 
     python_text = siws.message_text(siws.SignInFields(address=address, **fields))
     assert js_text == python_text
+
+
+def test_connect_page_has_a_phone_pairing_mode() -> None:
+    html = (STATIC_DIR / "connect.html").read_text()
+    script = (STATIC_DIR / "connect.js").read_text()
+    for element in ('id="pairing"', 'id="pair-code"', 'id="pair-error"', 'id="pair-done"'):
+        assert element in html
+    assert "Sign in to the device showing" in html
+    assert "/v1/auth/pair/" in script and "pairId" in script
+    assert "pair_id: pairId" in (STATIC_DIR / "wallet.js").read_text()

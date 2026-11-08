@@ -117,3 +117,9 @@ details summary { cursor: pointer; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* Phone pairing: the confirmation code the user compares with the computer's screen. */
+.pairing { border: 2px solid var(--accent); border-radius: 12px; padding: 1rem; margin: 1rem 0; background: var(--card); }
+.pairing h2 { margin-top: 0; }
+.code { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.6em; letter-spacing: 0.12em; padding: 0 0.3em; border-radius: 6px; background: var(--bg); }
+#pair-error { color: var(--error); }

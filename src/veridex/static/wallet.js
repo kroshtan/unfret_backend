@@ -99,9 +99,10 @@ async function api(path, options = {}) {
 export { api };
 
 // Sign in with a wallet: one signature over a readable message, which grants no spending rights.
-// Returns { session, account }.
-export async function signIn(wallet) {
-  const fields = await api("/v1/auth/nonce");
+// With pairId (phone sign-in for a computer's extension) the message names the pairing's confirmation code and the
+// session goes to the pairing, not to this tab. Returns { session, account }.
+export async function signIn(wallet, { pairId } = {}) {
+  const fields = await api(pairId ? `/v1/auth/nonce?pair=${encodeURIComponent(pairId)}` : "/v1/auth/nonce");
   let account;
   let signedMessage;
   let signature;
@@ -135,9 +136,10 @@ export async function signIn(wallet) {
       address: account.address,
       signed_message: toBase64(signedMessage),
       signature: toBase64(signature),
+      ...(pairId ? { pair_id: pairId } : {}),
     }),
   });
-  remember(session);
+  if (!pairId) remember(session);
   return { session, account };
 }
 

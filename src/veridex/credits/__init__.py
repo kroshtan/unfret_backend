@@ -16,6 +16,7 @@ from solders.pubkey import Pubkey
 
 from veridex.config import Settings
 from veridex.credits import ledger, siws
+from veridex.credits.pairing import PairingStore
 from veridex.credits.scanner import CreditScanner
 from veridex.credits.trial import TrialLimiter, has_history
 from veridex.x402.solana import SolanaRpc
@@ -36,6 +37,7 @@ class CreditsDoor:
         """
         self.settings, self.rpc, self.hot = settings, rpc, hot
         self.trials = TrialLimiter(settings.trial_per_ip_per_day, settings.trial_daily_cap)
+        self.pairings = PairingStore(ttl_s=settings.pairing_ttl_s, per_ip=settings.pairing_per_ip)
         self.scanner: CreditScanner | None = None
 
     @property

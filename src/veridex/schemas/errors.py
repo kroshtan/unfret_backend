@@ -87,6 +87,20 @@ class NotFoundError(CustomAPIError):
     error_code = "NOT_FOUND"
 
 
+class ConflictError(CustomAPIError):
+    """The resource is in a state that doesn't allow this (e.g. a pairing that's already signed in)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    error_code = "CONFLICT"
+
+
+class GoneError(CustomAPIError):
+    """The resource existed but has expired."""
+
+    status_code = status.HTTP_410_GONE
+    error_code = "GONE"
+
+
 class TooManyRequestsError(CustomAPIError):
     """Usage quota exhausted."""
 

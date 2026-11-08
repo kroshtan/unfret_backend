@@ -51,13 +51,13 @@ async def analyze_page(
     if limit is not None and await count_analyses_today(pool, account.username) >= limit:
         raise TooManyRequestsError(f"Daily limit of {limit} analyses reached.")
 
+    state: dict[str, object] = {"page_content": body.page_content, "url": body.url, "flags": body.flags}
+    if body.page_facts is not None:
+        state["page_facts"] = body.page_facts
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke(
-                {"page_content": body.page_content, "url": body.url, "flags": body.flags},
-                config={"callbacks": [usage]},
-            )
+            result = await graph.ainvoke(state, config={"callbacks": [usage]})
     except TimeoutError as exc:
         logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
         raise GatewayTimeoutError("Analysis took too long.") from exc

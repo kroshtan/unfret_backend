@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from veridex.auth import BCRYPT_MAX_PASSWORD_BYTES
 from veridex.config import settings
+from veridex.facts import PageFacts
 
 
 class AnalyzeRequest(BaseModel):
@@ -15,6 +16,11 @@ class AnalyzeRequest(BaseModel):
     url: str = Field(default="", description="URL of the product page.")
     flags: list[str] = Field(
         default_factory=list, description="Names of optional skills to activate in addition to the default set."
+    )
+    page_facts: PageFacts | None = Field(
+        default=None,
+        description="Facts extracted from the rendered page (e.g. by the browser extension). When absent, the "
+        "server extracts them from page_content.",
     )
 
 

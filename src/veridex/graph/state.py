@@ -1,6 +1,8 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NotRequired
 
 from typing_extensions import TypedDict
+
+from veridex.facts import PageFacts
 
 PageType = Literal["aggregate_listing", "storefront", "article", "non_product"]
 
@@ -17,8 +19,11 @@ class AnalysisState(TypedDict):
     page_content: str
     url: str
     flags: list[str]
+    # Facts extracted by the client from the rendered page; the server extracts them from HTML otherwise.
+    page_facts: NotRequired[PageFacts | None]
 
     # ── Pipeline (set by nodes) ──────────────────────────────────────────────
+    facts: PageFacts
     cleaned_content: str
     skill_results: Annotated[list[str], _append_results]
 

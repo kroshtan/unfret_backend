@@ -29,6 +29,7 @@ POLICY_THRESHOLDS: dict[Policy, tuple[float, float]] = {
     "lenient": (0.6, 0.85),
 }
 
+_SEVERITY_WEIGHT = {"high": 1.0, "medium": 0.6, "low": 0.3}
 _SKILL_ENTRY_RE = re.compile(r"\A\[([^\]]+)\]\n(.*)\Z", re.DOTALL)
 _EVIDENCE_CHARS = 400
 
@@ -52,15 +53,20 @@ class Flag(BaseModel):
     type: str
     evidence: str
     weight: float = Field(
-        ge=0, description="How much this signal raised the risk (the scorer's log-odds contribution; larger = more)."
+        ge=0, description="How much this signal matters (larger = more; high 1.0, medium 0.6, low 0.3)."
     )
+    label: str | None = Field(default=None, description="A short human label for the signal.")
+    severity: str | None = Field(default=None, description="high, medium or low.")
 
 
 class Verdict(BaseModel):
     """The response of ``POST /v1/check``."""
 
     action: Action = Field(description='"warn" means: ask your human before buying.')
-    risk_score: float = Field(ge=0, le=1)
+    assessed: bool = Field(
+        default=True, description="False when the page couldn't be assessed (not a product page): risk_score is null."
+    )
+    risk_score: float | None = Field(ge=0, le=1, description="0 = no concerns, 1 = clear risk; null if not assessed.")
     confidence: float = Field(ge=0, le=1)
     flags: list[Flag]
     policy_applied: Policy
@@ -68,6 +74,13 @@ class Verdict(BaseModel):
     cached: bool = False
     checked_at: datetime
     model_version: str | None = Field(default=None, description="The scorer model that set risk_score, if any.")
+    band: str | None = Field(
+        default=None, description="reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees."
+    )
+    summary: str | None = Field(default=None, description="One plain sentence for the human you're buying for.")
+    page_type: str | None = Field(
+        default=None, description="aggregate_listing (marketplace), storefront, article or non_product."
+    )
 
 
 def action_for(risk_score: float, policy: Policy) -> Action:
@@ -103,32 +116,47 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
     now = datetime.now(UTC)
     if result["score"] == -1:
         # Not a product page (or empty): nothing to assess, so leave the decision to the human.
-        flag = Flag(type="not_assessable", evidence=str(result.get("explanation", "")), weight=1.0)
+        explanation = str(result.get("explanation", ""))
+        flag = Flag(type="not_assessable", evidence=explanation, weight=1.0, label="Not assessable", severity="low")
         return Verdict(
             action="warn",
-            risk_score=0.0,
+            assessed=False,
+            risk_score=None,
             confidence=0.0,
             flags=[flag],
             policy_applied=policy,
             tier=tier,
             checked_at=now,
+            summary=explanation or None,
+            page_type=result.get("page_type"),
         )
 
     assessment = result.get("assessment")
     if assessment:
         risk_score = float(assessment["risk_score"])
+        shopper_verdict = result.get("verdict") or {}
         return Verdict(
             action=action_for(risk_score, policy),
             risk_score=risk_score,
             confidence=float(assessment["confidence"]),
             flags=[
-                Flag(type=f["type"], evidence=str(f["evidence"])[:_EVIDENCE_CHARS], weight=f["weight"])
-                for f in assessment.get("flags", [])
+                Flag(
+                    type=r["type"],
+                    evidence=str(r["detail"])[:_EVIDENCE_CHARS],
+                    weight=_SEVERITY_WEIGHT.get(r.get("severity", "low"), 0.3),
+                    label=r.get("title"),
+                    severity=r.get("severity"),
+                )
+                for r in shopper_verdict.get("reasons", [])
+                if r.get("type") != "overall"
             ],
             policy_applied=policy,
             tier=tier,
             checked_at=now,
             model_version=str(assessment.get("model_version") or "") or None,
+            band=shopper_verdict.get("band"),
+            summary=shopper_verdict.get("headline") or result.get("explanation"),
+            page_type=result.get("page_type"),
         )
 
     findings: list[tuple[str, str]] = []
@@ -151,4 +179,6 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
         policy_applied=policy,
         tier=tier,
         checked_at=now,
+        summary=str(result.get("explanation") or "") or None,
+        page_type=result.get("page_type"),
     )

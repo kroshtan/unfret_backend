@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     llm_model: str = "mistral-small-3.2-24b-instruct-2506"
     llm_timeout_s: float = 60.0
     llm_max_retries: int = 1
+    # The judge's LLM writes the shopper headline; off (evaluation runs) → a template per verdict band.
+    llm_explanations: bool = True
     # Embeddings for review/title similarity, from the same OpenAI-compatible provider.
     embedding_model: str = "bge-multilingual-gemma2"
 
@@ -27,6 +29,13 @@ class Settings(BaseSettings):
     max_page_bytes: int = 2 * 1024 * 1024
     skill_timeout_s: float = 45.0
     analysis_timeout_s: float = 90.0
+
+    # Shopper verdict bands (0–100 reliability score): reliable ≥ this, concerns ≥, careful ≥, else junk_or_scam
+    verdict_reliable_min: int = 80
+    verdict_concerns_min: int = 50
+    verdict_careful_min: int = 25
+    # An LLM judgement (0–1) this strong is shown to the shopper as a reason, whatever its model weight
+    verdict_llm_signal_min: float = 0.6
 
     # Outbound lookups about the shop (RDAP, certificate transparency, EU VIES). Off in offline evaluation, where
     # today's registry data says nothing about a page captured years ago.

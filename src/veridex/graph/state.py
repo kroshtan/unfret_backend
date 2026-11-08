@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, NotRequired
+from typing import Annotated, Any, Literal, NotRequired
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -42,6 +42,8 @@ class AnalysisState(TypedDict):
     page_facts: NotRequired[PageFacts | None]
     # Optional checkout page HTML, to compare the final total with the listed price (drip pricing).
     checkout_content: NotRequired[str]
+    # The shopper's language for the verdict and headline ("en", "nl"); English when absent.
+    language: NotRequired[str]
 
     # ── Pipeline (set by nodes) ──────────────────────────────────────────────
     facts: PageFacts
@@ -63,5 +65,6 @@ class AnalysisState(TypedDict):
     # ── Outputs (set by judge node) ──────────────────────────────────────────
     score: int
     explanation: str
+    verdict: NotRequired[dict[str, Any]]
     # The scorer's assessment (risk_score, confidence, flags, model_version) when a trained model is shipped.
     assessment: NotRequired[dict[str, object]]

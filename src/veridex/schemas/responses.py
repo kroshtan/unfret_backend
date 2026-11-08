@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from veridex import __version__
+from veridex.shopper import Verdict
 
 
 class Healthy(BaseModel):
@@ -27,3 +28,13 @@ class AnalyzeResponse(BaseModel):
         default=None, description="The trained scorer's risk_score, confidence, weighted flags and model_version."
     )
     balance_lamports: int | None = Field(default=None, description="The wallet's balance after this analysis.")
+    charged: bool | None = Field(
+        default=None,
+        description="Whether this analysis used a check: false for pages that couldn't be analysed (score -1) and "
+        "for results served from the cache.",
+    )
+    verdict: Verdict | None = Field(
+        default=None,
+        description="For shoppers: the band in words, a headline and up to three plain reasons, in the language of "
+        "the Accept-Language header (en, nl).",
+    )

@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from solders.pubkey import Pubkey
 
+from veridex.visitors import network_of
 from veridex.x402.solana import SolanaRpc
 
 DAY = 24 * 3600
@@ -52,7 +53,7 @@ class TrialLimiter:
     _day_count: int = 0
 
     def _key(self, ip: str) -> str:
-        return hashlib.blake2b(ip.encode(), key=self._salt, digest_size=16).hexdigest()
+        return hashlib.blake2b(network_of(ip).encode(), key=self._salt, digest_size=16).hexdigest()
 
     def allow(self, ip: str) -> bool:
         """

@@ -70,7 +70,8 @@ def check_nonce(secret: str, nonce: str, now: float | None = None) -> None:
     """
     split = _EXP_DIGITS + _RANDOM_HEX
     body, mac = nonce[:split], nonce[split:]
-    if len(nonce) != split + _MAC_HEX or not hmac.compare_digest(mac, _mac(secret, "nonce:" + body)[:_MAC_HEX]):
+    expected = _mac(secret, "nonce:" + body)[:_MAC_HEX]
+    if len(nonce) != split + _MAC_HEX or not hmac.compare_digest(mac.encode(), expected.encode()):
         raise SignInError("Unknown nonce.")
     if int(body[:_EXP_DIGITS]) < (time.time() if now is None else now):
         raise SignInError("The sign-in request expired; start again.")
@@ -237,7 +238,8 @@ def check_token(secret: str, token: str, now: float | None = None) -> str:
     :raises SignInError: If the token is forged, malformed or expired.
     """
     body, _, mac = token.partition(".")
-    if not body or not hmac.compare_digest(mac, _mac(secret, "session:" + body)):
+    # Bytes, not str: compare_digest refuses non-ASCII strings with a TypeError (a 500 instead of a 401).
+    if not body or not hmac.compare_digest(mac.encode(), _mac(secret, "session:" + body).encode()):
         raise SignInError("Invalid session.")
     try:
         claims = json.loads(_unb64(body))

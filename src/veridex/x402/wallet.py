@@ -250,7 +250,8 @@ class HotWallet:
             if message.account_keys[0] != self.pubkey or references(message, 0):
                 raise PermissionError("refusing to sign: as a payment co-signer the hot wallet may only pay the fee")
             signature = self._keypair.sign_message(to_bytes_versioned(message))
-            return bytes(VersionedTransaction.populate(message, [signature, item.transaction.signatures[1]]))
+            # Every client signature, not just the first: a payment may need several (a multisig member set).
+            return bytes(VersionedTransaction.populate(message, [signature, *item.transaction.signatures[1:]]))
         if isinstance(item, Sweep):
             check_sweep(item.message, self.pubkey, self.cold, self.usdc_mint)
             return bytes(VersionedTransaction(item.message, [self._keypair]))

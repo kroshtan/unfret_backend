@@ -2,7 +2,9 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
+from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
+from solders.message import to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
@@ -19,7 +21,7 @@ from tests.unit.x402_helpers import (
 from veridex.config import Settings
 from veridex.x402.payment import PaymentError
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import USDC_MINTS, associated_token_address
+from veridex.x402.solana import USDC_MINTS, TransactionFailedError, associated_token_address
 from veridex.x402.wallet import SYSTEM_PROGRAM, check_sweep
 
 HOT = Keypair()
@@ -141,17 +143,61 @@ async def test_landed_fee_above_the_allowed_maximum_alerts() -> None:
         await x402.settle(prechecked(x402))
 
 
-async def test_post_settlement_check_falls_back_to_the_balance(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_an_unindexed_settlement_stands_on_its_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The fake's wSOL balance never moves; the balance used to decide this, but credit purchases land in the same
+    # account at any time, so only the landed transaction's own metadata counts (#10).
     class Unindexed(FakeRpc):
         async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
             return None
 
     monkeypatch.setattr("veridex.x402.service._META_RETRIES", 1)
-    rpc = Unindexed()
+    x402 = service(Unindexed())
+    assert (await x402.settle(prechecked(x402))).amount == 100_000
+
+
+async def test_a_payment_that_already_landed_is_not_sent_again() -> None:
+    rpc = FakeRpc()
     x402 = service(rpc)
-    # The fake's wSOL balance doesn't move, so the fallback sees no payment arrive.
-    with pytest.raises(SettlementMismatchError, match="balance fallback"):
-        await x402.settle(prechecked(x402))
+    pre = prechecked(x402)
+    # The hot wallet's signature is deterministic, so the landed transaction's signature is known before sending.
+    message = pre.transaction.message
+    signature = str(HOT.sign_message(to_bytes_versioned(message)))
+    rpc.statuses[signature] = {"err": None, "confirmationStatus": "finalized"}
+    assert (await x402.settle(pre)).signature == signature
+    assert rpc.sent == []
+
+
+async def test_a_payment_that_already_failed_is_not_sent_again() -> None:
+    rpc = FakeRpc()
+    x402 = service(rpc)
+    pre = prechecked(x402)
+    signature = str(HOT.sign_message(to_bytes_versioned(pre.transaction.message)))
+    rpc.statuses[signature] = {"err": {"InstructionError": [2, "Custom"]}, "confirmationStatus": "confirmed"}
+    with pytest.raises(TransactionFailedError):
+        await x402.settle(pre)
+    assert rpc.sent == []
+
+
+async def test_every_client_signature_is_kept() -> None:
+    second = Keypair()
+    ixs = payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
+    transfer = ixs[2]
+    ixs[2] = Instruction(
+        transfer.program_id,
+        transfer.data,
+        [*transfer.accounts, AccountMeta(second.pubkey(), is_signer=True, is_writable=False)],
+    )
+    rpc = FakeRpc()
+    x402 = service(rpc)
+    tx = sign_payment(ixs, HOT.pubkey(), [CLIENT, second])
+    accepts = [expected(HOT.pubkey())]
+    await x402.settle(x402.precheck(payment_header(tx, accepts[0]), "quick", accepts))
+    (raw,) = rpc.sent
+    landed = VersionedTransaction.from_bytes(raw)
+    assert len(landed.signatures) == 3
+    assert list(landed.signatures[1:]) == list(tx.signatures[1:])
+    signed = to_bytes_versioned(landed.message)
+    assert all(s.verify(k, signed) for s, k in zip(landed.signatures, landed.message.account_keys, strict=False))
 
 
 def sent_sweep(rpc: FakeRpc) -> VersionedTransaction:

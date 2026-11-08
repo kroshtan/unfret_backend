@@ -44,6 +44,8 @@ Currency = Literal["SOL", "USDC"]
 _COMPUTE_UNITS = 50_000
 _COMPUTE_UNIT_PRICE = 1  # micro-lamports; Veridex pays the fee, so keep its cost minimal
 _WRAP_FEE_RESERVE = 10_000  # lamports kept back for the wrap transaction's own fee
+# Veridex answers a paid check within about 90 s (settlement plus a 60 s analysis cap).
+_TIMEOUT = httpx.Timeout(100, connect=10)
 
 
 class SpendRefusedError(RuntimeError):
@@ -280,41 +282,77 @@ class Payer:
 
     async def check(self, body: dict[str, Any]) -> dict[str, Any]:
         """
-        Run one check: request, pay the 402 within the guard, retry with the payment.
+        Run one check: request, pay the 402 within the guard, send the payment (retried once, the same payment).
+
+        The guard gives the reservation back only when Veridex clearly refused before taking the money (a renewed
+        402, a 4xx without a receipt, or a receipt saying nothing was submitted). When the outcome is unknown (a
+        timeout, a 5xx or an unreadable answer) the money may have moved, so it stays counted.
 
         :param body: The ``/v1/check`` request body.
-        :return: ``{"status", "verdict" or "error", "transaction", "paid_lamports", "paid"}``.
+        :return: ``{"status": ok|not_paid|pending|unknown, "ok", "http_status", "verdict" or "error", "transaction",
+            "paid", "paid_lamports", "next_step"?}``.
         :raises PaymentFailedError: If the API doesn't ask for payment as expected.
         """
-        async with httpx.AsyncClient(timeout=120, transport=self._transport) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, transport=self._transport) as client:
             first = await client.post(f"{self.api_url}/v1/check", json=body)
             if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:  # noqa: PLR2004
                 raise PaymentFailedError(f"expected 402 Payment Required, got {first.status_code}: {first.text[:200]}")
             requirement, currency, usd_micros = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))
             amount = int(requirement["amount"])
-            settled = False
             try:
                 if currency == "SOL":
                     await self.ensure_wsol(amount)
                 tx = build_payment(requirement, self.agent, await self.rpc.latest_blockhash())
-                payload = {
-                    "x402Version": 2,
-                    "accepted": requirement,
-                    "payload": {"transaction": base64.b64encode(bytes(tx)).decode()},
-                }
-                second = await client.post(
-                    f"{self.api_url}/v1/check", json=body, headers={"PAYMENT-SIGNATURE": _b64json(payload)}
-                )
-                settlement = (
-                    _unb64json(second.headers["PAYMENT-RESPONSE"]) if "PAYMENT-RESPONSE" in second.headers else {}
-                )
-                settled = bool(settlement.get("success"))
-            finally:
-                if not settled:
-                    self.guard.release(usd_micros)
+            except BaseException:
+                self.guard.release(usd_micros)  # nothing was sent
+                raise
+            payload = {
+                "x402Version": 2,
+                "accepted": requirement,
+                "payload": {"transaction": base64.b64encode(bytes(tx)).decode()},
+            }
+            second: httpx.Response | None = None
+            for _ in range(2):  # Veridex answers a retry of the same payment with the same result, charging once
+                try:
+                    second = await client.post(
+                        f"{self.api_url}/v1/check", json=body, headers={"PAYMENT-SIGNATURE": _b64json(payload)}
+                    )
+                except httpx.TransportError:
+                    second = None
+                    continue
+                if second.status_code < 500 or "PAYMENT-RESPONSE" in second.headers:  # noqa: PLR2004
+                    break
+        return self._outcome(second, currency, amount, usd_micros, str(tx.signatures[1]))
+
+    def _outcome(
+        self, response: httpx.Response | None, currency: Currency, amount: int, usd_micros: int, payment: str
+    ) -> dict[str, Any]:
+        has_receipt = response is not None and "PAYMENT-RESPONSE" in response.headers
+        receipt = _unb64json(response.headers["PAYMENT-RESPONSE"]) if response is not None and has_receipt else {}
+        readable = True
+        try:
+            content: Any = response.json() if response is not None else None
+        except ValueError:
+            readable, content = False, {"detail": response.text[:200] if response is not None else ""}
+        settled = bool(receipt.get("success"))
+        unanswered = response is None or not readable or not isinstance(content, dict)
+        if unanswered or (not receipt and response is not None and response.status_code >= 500):  # noqa: PLR2004
+            status = "unknown"
+        elif settled:
+            status = "ok"
+        elif receipt.get("transaction") and receipt.get("errorReason") != "settlement_failed":
+            status = "pending" if receipt.get("errorReason") == "settlement_pending" else "unknown"
+        else:
+            status = "not_paid"  # refused before any money moved
+        if status == "not_paid":
+            self.guard.release(usd_micros)
+        charged = settled or status in {"pending", "unknown"}
         result: dict[str, Any] = {
-            "status": second.status_code,
-            "transaction": settlement.get("transaction"),
+            "status": status,
+            "ok": status == "ok" and response is not None and response.status_code == 200,  # noqa: PLR2004
+            "http_status": response.status_code if response is not None else None,
+            "transaction": receipt.get("transaction") or None,
+            "payment": payment,
             "paid_lamports": amount if settled and currency == "SOL" else 0,
             "paid": {
                 "currency": currency,
@@ -322,5 +360,12 @@ class Payer:
                 "usd_micros": usd_micros if settled else 0,
             },
         }
-        result["verdict" if second.status_code == 200 else "error"] = second.json()  # noqa: PLR2004
+        result["verdict" if result["ok"] else "error"] = content
+        if status in {"pending", "unknown"}:
+            result["next_step"] = (
+                "The payment may have been taken; don't pay again for this page now. Check the transaction on chain; "
+                "if it landed without a verdict, Veridex credits its price to the paying wallet."
+            )
+        elif not result["ok"] and charged:
+            result["next_step"] = "Paid, but no verdict: the price was refunded as Veridex credits (see error)."
         return result

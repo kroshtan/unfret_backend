@@ -209,8 +209,12 @@ async def test_check_pays_and_counts_spend_in_dollars() -> None:
 
     result = await payer.check({"url": "https://shop.test"})
 
+    payment = result.pop("payment")
+    assert payment  # the agent's own signature on the payment, to look it up
     assert result == {
-        "status": 200,
+        "status": "ok",
+        "ok": True,
+        "http_status": 200,
         "transaction": "5ig",
         "paid_lamports": 100_000,
         "paid": {"currency": "SOL", "amount": 100_000, "usd_micros": 10_000},
@@ -233,7 +237,79 @@ async def test_failed_settlement_releases_the_reservation() -> None:
 
     result = await payer.check({"url": "https://shop.test"})
 
-    assert (result["status"], result["paid_lamports"], guard.spent) == (402, 0, 0)
+    assert (result["status"], result["http_status"], result["paid_lamports"], guard.spent) == ("not_paid", 402, 0, 0)
+
+
+def flaky(answers: list[Any]) -> httpx.MockTransport:
+    """The 402, then each paid attempt gets the next answer: a Response, or an exception to raise."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if "PAYMENT-SIGNATURE" not in request.headers:
+            required = {"x402Version": 2, "accepts": [requirement(100_000)]}
+            return httpx.Response(402, headers={"PAYMENT-REQUIRED": b64(required)}, json=required)
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        assert isinstance(answer, httpx.Response)
+        return answer
+
+    return httpx.MockTransport(handle)
+
+
+def flaky_payer(guard: SpendGuard, answers: list[Any]) -> Payer:
+    return Payer(
+        api_url="http://api",
+        agent=AGENT,
+        rpc=FakeRpc(),
+        network="solana-devnet",
+        guard=guard,
+        sol_usd=FixedPrice("100"),
+        transport=flaky(answers),
+    )
+
+
+SETTLED = httpx.Response(
+    200, headers={"PAYMENT-RESPONSE": b64({"success": True, "transaction": "5ig"})}, json={"action": "allow"}
+)
+
+
+async def test_a_timeout_is_retried_with_the_same_payment() -> None:
+    guard = SpendGuard(250_000, 2_500_000)
+    result = await flaky_payer(guard, [httpx.ReadTimeout("slow"), SETTLED]).check({"url": "u"})
+    assert (result["status"], result["ok"], guard.spent) == ("ok", True, 10_000)
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        [httpx.ReadTimeout("slow"), httpx.ReadTimeout("slow")],  # never answered
+        [httpx.Response(524, text="<html>origin timeout</html>")] * 2,  # a proxy gave up
+        [httpx.Response(200, text="not json")],  # an unreadable answer
+    ],
+)
+async def test_an_unknown_outcome_keeps_the_spend_counted(answers: list[Any]) -> None:
+    guard = SpendGuard(250_000, 2_500_000)
+    result = await flaky_payer(guard, answers).check({"url": "u"})
+    assert result["status"] == "unknown" and not result["ok"]
+    assert guard.spent == 10_000  # the money may have moved
+    assert "next_step" in result
+
+
+async def test_a_pending_settlement_keeps_the_spend_counted() -> None:
+    guard = SpendGuard(250_000, 2_500_000)
+    receipt = {"success": False, "transaction": "5ig", "errorReason": "settlement_pending"}
+    pending = httpx.Response(
+        402, headers={"PAYMENT-RESPONSE": b64(receipt)}, json={"error_code": "SETTLEMENT_PENDING"}
+    )
+    result = await flaky_payer(guard, [pending]).check({"url": "u"})
+    assert (result["status"], guard.spent) == ("pending", 10_000)
+
+
+async def test_a_refusal_before_payment_gives_the_spend_back() -> None:
+    guard = SpendGuard(250_000, 2_500_000)
+    blocked = httpx.Response(422, json={"error_code": "PAGE_BLOCKED"})
+    result = await flaky_payer(guard, [blocked]).check({"url": "u"})
+    assert (result["status"], result["error"]["error_code"], guard.spent) == ("not_paid", "PAGE_BLOCKED", 0)
 
 
 async def test_overpriced_check_is_refused_before_paying() -> None:

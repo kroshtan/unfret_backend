@@ -141,17 +141,20 @@ def _event(name: str, data: dict[str, Any]) -> str:
 
 
 def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
-    # One LangGraph "updates" chunk ({node: state update}) → server-sent events; the score is collected in `final`.
+    # One LangGraph "updates" chunk ({node: state update}) → one `step` event per finished node (contract v1:
+    # {"skill", "findings"}, plus "page_type" from the classifier); the score is collected in `final` for `result`.
     events: list[str] = []
-    for values in update.values():
+    for node, values in update.items():
         if not isinstance(values, dict):
             continue
-        if "page_type" in values:
-            events.append(_event("page_type", {"page_type": values["page_type"]}))
-        for finding in values.get("findings", []) or []:
-            payload = finding.model_dump() if isinstance(finding, Finding) else dict(finding)
-            events.append(_event("finding", payload))
         final |= {k: values[k] for k in ("score", "explanation", "assessment") if k in values}
+        if "score" in values:
+            continue  # the judge (or the early exit): reported as the `result` event
+        findings = [f.model_dump() if isinstance(f, Finding) else dict(f) for f in values.get("findings", []) or []]
+        step: dict[str, Any] = {"skill": node, "findings": findings}
+        if "page_type" in values:
+            step["page_type"] = values["page_type"]
+        events.append(_event("step", step))
     return events
 
 
@@ -164,7 +167,7 @@ async def analyze_page_stream(
     """
     Analyse a page like ``POST /v1/analyze``, streaming the findings as server-sent events while skills finish.
 
-    Events: ``page_type`` once classified, one ``finding`` per factual observation as each skill completes, then a
+    Events: one ``step`` per finished node (``{"skill", "findings"}``, with ``page_type`` once classified), then a
     final ``result`` (the ``POST /v1/analyze`` body) or ``error``. A client (the browser extension) can show progress
     instead of a spinner. Charged like ``POST /v1/analyze``: refunded on ``error``, a score of -1, or when the stream
     ends before the result was sent.

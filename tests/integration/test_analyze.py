@@ -207,7 +207,9 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert response.headers["content-type"].startswith("text/event-stream")
     events = [block.split("\n") for block in response.text.strip().split("\n\n")]
     names = [lines[0].removeprefix("event: ") for lines in events]
-    assert names == ["page_type", "finding", "result"]
+    assert names == ["step", "step", "result"]
+    assert events[0][1] == 'data: {"skill": "classify", "findings": [], "page_type": "storefront"}'
+    assert events[1][1].startswith('data: {"skill": "listing", "findings": [{')
     assert '"evidence": "85% off."' in events[1][1]
     assert events[2][1] == 'data: {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 0}'
     assert await balance(pool, address) == 0

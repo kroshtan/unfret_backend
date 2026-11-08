@@ -230,7 +230,8 @@ async def test_purchase_transaction_pays_the_hot_wallet(client: httpx.AsyncClien
     assert response.status_code == 200
     body = response.json()
     assert body["hot_wallet"] == str(HOT.pubkey())
-    assert body["solana_pay_url"] == f"solana:{HOT.pubkey()}?amount=0.015&label=Veridex&message=Veridex%20credits"
+    expected = f"solana:{HOT.pubkey()}?amount=0.015&label=Veridex&message=Veridex%20credits"
+    assert body["solana_pay_url"] == f"{expected}&memo=veridex%3Acredit%3A{buyer.pubkey()}"
     tx = VersionedTransaction.from_bytes(base64.b64decode(body["transaction"]))
     keys = tx.message.account_keys
     assert keys[0] == buyer.pubkey() and HOT.pubkey() in keys
@@ -341,3 +342,75 @@ async def test_x402_refund_credits_the_payer(client: httpx.AsyncClient, pool: as
     assert await balance(pool, "payer") == 100_000
     door = get_credits(Req())  # type: ignore[arg-type]
     assert door.sign_in_enabled
+
+
+# ── Beneficiary memos (smart wallets) ─────────────────────────────────────────
+
+
+def with_memos(tx: dict[str, Any], *memos: str) -> dict[str, Any]:
+    tx["transaction"]["message"]["instructions"].extend({"program": "spl-memo", "parsed": m} for m in memos)
+    return tx
+
+
+async def test_vault_paid_purchase_credits_the_memo_beneficiary(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    await scanner.initialise()
+    member = str(Keypair().pubkey())
+    vault_payment = transfer("vault-pda", str(HOT.pubkey()), 2_000_000, inner=True)  # paid by a program (CPI)
+    rpc.add("vault", with_memos(vault_payment, f"veridex:credit:{member}"))
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, member) == 2_000_000
+    assert await balance(pool, "vault-pda") is None
+
+
+@pytest.mark.parametrize(
+    "memos",
+    [("veridex:credit:garbage",), (f"veridex:credit:{Keypair().pubkey()}", f"veridex:credit:{Keypair().pubkey()}")],
+)
+async def test_bad_or_ambiguous_memos_credit_the_source(pool: asyncpg.Pool, memos: tuple[str, ...]) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    await scanner.initialise()
+    rpc.add("t", with_memos(transfer("frank", str(HOT.pubkey()), 3_000_000), *memos))
+
+    await scanner.scan_once()
+    assert await balance(pool, "frank") == 3_000_000
+
+
+async def test_purchase_transaction_names_the_beneficiary(client: httpx.AsyncClient, shop: ChainRpc) -> None:
+    vault, member = Keypair().pubkey(), Keypair().pubkey()
+    body = {"address": str(vault), "lamports": 15_000_000, "beneficiary": str(member)}
+    response = await client.post("/v1/credits/purchase-tx", json=body)
+
+    assert response.status_code == 200
+    message = VersionedTransaction.from_bytes(base64.b64decode(response.json()["transaction"])).message
+    assert message.account_keys[0] == vault
+    assert bytes(message.instructions[1].data) == f"veridex:credit:{member}".encode()
+    assert response.json()["solana_pay_url"].endswith(f"&memo=veridex%3Acredit%3A{member}")
+    bad = await client.post("/v1/credits/purchase-tx", json={**body, "beneficiary": "nope"})
+    assert bad.status_code == 400
+
+
+async def test_first_start_waits_for_funding_to_finalize(pool: asyncpg.Pool) -> None:
+    class Finalizing(ChainRpc):
+        """The newest transaction is confirmed but only shows up as finalized after a few polls."""
+
+        polls = 0
+
+        async def signature_page(self, address: Pubkey, **kwargs: Any) -> list[dict[str, Any]]:
+            if kwargs.get("commitment") == "finalized" and kwargs.get("limit") == 50:
+                self.polls += 1
+                if self.polls < 3:
+                    return []
+            return await super().signature_page(address, **kwargs)
+
+    rpc = Finalizing()
+    rpc.add("seed", transfer("owner", str(HOT.pubkey()), 15_000_000))  # funded seconds before the first start
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    await scanner.initialise()
+
+    assert await pool.fetchval("SELECT signature FROM scan_cursor") == "seed"
+    assert await scanner.scan_once() == 0
+    assert await balance(pool, "owner") is None

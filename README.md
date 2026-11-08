@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml/badge.svg)](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)
+![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
 **Veridex scores e-commerce product pages for scam and dropshipping signals.** A browser extension sends the HTML of
 the page the user is viewing; the backend runs a [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of
@@ -79,16 +79,18 @@ auth.
 | `POST` | `/v1/admin/accounts/{username}/downgrade` \| `/block` | Revoke premium / block, cancelling any Paddle subscription |
 | `POST` | `/v1/paddle/webhook` | Paddle Billing webhook (`subscription.activated` / `subscription.canceled`) |
 | `GET` | `/v1/health` | Liveness probe |
+| `GET` | `/v1/health/ready` | Readiness probe (checks the database) |
 
 Accounts are `free` (5 analyses/day), `premium` (25/day), `admin` (unlimited) or `blocked`. Pages that are not
 analysed (score `-1`) don't count towards the quota.
 
 ## Running it
 
-**Requirements:** [uv](https://docs.astral.sh/uv/), Docker, and an OpenAI API key.
+**Requirements:** [uv](https://docs.astral.sh/uv/), Docker, and an API key for an OpenAI-compatible LLM API
+([Scaleway Generative APIs](https://www.scaleway.com/en/generative-apis/) by default).
 
 ```bash
-cp .env.example .env       # add your VERIDEX_OPENAI_API_KEY
+cp .env.example .env       # add your VERIDEX_LLM_API_KEY
 docker compose up --build  # API on http://localhost:8080, Postgres alongside
 ```
 
@@ -107,14 +109,17 @@ Promote an account to admin with `uv run scripts/promote_admin.py <username>`.
 
 ### Configuration
 
-Defaults live in [`src/veridex/settings.toml`](src/veridex/settings.toml) (loaded with
-[Dynaconf](https://www.dynaconf.com/)). Override any key with a `VERIDEX_`-prefixed environment variable or a
-git-ignored `src/veridex/.secrets.toml`.
+Settings are defined and validated in [`src/veridex/config.py`](src/veridex/config.py) (with
+[pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). Override any of them with a
+`VERIDEX_`-prefixed environment variable or a git-ignored `.env` file.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `VERIDEX_OPENAI_API_KEY` | — | Required |
-| `VERIDEX_LLM_MODEL` | `gpt-4o-mini` | Used by every node and skill |
+| `VERIDEX_LLM_API_KEY` | — | Required |
+| `VERIDEX_LLM_BASE_URL` | `https://api.scaleway.ai/v1` | Any OpenAI-compatible chat completions API |
+| `VERIDEX_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
+| `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
+| `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
 | `VERIDEX_SIGNUP_SECRET` | — | Account creation is disabled while empty |
 | `VERIDEX_FREE_DAILY_LIMIT` / `VERIDEX_PREMIUM_DAILY_LIMIT` | `5` / `25` | Per UTC day |
@@ -128,6 +133,7 @@ make install           # uv sync + pre-commit hooks
 make lint              # ruff, mypy (strict), pydoclint
 make test-unit         # fast, no services needed
 make test              # unit + integration tests against a throwaway Postgres container
+make audit             # pip-audit over the locked dependencies
 make run               # uvicorn with auto-reload
 ```
 
@@ -138,6 +144,8 @@ analysis graph replaced by a test double so no LLM calls are made.
 ```
 src/veridex/
 ├── main.py            # FastAPI app, lifespan (graph + DB pool), middleware
+├── config.py          # typed settings (pydantic-settings)
+├── middleware.py      # body size cap, x-process-time header
 ├── routes/            # analyze, accounts, admin, paddle webhook, health
 ├── graph/
 │   ├── __init__.py    # graph wiring + skill registry
@@ -153,8 +161,12 @@ src/veridex/
 ## Design notes
 
 - **Untrusted input fetching.** Skills download URLs taken from user-submitted HTML. `net.fetch_public` only allows
-  http(s), resolves the host and refuses loopback, private, link-local (cloud metadata) and reserved addresses, and
-  re-validates every redirect hop and caps response size.
+  http(s), resolves the host and refuses loopback, private, link-local (cloud metadata) and reserved addresses,
+  then connects to the address it checked (Host header and TLS SNI keep the original name), so a second DNS answer
+  cannot rebind the request. Every redirect hop is re-validated and response size is capped.
+- **Fail soft.** Each skill runs under its own timeout; a skill that fails or hangs reports "unavailable" to the
+  judge instead of failing the analysis. The whole analysis has a deadline too (504 when exceeded).
+- **Bounded input.** Request bodies over `VERIDEX_MAX_PAGE_BYTES` are refused before they are parsed.
 - **Auth.** Passwords are bcrypt-hashed off the event loop; unknown usernames are checked against a dummy hash so
   they can't be distinguished from wrong passwords by timing.
 - **Billing webhooks** fail closed without a configured secret, reject signatures older than five minutes, never

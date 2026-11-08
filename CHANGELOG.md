@@ -10,6 +10,9 @@ Open-source release.
 * Image and review-page downloads are protected against SSRF (private/link-local addresses blocked, redirects re-validated, size capped)
 * Login no longer leaks whether a username exists through response timing; bcrypt runs off the event loop
 * Internal error details are no longer returned to API clients
+* Outbound fetches connect to the address that passed the SSRF check, closing a DNS-rebinding gap
+* Request bodies are capped (`VERIDEX_MAX_PAGE_BYTES`, default 2 MiB) before parsing
+* All dependencies upgraded; `pip-audit` reports no known vulnerabilities (was ~180 across 20 packages, including starlette, Pillow and python-multipart)
 
 ### Bug Fixes
 
@@ -20,6 +23,14 @@ Open-source release.
 * `httpx` was only a dev dependency but is used at runtime
 
 ### Maintenance
+
+* LLM provider is configurable: any OpenAI-compatible API (`VERIDEX_LLM_BASE_URL`), Scaleway Generative APIs with `mistral-small-3.2-24b-instruct-2506` by default, replacing `gpt-4o-mini` (removed from OpenAI's API on 2027-01-14). `VERIDEX_OPENAI_API_KEY` is now `VERIDEX_LLM_API_KEY`
+* Structured LLM output uses tool calling
+* A failing or hanging skill degrades to "unavailable" instead of failing the analysis; analyses have an overall deadline (504)
+* Token usage per model is logged for every analysis
+* `GET /v1/health/ready` readiness probe
+* Python 3.14; `uv_build` build backend; pydantic-settings replaces Dynaconf and `settings.toml`; pure ASGI middleware replaces `BaseHTTPMiddleware`; `python-multipart` dropped (unused)
+* CI actions pinned by commit SHA, `pip-audit` in CI and `make audit`, Forgejo CI workflow; local Postgres bound to 127.0.0.1
 
 * Removed the Reddit brand-reputation skill and the `praw` dependency
 * Shared, configurable LLM client (`VERIDEX_LLM_MODEL`) replaces twelve hard-coded instances

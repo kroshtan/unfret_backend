@@ -9,10 +9,11 @@ Usage::
 ``llm_cache.sqlite``; ``--replay`` serves only cached responses and fails any page that would need a new call, so
 re-scoring a recorded run costs nothing. Reports go to ``<corpus>/reports/``.
 
-Network-dependent skills are off by default: reverse image search needs a browser and breaks Google's terms, EXIF
-needs the original images, and domain age would look up today's WHOIS for pages captured years ago, which tells
-the model whether a scam domain has since died rather than anything about the page. URLs are withheld for the
-same reason unless ``--with-url`` is given.
+Network lookups are off: domain age and VIES would look up today's registry data for pages captured years ago,
+which tells the model whether a scam domain has since died rather than anything about the page, and reverse image
+search is paid per search. URLs are withheld for the same reason unless ``--with-url`` is given. Embeddings are
+recorded and replayed like LLM responses. Each page's skill features are written next to the report, for training
+the scorer.
 """
 
 import argparse
@@ -29,6 +30,7 @@ from langchain_core.globals import set_llm_cache
 from pydantic import SecretStr
 
 from evals.corpus import Corpus, LabelRecord, dump_json
+from evals.embedding_cache import CachedEmbeddings
 from evals.llm_cache import SQLiteLLMCache
 from evals.metrics import Outcome, summarise, to_markdown
 from veridex import llm
@@ -37,7 +39,7 @@ from veridex.graph import SKILLS, build_graph
 
 logger = structlog.get_logger("veridex.evals")
 
-DEFAULT_EXCLUDED = ("reverse_image_search", "exif_check", "domain_age")
+DEFAULT_EXCLUDED = ("reverse_image",)
 
 
 def select(records: list[LabelRecord], limit: int | None) -> list[LabelRecord]:
@@ -65,7 +67,13 @@ def select(records: list[LabelRecord], limit: int | None) -> list[LabelRecord]:
 
 
 async def evaluate(
-    corpus: Corpus, records: list[LabelRecord], skill_names: list[str], with_url: bool, concurrency: int
+    corpus: Corpus,
+    records: list[LabelRecord],
+    skill_names: list[str],
+    with_url: bool,
+    concurrency: int,
+    *,
+    features: dict[str, dict[str, float]] | None = None,
 ) -> list[Outcome]:
     """
     Run the graph on each record's page.
@@ -75,6 +83,7 @@ async def evaluate(
     :param skill_names: Names of the skills to enable.
     :param with_url: Pass the page's original URL to the graph.
     :param concurrency: Pages evaluated at the same time.
+    :param features: If given, filled with each scored page's skill features, by record id.
     :return: One outcome per record.
     """
     graph = build_graph([s for s in SKILLS if s.name in skill_names])
@@ -103,6 +112,8 @@ async def evaluate(
                     expected_page_type=record.page_type,
                     error=f"{type(exc).__name__}: {str(exc)[:160]}",
                 )
+        if features is not None:
+            features[record.id] = dict(result.get("features", {}))
         tokens = list(usage.usage_metadata.values())
         unavailable = sum(1 for r in result.get("skill_results", []) if r.endswith("Skill unavailable."))
         return Outcome(
@@ -140,6 +151,7 @@ def main() -> None:
 
     corpus = Corpus()
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
+    settings.network_lookups = False
     # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
     # turning them into "skill unavailable" findings or failed pages.
     settings.llm_max_retries = max(settings.llm_max_retries, 6)
@@ -148,11 +160,19 @@ def main() -> None:
         # The client refuses to start without a key; in replay mode it never sends one.
         settings.llm_api_key = SecretStr("replay")
         llm.get_llm.cache_clear()
+    llm.use_embeddings(
+        CachedEmbeddings(
+            llm.get_embeddings(), settings.embedding_model, corpus.root / "llm_cache.sqlite", strict=args.replay
+        )
+    )
 
     labelled = [r for r in corpus.labels().values() if r.label and args.split in {"all", r.split}]
     records = select(labelled, args.limit)
     logger.info("eval_start", pages=len(records), skills=args.skills, replay=args.replay)
-    outcomes = asyncio.run(evaluate(corpus, records, args.skills, args.with_url, args.concurrency))
+    page_features: dict[str, dict[str, float]] = {}
+    outcomes = asyncio.run(
+        evaluate(corpus, records, args.skills, args.with_url, args.concurrency, features=page_features)
+    )
 
     report = summarise(outcomes)
     report["skills"] = args.skills
@@ -169,6 +189,9 @@ def main() -> None:
     (reports / f"{stamp}.md").write_text(markdown)
     (reports / "latest.md").write_text(markdown)
     (reports / f"{stamp}-outcomes.jsonl").write_text("".join(json.dumps(o.__dict__) + "\n" for o in outcomes))
+    (reports / f"{stamp}-features.jsonl").write_text(
+        "".join(json.dumps({"id": i, "features": f}) + "\n" for i, f in sorted(page_features.items()))
+    )
     print(markdown)  # noqa: T201 - command-line report
 
 

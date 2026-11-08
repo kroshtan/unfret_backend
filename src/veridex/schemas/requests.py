@@ -22,6 +22,11 @@ class AnalyzeRequest(BaseModel):
         description="Facts extracted from the rendered page (e.g. by the browser extension). When absent, the "
         "server extracts them from page_content.",
     )
+    checkout_content: str | None = Field(
+        default=None,
+        max_length=settings.max_page_bytes,
+        description="HTML of the checkout page for this product, if available, to detect fees added at checkout.",
+    )
 
 
 class CreateAccountRequest(BaseModel):

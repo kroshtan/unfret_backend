@@ -295,6 +295,21 @@ async def test_scanner_credits_incoming_transfers_exactly_once(pool: asyncpg.Poo
     assert await balance(pool, hot) is None
 
 
+async def test_scanner_skips_zero_value_transfers(pool: asyncpg.Pool) -> None:
+    # Regression: one 0-lamport transfer to the hot wallet (costs the sender a fee) stalled the scanner for good.
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers)  # type: ignore[arg-type]
+    await scanner.initialise()
+    hot = str(HOT.pubkey())
+    rpc.add("zero", transfer("griefer", hot, 0))
+    rpc.add("buy", transfer("alice", hot, 5_000_000))
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, "griefer") is None
+    assert await balance(pool, "alice") == 5_000_000
+    assert await scanner.scan_once() == 0  # the cursor moved past both
+
+
 async def test_scanner_pages_through_a_backlog(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("veridex.credits.scanner._PAGE", 3)
     rpc = ChainRpc()

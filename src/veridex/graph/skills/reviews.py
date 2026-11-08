@@ -68,19 +68,20 @@ def reviews_per_day(facts: PageFacts, today: date) -> float | None:
     """
     Ratings per day since the listing appeared.
 
-    The listing's start is "date first available", else the oldest sampled review. The end is the newest sampled
-    review (so archived pages are measured at the time they were captured), else today.
+    The listing's start is "date first available", else the oldest sampled review; the end is ``today`` (the day
+    the page was seen: evaluations of archived pages pass their capture date). The end used to be the newest
+    sampled review, but Amazon shows its "top" reviews, which can be years old, and that made a slow-selling
+    listing look like a review burst.
 
     :param facts: The page facts.
-    :param today: Today's date.
+    :param today: The day the page was seen.
     :return: The rate, or ``None`` without a rating count or start date.
     """
     dated = sorted(r.posted for r in facts.reviews if r.posted)
     start = facts.date_first_available or (dated[0] if dated else None)
     if start is None or not facts.rating_count:
         return None
-    end = max(dated[-1], start) if dated else today
-    return facts.rating_count / max((end - start).days, 1)
+    return facts.rating_count / max((max(today, start) - start).days, 1)
 
 
 def burst_share(reviews: list[Review], window_days: int = 30) -> float:

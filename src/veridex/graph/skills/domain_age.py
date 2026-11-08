@@ -6,10 +6,13 @@ certificate ever logged for the domain (crt.sh) gives a second, registry-indepen
 registration data is redacted. Both are store-level facts, cached across callers by :mod:`veridex.fact_cache`.
 """
 
+import asyncio
 import json
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import quote
+
+import httpx
 
 from veridex.config import settings
 from veridex.fact_cache import cached_fact
@@ -55,21 +58,44 @@ def parse_rdap(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def rdap_lookup(domain: str) -> dict[str, Any] | None:
+def candidates(domain: str) -> list[str]:
     """
-    Look a domain up via the RDAP bootstrap service, trying parent domains for subdomains.
+    The names to try in RDAP, the likely registrable domain first.
+
+    Without a public-suffix list: the last two labels (``example.com``), then the last three (``example.co.uk``),
+    then the full hostname.
 
     :param domain: A hostname such as ``shop.example.co.uk``.
-    :return: The parsed fields (see :func:`parse_rdap`), or ``None`` if no registry answered.
+    :return: Distinct candidates, most likely first.
     """
-    labels = domain.split(".")
-    for start in range(min(3, max(len(labels) - 1, 1))):
-        candidate = ".".join(labels[start:])
+    labels = domain.lower().split(".")
+    names = [".".join(labels[-n:]) for n in (2, 3) if len(labels) >= n] + [".".join(labels)]
+    return list(dict.fromkeys(n for n in names if "." in n))
+
+
+def _not_found(exc: Exception) -> bool:
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {400, 404}
+
+
+async def rdap_lookup(domain: str) -> dict[str, Any] | None:
+    """
+    Look a domain up via the RDAP bootstrap service, the registrable domain first.
+
+    "Not found" (404) moves on to the next candidate, and ``None`` means no candidate exists. Any other failure (a
+    timeout, a 5xx) raises instead, so a flaky registry isn't cached as "this domain has no record".
+
+    :param domain: A hostname such as ``shop.example.co.uk``.
+    :return: The parsed fields (see :func:`parse_rdap`), or ``None`` if no candidate is registered.
+    :raises Exception: When a registry fails other than with "not found".
+    """
+    for candidate in candidates(domain):
         try:
             body = await fetch_public(settings.rdap_bootstrap_url + quote(candidate), timeout=_RDAP_TIMEOUT_S)
-            return parse_rdap(json.loads(body))
-        except Exception:  # noqa: BLE001 - not found / not supported: try the parent domain
-            continue
+        except Exception as exc:
+            if _not_found(exc):
+                continue
+            raise
+        return parse_rdap(await asyncio.to_thread(json.loads, body))
     return None
 
 
@@ -89,13 +115,17 @@ async def first_certificate(domain: str) -> str | None:
     Ask crt.sh for the first certificate logged for the domain.
 
     :param domain: The registrable domain.
-    :return: ISO date of the earliest certificate, or ``None`` if crt.sh had none or didn't answer.
+    :return: ISO date of the earliest certificate, or ``None`` if crt.sh had none.
+    :raises Exception: When crt.sh fails or times out (not cached; the next check asks again).
     """
     url = f"{settings.crtsh_url}?q={quote(domain)}&output=json"
     try:
-        entries = json.loads(await fetch_public(url, timeout=_CRTSH_TIMEOUT_S, max_bytes=20 * 1024 * 1024))
-    except Exception:  # noqa: BLE001 - crt.sh is often slow or overloaded; this signal is optional
-        return None
+        body = await fetch_public(url, timeout=_CRTSH_TIMEOUT_S, max_bytes=20 * 1024 * 1024)
+    except Exception as exc:
+        if _not_found(exc):
+            return None
+        raise  # crt.sh is often slow or overloaded: not a fact worth caching
+    entries = await asyncio.to_thread(json.loads, body)  # up to 20 MB of JSON
     return earliest_certificate(entries) if isinstance(entries, list) else None
 
 
@@ -121,8 +151,14 @@ class DomainAgeSkill(Skill):
         domain = hostname(state.get("url", ""))
         if not domain or not settings.network_lookups:
             return self.output({"known": False}, note="No domain to look up.")
-        rdap = await cached_fact("rdap", domain, lambda: rdap_lookup(domain))
-        cert = await cached_fact("crtsh", domain, lambda: first_certificate(domain))
+        # Both lookups at once; a failed one (raised, so not cached) only costs its own signal.
+        rdap_result, cert_result = await asyncio.gather(
+            cached_fact("rdap", domain, lambda: rdap_lookup(domain)),
+            cached_fact("crtsh", domain, lambda: first_certificate(domain)),
+            return_exceptions=True,
+        )
+        rdap = None if isinstance(rdap_result, BaseException) else rdap_result
+        cert = None if isinstance(cert_result, BaseException) else cert_result
         if rdap is None and cert is None:
             return self.output({"known": False}, note=f"No registration or certificate data for {domain}.")
 

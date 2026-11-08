@@ -1,9 +1,11 @@
+import time
 from datetime import date
 
 import pytest
 
 from veridex.facts import PageFacts, parse_page
 from veridex.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
+from veridex.facts.extract import shopify_compare_at
 
 
 @pytest.mark.parametrize(
@@ -127,6 +129,30 @@ SHOPIFY_PAGE = """
 </footer>
 </body></html>
 """
+
+
+def test_shopify_compare_at_is_bound_to_the_variant_on_show() -> None:
+    variants = (
+        '{"variants":[{"id":40000000001,"price":2495,"compare_at_price":7995},'
+        '{"id":40000000002,"price":3495,"compare_at_price":3995}]}'
+    )
+    assert shopify_compare_at(variants, 24.95) == 79.95  # the variant whose own price is listed
+    assert shopify_compare_at(variants, 34.95, "https://s.test/p?variant=40000000002") == 39.95
+    assert shopify_compare_at(variants, 19.0) is None  # neither variant is on show and they disagree
+
+
+def test_shopify_compare_at_integers_are_always_cents() -> None:
+    # Regression: an integer compare-at below the price in cents was retried as whole units: a 99% "discount".
+    assert shopify_compare_at('{"price":2495,"compare_at_price":2000}', 24.95) is None
+    assert shopify_compare_at('{"price":"24.95","compare_at_price":"39.95"}', 24.95) == 39.95
+
+
+def test_fee_and_legal_snippets_stay_linear_on_huge_pages() -> None:
+    text = "Lorem ipsum dolor. " * 40_000 + "A service fee of €2 applies. " + "Sit amet. " * 80_000
+    started = time.perf_counter()
+    facts, _ = parse_page(f"<p>{text}</p>")
+    assert time.perf_counter() - started < 5
+    assert facts.fee_mentions == ["A service fee of €2 applies"]
 
 
 def test_shopify_storefront() -> None:

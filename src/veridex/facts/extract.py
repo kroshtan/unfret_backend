@@ -10,7 +10,7 @@ import json
 import re
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
@@ -29,11 +29,10 @@ _TIMER_SCRIPT_RE = re.compile(
     r"countdown|setInterval\s*\(.{0,200}?(?:hours|minutes|seconds)|evergreen|deadline\s*=", re.IGNORECASE | re.DOTALL
 )
 _FEE_RE = re.compile(
-    r"[^.\n]{0,80}(?:service fee|handling fee|processing fee|booking fee|convenience fee|admin(?:istration)? fee"
+    r"(?:service fee|handling fee|processing fee|booking fee|convenience fee|admin(?:istration)? fee"
     r"|shipping (?:is )?calculated at checkout|taxes and shipping calculated|plus shipping|excl\.? shipping"
     r"|verzendkosten|servicekosten|administratiekosten|bearbeitungsgebühr|servicegebühr|zzgl\.? versand"
-    r"|frais de (?:service|dossier|traitement)|gastos de (?:gestión|envío)|spese di (?:gestione|spedizione))"
-    r"[^.\n]{0,80}",
+    r"|frais de (?:service|dossier|traitement)|gastos de (?:gestión|envío)|spese di (?:gestione|spedizione))",
     re.IGNORECASE,
 )
 # EU VAT numbers per country (VIES formats), matched against a candidate with its separators removed.
@@ -48,9 +47,9 @@ _VAT_CANDIDATE_RE = re.compile(
     r"[\s.]?[0-9A-Z][0-9A-Z\s.+*]{6,18}"
 )
 _LEGAL_RE = re.compile(
-    r"[^.\n]{0,60}(?:impressum|imprint|kvk|kamer van koophandel|handelsregister|registre du commerce|company number"
+    r"(?:impressum|imprint|kvk|kamer van koophandel|handelsregister|registre du commerce|company number"
     r"|registered in|chamber of commerce|withdraw(?:al)?|widerruf|herroeping|bedenktijd|rétractation|desistimiento"
-    r"|recesso|14[ -](?:day|dagen|tage|jours|días|giorni))[^.\n]{0,100}",
+    r"|recesso|14[ -](?:day|dagen|tage|jours|días|giorni))",
     re.IGNORECASE,
 )
 _POLICY_KINDS: dict[str, re.Pattern[str]] = {
@@ -65,7 +64,10 @@ _SHOPIFY_RE = re.compile(r"cdn\.shopify\.com|Shopify\.theme|myshopify\.com", re.
 _WOO_RE = re.compile(r"woocommerce|wp-content/plugins/woocommerce", re.IGNORECASE)
 _AMAZON_HOST_RE = re.compile(r"(?:^|[\s.])amazon\.[a-z.]+")
 _BOL_HOST_RE = re.compile(r"(?:^|[\s.])bol\.com")
-_COMPARE_AT_RE = re.compile(r'"compare_at_price"\s*:\s*"?(\d+(?:\.\d+)?)"?')
+_COMPARE_AT_RE = re.compile(r'"compare_at_price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
+_VARIANT_PRICE_RE = re.compile(r'"price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
+_VARIANT_ID_RE = re.compile(r'"id"\s*:\s*"?(\d{6,})')
+_VARIANT_WINDOW = 1_500  # chars around a compare-at price that belong to the same variant object
 _WS_RE = re.compile(r"\s+")
 _SKIP_HIDDEN = {"script", "style", "noscript", "template", "head", "meta", "link", "svg", "input"}
 
@@ -109,7 +111,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
     elif facts.platform == "bol.com":
         bolcom.extract(soup, facts)
     elif facts.platform == "shopify":
-        _shopify(html, facts)
+        _shopify(html, facts, url)
     if not facts.title:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")
     if not facts.image_urls and (image := _meta(soup, "og:image")):
@@ -187,9 +189,21 @@ def _timers(soup: BeautifulSoup, facts: PageFacts) -> None:
 
 def _text_signals(soup: BeautifulSoup, facts: PageFacts) -> None:
     text = _squash(soup.get_text(" "))
-    facts.fee_mentions = _dedupe(_squash(m.group()) for m in _FEE_RE.finditer(text))[:_MAX_SNIPPETS]
+    facts.fee_mentions = _dedupe(_snippets(_FEE_RE, text, 80, 80))[:_MAX_SNIPPETS]
     facts.vat_ids = _dedupe(_vat_ids(text))[:10]
-    facts.legal_mentions = _dedupe(_squash(m.group()) for m in _LEGAL_RE.finditer(text))[:_MAX_SNIPPETS]
+    facts.legal_mentions = _dedupe(_snippets(_LEGAL_RE, text, 60, 100))[:_MAX_SNIPPETS]
+
+
+def _snippets(pattern: re.Pattern[str], text: str, before: int, after: int) -> Iterable[str]:
+    # The keyword plus its sentence (up to `before`/`after` chars either side). Widening by slicing instead of a
+    # leading `[^.]{0,80}` in the pattern keeps matching linear: that prefix retried 80 starts at every character.
+    for m in pattern.finditer(text):
+        lo, hi = max(m.start() - before, 0), min(m.end() + after, len(text))
+        head = text[lo : m.start()]
+        tail = text[m.end() : hi]
+        head = head[head.rfind(".") + 1 :] if "." in head else head
+        cut = tail.find(".")
+        yield _squash(head + m.group() + (tail[:cut] if cut >= 0 else tail))
 
 
 def _vat_ids(text: str) -> list[str]:
@@ -325,16 +339,47 @@ def _microdata_reviews(soup: BeautifulSoup, facts: PageFacts) -> None:
         )
 
 
-def _shopify(html: str, facts: PageFacts) -> None:
-    # The struck-through "was" price. Shopify's product JSON stores it in cents; only accept a value that is at
-    # least the listed price, so a mismatched or empty compare-at price is never reported as a discount.
-    if facts.list_price is not None or facts.price is None or not (m := _COMPARE_AT_RE.search(html)):
-        return
-    cents = float(m.group(1))
-    for candidate in (round(cents / 100, 2), cents):
-        if candidate > facts.price:
-            facts.list_price = candidate
-            return
+def _shopify_amount(digits: str) -> float:
+    # Shopify's product JSON stores integer amounts in cents; a decimal ("29.99", from a theme's money filter) is
+    # already in the currency. An integer is never read as whole units: that turned "2495" into a 99% discount.
+    return float(digits) if "." in digits else round(int(digits) / 100, 2)
+
+
+def shopify_compare_at(html: str, price: float, url: str = "") -> float | None:
+    """
+    The struck-through "was" price of the variant on show, from Shopify's product JSON.
+
+    Each compare-at price is bound to its variant: the one named by ``?variant=`` in the URL, else the one whose
+    own price is the listed price. Without such a match, only a compare-at price every variant shares counts. A
+    value at or below the listed price (an empty or stale compare-at) is never a discount.
+
+    :param html: The page HTML.
+    :param price: The listed price.
+    :param url: The page URL (for ``?variant=``).
+    :return: The was-price, or ``None``.
+    """
+    variant = parse_qs(urlsplit(url).query).get("variant", [""])[0]
+    candidates: list[tuple[float, bool, bool]] = []  # (was, is the URL's variant, own price is the listed price)
+    for m in _COMPARE_AT_RE.finditer(html):
+        lo = max(m.start() - _VARIANT_WINDOW, 0)
+        ids = _VARIANT_ID_RE.findall(html, lo, m.start())
+        prices = list(_VARIANT_PRICE_RE.finditer(html, lo, m.end() + _VARIANT_WINDOW))
+        nearest = min(prices, key=lambda p: abs(p.start() - m.start()), default=None)
+        own = _shopify_amount(nearest.group(2)) if nearest else None
+        candidates.append((_shopify_amount(m.group(2)), bool(variant) and ids[-1:] == [variant], own == price))
+    if not candidates:
+        return None
+    chosen = [c for c in candidates if c[1]] or [c for c in candidates if c[2]]
+    values = {c[0] for c in (chosen or candidates)}
+    if len(values) != 1:
+        return None  # variants disagree and none is the one on show
+    was = values.pop()
+    return was if was > price else None
+
+
+def _shopify(html: str, facts: PageFacts, url: str) -> None:
+    if facts.list_price is None and facts.price is not None:
+        facts.list_price = shopify_compare_at(html, facts.price, url)
 
 
 def _trim(node: dict[str, Any]) -> dict[str, Any]:

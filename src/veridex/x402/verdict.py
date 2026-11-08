@@ -135,8 +135,11 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
     if assessment:
         risk_score = float(assessment["risk_score"])
         shopper_verdict = result.get("verdict") or {}
+        action = action_for(risk_score, policy)
+        if assessment.get("degraded") and action == "allow":
+            action = "warn"  # a key skill failed: never wave a purchase through on partial evidence
         return Verdict(
-            action=action_for(risk_score, policy),
+            action=action,
             risk_score=risk_score,
             confidence=float(assessment["confidence"]),
             flags=[

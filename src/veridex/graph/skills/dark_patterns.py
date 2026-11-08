@@ -6,6 +6,7 @@ reported as a plain fact. Drip pricing is fully visible only at checkout; when t
 page (an agent can), its total is compared with the listed price.
 """
 
+import asyncio
 import re
 
 from bs4 import BeautifulSoup
@@ -53,7 +54,9 @@ def shop_timers(timers: list[str], page_type: str) -> list[str]:
 
 
 _TOTAL_RE = re.compile(
-    r"(?:order total|grand total|total due|total to pay|totaal|gesamtsumme|gesamtbetrag|total)\s*:?\s*"
+    # A whole-word "total" (so not "Subtotal"), and never a savings or discount total.
+    r"\b(?:order total|grand total|total due|total to pay|te betalen|totaal|gesamtsumme|gesamtbetrag|total)\b"
+    r"(?!\s*(?:savings|saved|discount|korting|ersparnis|rabatt|économie|remise))\s*:?\s*"
     r"((?:[A-Z]{3}|[$€£])?\s*\d[\d., ]*\s*(?:[A-Z]{3}|[$€£])?)",
     re.IGNORECASE,
 )
@@ -115,7 +118,7 @@ class DarkPatternsSkill(Skill):
 
         markup = 0.0
         if (checkout := state.get("checkout_content")) and facts.price:
-            total = checkout_total(checkout)
+            total = await asyncio.to_thread(checkout_total, checkout)  # a big page takes a while to parse
             if total is not None and total > facts.price:
                 markup = (total - facts.price) / facts.price
                 if markup >= 0.1:

@@ -26,6 +26,7 @@ reported for comparison only. The shipped artifact goes to ``src/veridex/scoring
 
 import argparse
 import json
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -42,7 +43,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from veridex.graph import SKILLS
-from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model
+from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, unavailable_skills
 from veridex.x402.verdict import QUICK_SKILLS
 
 UNRELIABLE = {"junk", "scam"}
@@ -90,9 +91,17 @@ def load_features(path: Path) -> dict[str, dict[str, float]]:
     return {r["id"]: r["features"] for r in rows}
 
 
+def _value(row: dict[str, float], name: str) -> float:
+    return math.nan if name.split(".", 1)[0] in unavailable_skills(row) else row.get(name, 0.0)
+
+
 def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]], names: list[str]) -> Dataset:
     """
-    Turn records with features into a matrix (missing features are 0).
+    Turn records with features into a matrix.
+
+    A missing feature is 0 (the skill ran and found nothing), as in production. The columns of a skill that failed
+    on a page (it reported ``<skill>.unavailable``) are NaN: :func:`fit` fills them with the column mean, which is
+    what :meth:`veridex.scoring.Model.contributions` scores a failed skill as.
 
     :param records: Labelled records.
     :param features: Features by record id; records without features are skipped.
@@ -100,7 +109,7 @@ def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]],
     :return: The dataset.
     """
     kept = [r for r in records if r.id in features]
-    x = np.array([[features[r.id].get(n, 0.0) for n in names] for r in kept], dtype=float)
+    x = np.array([[_value(features[r.id], n) for n in names] for r in kept], dtype=float)
     y = np.array([1 if r.label in UNRELIABLE else 0 for r in kept], dtype=int)
     return Dataset(kept, x.reshape(len(kept), len(names)), y)
 
@@ -114,10 +123,11 @@ def fit(train: Dataset, names: list[str], version: str) -> Model:
     :param version: Version string for the artifact.
     :return: The model.
     """
-    means = train.x.mean(axis=0)
-    scales = train.x.std(axis=0)
+    means = np.nan_to_num(np.nanmean(train.x, axis=0)) if train.x.size else np.zeros(len(names))
+    x = np.where(np.isnan(train.x), means, train.x)  # failed skills: the training mean, a zero contribution
+    scales = x.std(axis=0)
     scales[scales == 0] = 1.0
-    z = (train.x - means) / scales
+    z = (x - means) / scales
     folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=7)
     lr = LogisticRegressionCV(Cs=12, cv=folds, scoring="roc_auc", max_iter=5_000, class_weight="balanced")
     lr.fit(z, train.y)
@@ -152,7 +162,11 @@ def outcomes(model: Model, data: Dataset, names: list[str]) -> list[Outcome]:
     """
     result: list[Outcome] = []
     for record, row in zip(data.records, data.x, strict=True):
-        risk = model.probability(dict(zip(names, row.tolist(), strict=True)))
+        values = dict(zip(names, row.tolist(), strict=True))
+        failed = {n.split(".", 1)[0] for n, v in values.items() if math.isnan(v)}
+        risk = model.probability(
+            {n: v for n, v in values.items() if not math.isnan(v)} | {f"{s}.unavailable": 1.0 for s in failed}
+        )
         assert record.label is not None
         result.append(Outcome(id=record.id, label=record.label, score=round(100 * (1 - risk))))
     return result
@@ -301,7 +315,7 @@ def main() -> None:
     if args.quick:
         names = [n for n in names if n.split(".", 1)[0] in QUICK_SKILLS]
     rule_columns = {c for cols in RULE_MIRRORS.values() for c in cols}
-    stamp = datetime.now(UTC).strftime("%Y%m%d")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")  # unique per training run, so every artifact is traceable
     tag = "quick-" if args.quick else ""
 
     variants = {

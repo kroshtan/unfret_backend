@@ -10,14 +10,37 @@ import re
 from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
 
-_INSTRUCTION_RE = re.compile(
+# Text that unmistakably addresses an AI or overrides its instructions: suspicious anywhere, also in visible text.
+_AI_DIRECTED_RE = re.compile(
     r"ignore (?:all |any |the )?(?:previous|prior|above|earlier) (?:instructions|prompts?|rules)"
-    r"|disregard (?:all |the )?(?:previous|prior|above) |you are (?:an? )?(?:ai|assistant|language model|chatbot)"
-    r"|as an ai\b|system prompt|(?:rate|score|classify|mark) (?:this|the) (?:shop|store|site|page|product|listing)"
+    r"|disregard (?:all |the )?(?:previous|prior|above) (?:instructions|prompts?|rules)"
+    r"|\byou are (?:an? )?(?:ai|assistant|language model|chatbot|llm)\b|\bas an ai\b|\bsystem prompt\b"
+    r"|\b(?:dear|attention|note to|hey) (?:ai|assistant|llm|chatgpt|bot|crawler|reviewer bot)\b"
+    r"|\b(?:ai|assistant|llm|model)s?,? (?:must|should|please) (?:rate|score|classify|mark|report|ignore)\b",
+    re.IGNORECASE,
+)
+# Phrases ordinary shops use visibly ("Rate this product", "TrustScore 4.6", "10 out of 10 would buy"): only
+# suspicious when hidden from the shopper, where they can only be meant for a bot.
+_HIDDEN_ONLY_RE = re.compile(
+    r"(?:rate|score|classify|mark) (?:this|the) (?:shop|store|site|page|product|listing)"
     r"|(?:trust ?score|reliability score|legitimacy score)|\b(?:100|10) out of (?:100|10)\b"
     r"|do not (?:flag|report|mention)|this (?:shop|store|site) is (?:100% )?(?:legit|trustworthy|safe)",
     re.IGNORECASE,
 )
+
+
+def instructions(text: str, *, hidden: bool) -> list[str]:
+    """
+    Instruction-like phrases aimed at an AI in ``text``.
+
+    :param text: Page text.
+    :param hidden: Whether the text is hidden from the shopper (then shop-ish phrases count too).
+    :return: The phrases found, in order.
+    """
+    hits = [m.group() for m in _AI_DIRECTED_RE.finditer(text)]
+    if hidden:
+        hits += [m.group() for m in _HIDDEN_ONLY_RE.finditer(text)]
+    return hits
 
 
 class InjectionSkill(Skill):
@@ -36,8 +59,8 @@ class InjectionSkill(Skill):
         """
         facts = state["facts"]
         hidden = " ".join(facts.hidden_text)
-        hidden_hits = [m.group() for m in _INSTRUCTION_RE.finditer(hidden)]
-        visible_hits = [m.group() for m in _INSTRUCTION_RE.finditer(state["cleaned_content"])]
+        hidden_hits = instructions(hidden, hidden=True)
+        visible_hits = instructions(state["cleaned_content"], hidden=False)
         observations = [
             Observation(type="hidden_instruction", evidence=f'Hidden text addresses an AI: "{hit[:150]}".')
             for hit in dict.fromkeys(hidden_hits)

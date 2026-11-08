@@ -1,13 +1,22 @@
-"""Known apps and supplier traces in the page source, by pattern: deterministic, fast, high precision."""
+"""
+Known apps and supplier traces in the page source, by pattern: deterministic, fast, high precision.
 
+The page source is the raw HTML when the server has it, plus the script URLs and meta tags of the page facts, which
+is all the browser extension sends (it never uploads raw HTML). Matching lower-cases the source once and uses plain
+lower-case patterns, which is several times faster than case-insensitive regexes on a 2 MB page, and runs off the
+event loop.
+"""
+
+import asyncio
 import re
 
+from veridex.facts import PageFacts
 from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
 
-# (category, pattern, label). Matched case-insensitively against the raw HTML.
+# (category, pattern, label). Patterns are lower-case and matched against the lower-cased source.
 _SIGNALS: list[tuple[str, re.Pattern[str], str]] = [
-    (cat, re.compile(pattern, re.IGNORECASE), label)
+    (cat, re.compile(pattern), label)
     for cat, pattern, label in [
         # Dropshipping fulfilment apps and platforms
         ("dropship_app", r"oberlo", "Oberlo (Shopify dropship fulfilment)"),
@@ -54,6 +63,28 @@ _SIGNALS: list[tuple[str, re.Pattern[str], str]] = [
 _CATEGORIES = ("dropship_app", "supplier_trace", "review_import_app", "shipping_protection_app", "timer_app")
 
 
+def page_source(html: str, facts: PageFacts) -> str:
+    """
+    Everything the patterns are matched against, lower-cased once.
+
+    :param html: The raw HTML (or the cleaned text an extension sent).
+    :param facts: The page facts; their script URLs and meta tags carry the app traces when there is no HTML.
+    :return: The lower-cased source.
+    """
+    extra = "\n".join([*facts.script_srcs, *(f"{k}={v}" for k, v in facts.meta.items())])
+    return f"{html}\n{extra}".lower()
+
+
+def scan(source: str) -> list[tuple[str, str]]:
+    """
+    The (category, label) pairs whose pattern occurs in ``source``.
+
+    :param source: From :func:`page_source`.
+    :return: The hits, in catalogue order.
+    """
+    return [(category, label) for category, pattern, label in _SIGNALS if pattern.search(source)]
+
+
 class HtmlSourceSignalsSkill(Skill):
     """Scan the raw HTML for dropship apps, supplier CDNs, review importers, protection and urgency apps."""
 
@@ -63,13 +94,13 @@ class HtmlSourceSignalsSkill(Skill):
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Match the known patterns against the raw HTML.
+        Match the known patterns against the raw HTML and the page facts' script URLs and meta tags.
 
-        :param state: Current graph state; uses ``page_content``.
+        :param state: Current graph state; uses ``page_content`` and ``facts``.
         :return: Counts per category and one finding per distinct hit.
         """
-        html = state["page_content"]
-        hits = [(category, label) for category, pattern, label in _SIGNALS if pattern.search(html)]
+        html, facts = state["page_content"], state["facts"]
+        hits = await asyncio.to_thread(lambda: scan(page_source(html, facts)))
         counts = {category: sum(1 for c, _ in hits if c == category) for category in _CATEGORIES}
         observations = [Observation(type=category, evidence=label) for category, label in hits]
         return self.output(counts, observations)

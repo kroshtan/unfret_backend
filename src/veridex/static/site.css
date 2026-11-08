@@ -97,6 +97,17 @@ button.wallet img { border-radius: 0.35rem; }
 #status[data-kind="error"] { border-color: var(--error); }
 
 footer { margin-top: 3rem; color: var(--muted); font-size: 0.9rem; }
+h3 { font-size: 1rem; margin: 1.25rem 0 0.4rem; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--muted);
+  border-radius: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+details summary { cursor: pointer; }
 
 .visually-hidden {
   position: absolute;

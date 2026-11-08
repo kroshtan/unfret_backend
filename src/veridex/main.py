@@ -52,6 +52,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
         await api.db_pool.close()
+        await api.x402.rpc.aclose()
     logger.info("Veridex backend service shutting down")
 
 

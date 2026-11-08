@@ -1,5 +1,6 @@
 """The /v1/check route end to end over ASGI, with real transactions and a stubbed RPC (no database needed)."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -19,6 +20,7 @@ from tests.unit.x402_helpers import (
 )
 from veridex.config import Settings
 from veridex.main import app
+from veridex.visitors import RateLimit
 from veridex.x402.payment import decode_header
 from veridex.x402.solana import USDC_MINTS, RpcError, SettlementPendingError
 
@@ -32,12 +34,13 @@ class FakeGraph:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.error: Exception | None = None
+        self.score = 25
 
     async def ainvoke(self, state: dict[str, Any], config: Any = None) -> dict[str, Any]:
         self.calls.append(state)
         if self.error:
             raise self.error
-        return {"score": 25, "explanation": "x", "skill_results": ["[page_content]\nUnknown brand."]}
+        return {"score": self.score, "explanation": "x", "skill_results": ["[page_content]\nUnknown brand."]}
 
 
 @pytest.fixture
@@ -139,15 +142,70 @@ async def test_malformed_payment_is_400(client: httpx.AsyncClient) -> None:
     assert response.status_code == 400
 
 
-async def test_replayed_payment_is_refused(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
+async def test_a_retry_with_the_same_payment_gets_the_same_answer_once_paid(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph
+) -> None:
     header = paid_header()
-    assert (await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": header})).status_code == 200
+    first = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": header})
+    assert first.status_code == 200
 
     replay = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": header})
 
-    assert replay.status_code == 402
-    assert decode_header(replay.headers["PAYMENT-REQUIRED"])["error"] == "duplicate_settlement"
-    assert len(rpc.sent) == 1
+    assert (replay.status_code, replay.json()) == (200, first.json())
+    assert replay.headers["PAYMENT-RESPONSE"] == first.headers["PAYMENT-RESPONSE"]
+    assert len(rpc.sent) == 1 and len(graph.calls) == 1  # charged and analysed once
+
+
+async def test_concurrent_retries_share_one_settlement(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph
+) -> None:
+    header = {"PAYMENT-SIGNATURE": paid_header()}
+    responses = await asyncio.gather(*(client.post("/v1/check", json=BODY, headers=header) for _ in range(3)))
+    assert [r.status_code for r in responses] == [200, 200, 200]
+    assert len(rpc.sent) == 1 and len(graph.calls) == 1
+
+
+async def test_a_refusal_before_payment_can_be_retried(
+    client: httpx.AsyncClient, rpc: FakeRpc, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rpc.fail_with = RpcError("sendTransaction: ConnectError")  # never reached the network: nothing was charged
+    header = {"PAYMENT-SIGNATURE": paid_header()}
+    assert (await client.post("/v1/check", json=BODY, headers=header)).status_code == 402
+    rpc.fail_with = None
+    assert (await client.post("/v1/check", json=BODY, headers=header)).status_code == 200
+
+
+async def test_an_unassessable_page_is_refunded(
+    client: httpx.AsyncClient, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    credited: list[tuple[str, int]] = []
+
+    async def credit(pool: object, payer: str, usd_micros: int) -> int:
+        credited.append((payer, usd_micros))
+        return usd_micros
+
+    monkeypatch.setattr("veridex.routes.check._credit", credit)
+    graph.score = -1
+    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
+    assert response.status_code == 200
+    assert response.json()["refunded_usd_micros"] == 10_000
+    assert credited == [(str(CLIENT.pubkey()), 10_000)]
+
+
+async def test_a_bot_check_page_costs_nothing(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
+    body = {
+        **BODY,
+        "page_content": "<html><title>Just a moment...</title><script src='/cdn-cgi/challenge-platform/x'>",
+    }
+    response = await client.post("/v1/check", json=body, headers={"PAYMENT-SIGNATURE": paid_header()})
+    assert (response.status_code, response.json()["error_code"]) == (422, "PAGE_BLOCKED")
+    assert rpc.sent == []
+
+
+async def test_check_is_rate_limited_per_visitor(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("veridex.routes.check._rate", RateLimit(2))
+    codes = [(await client.post("/v1/check", json=BODY)).status_code for _ in range(3)]
+    assert codes == [402, 402, 429]
 
 
 async def test_unfetchable_page_costs_nothing(

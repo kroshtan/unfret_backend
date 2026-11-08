@@ -10,7 +10,8 @@ from veridex.migrations import migrate
 
 async def create_pool() -> asyncpg.Pool:
     """Create and return an asyncpg connection pool."""
-    return await asyncpg.create_pool(settings.postgres_uri)
+    # A query that hangs (a lock, a stuck connection) fails after 10 s instead of holding a request forever.
+    return await asyncpg.create_pool(settings.postgres_uri, command_timeout=10)
 
 
 async def init_db(pool: asyncpg.Pool) -> None:

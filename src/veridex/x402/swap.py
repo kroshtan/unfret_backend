@@ -8,6 +8,9 @@ accepts. A swap is accepted only if, in the simulation:
 
 * the hot wallet is the fee payer and the only signer, compute budget and priority fee are capped, no
   signature-verification precompiles, the size fits;
+* every top-level instruction belongs to Jupiter's aggregator, the token or associated token program, or the
+  compute budget program (the routes' AMMs run inside the aggregator by CPI, where the balance checks below bound
+  what they can do); anything else could act with the hot wallet's signature outside the route;
 * the hot wallet's USDC account loses exactly the swapped amount, its wSOL account gains at least the minimum output
   (the worse of Jupiter's slippage bound and a floor from Pyth's SOL/USD price), and its SOL drops by no more than
   the fee;
@@ -33,9 +36,18 @@ from veridex.x402.payment import (
     PaymentError,
     compute_budget,
 )
-from veridex.x402.solana import WSOL_MINT, SolanaRpc, associated_token_address
+from veridex.x402.solana import (
+    ASSOCIATED_TOKEN_PROGRAM,
+    COMPUTE_BUDGET_PROGRAM,
+    TOKEN_PROGRAM,
+    WSOL_MINT,
+    SolanaRpc,
+    associated_token_address,
+)
 
 SYSTEM_PROGRAM = "11111111111111111111111111111111"
+JUPITER_AGGREGATOR = Pubkey.from_string("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4")
+SWAP_PROGRAMS = frozenset({JUPITER_AGGREGATOR, TOKEN_PROGRAM, ASSOCIATED_TOKEN_PROGRAM, COMPUTE_BUDGET_PROGRAM})
 _VERIFIED = object()  # only verify_swap can mint a VerifiedSwap
 
 
@@ -162,7 +174,7 @@ def _token_state(account: dict[str, Any] | None, *, owner: Pubkey, mint: Pubkey)
     return int(info["tokenAmount"]["amount"])
 
 
-async def verify_swap(  # noqa: C901, PLR0913
+async def verify_swap(  # noqa: C901, PLR0912, PLR0913
     raw_tx: bytes,
     *,
     rpc: SolanaRpc,
@@ -202,6 +214,8 @@ async def verify_swap(  # noqa: C901, PLR0913
         raise SwapError("the hot wallet must be the fee payer and the only signer")
     if any(keys[ix.program_id_index] in PRECOMPILES for ix in message.instructions):
         raise SwapError("precompile not allowed")
+    if outside := {str(keys[ix.program_id_index]) for ix in message.instructions} - {str(p) for p in SWAP_PROGRAMS}:
+        raise SwapError(f"program not allowed at top level: {', '.join(sorted(outside))}")
     try:
         priority = compute_budget(message, max_compute_units, max_priority_lamports * 1_000_000)
     except PaymentError as exc:

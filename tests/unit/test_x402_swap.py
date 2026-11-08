@@ -30,7 +30,7 @@ DEX = Pubkey.from_string("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4")  # Jupit
 POOL = Keypair().pubkey()
 
 
-def swap_tx(*, cu_price: int = 250_000, extra_signer: Pubkey | None = None) -> bytes:
+def swap_tx(*, cu_price: int = 250_000, extra_signer: Pubkey | None = None, program: Pubkey = DEX) -> bytes:
     """A Jupiter-like swap: compute budget, one aggregator instruction over the hot wallet's accounts and a pool."""
     accounts = [
         AccountMeta(HOT.pubkey(), is_signer=True, is_writable=True),
@@ -40,7 +40,11 @@ def swap_tx(*, cu_price: int = 250_000, extra_signer: Pubkey | None = None) -> b
     ]
     if extra_signer:
         accounts.append(AccountMeta(extra_signer, is_signer=True, is_writable=False))
-    ixs = [set_compute_unit_limit(400_000), set_compute_unit_price(cu_price), Instruction(DEX, b"\x01route", accounts)]
+    ixs = [
+        set_compute_unit_limit(400_000),
+        set_compute_unit_price(cu_price),
+        Instruction(program, b"\x01route", accounts),
+    ]
     message = MessageV0.try_compile(HOT.pubkey(), ixs, [], Hash.default())
     sigs = message.header.num_required_signatures
     return bytes(VersionedTransaction.populate(message, [Signature.default()] * sigs))
@@ -144,6 +148,12 @@ async def test_a_second_signer_or_a_high_priority_fee_is_refused() -> None:
         await verify(SwapRpc(), swap_tx(extra_signer=Keypair().pubkey()))
     with pytest.raises(SwapError, match="priority"):
         await verify(SwapRpc(), swap_tx(cu_price=300_000))  # 400k units × 0.3 lamports > 100_000
+
+
+async def test_only_jupiters_aggregator_may_run_at_top_level() -> None:
+    # The balances would look right, but an unknown program holding the hot wallet's signature could do anything.
+    with pytest.raises(SwapError, match="program not allowed"):
+        await verify(SwapRpc(), swap_tx(program=Keypair().pubkey()))
 
 
 def test_a_swap_cannot_be_forged_around_verification() -> None:

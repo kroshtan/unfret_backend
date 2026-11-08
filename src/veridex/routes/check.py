@@ -8,6 +8,8 @@ about the payment or the page is stored.
 """
 
 import asyncio
+import json
+import time
 from typing import Any
 
 import structlog
@@ -21,7 +23,8 @@ from veridex.credits import ledger
 from veridex.net import fetch_public
 from veridex.prices import format_usd
 from veridex.shopper import pick_language
-from veridex.x402.payment import PaymentError, Precheck, encode_header
+from veridex.visitors import RateLimit
+from veridex.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
 from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, TransactionFailedError, usdc_mint
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
@@ -33,6 +36,24 @@ router = APIRouter(tags=["x402"])
 PAYMENT_SIGNATURE = "PAYMENT-SIGNATURE"
 PAYMENT_REQUIRED = "PAYMENT-REQUIRED"
 PAYMENT_RESPONSE = "PAYMENT-RESPONSE"
+
+_REPLAY_TTL_S = 900.0  # how long a paid check's answer is kept for a retry with the same payment
+_PENDING_WATCH_S = 120.0  # how long a submitted-but-unconfirmed payment is watched before it's let go
+_rate = RateLimit(settings.x402_check_per_minute)
+# Answers to paid checks by payment (the client's signature): a retry gets the same answer, never a second charge.
+_replays: dict[str, tuple[float, asyncio.Future[tuple[int, dict[str, Any], dict[str, str]]]]] = {}
+_background: set[asyncio.Task[None]] = set()
+# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon); markers, not generic captchas,
+# so a shop with a reCAPTCHA newsletter form still counts as a page.
+_CHALLENGE_MARKERS = (
+    "/cdn-cgi/challenge-platform/",
+    "<title>just a moment...</title>",
+    "<title>attention required! | cloudflare</title>",
+    "captcha-delivery.com",
+    "px-captcha",
+    "/errors/validatecaptcha",
+    "<title>robot check</title>",
+)
 
 
 class CheckRequest(BaseModel):
@@ -97,7 +118,10 @@ async def _refund_as_credits(request: Request, payer: str, usd_micros: int) -> i
     :param usd_micros: The price paid (the tier's dollar price, whichever currency paid it).
     :return: The micro-dollars refunded, or 0 if it couldn't be recorded (logged for manual follow-up).
     """
-    pool = request.app.db_pool
+    return await _credit(request.app.db_pool, payer, usd_micros)
+
+
+async def _credit(pool: Any, payer: str, usd_micros: int) -> int:
     if pool is None:
         logger.error("x402_refund_unrecorded", reason="no_database", usd_micros=usd_micros)
         return 0
@@ -117,8 +141,45 @@ async def _page_html(body: CheckRequest) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-async def _settle(
-    x402: X402, pre: Precheck, accepts: list[dict[str, Any]], payer: str, ip: str
+def is_challenge_page(html: str) -> bool:
+    """
+    Whether this is a bot-check interstitial rather than the page (checked before any payment).
+
+    :param html: The page.
+    :return: ``True`` for Cloudflare, DataDome, PerimeterX and Amazon challenge pages.
+    """
+    head = html[:200_000].lower()
+    return any(marker in head for marker in _CHALLENGE_MARKERS)
+
+
+async def _credit_if_it_lands(x402: X402, pool: Any, signature: str, payer: str, usd_micros: int) -> None:
+    """
+    Watch a payment that was submitted but not confirmed in time; if it lands, credit its price (no check ran).
+
+    :param x402: The payment service.
+    :param pool: The database pool.
+    :param signature: The submitted transaction.
+    :param payer: The paying wallet.
+    :param usd_micros: The tier's price.
+    """
+    deadline = time.monotonic() + _PENDING_WATCH_S
+    while time.monotonic() < deadline:
+        try:
+            status = await x402.rpc.signature_status(signature)
+        except RpcError:
+            status = None
+        if status is not None and status.get("err") is not None:
+            return  # it failed: nothing was paid
+        if status is not None and status.get("confirmationStatus") in {"confirmed", "finalized"}:
+            await _credit(pool, payer, usd_micros)
+            logger.warning("x402_pending_payment_landed_credited", usd_micros=usd_micros)
+            return
+        await asyncio.sleep(2)
+    logger.warning("x402_pending_payment_unresolved")
+
+
+async def _settle(  # noqa: PLR0913
+    x402: X402, pre: Precheck, accepts: list[dict[str, Any]], payer: str, ip: str, *, pool: Any, usd_micros: int
 ) -> Settlement | Response:
     """
     Settle a prechecked payment, or answer why it didn't settle (counting failures that cost us a fee).
@@ -128,6 +189,8 @@ async def _settle(
     :param accepts: The options offered, for a renewed 402.
     :param payer: The paying wallet.
     :param ip: The visitor's address, for the breaker.
+    :param pool: The database pool, to credit a pending payment that lands later.
+    :param usd_micros: The tier's price, credited in that case.
     :return: The settlement, or the response to send instead.
     """
     try:
@@ -147,12 +210,23 @@ async def _settle(
         return JSONResponse({"detail": "The payment did not settle as required."}, 402, headers)
     except SettlementPendingError as exc:
         x402.breaker.record_failure(payer, ip)  # it may yet land, or fail at our expense
+        task = asyncio.create_task(_credit_if_it_lands(x402, pool, exc.signature, payer, usd_micros))
+        _background.add(task)
+        task.add_done_callback(_background.discard)
         headers = {
             PAYMENT_RESPONSE: _settlement(
                 x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_pending"
             )
         }
-        return JSONResponse({"detail": "Payment submitted but not yet confirmed; retry later."}, 402, headers)
+        detail = (
+            "Payment submitted but not confirmed in time; no check ran. If it lands within two minutes, its price "
+            f"is credited to {payer} (sign in at {settings.public_base_url}/connect); otherwise nothing was charged."
+        )
+        return JSONResponse(
+            {"detail": detail, "error_code": "SETTLEMENT_PENDING", "status": "unknown", "transaction": exc.signature},
+            402,
+            headers,
+        )
     except RpcError as exc:
         logger.info("x402_settlement_failed", error=str(exc)[:200])
         if isinstance(exc, TransactionFailedError):  # it landed and failed: the hot wallet paid the fee
@@ -164,14 +238,23 @@ async def _settle(
 
 
 @router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
-async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911, PLR0912
+async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911
     """
     Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
+
+    Retrying with the same payment returns the same answer (for 15 minutes) and is never charged twice.
 
     :param body: URL, optional page HTML, tier and policy.
     :param request: The incoming request (payment header, app state).
     :return: The verdict, or an x402 payment-required / error response.
     """
+    ip = request.client.host if request.client else "unknown"
+    if (wait := _rate.retry_after(ip)) is not None:
+        return JSONResponse(
+            {"detail": "Too many requests; slow down.", "error_code": "RATE_LIMITED"},
+            status_code=429,
+            headers={"Retry-After": str(max(1, int(wait) + 1))},
+        )
     x402 = get_x402(request)
     health = await x402.health()
     if health.status != "ok":
@@ -196,8 +279,45 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
         return _payment_required(accepts, exc.reason)
+
+    key = str(pre.transaction.signatures[1])
+    now = time.monotonic()
+    for stale in [k for k, (expires, _) in _replays.items() if expires < now]:
+        del _replays[stale]
+    if key in _replays:
+        status, content, headers = await asyncio.shield(_replays[key][1])
+        return JSONResponse(content, status_code=status, headers=headers)
+    answer: asyncio.Future[tuple[int, dict[str, Any], dict[str, str]]] = asyncio.get_running_loop().create_future()
+    _replays[key] = (now + _REPLAY_TTL_S, answer)
+    outcome: Response | tuple[int, dict[str, Any], dict[str, str]] | None = None
+    try:
+        outcome = await _paid_check(body, request, x402, pre, accepts=accepts, ip=ip)
+    finally:
+        if outcome is None or isinstance(outcome, Response):  # refused before money moved: a retry starts over
+            _replays.pop(key, None)
+            answer.cancel()
+    if isinstance(outcome, Response):
+        return outcome
+    answer.set_result(outcome)
+    status, content, headers = outcome
+    return JSONResponse(content, status_code=status, headers=headers)
+
+
+async def _paid_check(  # noqa: PLR0911, PLR0913
+    body: CheckRequest, request: Request, x402: X402, pre: Precheck, *, accepts: list[dict[str, Any]], ip: str
+) -> Response | tuple[int, dict[str, Any], dict[str, str]]:
+    """
+    Fetch, settle and analyse; the part of a check that a retry with the same payment must not repeat.
+
+    :param body: The request body.
+    :param request: The incoming request.
+    :param x402: The payment service.
+    :param pre: The prechecked payment.
+    :param accepts: The options offered.
+    :param ip: The visitor's address.
+    :return: A response sent before any money moved, or the paid answer (status, body, headers) to keep for retries.
+    """
     payer = str(pre.payer)
-    ip = request.client.host if request.client else "unknown"
     if (wait := x402.breaker.open_for(payer, ip)) is not None:
         logger.warning("x402_breaker_open")
         return JSONResponse(
@@ -221,18 +341,31 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             },
             status_code=422,
         )
+    if is_challenge_page(html):
+        return JSONResponse(
+            {
+                "detail": "The page is a bot check, not the store; send the real page as page_content. "
+                "You were not charged.",
+                "error_code": "PAGE_BLOCKED",
+            },
+            status_code=422,
+        )
 
     graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
-    settlement = await _settle(x402, pre, accepts, payer, ip)
+    price = x402.usd_price(body.tier)  # the tier's dollar price, whichever currency paid it
+    settlement = await _settle(x402, pre, accepts, payer, ip, pool=request.app.db_pool, usd_micros=price)
     if isinstance(settlement, Response):
+        receipt = settlement.headers.get(PAYMENT_RESPONSE)
+        if receipt and decode_header(receipt).get("transaction"):  # submitted: a retry must get this same answer
+            return settlement.status_code, _json(settlement), {PAYMENT_RESPONSE: receipt}
         return settlement
     signature = settlement.signature
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
     try:
-        async with asyncio.timeout(settings.analysis_timeout_s):
+        async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
             language = pick_language(request.headers.get("accept-language"))
             result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "language": language})
     except Exception as exc:  # noqa: BLE001
@@ -245,16 +378,25 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
             "transaction": signature,
         }
-        # The tier's dollar price, whichever currency paid for it (credit balances are micro-dollars).
-        refunded = await _refund_as_credits(request, payer, x402.usd_price(body.tier))
-        if refunded:
-            content["refunded_usd_micros"] = refunded
-            content["refunded_lamports"] = refunded  # deprecated name of the same micro-dollar credit
-            content["refund"] = f"Credited to {payer}; sign in with that wallet at {settings.public_base_url}/connect."
-        return JSONResponse(content, status_code=504 if timed_out else 500, headers=paid)
+        _add_refund(content, await _refund_as_credits(request, payer, price), payer)
+        return 504 if timed_out else 500, content, paid
 
-    verdict = to_verdict(result, policy=body.policy, tier=body.tier)
-    return JSONResponse(verdict.model_dump(mode="json"), headers=paid)
+    verdict = to_verdict(result, policy=body.policy, tier=body.tier).model_dump(mode="json")
+    if result.get("score") == -1:  # the page couldn't be assessed: the caller isn't charged for it
+        _add_refund(verdict, await _refund_as_credits(request, payer, price), payer)
+    return 200, verdict, paid
+
+
+def _add_refund(content: dict[str, Any], refunded: int, payer: str) -> None:
+    if refunded:
+        content["refunded_usd_micros"] = refunded
+        content["refunded_lamports"] = refunded  # deprecated name of the same micro-dollar credit
+        content["refund"] = f"Credited to {payer}; sign in with that wallet at {settings.public_base_url}/connect."
+
+
+def _json(response: Response) -> dict[str, Any]:
+    decoded: dict[str, Any] = json.loads(bytes(response.body))
+    return decoded
 
 
 def _discovery() -> dict[str, Any]:

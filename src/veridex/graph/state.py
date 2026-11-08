@@ -54,6 +54,12 @@ class AnalysisState(TypedDict):
     # One of: "aggregate_listing", "storefront", "article", "non_product"
     page_type: PageType
 
+    # ── Triage (set by the triage node) ──────────────────────────────────────
+    triage_round: int
+    # Expensive skills planned so far, one entry per run (the reverse image search picks the next photo from it).
+    expensive_runs: Annotated[list[str], _append_results]
+    next_skills: list[str]
+
     # ── Outputs (set by judge node) ──────────────────────────────────────────
     score: int
     explanation: str

@@ -8,10 +8,10 @@ import structlog
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from veridex import __version__
+from veridex import __version__, fact_cache, tineye
 from veridex.api import VeridexAPI
 from veridex.config import settings
-from veridex.db import create_pool, init_db
+from veridex.db import PostgresBudget, PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
@@ -30,6 +30,9 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     api.quick_graph = build_graph(skills_for("quick", SKILLS))
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
+    # Store-level facts and the TinEye spending cap persist in Postgres, shared across restarts and workers.
+    fact_cache.use_store(PostgresFactStore(api.db_pool))
+    tineye.use_budget(PostgresBudget(api.db_pool, "tineye"))
     api.x402 = X402(settings)
     # Single instance: the sweep to cold is not coordinated across processes.
     sweeper = asyncio.create_task(api.x402.run_forever()) if api.x402.configured else None

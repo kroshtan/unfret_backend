@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     tineye_api_key: SecretStr = SecretStr("")
     tineye_api_url: str = "https://api.tineye.com/rest/"
     tineye_monthly_budget: int = 1_000
+    # Expensive skill runs (e.g. TinEye searches) the triage may spend on one analysis.
+    triage_max_expensive_runs: int = 2
 
     # Database
     postgres_uri: str = "postgresql://veridex:veridex@localhost:5432/veridex"

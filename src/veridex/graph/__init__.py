@@ -7,6 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
 from veridex.config import settings
+from veridex.graph import triage
 from veridex.graph.nodes import classify_node, early_exit_node, judge_node, preprocess_node
 from veridex.graph.skills import Skill, SkillOutput
 from veridex.graph.skills.content import ContentSkill
@@ -63,13 +64,55 @@ def _isolated(skill: Skill) -> Callable[..., Awaitable[SkillOutput]]:
 
 def active_skills(skills: list[Skill], state: AnalysisState) -> list[Skill]:
     """
-    The skills that apply to this page: its type is one they handle, and they run by default or were flagged.
+    The cheap skills that apply to this page: its type is one they handle, and they run by default or were flagged.
+
+    Expensive skills never start here; the triage decides on them.
 
     :param skills: The registered skills.
     :param state: The graph state after classification.
-    :return: The skills to run.
+    :return: The skills to run in parallel.
     """
-    return [s for s in skills if state["page_type"] in s.page_types and (s.always_run or s.name in state["flags"])]
+    return [
+        s
+        for s in skills
+        if s.tier == "cheap" and state["page_type"] in s.page_types and (s.always_run or s.name in state["flags"])
+    ]
+
+
+def _triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, object]]]:
+    expensive = {s.name: s for s in skills if s.tier == "expensive"}
+
+    async def triage_node(state: AnalysisState) -> dict[str, object]:
+        """
+        Decide which expensive skills to run next (see :mod:`veridex.graph.triage`).
+
+        :param state: The graph state after a round of skills.
+        :return: The next round number, the planned skills, and their record in ``expensive_runs``.
+        """
+        round_ = state.get("triage_round", 0)
+        done = state.get("expensive_runs", [])
+        applicable = {n for n, s in expensive.items() if state["page_type"] in s.page_types}
+        flagged = [n for n in state["flags"] if n in applicable and n not in done]
+        if round_ >= MAX_TRIAGE_ROUNDS:
+            run: tuple[str, ...] = ()
+        elif flagged and len(done) < settings.triage_max_expensive_runs:
+            run = (flagged[0],)
+            logger.info("triage", round=round_, run=run, reason="requested by the caller")
+        else:
+            try:
+                decided = await triage.plan(state, applicable)
+            except Exception as exc:  # noqa: BLE001 - a failed triage only means no expensive checks
+                logger.warning("triage_failed", error=type(exc).__name__)
+                decided = triage.TriagePlan((), "Triage failed.")
+            run = decided.run
+            logger.info("triage", round=round_, run=run, reason=decided.reason)
+        return {"triage_round": round_ + 1, "next_skills": list(run), "expensive_runs": list(run)}
+
+    return triage_node
+
+
+# Triage runs after the cheap skills and once more after the first expensive round (the bounded re-triage).
+MAX_TRIAGE_ROUNDS = 2
 
 
 def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
@@ -78,13 +121,17 @@ def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
 
     The graph flows as follows::
 
-        preprocess → classify ─┬→ [skill_A, skill_B, …] (parallel) → judge → END
+        preprocess → classify ─┬→ [cheap skills] (parallel) → triage ─┬→ [expensive skill] → triage (once more)
+                               │                                       └→ judge → END
                                └→ early_exit → END
 
     ``classify`` determines the page type. Marketplace listings and storefronts
-    fan out to the skills that handle that page type; articles and non-product
-    pages exit early with a score of ``-1``. Skills with ``always_run=True``
-    fire by default; others only when their ``name`` appears in ``state["flags"]``.
+    fan out to the cheap skills that handle that page type; articles and
+    non-product pages exit early with a score of ``-1``. The triage then decides,
+    rules first, whether an expensive skill (a paid reverse image search) is
+    worth it, within a per-analysis budget, with one re-triage after it. The
+    graph is stream-capable: ``graph.astream(..., stream_mode="updates")``
+    yields each skill's findings as it finishes.
 
     To extend: add a :class:`~veridex.graph.skills.Skill` subclass and register
     an instance in :data:`SKILLS`.
@@ -100,6 +147,7 @@ def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
     builder.add_node("early_exit", early_exit_node)
     for skill in skills:
         builder.add_node(skill.name, _isolated(skill))
+    builder.add_node("triage", _triage_node(skills))
     builder.add_node("judge", judge_node)
 
     # Edges
@@ -109,12 +157,16 @@ def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
     def _route_after_classify(state: AnalysisState) -> list[Send] | str:
         if state["page_type"] not in {"aggregate_listing", "storefront"}:
             return "early_exit"
-        return [Send(s.name, state) for s in active_skills(skills, state)] or "judge"
+        return [Send(s.name, state) for s in active_skills(skills, state)] or "triage"
+
+    def _route_after_triage(state: AnalysisState) -> list[Send] | str:
+        return [Send(name, state) for name in state.get("next_skills", [])] or "judge"
 
     builder.add_conditional_edges("classify", _route_after_classify)
+    builder.add_conditional_edges("triage", _route_after_triage)
     builder.add_edge("early_exit", END)
     for skill in skills:
-        builder.add_edge(skill.name, "judge")
+        builder.add_edge(skill.name, "triage")
     builder.add_edge("judge", END)
 
     return builder.compile()

@@ -7,8 +7,10 @@ import asyncpg
 import httpx
 import pytest
 
+from veridex import result_cache
 from veridex.auth import hash_password
 from veridex.db import init_db
+from veridex.graph.state import Finding
 from veridex.main import app
 
 POSTGRES_URI = os.getenv("VERIDEX_TEST_POSTGRES_URI")
@@ -28,6 +30,16 @@ class FakeGraph:
             raise self.error
         return self.result
 
+    async def astream(
+        self, state: dict[str, Any], config: dict[str, Any] | None = None, stream_mode: str = "updates"
+    ) -> AsyncIterator[dict[str, Any]]:
+        self.calls.append(state)
+        yield {"classify": {"page_type": "storefront"}}
+        yield {"listing": {"findings": [Finding(skill="listing", type="discount", evidence="85% off.")]}}
+        if self.error:
+            raise self.error
+        yield {"judge": {"score": self.result["score"], "explanation": self.result["explanation"]}}
+
 
 @pytest.fixture
 async def pool() -> AsyncIterator[asyncpg.Pool]:
@@ -35,7 +47,7 @@ async def pool() -> AsyncIterator[asyncpg.Pool]:
     if not POSTGRES_URI:
         pytest.skip("VERIDEX_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
-    await pool.execute("DROP TABLE IF EXISTS analyze_log, accounts")
+    await pool.execute("DROP TABLE IF EXISTS analyze_log, accounts, fact_cache, usage_counters, schema_migrations")
     await init_db(pool)
     yield pool
     await pool.close()
@@ -51,6 +63,7 @@ async def client(pool: asyncpg.Pool, graph: FakeGraph) -> AsyncIterator[httpx.As
     # Bypass the lifespan (which builds the real graph) and inject test doubles.
     app.db_pool = pool
     app.graph = graph  # type: ignore[assignment]
+    result_cache.clear()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client
 

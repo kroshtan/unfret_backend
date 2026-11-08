@@ -16,7 +16,7 @@ import structlog
 from solders.pubkey import Pubkey
 
 from veridex.config import Settings
-from veridex.x402.payment import VerifiedPayment, requirements
+from veridex.x402.payment import Precheck, confirm_by_simulation, precheck, requirements
 from veridex.x402.solana import CAIP2, RpcError, SolanaRpc, associated_token_address
 from veridex.x402.wallet import HotWallet, build_sweep, load_keypair, unexpected_outflows
 
@@ -31,10 +31,34 @@ _BALANCE_TTL_S = 30.0
 _DUPLICATE_WINDOW_S = 120.0
 _FEE_BUFFER = 10_000  # lamports kept back for the sweep transaction's own fee
 _TOKEN_ACCOUNT_SIZE = 165
+_META_RETRIES = 10
 
 
 class DuplicateSettlementError(RpcError):
     """The same payment transaction is already being (or was just) settled."""
+
+
+class SettlementMismatchError(RpcError):
+    """A payment landed, but the hot wallet's wSOL account did not grow by exactly the price (or fees were off)."""
+
+    def __init__(self, signature: str, detail: str) -> None:
+        """
+        Remember the transaction so it can be reported and investigated.
+
+        :param signature: The settled transaction's signature.
+        :param detail: What didn't match.
+        """
+        super().__init__(f"{signature}: {detail}")
+        self.signature = signature
+
+
+@dataclass(frozen=True)
+class Settlement:
+    """A confirmed payment."""
+
+    signature: str
+    payer: Pubkey
+    amount: int
 
 
 @dataclass(frozen=True)
@@ -64,10 +88,13 @@ class X402:
         self._config_status: Status = "ok"
         self._balances: tuple[float, int, int | None] | None = None
         self._lock = asyncio.Lock()
-        self._sweep_lock = asyncio.Lock()
+        # Settlements and sweeps take turns, so balance reads, simulations and post-settlement checks see only
+        # their own effect on the hot wallet.
+        self._wallet_lock = asyncio.Lock()
         self._settling: dict[str, float] = {}
         self._seen: set[str] = set()
         self._compromise: list[str] = []
+        self._mismatches: list[str] = []
 
         secret = settings.hot_wallet_key.get_secret_value()
         if not settings.cold_address or not secret:
@@ -144,36 +171,110 @@ class X402:
             logger.error("x402_fee_reserve_low", sol_lamports=sol, minimum=self.settings.x402_min_fee_lamports)
             alerts.append("fee_reserve_low")
             status = "low_balance"
+        if self._mismatches:
+            alerts.append("post_settlement_mismatch")
         if self._compromise:
             alerts.append("outflow_to_non_cold")
             status = "compromise_suspected"
         return Health(status, sol, wsol, tuple(alerts))
 
-    async def settle(self, payment: VerifiedPayment) -> str:
+    def precheck(self, header_value: str, tier: str) -> Precheck:
         """
-        Co-sign a verified payment as fee payer, simulate it, submit it and wait for confirmation.
+        Run the network-free payment checks for a tier (see :func:`~veridex.x402.payment.precheck`).
 
-        The same transaction is settled at most once per process within the duplicate window: Solana deduplicates
-        the transfer itself, but the RPC can report success to every resubmission.
+        :param header_value: The ``PAYMENT-SIGNATURE`` header.
+        :param tier: ``quick`` or ``deep``.
+        :return: The prechecked payment.
+        """
+        assert self.hot is not None  # noqa: S101
+        return precheck(
+            header_value,
+            self.requirements(tier),
+            fee_payer=self.hot.pubkey,
+            max_compute_units=self.settings.x402_max_compute_units,
+            max_compute_unit_price=self.settings.x402_max_compute_unit_price_microlamports,
+        )
 
-        :param payment: A payment from :func:`~veridex.x402.payment.verify_payment`.
-        :return: The confirmed transaction signature.
+    async def settle(self, pre: Precheck) -> Settlement:
+        """
+        Verify a prechecked payment by simulation, co-sign it as fee payer, submit it, and check what really landed.
+
+        Runs under the wallet lock. The same transaction is settled at most once per process within the duplicate
+        window: Solana deduplicates the transfer itself, but the RPC can report success to every resubmission.
+
+        :param pre: A payment from :meth:`precheck`.
+        If the transaction lands but the hot wallet's wSOL account didn't grow by exactly the price, the
+        post-settlement check raises :class:`SettlementMismatchError` (and logs an alert).
+
+        :return: The settlement.
         :raises DuplicateSettlementError: If this transaction is already being settled.
         """
         assert self.hot is not None  # noqa: S101
-        key = str(payment.transaction.signatures[1])
-        now = time.monotonic()
-        self._settling = {k: t for k, t in self._settling.items() if now - t < _DUPLICATE_WINDOW_S}
-        if key in self._settling:
-            raise DuplicateSettlementError("duplicate_settlement")
-        self._settling[key] = now
+        key = str(pre.transaction.signatures[1])
+        async with self._wallet_lock:
+            now = time.monotonic()
+            self._settling = {k: t for k, t in self._settling.items() if now - t < _DUPLICATE_WINDOW_S}
+            if key in self._settling:
+                raise DuplicateSettlementError("duplicate_settlement")
+            account = associated_token_address(self.hot.pubkey)
+            payment = await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey)
+            before = await self.rpc.token_balance(account)
+            self._settling[key] = now
 
-        raw = self.hot.sign(payment)
-        await self.rpc.simulate(raw)
-        signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
-        self._balances = None  # value and fees moved; re-read on the next health check
+            raw = self.hot.sign(payment)
+            signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
+            self._balances = None  # value and fees moved; re-read on the next health check
+            await self._check_settled(signature, payment.amount, payment.max_fee, before or 0)
         logger.info("x402_settled", amount_lamports=payment.amount)
-        return signature
+        return Settlement(signature=signature, payer=payment.payer, amount=payment.amount)
+
+    async def _check_settled(self, signature: str, amount: int, max_fee: int, before: int) -> None:
+        """
+        Confirm from the landed transaction that the wSOL account grew by exactly ``amount`` and fees stayed bounded.
+
+        Uses the transaction's own pre/post token balances; if the RPC hasn't indexed it yet, falls back to the
+        account balance (exact, since settlements hold the wallet lock).
+
+        :param signature: The settled transaction.
+        :param amount: The price.
+        :param max_fee: The largest fee the payment allowed.
+        :param before: The wSOL account balance before submission.
+        :raises SettlementMismatchError: On any difference (also logged as an error and kept as an alert).
+        """
+        assert self.hot is not None  # noqa: S101
+        account = str(associated_token_address(self.hot.pubkey))
+        detail = ""
+        for _ in range(_META_RETRIES):
+            tx = await self.rpc.parsed_transaction(signature)
+            if tx is not None:
+                meta = tx.get("meta") or {}
+                keys = [k["pubkey"] if isinstance(k, dict) else k for k in tx["transaction"]["message"]["accountKeys"]]
+                index = keys.index(account) if account in keys else -1
+
+                def token_amount(entries: list[dict[str, Any]], index: int = index) -> int:
+                    for entry in entries:
+                        if entry.get("accountIndex") == index:
+                            return int(entry["uiTokenAmount"]["amount"])
+                    return 0
+
+                delta = token_amount(meta.get("postTokenBalances") or []) - token_amount(
+                    meta.get("preTokenBalances") or []
+                )
+                fee, paid = int(meta.get("fee", 0)), meta["preBalances"][0] - meta["postBalances"][0]
+                if delta != amount:
+                    detail = f"wSOL account grew by {delta}, expected {amount}"
+                elif fee > max_fee or paid != fee:
+                    detail = f"hot wallet paid {paid} with fee {fee}, allowed {max_fee}"
+                break
+            await asyncio.sleep(0.5)
+        else:
+            delta = (await self.rpc.token_balance(associated_token_address(self.hot.pubkey)) or 0) - before
+            if delta != amount:
+                detail = f"wSOL account grew by {delta}, expected {amount} (balance fallback)"
+        if detail:
+            logger.error("x402_post_settlement_mismatch", signature=signature, detail=detail)
+            self._mismatches.append(signature)
+            raise SettlementMismatchError(signature, detail)
 
     async def sweep_once(self) -> str | None:
         """
@@ -187,7 +288,7 @@ class X402:
         :return: The sweep's signature, or ``None`` if nothing was needed.
         """
         assert self.hot is not None  # noqa: S101
-        async with self._sweep_lock:
+        async with self._wallet_lock:
             self._balances = None
             sol, wsol = await self._read_balances()
             reserve = self.settings.sweep_reserve_lamports

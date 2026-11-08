@@ -9,7 +9,8 @@ from solders.keypair import Keypair
 from solders.message import to_bytes_versioned
 from solders.transaction import VersionedTransaction
 
-from veridex.x402.payment import verify_payment
+from tests.unit.x402_helpers import FakeRpc
+from veridex.x402.payment import confirm_by_simulation, precheck
 from veridex.x402.solana import CAIP2
 from veridex.x402.verdict import QUICK_SKILLS
 from veridex.x402.wallet import HotWallet
@@ -25,7 +26,7 @@ AGENT = Keypair()
 COLD = Keypair().pubkey()
 
 
-def test_mcp_payment_passes_server_verification() -> None:
+async def test_mcp_payment_passes_server_verification() -> None:
     issued = requirements(network=CAIP2["solana-devnet"], amount=100_000, pay_to=HOT.pubkey(), fee_payer=HOT.pubkey())
     chosen = choose_requirement({"accepts": [issued]}, CAIP2["solana-devnet"])
     tx = build_payment(chosen, AGENT, "EZ3rST5dvHmbanh75jc4PuLfV96vp9fEYBVeNk4FfM1k")
@@ -35,14 +36,8 @@ def test_mcp_payment_passes_server_verification() -> None:
         ).encode()
     ).decode()
 
-    payment = verify_payment(
-        header,
-        issued,
-        pay_to=HOT.pubkey(),
-        fee_payer=HOT.pubkey(),
-        max_compute_units=400_000,
-        max_compute_unit_price=50_000,
-    )
+    pre = precheck(header, issued, fee_payer=HOT.pubkey(), max_compute_units=400_000, max_compute_unit_price=50_000)
+    payment = await confirm_by_simulation(pre, rpc=FakeRpc(), pay_to=HOT.pubkey())
     signed = VersionedTransaction.from_bytes(HotWallet(HOT, COLD).sign(payment))
 
     assert payment.payer == AGENT.pubkey()

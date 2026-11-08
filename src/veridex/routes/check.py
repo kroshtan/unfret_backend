@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 from veridex import __version__
 from veridex.config import settings
 from veridex.net import fetch_public
-from veridex.x402.payment import PaymentError, encode_header, verify_payment
-from veridex.x402.service import X402, DuplicateSettlementError
+from veridex.x402.payment import PaymentError, encode_header
+from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
 from veridex.x402.solana import RpcError, SettlementPendingError
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
 
@@ -112,16 +112,8 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     if not header:
         return _payment_required(request, x402, body.tier, f"{PAYMENT_SIGNATURE} header is required")
 
-    assert x402.hot is not None  # noqa: S101
     try:
-        payment = verify_payment(
-            header,
-            x402.requirements(body.tier),
-            pay_to=x402.hot.pubkey,
-            fee_payer=x402.hot.pubkey,
-            max_compute_units=settings.x402_max_compute_units,
-            max_compute_unit_price=settings.x402_max_compute_unit_price_microlamports,
-        )
+        pre = x402.precheck(header, body.tier)
     except PaymentError as exc:
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
@@ -144,11 +136,21 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
-    payer = str(payment.payer)
+    payer = str(pre.payer)
     try:
-        signature = await x402.settle(payment)
+        settlement = await x402.settle(pre)
+    except PaymentError as exc:  # the simulation showed a different outcome; nothing was submitted
+        return _payment_required(request, x402, body.tier, exc.reason)
     except DuplicateSettlementError:
         return _payment_required(request, x402, body.tier, "duplicate_settlement")
+    except SettlementMismatchError as exc:
+        # It landed, but not as the simulation promised: no analysis for this payment.
+        headers = {
+            PAYMENT_RESPONSE: _settlement(
+                x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_mismatch"
+            )
+        }
+        return JSONResponse({"detail": "The payment did not settle as required."}, 402, headers)
     except SettlementPendingError as exc:
         headers = {
             PAYMENT_RESPONSE: _settlement(
@@ -163,12 +165,14 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         }
         return JSONResponse({"detail": "Payment could not be settled; you were not charged."}, 402, headers)
 
+    signature = settlement.signature
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
             result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": []})
     except Exception as exc:  # noqa: BLE001
-        # The payment settled but the analysis failed. Say so plainly; refunds are a separate decision.
+        # The payment settled but the analysis failed. Say so plainly.
+        # TODO(phase 4): refund this payment as credits to settlement.payer (the paying pubkey).
         logger.warning("check_analysis_failed_after_payment", error=type(exc).__name__)
         timed_out = isinstance(exc, TimeoutError)
         return JSONResponse(
@@ -196,6 +200,7 @@ def _discovery() -> dict[str, Any]:
         "network": settings.solana_network,
         "asset": "wSOL (So11111111111111111111111111111111111111112)",
         "feePayer": "Veridex pays the network fee",
+        "wallets": "standard wallets and smart wallets (Squads and other program-controlled wallets paying by CPI)",
         "tiers": {
             "quick": {"price_lamports": settings.x402_price_quick_lamports, "skills": sorted(QUICK_SKILLS)},
             "deep": {"price_lamports": settings.x402_price_deep_lamports, "skills": "all"},
@@ -211,11 +216,12 @@ def _discovery() -> dict[str, Any]:
             "action": "allow|warn|block (warn = ask your human)",
             "risk_score": "0..1",
             "confidence": "0..1",
-            "flags": [{"type": "string", "evidence": "string", "weight": "0..1"}],
+            "flags": [{"type": "string", "evidence": "string", "weight": ">= 0 (contribution to the risk)"}],
             "policy_applied": "string",
             "tier": "string",
             "cached": "bool",
             "checked_at": "ISO-8601",
+            "model_version": "string|null (the scorer model that set risk_score)",
         },
     }
 
@@ -252,13 +258,15 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 ## Payment (x402 v2)
 
 The first call answers 402 with a PAYMENT-REQUIRED header. Pay with the `exact` scheme on Solana ({d["network"]}) in
-wSOL (wrapped SOL; no stablecoins) and retry with PAYMENT-SIGNATURE. Veridex is the fee payer, so you only pay the
+wSOL (wrapped SOL; no stablecoins) and retry with PAYMENT-SIGNATURE. Standard wallets and smart wallets (Squads and
+other program-controlled wallets paying by CPI) both work, as long as the transaction carries one memo and pays
+exactly the price into payTo's wSOL account. Veridex is the fee payer, so you only pay the
 price: quick = {quick / 1e9:.4f} SOL, deep = {deep / 1e9:.4f} SOL. A page we can't fetch costs nothing.
 
 ## Response
 
 {{"action": "allow|warn|block", "risk_score": 0..1, "confidence": 0..1, "flags": [{{"type", "evidence", "weight"}}],
-"policy_applied", "tier", "cached", "checked_at"}}. "warn" means: ask your human before buying.
+"policy_applied", "tier", "cached", "checked_at", "model_version"}}. "warn" means: ask your human before buying.
 
 ## Machine-readable
 

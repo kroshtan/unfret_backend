@@ -156,6 +156,32 @@ class SolanaRpc:
         )
         return result
 
+    async def simulate_accounts(
+        self, raw_tx: bytes, addresses: list[Pubkey]
+    ) -> tuple[Any, list[dict[str, Any] | None]]:
+        """
+        Simulate a transaction (no signature checks, its own blockhash) and return the post-state of some accounts.
+
+        :param raw_tx: The serialised transaction.
+        :param addresses: The accounts to report, in ``jsonParsed`` encoding.
+        :return: The simulation error (``None`` on success) and the accounts' post-state (``None`` if absent).
+        """
+        result = await self.call(
+            "simulateTransaction",
+            [
+                base64.b64encode(raw_tx).decode(),
+                {
+                    "encoding": "base64",
+                    "sigVerify": False,
+                    "replaceRecentBlockhash": False,
+                    "commitment": "confirmed",
+                    "accounts": {"encoding": "jsonParsed", "addresses": [str(a) for a in addresses]},
+                },
+            ],
+        )
+        value = result["value"]
+        return value.get("err"), list(value.get("accounts") or [None] * len(addresses))
+
     async def simulate(self, raw_tx: bytes) -> None:
         """
         Simulate a transaction without signature checks, so doomed payments cost no fees.

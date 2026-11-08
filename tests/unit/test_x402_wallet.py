@@ -11,8 +11,17 @@ from solders.pubkey import Pubkey
 from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
-from tests.unit.x402_helpers import BLOCKHASH, expected, memo, payment_header, payment_instructions, sign_payment
-from veridex.x402.payment import verify_payment
+from tests.unit.x402_helpers import (
+    BLOCKHASH,
+    FakeRpc,
+    cpi_payment_instructions,
+    expected,
+    memo,
+    payment_header,
+    payment_instructions,
+    sign_payment,
+)
+from veridex.x402.payment import confirm_by_simulation, precheck
 from veridex.x402.solana import TOKEN_PROGRAM, WSOL_MINT, associated_token_address
 from veridex.x402.wallet import (
     HotWallet,
@@ -34,29 +43,40 @@ def compile_message(instructions: list[Instruction], payer: Pubkey | None = None
     return MessageV0.try_compile(payer or HOT.pubkey(), instructions, [], Hash.default())
 
 
-def verified_payment() -> Any:
-    tx = sign_payment(payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000), HOT.pubkey(), [CLIENT])
-    return verify_payment(
+def prechecked(instructions: list[Instruction] | None = None) -> Any:
+    ixs = instructions or payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
+    tx = sign_payment(ixs, HOT.pubkey(), [CLIENT])
+    return precheck(
         payment_header(tx, expected(HOT.pubkey())),
         expected(HOT.pubkey()),
-        pay_to=HOT.pubkey(),
         fee_payer=HOT.pubkey(),
         max_compute_units=400_000,
         max_compute_unit_price=50_000,
     )
 
 
-def test_cosigns_a_verified_payment_as_fee_payer_only() -> None:
-    signed = VersionedTransaction.from_bytes(WALLET.sign(verified_payment()))
+async def verified_payment(instructions: list[Instruction] | None = None) -> Any:
+    return await confirm_by_simulation(prechecked(instructions), rpc=FakeRpc(), pay_to=HOT.pubkey())
+
+
+async def test_cosigns_a_verified_payment_as_fee_payer_only() -> None:
+    signed = VersionedTransaction.from_bytes(WALLET.sign(await verified_payment()))
     message = to_bytes_versioned(signed.message)
     assert signed.signatures[0].verify(HOT.pubkey(), message)
     assert signed.signatures[1].verify(CLIENT.pubkey(), message)
 
 
-def test_refuses_anything_that_is_not_a_verified_payment_or_a_sweep() -> None:
-    payment = verified_payment()
+async def test_cosigns_a_verified_smart_wallet_cpi_payment() -> None:
+    payment = await verified_payment(cpi_payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000))
+    signed = VersionedTransaction.from_bytes(WALLET.sign(payment))
+    assert signed.signatures[0].verify(HOT.pubkey(), to_bytes_versioned(signed.message))
+
+
+async def test_refuses_anything_that_is_not_a_verified_payment_or_a_sweep() -> None:
+    payment = await verified_payment()
     raw_transfer = compile_message([transfer(TransferParams(from_pubkey=HOT.pubkey(), to_pubkey=COLD, lamports=1))])
-    for item in (payment.transaction, payment.transaction.message, raw_transfer, b"bytes", None):
+    # A payment that only passed the static checks (never simulated) is refused too.
+    for item in (prechecked(), payment.transaction, payment.transaction.message, raw_transfer, b"bytes", None):
         with pytest.raises(PermissionError):
             WALLET.sign(item)  # type: ignore[arg-type]
 

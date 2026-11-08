@@ -63,3 +63,5 @@ class AnalysisState(TypedDict):
     # ── Outputs (set by judge node) ──────────────────────────────────────────
     score: int
     explanation: str
+    # The scorer's assessment (risk_score, confidence, flags, model_version) when a trained model is shipped.
+    assessment: NotRequired[dict[str, object]]

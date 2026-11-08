@@ -335,7 +335,11 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """White-label goods: word-soup titles, made-up brands, implausible claims, who sells and ships it."""
     if e.f("content.title_word_soup") >= settings.verdict_llm_signal_min:
         fired["word_soup"] = {}
-    if e.f("content.generic_brand") >= settings.verdict_llm_signal_min or e.first("brand_name"):
+    # On a shop's own page "not a brand I know" is true of half the honest small shops in the corpus (160 of 321),
+    # so as a reason it's only said on marketplace listings, where it means white-label goods. The model still
+    # weighs it everywhere.
+    llm_says_generic = e.marketplace and e.f("content.generic_brand") >= settings.verdict_llm_signal_min
+    if llm_says_generic or e.first("brand_name"):
         fired["generic_brand"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
     if e.f("content.generic_product") >= 0.7:
         fired["generic_product"] = {}

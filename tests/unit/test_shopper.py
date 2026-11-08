@@ -199,6 +199,13 @@ def test_word_soup_and_generic_brand_surface_from_the_llm_judgement() -> None:
     assert "“INSOON”" in verdict.reasons[1].detail
 
 
+def test_unknown_brand_is_only_said_on_marketplaces() -> None:
+    # Half the honest small shops in the corpus are "not a brand the LLM knows": not a reason on their own pages.
+    features = {"content.generic_brand": 1.0}
+    assert "generic_brand" in [r.type for r in build(45, features, "aggregate_listing", facts=FACTS).reasons]
+    assert "generic_brand" not in [r.type for r in build(45, features, "storefront", facts=FACTS).reasons]
+
+
 def test_sold_by_brand_is_good_news_only_for_a_real_brand() -> None:
     own = FACTS.model_copy(update={"seller": "INSOON"})
     sold_by_itself = {"listing.seller_not_brand": 0.0}

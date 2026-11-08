@@ -4,9 +4,12 @@ An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents as
 [Veridex](https://veridex.kroshtan.com) whether a store or product listing shows signs of scams, dropshipping of
 generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
-Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in wSOL
-(wrapped SOL; no stablecoins). Veridex pays the network fee, so the agent pays only the price. If the wallet holds
-plain SOL, the server wraps what it needs first. It never holds anyone else's funds.
+Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in USDC or
+wSOL. Prices are set in SOL; the USDC amount is the SOL price converted at quote time (Pyth SOL/USD). By default the
+server pays in USDC when Veridex offers it and the wallet holds enough, otherwise in wSOL (`VERIDEX_MCP_PAY_WITH=SOL`
+to always use SOL); if the wallet holds plain SOL, it wraps what it needs first. Spend caps apply per currency
+(`VERIDEX_MCP_MAX_PRICE_USDC`, `VERIDEX_MCP_SESSION_CAP_USDC` next to the lamport ones). Veridex pays the network
+fee, so the agent pays only the price. The server never holds anyone else's funds.
 
 | Tool | Input | Output |
 | --- | --- | --- |

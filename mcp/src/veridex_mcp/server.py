@@ -6,8 +6,11 @@ Configuration (environment):
     VERIDEX_MCP_KEYPAIR               path to the agent's Solana CLI keypair JSON (or VERIDEX_MCP_SECRET_KEY, base58)
     VERIDEX_MCP_NETWORK               solana-devnet (default) or solana-mainnet
     VERIDEX_MCP_RPC_URL               defaults to the public RPC of that network
-    VERIDEX_MCP_MAX_PRICE_LAMPORTS    refuse any single check above this (default 2_000_000 = 0.002 SOL)
-    VERIDEX_MCP_SESSION_CAP_LAMPORTS  refuse once a session has spent this (default 20_000_000 = 0.02 SOL)
+    VERIDEX_MCP_PAY_WITH              USDC (default: USDC when offered and held, else SOL) or SOL (always SOL)
+    VERIDEX_MCP_MAX_PRICE_LAMPORTS    refuse any single SOL check above this (default 2_000_000 = 0.002 SOL)
+    VERIDEX_MCP_SESSION_CAP_LAMPORTS  refuse once a session has spent this in SOL (default 20_000_000 = 0.02 SOL)
+    VERIDEX_MCP_MAX_PRICE_USDC        refuse any single USDC check above this, base units (default 250_000 = $0.25)
+    VERIDEX_MCP_SESSION_CAP_USDC      refuse once a session has spent this in USDC (default 2_500_000 = $2.50)
 """
 
 import json
@@ -31,7 +34,8 @@ server = MCPServer(
     "veridex",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
-        "is paid from your own Solana wallet in wSOL (quick 0.0001 SOL, deep 0.0015 SOL) within a spend cap. "
+        "is paid from your own Solana wallet in USDC or wSOL (quick 0.0001 SOL, deep 0.0015 SOL, or the same in USDC "
+        "at the current SOL price) within a spend cap. "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
     ),
 )
@@ -63,7 +67,10 @@ def payer() -> Payer:
             guard=SpendGuard(
                 max_per_call=int(os.environ.get("VERIDEX_MCP_MAX_PRICE_LAMPORTS", "2000000")),
                 session_cap=int(os.environ.get("VERIDEX_MCP_SESSION_CAP_LAMPORTS", "20000000")),
+                usdc_max_per_call=int(os.environ.get("VERIDEX_MCP_MAX_PRICE_USDC", "250000")),
+                usdc_session_cap=int(os.environ.get("VERIDEX_MCP_SESSION_CAP_USDC", "2500000")),
             ),
+            prefer="SOL" if os.environ.get("VERIDEX_MCP_PAY_WITH", "USDC").upper() == "SOL" else "USDC",
         )
     return _payer
 
@@ -76,7 +83,7 @@ async def check_store(
     page_content: str | None = None,
 ) -> dict[str, Any]:
     """
-    Check a store or product page for scam, dropshipping and dark-pattern risk. Paid per call in wSOL.
+    Check a store or product page for scam, dropshipping and dark-pattern risk. Paid per call in USDC or wSOL.
 
     Pass page_content (the page's HTML) for marketplaces such as Amazon, which block server-side fetches.
 

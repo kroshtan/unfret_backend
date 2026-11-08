@@ -35,3 +35,8 @@ testpaths = ["tests"]
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
+
+[tool.ruff]
+# Inherit the repository rules, but format for the oldest Python this package supports.
+extend = "../pyproject.toml"
+target-version = "py312"

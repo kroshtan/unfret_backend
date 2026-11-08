@@ -17,7 +17,7 @@ from evals.label import apply_decision, describe
 from evals.llm_cache import SQLiteLLMCache
 from evals.metrics import Outcome, binary_metrics, page_type_confusion, roc_auc, summarise, to_markdown
 from evals.run import select
-from evals.second_opinion import reconcile
+from evals.second_opinion import reconcile, reset
 from evals.shopcheck import looks_like_shop
 from evals.sources.amazon2023 import Product, assess, render
 from evals.sources.mendeley import read_rows
@@ -277,3 +277,20 @@ def test_sqlite_llm_cache_roundtrip(tmp_path: Path) -> None:
     assert cache.size() == 1
     cache.clear()
     assert cache.size() == 0
+
+
+def test_reset_restores_prior_label_and_keeps_human() -> None:
+    withheld = _record(
+        source="synthetic",
+        label=None,
+        label_source=None,
+        prior_label="junk",
+        llm_label="legit",
+        llm_confidence=0.9,
+        llm_reason="r",
+        notes="withheld: dispute | {}",
+    )
+    restored = reset(withheld)
+    assert (restored.label, restored.label_source, restored.llm_reason, restored.notes) == ("junk", "rule", "", "{}")
+    human = _record(label="legit", label_source="human", prior_label="junk", llm_reason="r")
+    assert reset(human).label == "legit"

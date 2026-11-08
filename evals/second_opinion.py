@@ -42,11 +42,13 @@ You label e-commerce pages for a consumer-protection test set. Read the page tex
 - scam: the shop is likely to take money without delivering what it promises. Typical signs: a fake or cloned
   shop, big-brand goods at impossible discounts, no verifiable company identity or address, copied or nonsensical
   policies, pressure tactics, a mismatch between the shop name and what it sells, payment via unusual channels.
-- junk: the goods probably exist and ship, but are generic low-quality products sold deceptively. Typical signs:
-  a meaningless or machine-generated brand name, keyword-stuffed titles, exaggerated or implausible claims,
-  dropshipped AliExpress/Temu-grade items at a markup, manipulated or templated reviews, review counts or
-  ratings that look bought.
-- legit: an established brand or retailer, or an honest small shop, selling what it says at a plausible price.
+- junk: generic, mass-produced goods of the kind sold on Temu or AliExpress, presented as if they were a brand
+  product. The goods probably exist and ship, but the seller adds nothing: a meaningless or machine-generated
+  brand name (random capitals, pinyin-like strings), keyword-stuffed titles, interchangeable white-label items,
+  often with exaggerated claims or ratings and reviews that look bought or templated. Proof of deception is NOT
+  required: an unknown generated brand selling generic marketplace goods is junk even with decent reviews.
+- legit: an established brand or retailer, or a genuine independent maker or shop with its own identity,
+  selling what it says at a plausible price.
 - unsure: the page does not give enough to decide.
 
 Judge only from the page. Prefer "unsure" over guessing; confidence must reflect real certainty (0-1).\
@@ -103,6 +105,31 @@ def reconcile(record: LabelRecord) -> tuple[LabelRecord, QueueItem | None]:
     if record.label_source == "human":
         update, item = {}, None
     return record.model_copy(update=update), item
+
+
+def reset(record: LabelRecord) -> LabelRecord:
+    """
+    Drop a record's LLM opinion and undo its reconciliation, restoring the dataset or rule label.
+
+    :param record: The record.
+    :return: The record as it was before any second opinion (human labels are kept).
+    """
+    if record.label_source == "human":
+        return record.model_copy(update={"llm_label": None, "llm_confidence": 0.0, "llm_reason": ""})
+    source = None
+    if record.prior_label is not None:
+        source = "dataset" if record.source in {"dataset", "wayback"} else "rule"
+    notes = record.notes.split(" | ", 1)[1] if record.notes.startswith("withheld:") else record.notes
+    return record.model_copy(
+        update={
+            "label": record.prior_label,
+            "label_source": source,
+            "notes": notes,
+            "llm_label": None,
+            "llm_confidence": 0.0,
+            "llm_reason": "",
+        }
+    )
 
 
 async def collect_opinions(corpus: Corpus, records: list[LabelRecord], concurrency: int) -> list[LabelRecord]:
@@ -162,7 +189,7 @@ def agreement_report(records: list[LabelRecord]) -> dict[str, dict[str, float]]:
     """
     stats: dict[str, Counter[str]] = defaultdict(Counter)
     for r in records:
-        if r.prior_label is None:
+        if r.prior_label is None or not r.llm_reason:
             continue
         s = stats[r.origin_dataset]
         llm_side = unreliable(r.llm_label) if r.llm_confidence >= _CONFIDENT else None
@@ -187,9 +214,14 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--queue-size", type=int, default=25)
     parser.add_argument("--concurrency", type=int, default=6)
+    parser.add_argument(
+        "--reset", action="store_true", help="discard all LLM opinions first (e.g. after a rubric change)"
+    )
     args = parser.parse_args()
 
     corpus = Corpus()
+    if args.reset:
+        corpus.update(reset(r) for r in corpus.labels().values())
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite"))
     pending = [r for r in corpus.labels().values() if not r.llm_reason and r.label_source != "human"][: args.limit]
     logger.info("opinion_start", pending=len(pending), model=eval_settings.labeller_model)

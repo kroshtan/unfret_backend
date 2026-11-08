@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 import structlog
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.globals import set_llm_cache
+from pydantic import SecretStr
 
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.llm_cache import SQLiteLLMCache
@@ -141,7 +142,8 @@ def main() -> None:
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite"))
     if args.replay:
         settings.llm_base_url = _UNREACHABLE
-        settings.llm_api_key = settings.llm_api_key or "replay"  # type: ignore[assignment]
+        if not settings.llm_api_key.get_secret_value():
+            settings.llm_api_key = SecretStr("replay")
         llm.get_llm.cache_clear()
 
     records = select([r for r in corpus.labels().values() if r.label], args.limit)

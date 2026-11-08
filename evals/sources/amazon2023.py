@@ -260,8 +260,8 @@ def attach_reviews(category: str, products: dict[str, Product], rng: random.Rand
             product.histogram[rating - 1] += 1
         product.timestamps.append(int(row.get("timestamp") or 0))  # type: ignore[call-overload]
         text = str(row.get("text") or "")
-        if len(product.texts) < 400:
-            product.texts.append(text)
+        if len(product.texts) < 150:
+            product.texts.append(text[:300])
         review = {
             "rating": rating,
             "title": str(row.get("title") or "")[:120],

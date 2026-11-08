@@ -120,6 +120,18 @@ class Settings(BaseSettings):
     x402_max_compute_units: int = 400_000
     x402_max_compute_unit_price_microlamports: int = 50_000
     x402_confirm_timeout_s: float = 30.0
+    # The priority fee a payment may make the hot wallet pay, at most this share of the tier's price (wSOL quote);
+    # the fallback applies while SOL can't be priced.
+    x402_max_priority_fee_bps: int = 500
+    x402_priority_fee_fallback_lamports: int = 5_000
+    # Programs a payment may run besides the built-in wallet programs (base58), e.g. another smart-wallet program
+    # once it is known not to depend on the slot.
+    x402_extra_programs: list[str] = []
+    # Failed settlements (the hot wallet paid a fee and received nothing) per rolling hour before /v1/check refuses
+    # payments with 503: per paying wallet, per visitor address and in total.
+    x402_breaker_per_payer: int = 3
+    x402_breaker_per_ip: int = 5
+    x402_breaker_global: int = 20
 
     @property
     def analysis_price_lamports(self) -> int:

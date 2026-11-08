@@ -80,13 +80,17 @@ class SwapRpc(SolanaRpc):
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
         assert addresses == [HOT.pubkey(), USDC_ATA, WSOL_ATA]
-        return None, [
-            {"lamports": self.sol - self.sol_debit, "owner": self.hot_owner, "data": ["", "base64"]},
-            token(HOT.pubkey(), USDC, self.usdc - self.usdc_spent, **self.usdc_overrides),
-            token(HOT.pubkey(), WSOL_MINT, self.wsol + self.wsol_got, **self.wsol_overrides),
-        ]
+        return (
+            None,
+            [
+                {"lamports": self.sol - self.sol_debit, "owner": self.hot_owner, "data": ["", "base64"]},
+                token(HOT.pubkey(), USDC, self.usdc - self.usdc_spent, **self.usdc_overrides),
+                token(HOT.pubkey(), WSOL_MINT, self.wsol + self.wsol_got, **self.wsol_overrides),
+            ],
+            [],
+        )
 
     async def send_and_confirm(self, raw_tx: bytes, timeout_s: float) -> str:
         self.sent.append(raw_tx)

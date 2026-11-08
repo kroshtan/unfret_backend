@@ -14,6 +14,10 @@ COMPUTE_BUDGET_PROGRAM = Pubkey.from_string("ComputeBudget1111111111111111111111
 MEMO_PROGRAM = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
 # Phantom and Solflare inject these wallet-protection assertions; the x402 spec requires sponsors to allow them.
 LIGHTHOUSE_PROGRAM = Pubkey.from_string("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95")
+SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
+MEMO_V1_PROGRAM = Pubkey.from_string("Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo")
+SQUADS_V3_PROGRAM = Pubkey.from_string("SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu")
+SQUADS_V4_PROGRAM = Pubkey.from_string("SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf")
 
 # Wrapped SOL: SOL held in an SPL token account, minted by the token program itself (no issuer).
 WSOL_MINT = Pubkey.from_string("So11111111111111111111111111111111111111112")
@@ -95,6 +99,10 @@ def associated_token_address(owner: Pubkey, mint: Pubkey = WSOL_MINT) -> Pubkey:
 
 class RpcError(RuntimeError):
     """The Solana RPC returned an error, or the transaction failed on chain."""
+
+
+class TransactionFailedError(RpcError):
+    """The transaction landed with an error: its fee was paid, nothing else happened."""
 
 
 class SettlementPendingError(RpcError):
@@ -240,13 +248,14 @@ class SolanaRpc:
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
         """
         Simulate a transaction (no signature checks, its own blockhash) and return the post-state of some accounts.
 
         :param raw_tx: The serialised transaction.
         :param addresses: The accounts to report, in ``jsonParsed`` encoding.
-        :return: The simulation error (``None`` on success) and the accounts' post-state (``None`` if absent).
+        :return: The simulation error (``None`` on success), the accounts' post-state (``None`` if absent) and the
+            account indices of every program the transaction invoked by CPI.
         """
         result = await self.call(
             "simulateTransaction",
@@ -257,12 +266,16 @@ class SolanaRpc:
                     "sigVerify": False,
                     "replaceRecentBlockhash": False,
                     "commitment": "confirmed",
+                    "innerInstructions": True,
                     "accounts": {"encoding": "jsonParsed", "addresses": [str(a) for a in addresses]},
                 },
             ],
         )
         value = result["value"]
-        return value.get("err"), list(value.get("accounts") or [None] * len(addresses))
+        inner = [
+            ix["programIdIndex"] for group in value.get("innerInstructions") or [] for ix in group["instructions"]
+        ]
+        return value.get("err"), list(value.get("accounts") or [None] * len(addresses)), inner
 
     async def simulate(self, raw_tx: bytes) -> None:
         """
@@ -282,10 +295,12 @@ class SolanaRpc:
         """
         Submit a fully signed transaction and wait until it is confirmed without error.
 
+        A transaction the RPC won't accept raises ``RpcError`` from :meth:`call`.
+
         :param raw_tx: The serialised, fully signed transaction.
         :param timeout_s: How long to wait for confirmation.
         :return: The transaction signature (base58).
-        :raises RpcError: If submission fails or the transaction errors on chain.
+        :raises TransactionFailedError: If the transaction errors on chain (its fee was paid).
         :raises SettlementPendingError: If it was submitted but not confirmed within ``timeout_s``.
         """
         encoded = base64.b64encode(raw_tx).decode()
@@ -300,7 +315,7 @@ class SolanaRpc:
                     status = result["value"][0]
                     if status is not None:
                         if status.get("err") is not None:
-                            raise RpcError(f"transaction failed: {status['err']}")
+                            raise TransactionFailedError(f"transaction failed: {status['err']}")
                         if status.get("confirmationStatus") in {"confirmed", "finalized"}:
                             return signature
                     elif polls and polls % 3 == 0:

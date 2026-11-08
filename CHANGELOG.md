@@ -28,6 +28,7 @@ Open-source release.
 
 ### Security
 
+* x402 fee drain closed: payments may not reference slot-dependent sysvars or use address lookup tables, may run only known wallet programs (System, Token, ATA, Compute Budget, Memo, Squads v3/v4, Lighthouse; checked at top level and, from the simulation, by CPI), and may set a priority fee of at most 5% of the tier's price. A failed-settlement breaker (per payer, per visitor network, global, per hour) answers `503 SETTLEMENTS_PAUSED` once failures that cost the hot wallet a fee pile up
 * Paddle webhook now fails closed when no secret is configured, rejects stale signatures, and can no longer modify admin or blocked accounts
 * Image and review-page downloads are protected against SSRF (private/link-local addresses blocked, redirects re-validated, size capped)
 * Login no longer leaks whether a username exists through response timing; bcrypt runs off the event loop

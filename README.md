@@ -135,6 +135,18 @@ fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNI
 one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's token
 account growing by exactly the accepted amount with the hot wallet paying no more than the fee.
 
+The hot wallet pays the fee of every transaction it submits, even one that fails on chain, so a payment must not be
+able to pass the simulation and then fail. It may reference no slot-dependent sysvar (`Clock`, `SlotHashes`,
+`SlotHistory`, `RecentBlockhashes`, `EpochRewards`) and use no address lookup table, and every program it runs, top
+level or by CPI (from the simulation), must be a known wallet program: System, Token, ATA, Compute Budget, Memo,
+Squads v3 and v4, Lighthouse, plus `VERIDEX_X402_EXTRA_PROGRAMS`. An allowlist is needed because any other program
+could branch on the slot through the `Clock` syscall, which no account check sees. Its priority fee is capped at
+`VERIDEX_X402_MAX_PRIORITY_FEE_BPS` (5%) of the tier's price. What remains, such as a payer racing its own payment, is
+bounded by a breaker: after `VERIDEX_X402_BREAKER_PER_PAYER` (3) failed settlements in an hour from one wallet,
+`VERIDEX_X402_BREAKER_PER_IP` (5) from one visitor network (IPv6 per /64) or `VERIDEX_X402_BREAKER_GLOBAL` (20) in
+total, `/v1/check` answers `503 SETTLEMENTS_PAUSED` with `Retry-After` (a global trip also raises the
+`settlements_failing` alert).
+
 **Prices are canonical in US dollars** (`VERIDEX_X402_PRICE_*_USD_MICROS`, `VERIDEX_ANALYSIS_PRICE_USD_MICROS`; one
 dollar = 1,000,000, which is also USDC's base unit). USDC pays them exactly. SOL amounts are those prices converted at
 quote time with Pyth's SOL/USD price (rounded up), read on chain from the Pyth receiver's `PriceUpdateV2` account

@@ -14,6 +14,7 @@ offered; while the hot wallet's USDC account doesn't exist yet, only wSOL.
 
 import asyncio
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -37,6 +38,9 @@ Status = Literal[
 _BALANCE_TTL_S = 30.0
 # Twice a blockhash's lifetime: after this a transaction can no longer land, so it can't be settled twice.
 _DUPLICATE_WINDOW_S = 120.0
+_AUDIT_PAGE = 100
+_AUDIT_MAX_PAGES = 10
+_SEEN_MAX = 2_000
 _FEE_BUFFER = 10_000  # lamports kept back for the sweep transaction's own fee
 _TOKEN_ACCOUNT_SIZE = 165
 _META_RETRIES = 10
@@ -130,7 +134,8 @@ class X402:
         # their own effect on the hot wallet.
         self._wallet_lock = asyncio.Lock()
         self._settling: dict[str, float] = {}
-        self._seen: set[str] = set()
+        self._seen: OrderedDict[str, None] = OrderedDict()  # audited, newest last; bounded
+        self._audit_cursor: str | None = None  # every transaction up to this one is audited
         self._compromise: list[str] = []
         self._mismatches: list[str] = []
         self.breaker = SettlementBreaker(
@@ -506,25 +511,68 @@ class X402:
 
     async def audit_outflows(self) -> list[str]:
         """
-        Check the hot wallet's recent transactions for value leaving it except to cold or in a USDC→SOL swap.
+        Check the hot wallet's transactions for value leaving it except to cold or in a USDC→SOL swap.
+
+        Pages back to the last audited transaction (``until``), so a burst of payments can't push an outflow out of
+        view; failed transactions are skipped without fetching them. The first run looks at the newest page only.
 
         :return: The unexpected outflows found in transactions not checked before.
         """
         assert self.hot is not None  # noqa: S101
+        entries: list[dict[str, Any]] = []
+        before: str | None = None
+        for _ in range(_AUDIT_MAX_PAGES):
+            page = await self.rpc.signature_page(
+                self.hot.pubkey, before=before, until=self._audit_cursor, limit=_AUDIT_PAGE, commitment="confirmed"
+            )
+            entries.extend(page)
+            if len(page) < _AUDIT_PAGE or self._audit_cursor is None:
+                break
+            before = page[-1]["signature"]
+        else:
+            logger.error("x402_audit_backlog", pages=_AUDIT_MAX_PAGES)  # older ones are skipped, and alerted on
+            self._compromise.append("audit backlog: transactions skipped")
         found: list[str] = []
-        for signature in await self.rpc.recent_signatures(self.hot.pubkey):
-            if signature in self._seen:
-                continue
-            tx = await self.rpc.parsed_transaction(signature)
-            if tx is None:
-                continue  # not indexed yet; look again next time
-            self._seen.add(signature)
-            issues = unexpected_outflows(tx, self.hot.pubkey, self.hot.cold, self.usdc_mint, self._audit_rate_floor)
-            if issues:
-                logger.error("x402_outflow_to_non_cold", signature=signature, issues=issues)
-                self._compromise.extend(issues)
-                found.extend(issues)
+        contiguous = True  # everything older is audited, so the cursor may move here
+        for entry in reversed(entries):  # oldest first
+            signature = entry["signature"]
+            if signature not in self._seen:
+                tx = None if entry.get("err") is not None else await self.rpc.parsed_transaction(signature)
+                if tx is None and entry.get("err") is None:
+                    contiguous = False  # not indexed yet; look again next time
+                    continue
+                self._mark_seen(signature)
+                issues = (
+                    []
+                    if tx is None
+                    else unexpected_outflows(
+                        tx, self.hot.pubkey, self.hot.cold, self.usdc_mint, self._audit_rate_floor
+                    )
+                )
+                if issues:
+                    logger.error("x402_outflow_to_non_cold", signature=signature, issues=issues)
+                    self._compromise.extend(issues)
+                    found.extend(issues)
+            if contiguous:
+                self._audit_cursor = signature
         return found
+
+    def _mark_seen(self, signature: str) -> None:
+        self._seen[signature] = None
+        while len(self._seen) > _SEEN_MAX:
+            self._seen.popitem(last=False)
+
+    def clear_alerts(self) -> list[str]:
+        """
+        Clear the sticky alerts (suspected compromise, post-settlement mismatches) once the operator has looked.
+
+        :return: What was cleared.
+        """
+        cleared = [*self._compromise, *(f"post-settlement mismatch {s}" for s in self._mismatches)]
+        logger.warning("x402_alerts_cleared", count=len(cleared))
+        self._compromise.clear()
+        self._mismatches.clear()
+        return cleared
 
     async def run_forever(self) -> None:
         """Swap, sweep and audit every ``sweep_interval_s`` until cancelled; failures are logged and retried."""

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from veridex.routes.admin import router as admin_router
 from veridex.routes.analyze import router as analyze_router
 from veridex.routes.check import router as check_router
 from veridex.routes.credits import router as credits_router
@@ -16,5 +17,6 @@ router.include_router(check_router)
 router.include_router(probes_router)
 router.include_router(pages_router)
 router.include_router(extension_router)
+router.include_router(admin_router)
 
 __all__ = ["router"]

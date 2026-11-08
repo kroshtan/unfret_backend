@@ -203,7 +203,10 @@ async def test_outflow_to_non_cold_alerts_and_pauses_payments() -> None:
     info = {"source": str(HOT.pubkey()), "destination": str(Keypair().pubkey())}
     rpc.transactions["sig1"] = {
         "transaction": {
-            "message": {"instructions": [{"program": "system", "parsed": {"type": "transfer", "info": info}}]}
+            "message": {
+                "accountKeys": [{"pubkey": str(HOT.pubkey()), "signer": True}],
+                "instructions": [{"program": "system", "parsed": {"type": "transfer", "info": info}}],
+            }
         },
         "meta": {"innerInstructions": []},
     }

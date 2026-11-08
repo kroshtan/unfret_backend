@@ -1,5 +1,7 @@
 """Bearer-token authentication for the credits door: the caller is a wallet that signed in with SIWS."""
 
+import hmac
+
 from fastapi import Request
 
 from veridex.config import settings
@@ -23,6 +25,29 @@ def get_credits(request: Request) -> CreditsDoor:
         app.credits = CreditsDoor(settings, x402.rpc, hot, x402.prices)
     door: CreditsDoor = app.credits
     return door
+
+
+def is_admin(request: Request) -> bool:
+    """
+    Whether the request carries the operator's ``Authorization: Bearer`` token (constant-time comparison).
+
+    :param request: The incoming request.
+    :return: ``False`` also while no admin token is configured.
+    """
+    expected = settings.admin_token.get_secret_value()
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    return bool(expected) and scheme.lower() == "bearer" and hmac.compare_digest(token.encode(), expected.encode())
+
+
+def require_admin(request: Request) -> None:
+    """
+    FastAPI dependency: only the operator may call this.
+
+    :param request: The incoming request.
+    :raises UnauthorizedError: Without the admin token (or while none is configured).
+    """
+    if not is_admin(request):
+        raise UnauthorizedError("Operator token required.")
 
 
 def require_wallet(request: Request) -> str:

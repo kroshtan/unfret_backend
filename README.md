@@ -171,11 +171,15 @@ sweep (one atomic transaction) then unwraps the hot wallet's wSOL, recreates its
 if missing, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the
 hot wallet holds more than `VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). All signing goes through one function that
 accepts only verified payments (as fee payer, never referenced by an instruction), sweeps to the cold address and
-verified swaps. Alerts are logged at error level and shown in readiness: value stuck above 1.5x the threshold (sweeps
-failing), SOL for fees below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), swaps failing repeatedly or USDC piling
-up beyond 3x the swap threshold, and any value leaving the hot wallet except to cold or in a USDC→SOL swap (recognised
-by its net effect: USDC down, wSOL up at a sane rate, nothing else lost), checked from its recent transactions
-(payments pause; a compromise signal).
+verified swaps. Alerts are logged at error level and counted in readiness (named, with the balances, for
+`Authorization: Bearer $VERIDEX_ADMIN_TOKEN`): value stuck above 1.5x the threshold (sweeps failing), SOL for fees
+below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), swaps failing repeatedly or USDC piling up beyond 3x the swap
+threshold, and any value leaving the hot wallet except to cold or in a USDC→SOL swap (recognised by its net effect:
+USDC down, wSOL up at a sane rate, nothing else lost; payments pause, a compromise signal). The audit pages through
+every transaction since the last one it checked, skipping failed ones and ones the hot wallet didn't sign (neither can
+move its value). A compromise signal and post-settlement mismatches stay raised until the operator, having checked
+the logged transactions (and rotated the hot wallet if it was real), clears them:
+`curl -X POST -H "Authorization: Bearer $VERIDEX_ADMIN_TOKEN" https://…/v1/admin/x402/clear-alerts`.
 
 The feature is off (`503`) until `VERIDEX_HOT_WALLET_KEY` and `VERIDEX_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `VERIDEX_X402_ALLOW_MAINNET=true`. Run one instance:
@@ -230,6 +234,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_TRIAL_CHECKS` | `5` | Free analyses on a first sign-in (wallets with history only) |
 | `VERIDEX_TRIAL_PER_IP_PER_DAY` / `VERIDEX_TRIAL_DAILY_CAP` | `2` / `50` | Trial limits, kept in memory |
 | `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
+| `VERIDEX_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 
 ## Development
 

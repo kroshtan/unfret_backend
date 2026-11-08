@@ -15,7 +15,10 @@ class Healthy(BaseModel):
     hot_sol_lamports: int | None = Field(default=None, description="The x402 hot wallet's SOL (fee reserve)")
     hot_wsol_lamports: int | None = Field(default=None, description="Received payments not yet swept to cold")
     hot_usdc_units: int | None = Field(default=None, description="Received USDC not yet swapped to SOL")
-    x402_alerts: list[str] = Field(default_factory=list, description="sweep_failing, fee_reserve_low, …")
+    x402_alerts: list[str] = Field(
+        default_factory=list, description="sweep_failing, fee_reserve_low, … (with the operator token only)"
+    )
+    x402_alert_count: int = Field(default=0, description="How many x402 alerts are raised")
     credits: str | None = Field(default=None, description="Credits door: off, sign_in, ok (purchases on)")
 
 

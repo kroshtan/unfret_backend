@@ -228,7 +228,7 @@ def landed(
         return {"accountIndex": index, "mint": str(mint), "owner": hot, "uiTokenAmount": {"amount": str(amount)}}
 
     return {
-        "transaction": {"message": {"accountKeys": [{"pubkey": hot}], "instructions": [transfer]}},
+        "transaction": {"message": {"accountKeys": [{"pubkey": hot, "signer": True}], "instructions": [transfer]}},
         "meta": {
             "err": None,
             "fee": fee,

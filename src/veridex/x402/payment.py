@@ -1,39 +1,48 @@
 """
-x402 v2, ``exact`` scheme on Solana: what we ask for, how a payment is checked, and the only place the fee payer signs.
+x402 v2, ``exact`` scheme on Solana: what we ask for and how a payment is checked.
 
-The client builds and signs a wSOL ``TransferChecked`` to the merchant's associated token account; Veridex verifies
-it, co-signs as fee payer (sponsor) and submits it. Verification follows the spec's static layout (Path 1, standard
-wallets) with the amount matched exactly. Smart-wallet payments (Path 2, simulation-based) are not accepted.
+The client builds and signs a transaction that pays exactly the price in wSOL into the hot wallet's wSOL account:
+a plain ``TransferChecked`` from a standard wallet, or any program instructions that achieve it, such as a smart
+wallet (Squads and other program-controlled wallets) paying by CPI. Veridex verifies it, co-signs as fee payer and
+submits it. Verification is behaviour-based, in two stages:
+
+1. :func:`precheck` (no network): the hot wallet appears in no instruction, so its signature can only pay the fee;
+   every other required signature is present and valid; compute budget and priority fee are capped; exactly one
+   memo (the spec's uniqueness nonce); no signature-verification precompiles (they add fee-paid signatures); size.
+2. :func:`confirm_by_simulation`: a simulation shows the hot wallet's wSOL account growing by exactly the price
+   and the hot wallet losing no more than the computed fee.
+
+After settlement the service checks the real on-chain delta again (``X402.settle``).
 """
 
 import base64
 import binascii
 import json
+import math
 import struct
 from dataclasses import dataclass, field
 from typing import Any
 
-from solders.instruction import CompiledInstruction
 from solders.message import Message, MessageV0, to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from veridex.x402.solana import (
-    COMPUTE_BUDGET_PROGRAM,
-    LIGHTHOUSE_PROGRAM,
-    MEMO_PROGRAM,
-    TOKEN_PROGRAM,
-    WSOL_DECIMALS,
-    WSOL_MINT,
-    associated_token_address,
-)
+from veridex.x402.solana import COMPUTE_BUDGET_PROGRAM, MEMO_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
 
 X402_VERSION = 2
-_SET_COMPUTE_UNIT_LIMIT = 2
-_SET_COMPUTE_UNIT_PRICE = 3
-_TRANSFER_CHECKED = 12
+LAMPORTS_PER_SIGNATURE = 5_000
+MAX_TRANSACTION_BYTES = 1_232  # Solana's packet limit for a serialised transaction
+_REQUEST_HEAP_FRAME, _SET_COMPUTE_UNIT_LIMIT, _SET_COMPUTE_UNIT_PRICE, _SET_LOADED_ACCOUNTS_DATA_SIZE = 1, 2, 3, 4
 _MAX_MEMO_BYTES = 256
-_MAX_LIGHTHOUSE = 3
+# Each signature these programs verify is charged to the fee payer like a transaction signature.
+_PRECOMPILES = frozenset(
+    Pubkey.from_string(p)
+    for p in (
+        "Ed25519SigVerify111111111111111111111111111",
+        "KeccakSecp256k11111111111111111111111111111",
+        "Secp256r1SigVerify1111111111111111111111111",
+    )
+)
 
 
 class PaymentError(ValueError):
@@ -103,27 +112,38 @@ def requirements(
     }
 
 
-_VERIFIED = object()  # only verify_payment can mint a VerifiedPayment
-
-
 @dataclass(frozen=True)
-class VerifiedPayment:
-    """A payment transaction that passed :func:`verify_payment`; the only thing the hot wallet co-signs."""
+class Precheck:
+    """A payment that passed the static checks, waiting for :func:`confirm_by_simulation`."""
 
     transaction: VersionedTransaction
     payer: Pubkey
     amount: int
+    max_fee: int
+
+
+_VERIFIED = object()  # only confirm_by_simulation can mint a VerifiedPayment
+
+
+@dataclass(frozen=True)
+class VerifiedPayment:
+    """A payment that passed both verification stages; the only kind of payment the hot wallet co-signs."""
+
+    transaction: VersionedTransaction
+    payer: Pubkey
+    amount: int
+    max_fee: int
     _token: object = field(repr=False)
 
     def __post_init__(self) -> None:
-        """Refuse construction anywhere but :func:`verify_payment`."""
+        """Refuse construction anywhere but :func:`confirm_by_simulation`."""
         if self._token is not _VERIFIED:
-            raise TypeError("VerifiedPayment can only be created by verify_payment")
+            raise TypeError("VerifiedPayment can only be created by confirm_by_simulation")
 
 
 def is_verified(item: object) -> bool:
     """
-    Whether ``item`` is a payment minted by :func:`verify_payment` (not constructed or copied around it).
+    Whether ``item`` is a payment minted by :func:`confirm_by_simulation` (not constructed or copied around it).
 
     :param item: Anything.
     :return: ``True`` only for a genuine :class:`VerifiedPayment`.
@@ -133,7 +153,10 @@ def is_verified(item: object) -> bool:
 
 def references(message: Message | MessageV0, index: int) -> bool:
     """
-    Whether any instruction uses the account at ``index`` as its program or as one of its accounts.
+    Whether any top-level instruction uses the account at ``index`` as its program or as one of its accounts.
+
+    Programs can only pass on (via CPI) accounts they were given, so an account that no top-level instruction
+    references can't be touched by any inner instruction either.
 
     :param message: The transaction message.
     :param index: The account index to look for.
@@ -142,101 +165,57 @@ def references(message: Message | MessageV0, index: int) -> bool:
     return any(ix.program_id_index == index or index in bytes(ix.accounts) for ix in message.instructions)
 
 
-def _check_compute_budget(program: Pubkey, data: bytes, kind: int, max_value: int) -> None:
+def _compute_budget(message: Message | MessageV0, max_units: int, max_price: int) -> int:
     """
-    Check one positional compute budget instruction.
+    Check the compute budget instructions and return the largest priority fee they allow, in lamports.
 
-    :param program: The instruction's program.
-    :param data: The instruction data.
-    :param kind: The expected instruction discriminator.
-    :param max_value: The largest accepted limit or price.
-    :raises PaymentError: If the instruction is not the expected one or exceeds ``max_value``.
+    :param message: The transaction message.
+    :param max_units: Largest accepted compute unit limit.
+    :param max_price: Largest accepted compute unit price (micro-lamports).
+    :return: The maximum priority fee.
+    :raises PaymentError: If an instruction is unknown, repeated, malformed or above a cap.
     """
-    size = 5 if kind == _SET_COMPUTE_UNIT_LIMIT else 9
-    if program != COMPUTE_BUDGET_PROGRAM or len(data) != size or data[0] != kind:
-        raise PaymentError("invalid_compute_budget_instructions")
-    value = struct.unpack("<I" if size == 5 else "<Q", data[1:])[0]
-    if value > max_value:
+    seen: dict[int, int] = {}
+    for ix in message.instructions:
+        if message.account_keys[ix.program_id_index] != COMPUTE_BUDGET_PROGRAM:
+            continue
+        data = bytes(ix.data)
+        kind = data[0] if data else -1
+        sizes = {
+            _REQUEST_HEAP_FRAME: 5,
+            _SET_COMPUTE_UNIT_LIMIT: 5,
+            _SET_COMPUTE_UNIT_PRICE: 9,
+            _SET_LOADED_ACCOUNTS_DATA_SIZE: 5,
+        }
+        if kind not in sizes or len(data) != sizes[kind] or kind in seen:
+            raise PaymentError("invalid_compute_budget_instructions")
+        seen[kind] = struct.unpack("<I" if sizes[kind] == 5 else "<Q", data[1:])[0]  # noqa: PLR2004
+    limit, price = seen.get(_SET_COMPUTE_UNIT_LIMIT), seen.get(_SET_COMPUTE_UNIT_PRICE, 0)
+    if price > max_price or (limit is not None and limit > max_units):
         raise PaymentError("compute_budget_too_high")
+    if price and limit is None:
+        # Without an explicit limit the runtime's default (up to 1.4M units) would set our priority fee.
+        raise PaymentError("compute_unit_limit_required")
+    return math.ceil((limit or 0) * price / 1_000_000)
 
 
-def _check_transfer(
-    message: Message | MessageV0, transfer: CompiledInstruction, *, expected: int, pay_to: Pubkey, client: Pubkey
-) -> int:
-    """
-    Check the positional wSOL ``TransferChecked``: asset, recipient, exact amount and authority.
-
-    :param message: The transaction message (for account resolution).
-    :param transfer: The third instruction.
-    :param expected: The price in lamports.
-    :param pay_to: The merchant wallet (``payTo``).
-    :param client: The paying signer, which must be the transfer authority.
-    :return: The transferred amount.
-    :raises PaymentError: If any part does not match.
-    """
-    keys = message.account_keys
-    data = bytes(transfer.data)
-    accounts = [keys[i] for i in bytes(transfer.accounts)]
-    if (
-        keys[transfer.program_id_index] != TOKEN_PROGRAM
-        or len(data) != 10  # noqa: PLR2004
-        or data[0] != _TRANSFER_CHECKED
-        or len(accounts) != 4  # noqa: PLR2004
-    ):
-        raise PaymentError("transfer_not_found")
-    amount: int = struct.unpack("<Q", data[1:9])[0]
-    source, mint, destination, authority = accounts
-    if mint != WSOL_MINT or data[9] != WSOL_DECIMALS:
-        raise PaymentError("wrong_asset")
-    if destination != associated_token_address(pay_to):
-        raise PaymentError("wrong_recipient")
-    if amount != expected:
-        raise PaymentError("wrong_amount")
-    if authority != client or source == destination:
-        raise PaymentError("wrong_transfer_authority")
-    return amount
-
-
-def _check_trailing(programs: list[Pubkey], data: list[bytes]) -> None:
-    """
-    Check the instructions after the transfer: exactly one Memo, and at most three wallet Lighthouse assertions.
-
-    :param programs: Their programs, in order.
-    :param data: Their data, in order.
-    :raises PaymentError: If anything else appears, or the memo is missing, repeated or oversized.
-    """
-    memos = [d for p, d in zip(programs, data, strict=True) if p == MEMO_PROGRAM]
-    lighthouse = sum(1 for p in programs if p == LIGHTHOUSE_PROGRAM)
-    if len(memos) + lighthouse != len(programs) or len(memos) != 1 or lighthouse > _MAX_LIGHTHOUSE:
-        raise PaymentError("unexpected_instruction_layout")
-    if not 0 < len(memos[0]) <= _MAX_MEMO_BYTES:
-        raise PaymentError("invalid_memo")
-
-
-def verify_payment(  # noqa: C901
+def precheck(  # noqa: C901, PLR0912
     header_value: str,
     expected: dict[str, Any],
     *,
-    pay_to: Pubkey,
     fee_payer: Pubkey,
     max_compute_units: int,
     max_compute_unit_price: int,
-) -> VerifiedPayment:
+) -> Precheck:
     """
-    Check a ``PAYMENT-SIGNATURE`` header against the requirements, strictly and without touching the network.
-
-    Accepted layout: SetComputeUnitLimit, SetComputeUnitPrice, a wSOL ``TransferChecked`` of exactly the price to
-    the merchant's associated token account, then exactly one Memo and up to three wallet Lighthouse assertions.
-    Exactly two signers (the fee payer, then the client), the client's signature present and valid, and the fee
-    payer referenced by no instruction at all, so its signature can only ever pay the network fee.
+    Run every check that needs no network on a ``PAYMENT-SIGNATURE`` header.
 
     :param header_value: The base64 ``PaymentPayload``.
     :param expected: The ``PaymentRequirements`` we issued for this request.
-    :param pay_to: The merchant wallet (``payTo``).
-    :param fee_payer: Our sponsor key.
+    :param fee_payer: Our sponsor key (the hot wallet).
     :param max_compute_units: Largest accepted compute unit limit.
     :param max_compute_unit_price: Largest accepted compute unit price (micro-lamports).
-    :return: The verified payment.
+    :return: The prechecked payment.
     :raises PaymentError: With a reason, if anything does not match.
     """
     payload = decode_header(header_value)
@@ -255,33 +234,67 @@ def verify_payment(  # noqa: C901
         tx = VersionedTransaction.from_bytes(raw)
     except (KeyError, TypeError, binascii.Error, ValueError) as exc:
         raise PaymentError("invalid_transaction", malformed=True) from exc
+    if len(raw) > MAX_TRANSACTION_BYTES:
+        raise PaymentError("transaction_too_large")
 
     message = tx.message
     if not isinstance(message, Message | MessageV0):
         raise PaymentError("unsupported_message_version")
-    if isinstance(message, MessageV0) and message.address_table_lookups:
-        raise PaymentError("address_lookup_tables_not_supported")
     keys = message.account_keys
-    if message.header.num_required_signatures != 2 or len(tx.signatures) != 2:  # noqa: PLR2004
-        raise PaymentError("unexpected_signers")
+    signers = message.header.num_required_signatures
     if keys[0] != fee_payer:
         raise PaymentError("fee_payer_mismatch")
-    client = keys[1]
-    if client == fee_payer or not tx.signatures[1].verify(client, to_bytes_versioned(message)):
+    if signers < 2 or len(tx.signatures) != signers:  # noqa: PLR2004
+        raise PaymentError("unexpected_signers")
+    signed = to_bytes_versioned(message)
+    if not all(tx.signatures[i].verify(keys[i], signed) for i in range(1, signers)):
         raise PaymentError("invalid_client_signature")
     if references(message, 0):
         raise PaymentError("fee_payer_not_isolated")
+    if any(keys[ix.program_id_index] in _PRECOMPILES for ix in message.instructions):
+        raise PaymentError("precompile_not_allowed")
 
-    instructions = message.instructions
-    if not 4 <= len(instructions) <= 3 + 1 + _MAX_LIGHTHOUSE:  # noqa: PLR2004
-        raise PaymentError("unexpected_instruction_layout")
+    priority_fee = _compute_budget(message, max_compute_units, max_compute_unit_price)
+    memos = [bytes(ix.data) for ix in message.instructions if keys[ix.program_id_index] == MEMO_PROGRAM]
+    if len(memos) != 1 or not 0 < len(memos[0]) <= _MAX_MEMO_BYTES:
+        raise PaymentError("memo_required")
+    if (required_memo := (expected.get("extra") or {}).get("memo")) and memos[0] != required_memo.encode():
+        raise PaymentError("memo_mismatch")
 
-    def program(i: int) -> Pubkey:
-        return keys[instructions[i].program_id_index]
+    return Precheck(
+        transaction=tx,
+        payer=keys[1],
+        amount=int(expected["amount"]),
+        max_fee=LAMPORTS_PER_SIGNATURE * signers + priority_fee,
+    )
 
-    _check_compute_budget(program(0), bytes(instructions[0].data), _SET_COMPUTE_UNIT_LIMIT, max_compute_units)
-    _check_compute_budget(program(1), bytes(instructions[1].data), _SET_COMPUTE_UNIT_PRICE, max_compute_unit_price)
 
-    amount = _check_transfer(message, instructions[2], expected=int(expected["amount"]), pay_to=pay_to, client=client)
-    _check_trailing([program(i) for i in range(3, len(instructions))], [bytes(ix.data) for ix in instructions[3:]])
-    return VerifiedPayment(transaction=tx, payer=client, amount=amount, _token=_VERIFIED)
+async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey) -> VerifiedPayment:
+    """
+    Simulate the payment: exactly the price into ``pay_to``'s wSOL account, and no hot-wallet debit beyond the fee.
+
+    Call it with settlements serialised (``X402`` holds a lock), so no payment of ours lands between the balance
+    read and the simulation.
+
+    :param pre: A payment that passed :func:`precheck`.
+    :param rpc: The Solana RPC.
+    :param pay_to: The hot wallet (``payTo`` and fee payer).
+    :return: The verified payment.
+    :raises PaymentError: If the simulation fails or shows any other outcome.
+    """
+    account = associated_token_address(pay_to)
+    before_wsol = await rpc.token_balance(account)
+    if before_wsol is None:
+        raise PaymentError("pay_to_account_not_ready")
+    before_sol = await rpc.get_balance(pay_to)
+    error, (after_account, after_payer) = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
+    if error is not None or after_account is None or after_payer is None:
+        raise PaymentError("simulation_failed")
+    after_wsol = int(after_account["data"]["parsed"]["info"]["tokenAmount"]["amount"])
+    if after_wsol - before_wsol != pre.amount:
+        raise PaymentError("wrong_amount")
+    if before_sol - int(after_payer["lamports"]) > pre.max_fee:
+        raise PaymentError("fee_payer_debited")
+    return VerifiedPayment(
+        transaction=pre.transaction, payer=pre.payer, amount=pre.amount, max_fee=pre.max_fee, _token=_VERIFIED
+    )

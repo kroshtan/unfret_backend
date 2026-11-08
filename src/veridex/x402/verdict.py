@@ -46,7 +46,9 @@ class Flag(BaseModel):
 
     type: str
     evidence: str
-    weight: float = Field(ge=0, le=1)
+    weight: float = Field(
+        ge=0, description="How much this signal raised the risk (the scorer's log-odds contribution; larger = more)."
+    )
 
 
 class Verdict(BaseModel):
@@ -60,6 +62,7 @@ class Verdict(BaseModel):
     tier: Tier
     cached: bool = False
     checked_at: datetime
+    model_version: str | None = Field(default=None, description="The scorer model that set risk_score, if any.")
 
 
 def action_for(risk_score: float, policy: Policy) -> Action:
@@ -82,11 +85,12 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
     """
     Turn an analysis result into a verdict.
 
-    TODO(phase 2): replace with the feature scorer. Until then risk_score is derived from the LLM judge's 0–100
-    score, confidence is a placeholder (half the share of skills that produced evidence, so it never claims more
-    than 0.5), and each skill's finding becomes one flag with an equal weight.
+    The trained scorer's ``assessment`` (risk_score, confidence, weighted flags, model_version) is used whenever the
+    graph produced one. Only without a shipped model does it fall back to the LLM judge: risk_score from its 0–100
+    score, confidence capped at 0.5 (half the share of skills that produced evidence), one equally weighted flag
+    per skill finding.
 
-    :param result: The final graph state (``score``, ``explanation``, ``skill_results``).
+    :param result: The final graph state (``score``, ``explanation``, ``skill_results``, optional ``assessment``).
     :param policy: The caller's policy.
     :param tier: The tier that ran.
     :return: The verdict.
@@ -103,6 +107,23 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
             policy_applied=policy,
             tier=tier,
             checked_at=now,
+        )
+
+    assessment = result.get("assessment")
+    if assessment:
+        risk_score = float(assessment["risk_score"])
+        return Verdict(
+            action=action_for(risk_score, policy),
+            risk_score=risk_score,
+            confidence=float(assessment["confidence"]),
+            flags=[
+                Flag(type=f["type"], evidence=str(f["evidence"])[:_EVIDENCE_CHARS], weight=f["weight"])
+                for f in assessment.get("flags", [])
+            ],
+            policy_applied=policy,
+            tier=tier,
+            checked_at=now,
+            model_version=str(assessment.get("model_version") or "") or None,
         )
 
     findings: list[tuple[str, str]] = []

@@ -86,15 +86,49 @@ def configured(hot: Keypair, cold: Pubkey, **overrides: Any) -> Settings:
     return Settings(hot_wallet_key=SecretStr(str(hot)), cold_address=str(cold), **overrides)
 
 
+VAULT_PROGRAM = Pubkey.from_string("SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf")  # Squads v4's program id
+
+
+def cpi_payment_instructions(
+    member: Pubkey, pay_to: Pubkey, amount: int, *, cu_price: int = 1_000
+) -> list[Instruction]:
+    """A smart-wallet payment: the member signs, a vault program pays from its vault by CPI (Squads-style)."""
+    vault = Pubkey.find_program_address([b"vault", bytes(member)], VAULT_PROGRAM)[0]
+    execute = Instruction(
+        VAULT_PROGRAM,
+        amount.to_bytes(8, "little") + bytes([9]),
+        [
+            AccountMeta(member, is_signer=True, is_writable=False),
+            AccountMeta(vault, is_signer=False, is_writable=False),
+            AccountMeta(associated_token_address(vault), is_signer=False, is_writable=True),
+            AccountMeta(WSOL_MINT, is_signer=False, is_writable=False),
+            AccountMeta(associated_token_address(pay_to), is_signer=False, is_writable=True),
+            AccountMeta(TOKEN_PROGRAM, is_signer=False, is_writable=False),
+        ],
+    )
+    return [set_compute_unit_limit(200_000), set_compute_unit_price(cu_price), execute, memo()]
+
+
 class FakeRpc(SolanaRpc):
+    """
+    Stands in for the Solana RPC. ``sim_delta``/``sim_debit`` set what a simulation shows for the hot wallet's
+    wSOL account and SOL; ``landed_delta`` what a settled transaction's metadata shows (defaults to ``sim_delta``).
+    """
+
     def __init__(self, sol: int = 50_000_000, wsol: int | None = 0) -> None:
         super().__init__("http://rpc.invalid")
         self.sol, self.wsol = sol, wsol
+        self.sim_delta = 100_000
+        self.sim_debit = 0
+        self.sim_error: Any = None
+        self.landed_delta: int | None = None
+        self.landed_fee = 10_000
         self.sent: list[bytes] = []
         self.simulated: list[bytes] = []
         self.fail_with: Exception | None = None
         self.signatures: list[str] = []
         self.transactions: dict[str, dict[str, Any]] = {}
+        self._accounts: list[Pubkey] = []
 
     async def get_balance(self, address: Pubkey) -> int:
         return self.sol
@@ -111,8 +145,33 @@ class FakeRpc(SolanaRpc):
     async def recent_signatures(self, address: Pubkey, limit: int = 20) -> list[str]:
         return self.signatures
 
+    async def simulate_accounts(
+        self, raw_tx: bytes, addresses: list[Pubkey]
+    ) -> tuple[Any, list[dict[str, Any] | None]]:
+        self.simulated.append(raw_tx)
+        self._accounts = addresses
+        token = {"tokenAmount": {"amount": str((self.wsol or 0) + self.sim_delta)}}
+        return self.sim_error, [
+            {"lamports": 2_039_280, "data": {"parsed": {"info": token}}},
+            {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
+        ]
+
     async def parsed_transaction(self, signature: str) -> dict[str, Any] | None:
-        return self.transactions.get(signature)
+        if signature in self.transactions or not self._accounts:
+            return self.transactions.get(signature)
+        account, hot = (str(a) for a in self._accounts)
+        delta = self.sim_delta if self.landed_delta is None else self.landed_delta
+        before = self.wsol or 0
+        return {
+            "transaction": {"message": {"accountKeys": [{"pubkey": hot}, {"pubkey": account}]}},
+            "meta": {
+                "fee": self.landed_fee,
+                "preBalances": [self.sol, 2_039_280],
+                "postBalances": [self.sol - self.landed_fee, 2_039_280],
+                "preTokenBalances": [{"accountIndex": 1, "uiTokenAmount": {"amount": str(before)}}],
+                "postTokenBalances": [{"accountIndex": 1, "uiTokenAmount": {"amount": str(before + delta)}}],
+            },
+        }
 
     async def simulate(self, raw_tx: bytes) -> None:
         self.simulated.append(raw_tx)

@@ -11,8 +11,8 @@
 <body>
   <main>
     <h1>Buy Veridex credits</h1>
-    <p>Credits are paid in SOL or USDC and belong to the wallet that pays. Use them in the browser extension after
-      signing in with the same wallet.</p>
+    <p>Checks are priced in US dollars and paid in SOL or USDC. They belong to the wallet that pays: use them in the
+      browser extension after signing in with the same wallet.</p>
     <p id="network" class="muted"></p>
 
     <p id="unavailable" hidden>Buying credits isn't available yet. Please try again later.</p>
@@ -25,14 +25,14 @@
           <label><input type="radio" name="currency" value="USDC"> USDC</label>
           <span id="usdc-note" class="muted"></span>
         </fieldset>
-        <h2 id="amount-heading">How many analyses?</h2>
+        <h2 id="amount-heading">How many checks?</h2>
         <fieldset class="packs">
           <legend class="visually-hidden">Packs</legend>
           <div id="packs" class="packs"></div>
         </fieldset>
         <label class="custom">Or another amount
-          <input id="custom-sol" type="number" min="0.001" step="0.001" inputmode="decimal">
-          <span id="custom-unit">SOL</span>
+          <input id="custom-sol" type="number" min="0.15" step="0.01" inputmode="decimal">
+          <span id="custom-unit">USD</span>
         </label>
         <p id="summary"></p>
       </section>

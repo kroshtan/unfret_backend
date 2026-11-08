@@ -1,6 +1,7 @@
 """Build real x402 payment transactions with solders for the tests."""
 
 import base64
+from decimal import Decimal
 from typing import Any
 
 from pydantic import SecretStr
@@ -14,7 +15,9 @@ from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
+from veridex.prices import PriceBook, PriceUnavailableError, PythSolUsd, SolUsd
 from veridex.x402.payment import encode_header, requirements
+from veridex.x402.service import X402
 from veridex.x402.solana import CAIP2, MEMO_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
 
 NETWORK = CAIP2["solana-devnet"]
@@ -88,6 +91,26 @@ def expected(hot: Pubkey, amount: int = 100_000) -> dict[str, Any]:
 
 def configured(hot: Keypair, cold: Pubkey, **overrides: Any) -> Settings:
     return Settings(hot_wallet_key=SecretStr(str(hot)), cold_address=str(cold), **overrides)
+
+
+ORACLE_NOW = 1_800_000_000
+
+
+class StaticOracle(PythSolUsd):
+    """A fixed SOL/USD price (``None``: the oracle refuses, as when stale)."""
+
+    def __init__(self, usd_per_sol: str | None) -> None:
+        self.value = usd_per_sol
+
+    async def read(self, now: float | None = None) -> SolUsd:
+        if self.value is None:
+            raise PriceUnavailableError("oracle price is stale (99 s old)")
+        return SolUsd(Decimal(self.value), Decimal("0.05"), ORACLE_NOW)
+
+
+def make_x402(settings: Settings, rpc: SolanaRpc, usd_per_sol: str | None = "100") -> X402:
+    """An X402 service with a fixed SOL price: at $100/SOL, $0.01 = 100,000 lamports and $0.15 = 1,500,000."""
+    return X402(settings, rpc=rpc, prices=PriceBook(settings, StaticOracle(usd_per_sol)))
 
 
 VAULT_PROGRAM = Pubkey.from_string("SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf")  # Squads v4's program id

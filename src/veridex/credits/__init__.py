@@ -1,10 +1,10 @@
 """
-The credits door: wallets sign in with SIWS and spend a lamport balance on analyses.
+The credits door: wallets sign in with SIWS and spend a balance of micro-dollars on analyses.
 
-The only stored user state is ``pubkey → balance_lamports`` (:mod:`veridex.credits.ledger`). Credits are bought by
-sending SOL or USDC to the x402 hot wallet, which the scanners turn into balance (USDC at its SOL value at crediting
-time); failed paid x402 checks are refunded the same way. Sign-in is off until ``VERIDEX_SESSION_SECRET`` is set;
-purchases additionally need the hot wallet and running scanners.
+The only stored user state is ``pubkey → balance`` (:mod:`veridex.credits.ledger`). Credits are bought by sending SOL
+or USDC to the x402 hot wallet, which the scanners turn into balance (SOL at its dollar value at crediting time);
+failed paid x402 checks are refunded the same way. Sign-in is off until ``VERIDEX_SESSION_SECRET`` is set; purchases
+additionally need the hot wallet and running scanners.
 """
 
 import asyncio
@@ -78,7 +78,7 @@ class CreditsDoor:
         """
         if self.hot is not None and self.sign_in_enabled:
             tiers = self.settings.credit_bonus_tiers
-            self.scanner = CreditScanner(self.rpc, pool, self.hot, tiers)
+            self.scanner = CreditScanner(self.rpc, pool, self.hot, tiers, book=self.book)
             self.usdc_scanner = CreditScanner(
                 self.rpc, pool, self.hot, tiers, book=self.book, usdc_mint=self.usdc_mint
             )
@@ -104,8 +104,8 @@ class CreditsDoor:
         """
         Grant the free trial on a wallet's first sign-in, when it qualifies.
 
-        A row is created only when the trial is granted, so a wallet without history yet (or turned away by the
-        limits) can still get it later; a row means the trial is spent.
+        The trial is recorded on the wallet's row (``trial_granted``), so a wallet without history yet (or turned away
+        by the limits) can still get it later, also after buying credits first; each wallet gets it at most once.
 
         :param pool: The database pool.
         :param address: The verified wallet (base58).
@@ -113,7 +113,7 @@ class CreditsDoor:
         :return: ``True`` if a trial was granted now.
         """
         s = self.settings
-        if s.trial_checks <= 0 or await ledger.balance(pool, address) is not None:
+        if s.trial_checks <= 0 or await ledger.trial_used(pool, address):
             return False
         try:
             eligible = await has_history(
@@ -128,7 +128,7 @@ class CreditsDoor:
             return False
         if not eligible or not self.trials.allow(ip):
             return False
-        granted = await ledger.create(pool, address, s.trial_checks * s.analysis_price_lamports)
+        granted = await ledger.grant_trial(pool, address, s.trial_checks * s.analysis_price_usd_micros)
         if granted:
             logger.info("trial_granted", checks=s.trial_checks)
         return granted

@@ -92,24 +92,24 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in lamports`**: no emails, no purchase history (the chain is the ledger), no
+user state stored is `wallet → balance in micro-dollars`** (and whether its trial was granted): no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
-Credits are bought by sending SOL or USDC to the hot wallet (at least one analysis' worth). A USDC purchase is
-credited at its SOL value at crediting time (Pyth SOL/USD) and gets the SOL bonus tier that value reaches; a second
-scanner watches the hot wallet's USDC account, and waits rather than guesses while the price is stale. For SOL:
+Credits are dollars and are bought by sending SOL or USDC to the hot wallet (at least one check's worth, $0.15). USDC
+is credited at face value; SOL at its dollar value at crediting time (Pyth SOL/USD, rounded down), and the SOL scanner
+waits rather than guesses while the price is stale. A second scanner watches the hot wallet's USDC account. For SOL:
 `/v1/credits/purchase-tx` builds the transfer with a
 `veridex:credit:<beneficiary>` memo (any wallet may fund any wallet, so a smart-wallet vault can buy for the key that
 signs in), and [`/checkout`](https://veridex.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
 Pay QR). A background scanner walks the hot wallet's finalized transactions and credits every incoming System
 transfer, top-level or inside a program call, to the memo's beneficiary (exactly one well-formed memo) or else the
-sender, with the purchase bonus (≥0.05 SOL +10%, ≥0.25 SOL +20%). It moves its cursor in the same database
+sender, with the purchase bonus (≥$5 +10%, ≥$25 +20%). It moves its cursor in the same database
 transaction by compare-and-swap, so each transfer is credited exactly once. Sweeps, fees and x402 settlements are
 ignored; any other SOL sent to the hot wallet, a manual top-up included, counts as a purchase.
 
 [`/connect`](https://veridex.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
 (`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
-strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs `VERIDEX_ANALYSIS_PRICE_LAMPORTS` (0.0015 SOL),
+strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs `VERIDEX_ANALYSIS_PRICE_USD_MICROS` ($0.15),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
 A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a
@@ -123,7 +123,7 @@ over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL) or **U
 `PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header listing wSOL first, then USDC. The client
 signs a transaction that pays the price into the **hot wallet**'s token account for that mint: a plain `TransferChecked` from a standard
 wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Veridex co-signs as **fee
-payer** with the same hot wallet (agents pay only the price: quick 0.0001 SOL, deep 0.0015 SOL), submits it and waits
+payer** with the same hot wallet (agents pay only the price: quick $0.01, deep $0.15), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
 confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
 human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
@@ -135,13 +135,14 @@ fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNI
 one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's token
 account growing by exactly the accepted amount with the hot wallet paying no more than the fee.
 
-**Prices are canonical in SOL** (`VERIDEX_X402_PRICE_*_LAMPORTS`, `VERIDEX_ANALYSIS_PRICE_LAMPORTS`). USDC amounts are
-those prices converted at payment time with Pyth's SOL/USD price, read on chain from the Pyth receiver's
-`PriceUpdateV2` account (`VERIDEX_PYTH_SOL_USD_ACCOUNT`): fully verified, at most `VERIDEX_PYTH_MAX_AGE_S` (60 s) old,
-confidence at most `VERIDEX_PYTH_MAX_CONF_BPS` (1%). USDC isn't offered while the oracle fails those checks, nor until
-the hot wallet's USDC account exists; a USDC payment may be up to `VERIDEX_USDC_QUOTE_TOLERANCE_BPS` (2%) off the
-current quote, since the price moves between the 402 and the payment. On devnet the oracle is read from mainnet (Pyth's
-devnet copy updates too rarely). `VERIDEX_PRICE_MODE=fixed` switches to fixed USDC prices instead (off by default).
+**Prices are canonical in US dollars** (`VERIDEX_X402_PRICE_*_USD_MICROS`, `VERIDEX_ANALYSIS_PRICE_USD_MICROS`; one
+dollar = 1,000,000, which is also USDC's base unit). USDC pays them exactly. SOL amounts are those prices converted at
+quote time with Pyth's SOL/USD price (rounded up), read on chain from the Pyth receiver's `PriceUpdateV2` account
+(`VERIDEX_PYTH_SOL_USD_ACCOUNT`): fully verified, at most `VERIDEX_PYTH_MAX_AGE_S` (60 s) old, confidence at most
+`VERIDEX_PYTH_MAX_CONF_BPS` (1%). wSOL isn't offered while the oracle fails those checks (the 402 then lists USDC
+only, or answers 503 `PRICE_UNAVAILABLE` if the USDC account doesn't exist yet); a wSOL payment may be up to
+`VERIDEX_QUOTE_TOLERANCE_BPS` (2%) off the current quote, since the price moves between the 402 and the payment. On
+devnet the oracle is read from mainnet (Pyth's devnet copy updates too rarely).
 All prices come from one place, `veridex.prices.PriceBook`. After settlement the real
 on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails after a
 payment settled, the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after
@@ -209,8 +210,11 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
 | `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
 | `VERIDEX_SIWS_DOMAIN` | `veridex.kroshtan.com` | Sign-in messages must be bound to this domain |
-| `VERIDEX_ANALYSIS_PRICE_LAMPORTS` | `1500000` | One analysis (0.0015 SOL) |
-| `VERIDEX_CREDIT_BONUS_TIERS` / `VERIDEX_SUGGESTED_PACKS` | `[[50000000,10],[250000000,20]]` / `[10,50,200]` | Purchase bonuses (min lamports, %); packs in analyses |
+| `VERIDEX_ANALYSIS_PRICE_USD_MICROS` | `150000` | One analysis ($0.15) |
+| `VERIDEX_X402_PRICE_QUICK_USD_MICROS` / `VERIDEX_X402_PRICE_DEEP_USD_MICROS` | `10000` / `150000` | x402 tiers ($0.01 / $0.15) |
+| `VERIDEX_CREDIT_BONUS_TIERS` / `VERIDEX_SUGGESTED_PACKS` | `[[5000000,10],[25000000,20]]` / `[10,50,200]` | Purchase bonuses (min micro-dollars, %); packs in checks |
+| `VERIDEX_PURCHASE_MIN_USD_MICROS` / `VERIDEX_PURCHASE_MAX_USD_MICROS` | `150000` / `1000000000` | Credit purchase limits ($0.15 … $1,000) |
+| `VERIDEX_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `VERIDEX_TRIAL_CHECKS` | `5` | Free analyses on a first sign-in (wallets with history only) |
 | `VERIDEX_TRIAL_PER_IP_PER_DAY` / `VERIDEX_TRIAL_DAILY_CAP` | `2` / `50` | Trial limits, kept in memory |
 | `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
@@ -241,7 +245,7 @@ src/veridex/
 │   ├── nodes.py       # preprocess, classify, early_exit, judge
 │   ├── state.py       # shared LangGraph state
 │   └── skills/        # one module per skill
-├── credits/           # SIWS, the lamport ledger, pricing, trial rules, purchase scanner
+├── credits/           # SIWS, the dollar ledger, pricing, trial rules, purchase scanner
 ├── x402/              # pay-per-check: verification, hot wallet, sweeps
 ├── auth.py            # bearer sessions
 ├── db.py, migrations.py  # versioned schema + queries (asyncpg)

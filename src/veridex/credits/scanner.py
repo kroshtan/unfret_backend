@@ -8,9 +8,9 @@ credits the incoming transfers (top-level and inner instructions, so smart walle
 and moves the cursor, in one database transaction. The cursor moves by compare-and-swap, so a transfer is credited
 exactly once even if two scanners run or one restarts mid-way.
 
-A USDC purchase is credited at its SOL value at crediting time (:meth:`~veridex.prices.PriceBook.lamports_for`), then
-gets the SOL bonus tier that value reaches. When USDC can't be valued (oracle stale), the scanner stops at that
-transaction and retries later rather than guess.
+A purchase is credited at its dollar value at crediting time (:meth:`~veridex.prices.PriceBook.value`; USDC is exact,
+SOL is converted with Pyth's SOL/USD price), then gets the bonus tier that value reaches. When SOL can't be valued
+(oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
 Who is credited: the beneficiary named by a ``veridex:credit:<pubkey>`` memo when the transaction carries exactly one
 well-formed such memo (``/v1/credits/purchase-tx`` and the Solana Pay link add it), so a smart-wallet vault can buy
@@ -158,7 +158,7 @@ class CreditScanner:
         hot: Pubkey,
         bonus_tiers: list[tuple[int, int]],
         *,
-        book: PriceBook | None = None,
+        book: PriceBook,
         usdc_mint: Pubkey | None = None,
     ) -> None:
         """
@@ -167,8 +167,8 @@ class CreditScanner:
         :param rpc: The Solana RPC client.
         :param pool: The database pool.
         :param hot: The hot wallet.
-        :param bonus_tiers: ``(minimum lamports, bonus percent)`` pairs applied per purchase (by SOL value).
-        :param book: The price book (converts USDC to its SOL value; required with ``usdc_mint``).
+        :param bonus_tiers: ``(minimum micro-dollars, bonus percent)`` pairs applied per purchase (by dollar value).
+        :param book: The price book (values purchases in dollars).
         :param usdc_mint: Scan USDC transfers into the hot wallet's account for this mint instead of SOL.
         """
         self.rpc, self.pool, self.hot, self.bonus_tiers = rpc, pool, hot, bonus_tiers
@@ -223,10 +223,7 @@ class CreditScanner:
             before = page[-1]["signature"]
 
     async def _value(self, amount: int) -> int:
-        if self.currency == "SOL":
-            return amount
-        assert self.book is not None  # noqa: S101 - required with a USDC mint
-        return await self.book.lamports_for(amount, "USDC")
+        return await self.book.value(amount, self.currency)
 
     async def scan_once(self) -> int:
         """
@@ -251,8 +248,8 @@ class CreditScanner:
                     received = {wallet: await self._value(amount) for wallet, amount in paid.items()}
                 except PriceUnavailableError as exc:
                     logger.warning("credits_scan_waiting_for_price", reason=str(exc)[:120])
-                    break  # can't value USDC right now; never skip past it, try again next round
-                # Zero-value transfers (anyone can send one) and USDC dust that values to 0 credit nothing; the
+                    break  # can't value SOL right now; never skip past it, try again next round
+                # Zero-value transfers (anyone can send one) and dust that values to 0 credit nothing; the
                 # cursor still moves past them. Crediting 0 would raise and stall the scanner on that transaction.
                 received = {wallet: value for wallet, value in received.items() if value > 0}
             async with self.pool.acquire() as conn, conn.transaction():
@@ -262,12 +259,17 @@ class CreditScanner:
                 if current != cursor:
                     logger.warning("credits_scanner_raced", expected=cursor, found=current)
                     return made  # another scanner moved on; it credits from here
-                for sender, lamports in received.items():
-                    await ledger.credit(conn, sender, with_bonus(lamports, self.bonus_tiers))
+                for sender, value in received.items():
+                    await ledger.credit(conn, sender, with_bonus(value, self.bonus_tiers))
                 await ledger.set_cursor(conn, self.name, signature)
-            for lamports in received.values():
+            for value in received.values():
                 # Amounts only: which wallet bought is on chain already and needn't be in our logs.
-                logger.info("credits_purchased", lamports=lamports, credited=with_bonus(lamports, self.bonus_tiers))
+                logger.info(
+                    "credits_purchased",
+                    currency=self.currency,
+                    usd_micros=value,
+                    credited_usd_micros=with_bonus(value, self.bonus_tiers),
+                )
                 made += 1
             cursor = signature
         return made

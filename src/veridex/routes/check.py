@@ -19,11 +19,11 @@ from veridex import __version__
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.net import fetch_public
-from veridex.prices import Product
+from veridex.prices import format_usd
 from veridex.shopper import pick_language
 from veridex.x402.payment import PaymentError, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import RpcError, SettlementPendingError, usdc_mint
+from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, usdc_mint
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
 
 logger = structlog.get_logger("veridex")
@@ -88,26 +88,26 @@ def _settlement(x402: X402, *, success: bool, transaction: str, payer: str, reas
     return encode_header(response)
 
 
-async def _refund_as_credits(request: Request, payer: str, lamports: int) -> int:
+async def _refund_as_credits(request: Request, payer: str, usd_micros: int) -> int:
     """
     Credit a paid-but-failed check's price to the paying wallet's credits balance.
 
     :param request: The incoming request (for the database pool).
     :param payer: The paying wallet (base58).
-    :param lamports: The price paid.
-    :return: The lamports refunded, or 0 if it couldn't be recorded (logged for manual follow-up).
+    :param usd_micros: The price paid (the tier's dollar price, whichever currency paid it).
+    :return: The micro-dollars refunded, or 0 if it couldn't be recorded (logged for manual follow-up).
     """
     pool = request.app.db_pool
     if pool is None:
-        logger.error("x402_refund_unrecorded", reason="no_database", lamports=lamports)
+        logger.error("x402_refund_unrecorded", reason="no_database", usd_micros=usd_micros)
         return 0
     try:
-        await ledger.credit(pool, payer, lamports)
+        await ledger.credit(pool, payer, usd_micros)
     except Exception as exc:  # noqa: BLE001 - the answer must still go out; the log has what's needed to fix it
-        logger.error("x402_refund_unrecorded", error=type(exc).__name__, lamports=lamports)
+        logger.error("x402_refund_unrecorded", error=type(exc).__name__, usd_micros=usd_micros)
         return 0
-    logger.info("x402_refunded_as_credits", lamports=lamports)
-    return lamports
+    logger.info("x402_refunded_as_credits", usd_micros=usd_micros)
+    return usd_micros
 
 
 async def _page_html(body: CheckRequest) -> str:
@@ -134,6 +134,12 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         )
 
     accepts = await x402.accepts(body.tier)
+    if not accepts:
+        return JSONResponse(
+            {"detail": "No payment option can be priced right now; retry shortly.", "error_code": "PRICE_UNAVAILABLE"},
+            status_code=503,
+            headers={"Retry-After": "30"},
+        )
     header = request.headers.get(PAYMENT_SIGNATURE)
     if not header:
         return _payment_required(accepts, f"{PAYMENT_SIGNATURE} header is required")
@@ -207,19 +213,16 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
             "transaction": signature,
         }
-        # The tier's canonical SOL price, whichever currency paid for it (a USDC payment was that price, converted).
-        refunded = await _refund_as_credits(request, payer, x402.prices.lamports(_tier_product(body.tier)))
+        # The tier's dollar price, whichever currency paid for it (credit balances are micro-dollars).
+        refunded = await _refund_as_credits(request, payer, x402.usd_price(body.tier))
         if refunded:
-            content["refunded_lamports"] = refunded
+            content["refunded_usd_micros"] = refunded
+            content["refunded_lamports"] = refunded  # deprecated name of the same micro-dollar credit
             content["refund"] = f"Credited to {payer}; sign in with that wallet at {settings.public_base_url}/connect."
         return JSONResponse(content, status_code=504 if timed_out else 500, headers=paid)
 
     verdict = to_verdict(result, policy=body.policy, tier=body.tier)
     return JSONResponse(verdict.model_dump(mode="json"), headers=paid)
-
-
-def _tier_product(tier: str) -> Product:
-    return "x402_deep" if tier == "deep" else "x402_quick"
 
 
 def _discovery() -> dict[str, Any]:
@@ -232,19 +235,29 @@ def _discovery() -> dict[str, Any]:
         "method": "POST",
         "scheme": "exact",
         "network": settings.solana_network,
+        "pricing": "canonical in USD",
         "assets": {
-            "wSOL": {"mint": "So11111111111111111111111111111111111111112", "pricing": "canonical, fixed in SOL"},
-            "USDC": {
-                "mint": str(mint),
-                "pricing": "converted from the SOL price at quote time (Pyth SOL/USD); offered only while the oracle "
-                "is fresh, otherwise pay in wSOL",
+            "USDC": {"mint": str(mint), "pricing": "exactly the USD price (1 USDC = $1)"},
+            "wSOL": {
+                "mint": str(WSOL_MINT),
+                "pricing": "the USD price converted at quote time with Pyth's SOL/USD price; a payment may differ "
+                f"from the quote by up to {settings.quote_tolerance_bps / 100:g}%; offered only while the oracle is "
+                "fresh, otherwise pay in USDC",
             },
         },
         "feePayer": "Veridex pays the network fee",
         "wallets": "standard wallets and smart wallets (Squads and other program-controlled wallets paying by CPI)",
         "tiers": {
-            "quick": {"price_lamports": settings.x402_price_quick_lamports, "skills": sorted(QUICK_SKILLS)},
-            "deep": {"price_lamports": settings.x402_price_deep_lamports, "skills": "all"},
+            "quick": {
+                "price_usd": format_usd(settings.x402_price_quick_usd_micros),
+                "price_usd_micros": settings.x402_price_quick_usd_micros,
+                "skills": sorted(QUICK_SKILLS),
+            },
+            "deep": {
+                "price_usd": format_usd(settings.x402_price_deep_usd_micros),
+                "price_usd_micros": settings.x402_price_deep_usd_micros,
+                "skills": "all",
+            },
         },
         "policies": {name: {"warn_at": w, "block_at": b} for name, (w, b) in POLICY_THRESHOLDS.items()},
         "request": {
@@ -285,7 +298,7 @@ async def llms_txt() -> str:
     :return: Plain text.
     """
     d = _discovery()
-    quick, deep = d["tiers"]["quick"]["price_lamports"], d["tiers"]["deep"]["price_lamports"]
+    quick, deep = d["tiers"]["quick"]["price_usd"], d["tiers"]["deep"]["price_usd"]
     return f"""# Veridex
 
 > Pay-per-check risk signals for AI shopping agents: is this store or product listing showing signs of scams,
@@ -298,10 +311,10 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 
 ## Payment (x402 v2)
 
-The first call answers 402 with a PAYMENT-REQUIRED header listing the options: wSOL (wrapped SOL) first, then USDC
-when it can be priced. Pay one with the `exact` scheme on Solana ({d["network"]}) and retry with PAYMENT-SIGNATURE.
-Prices are set in SOL: quick = {quick / 1e9:.4f} SOL, deep = {deep / 1e9:.4f} SOL; the USDC amount is that price
-converted at quote time with Pyth's SOL/USD price (USDC isn't offered while the oracle is stale). Standard wallets and
+The first call answers 402 with a PAYMENT-REQUIRED header listing the options: wSOL (wrapped SOL) and USDC. Pay one
+with the `exact` scheme on Solana ({d["network"]}) and retry with PAYMENT-SIGNATURE. Prices are in US dollars:
+quick = {quick}, deep = {deep}. USDC pays exactly that; the wSOL amount is the dollar price converted at quote time
+with Pyth's SOL/USD price (wSOL isn't offered while the oracle is stale). Standard wallets and
 smart wallets (Squads and other program-controlled wallets paying by CPI) both work, as long as the transaction
 carries one memo and pays the quoted amount into payTo's token account for that mint. Veridex is the fee payer, so
 you only pay the price. A page we can't fetch costs nothing.

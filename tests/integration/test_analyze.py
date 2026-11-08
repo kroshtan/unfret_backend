@@ -21,7 +21,7 @@ DUTCH_VERDICT = {
 
 
 async def balance(pool: asyncpg.Pool, address: str) -> int | None:
-    value = await pool.fetchval("SELECT balance_lamports FROM wallets WHERE pubkey = $1", address)
+    value = await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address)
     return None if value is None else int(value)
 
 

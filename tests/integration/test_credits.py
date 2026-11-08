@@ -11,18 +11,21 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from tests.integration.conftest import bearer
-from tests.unit.test_prices import StaticOracle
+from tests.unit.x402_helpers import StaticOracle
 from veridex.auth import get_credits
 from veridex.config import settings
-from veridex.credits import CreditsDoor, siws
+from veridex.credits import CreditsDoor, ledger, siws
 from veridex.credits.scanner import CreditScanner
 from veridex.main import app
+from veridex.migrations import MIGRATIONS, migrate
 from veridex.prices import PriceBook
 from veridex.routes.check import _refund_as_credits
 from veridex.x402.solana import USDC_MINTS, associated_token_address
 
 HOT = Keypair()
-PRICE = settings.analysis_price_lamports
+PRICE = settings.analysis_price_usd_micros
+# At $1,000/SOL one lamport is worth exactly one micro-dollar, which keeps the SOL scanner amounts readable.
+SOL_BOOK = PriceBook(settings, StaticOracle("1000"))
 
 
 def transfer(source: str, destination: str, lamports: int, *, inner: bool = False) -> dict[str, Any]:
@@ -73,7 +76,7 @@ class ChainRpc:
 
 
 async def balance(pool: asyncpg.Pool, address: str) -> int | None:
-    value = await pool.fetchval("SELECT balance_lamports FROM wallets WHERE pubkey = $1", address)
+    value = await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address)
     return None if value is None else int(value)
 
 
@@ -113,7 +116,12 @@ async def test_sign_in_issues_a_working_session(client: httpx.AsyncClient) -> No
     session = response.json()
     assert session["address"] == str(keypair.pubkey())
     credits = await client.get("/v1/credits", headers={"Authorization": f"Bearer {session['token']}"})
-    assert credits.json() == {"address": str(keypair.pubkey()), "balance_lamports": 0, "checks_remaining": 0}
+    assert credits.json() == {
+        "address": str(keypair.pubkey()),
+        "balance_usd_micros": 0,
+        "checks_remaining": 0,
+        "balance_lamports": 0,
+    }
 
 
 async def test_sign_in_for_another_site_is_refused(client: httpx.AsyncClient) -> None:
@@ -197,12 +205,12 @@ def get_credits_from_app() -> CreditsDoor:
 
 async def test_pricing_without_purchases(client: httpx.AsyncClient) -> None:
     body = (await client.get("/v1/pricing")).json()
-    assert body["analysis_lamports"] == PRICE
+    assert (body["currency"], body["analysis_usd_micros"]) == ("USD", PRICE)
     assert body["hot_wallet"] is None
-    assert body["suggested_packs"][0] == {"checks": 10, "lamports": 10 * PRICE}
+    assert body["suggested_packs"][0] == {"checks": 10, "usd_micros": 10 * PRICE}
     assert body["bonuses"] == [
-        {"min_lamports": 50_000_000, "bonus_pct": 10},
-        {"min_lamports": 250_000_000, "bonus_pct": 20},
+        {"min_usd_micros": 5_000_000, "bonus_pct": 10},
+        {"min_usd_micros": 25_000_000, "bonus_pct": 20},
     ]
 
 
@@ -216,7 +224,7 @@ async def test_purchases_off_until_the_scanner_runs(client: httpx.AsyncClient) -
 @pytest.fixture
 async def shop(client: httpx.AsyncClient, pool: asyncpg.Pool) -> ChainRpc:
     rpc = ChainRpc()
-    door = CreditsDoor(settings, rpc, HOT.pubkey())  # type: ignore[arg-type]
+    door = CreditsDoor(settings, rpc, HOT.pubkey(), PriceBook(settings, StaticOracle("100")))  # type: ignore[arg-type]
     door.attach(pool)
     assert door.scanner is not None
     await door.scanner.initialise()
@@ -262,12 +270,12 @@ async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc) -> None:
 async def test_scanner_credits_incoming_transfers_exactly_once(pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
     rpc.add("funding", transfer("owner", str(HOT.pubkey()), 15_000_000))  # before the scanner: not credits
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers)  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
 
     hot, cold = str(HOT.pubkey()), "cold"
     rpc.add("buy", transfer("alice", hot, 10_000_000))
-    rpc.add("big", transfer("bob", hot, 100_000_000))  # ≥0.05 SOL: +10%
+    rpc.add("big", transfer("bob", hot, 100_000_000))  # $100 at $1,000/SOL: the ≥$25 tier, +20%
     rpc.add("smart", transfer("vault", hot, 3_000_000, inner=True))  # via a program
     rpc.add("sweep", transfer(hot, cold, 90_000_000))  # outgoing
     rpc.add("failed", None, err={"InstructionError": [0, "Custom"]})
@@ -285,11 +293,11 @@ async def test_scanner_credits_incoming_transfers_exactly_once(pool: asyncpg.Poo
 
     assert await scanner.scan_once() == 3
     assert await scanner.scan_once() == 0  # nothing new
-    restarted = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers)  # type: ignore[arg-type]
+    restarted = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers, book=SOL_BOOK)  # type: ignore[arg-type]
     assert await restarted.scan_once() == 0  # the cursor survives restarts
 
-    assert await balance(pool, "alice") == 10_000_000
-    assert await balance(pool, "bob") == 110_000_000
+    assert await balance(pool, "alice") == 11_000_000  # $10 at $1,000/SOL: the ≥$5 tier, +10%
+    assert await balance(pool, "bob") == 120_000_000
     assert await balance(pool, "vault") == 3_000_000
     assert await balance(pool, "owner") is None
     assert await balance(pool, hot) is None
@@ -298,7 +306,7 @@ async def test_scanner_credits_incoming_transfers_exactly_once(pool: asyncpg.Poo
 async def test_scanner_skips_zero_value_transfers(pool: asyncpg.Pool) -> None:
     # Regression: one 0-lamport transfer to the hot wallet (costs the sender a fee) stalled the scanner for good.
     rpc = ChainRpc()
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers)  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings.credit_bonus_tiers, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     hot = str(HOT.pubkey())
     rpc.add("zero", transfer("griefer", hot, 0))
@@ -306,14 +314,14 @@ async def test_scanner_skips_zero_value_transfers(pool: asyncpg.Pool) -> None:
 
     assert await scanner.scan_once() == 1
     assert await balance(pool, "griefer") is None
-    assert await balance(pool, "alice") == 5_000_000
+    assert await balance(pool, "alice") == 5_500_000  # $5: reaches the ≥$5 tier, +10%
     assert await scanner.scan_once() == 0  # the cursor moved past both
 
 
 async def test_scanner_pages_through_a_backlog(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("veridex.credits.scanner._PAGE", 3)
     rpc = ChainRpc()
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     for i in range(8):
         rpc.add(f"t{i}", transfer("carol", str(HOT.pubkey()), 1_000_000))
@@ -324,7 +332,7 @@ async def test_scanner_pages_through_a_backlog(pool: asyncpg.Pool, monkeypatch: 
 
 async def test_scanner_waits_for_unretrievable_transactions(pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     rpc.add("t1", transfer("dave", str(HOT.pubkey()), 1_000_000))
     rpc.chain.append(("t2", None, None))  # listed but not retrievable yet
@@ -338,9 +346,9 @@ async def test_scanner_waits_for_unretrievable_transactions(pool: asyncpg.Pool) 
 
 async def test_two_scanners_never_double_credit(pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
-    one = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    one = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await one.initialise()
-    two = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    two = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     for i in range(5):
         rpc.add(f"t{i}", transfer("erin", str(HOT.pubkey()), 1_000_000))
 
@@ -372,7 +380,7 @@ def with_memos(tx: dict[str, Any], *memos: str) -> dict[str, Any]:
 
 async def test_vault_paid_purchase_credits_the_memo_beneficiary(pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     member = str(Keypair().pubkey())
     vault_payment = transfer("vault-pda", str(HOT.pubkey()), 2_000_000, inner=True)  # paid by a program (CPI)
@@ -389,7 +397,7 @@ async def test_vault_paid_purchase_credits_the_memo_beneficiary(pool: asyncpg.Po
 )
 async def test_bad_or_ambiguous_memos_credit_the_source(pool: asyncpg.Pool, memos: tuple[str, ...]) -> None:
     rpc = ChainRpc()
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     rpc.add("t", with_memos(transfer("frank", str(HOT.pubkey()), 3_000_000), *memos))
 
@@ -426,7 +434,7 @@ async def test_first_start_waits_for_funding_to_finalize(pool: asyncpg.Pool) -> 
 
     rpc = Finalizing()
     rpc.add("seed", transfer("owner", str(HOT.pubkey()), 15_000_000))  # funded seconds before the first start
-    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [])  # type: ignore[arg-type]
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
 
     assert await pool.fetchval("SELECT signature FROM scan_cursor") == "seed"
@@ -469,33 +477,57 @@ def usdc_scanner(rpc: ChainRpc, pool: asyncpg.Pool, oracle: StaticOracle) -> Cre
     return CreditScanner(rpc, pool, HOT.pubkey(), tiers, book=book, usdc_mint=USDC)  # type: ignore[arg-type]
 
 
-async def test_usdc_purchases_are_credited_at_their_sol_value_exactly_once(pool: asyncpg.Pool) -> None:
+async def test_usdc_purchases_are_credited_exactly_once_at_face_value(pool: asyncpg.Pool) -> None:
     rpc = UsdcChainRpc()
     scanner = usdc_scanner(rpc, pool, StaticOracle("100"))
     await scanner.initialise()
     assert scanner.name.startswith("credits-usdc:")  # its own cursor, next to the SOL scanner's
 
-    rpc.add("buy", usdc_transfer("alice", 1_500_000))  # $1.50 at $100/SOL = 0.015 SOL
-    rpc.add("big", usdc_transfer("bob", 6_000_000))  # $6 = 0.06 SOL: reaches the ≥0.05 SOL tier, +10%
+    rpc.add("buy", usdc_transfer("alice", 1_500_000))  # $1.50
+    rpc.add("big", usdc_transfer("bob", 6_000_000))  # $6: reaches the ≥$5 tier, +10%
     rpc.add("x402", usdc_transfer("carol", 150_000, fee_payer=str(HOT.pubkey())))  # a settlement we paid for
 
     assert await scanner.scan_once() == 2
     assert await scanner.scan_once() == 0
     assert await usdc_scanner(rpc, pool, StaticOracle("100")).scan_once() == 0  # the cursor survives restarts
-    assert await balance(pool, "alice") == 15_000_000
-    assert await balance(pool, "bob") == 66_000_000
+    assert await balance(pool, "alice") == 1_500_000
+    assert await balance(pool, "bob") == 6_600_000
     assert await balance(pool, "carol") is None
 
 
-async def test_usdc_purchases_wait_for_a_fresh_price_rather_than_guess(pool: asyncpg.Pool) -> None:
-    rpc = UsdcChainRpc()
+async def test_sol_purchases_wait_for_a_fresh_price_rather_than_guess(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
     oracle = StaticOracle(None)
-    scanner = usdc_scanner(rpc, pool, oracle)
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=PriceBook(settings, oracle))  # type: ignore[arg-type]
     await scanner.initialise()
-    rpc.add("buy", usdc_transfer("alice", 1_500_000))
+    rpc.add("buy", transfer("alice", str(HOT.pubkey()), 10_000_000))
 
     assert await scanner.scan_once() == 0  # stale oracle: not credited, the cursor stays before it
     assert await balance(pool, "alice") is None
     oracle.value = "150"
     assert await scanner.scan_once() == 1
-    assert await balance(pool, "alice") == 10_000_000  # $1.50 at $150/SOL
+    assert await balance(pool, "alice") == 1_500_000  # 0.01 SOL at $150/SOL = $1.50
+
+
+# ── Dollar balances and the trial flag (migration 5) ─────────────────────────
+
+
+async def test_a_purchase_or_a_memo_doesnt_use_up_the_trial(pool: asyncpg.Pool) -> None:
+    # Regression: a row used to mean "trial spent", so 1 lamport with a memo naming someone cancelled their trial.
+    await ledger.credit(pool, "wallet", 100)
+    assert not await ledger.trial_used(pool, "wallet")
+    assert await ledger.grant_trial(pool, "wallet", 750_000)
+    assert await ledger.trial_used(pool, "wallet")
+    assert not await ledger.grant_trial(pool, "wallet", 750_000)  # at most once
+    assert await balance(pool, "wallet") == 750_100
+
+
+async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Pool) -> None:
+    await pool.execute("DROP TABLE IF EXISTS wallets, scan_cursor, fact_cache, usage_counters, schema_migrations")
+    await migrate(pool, MIGRATIONS[:4])
+    await pool.execute("INSERT INTO wallets (pubkey, balance_lamports) VALUES ('a', 4500000), ('b', 1499999)")
+
+    assert await migrate(pool) == [v for v, _, _ in MIGRATIONS[4:]]
+    assert await balance(pool, "a") == 450_000  # 3 checks before (1.5M lamports each), 3 checks now ($0.15 each)
+    assert await balance(pool, "b") == 149_999
+    assert await ledger.trial_used(pool, "a")  # existing rows had their trial

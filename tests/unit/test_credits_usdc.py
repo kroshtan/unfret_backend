@@ -5,7 +5,7 @@ from typing import Any
 from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 
-from tests.unit.test_prices import StaticOracle
+from tests.unit.x402_helpers import StaticOracle
 from veridex.config import Settings
 from veridex.credits.pricing import pricing, purchase_limits, purchase_transaction, solana_pay_url
 from veridex.credits.scanner import credits_for, incoming_token_transfers
@@ -40,23 +40,29 @@ def test_solana_pay_link_names_the_token() -> None:
     assert solana_pay_url(HOT, 15_000_000).startswith(f"solana:{HOT}?amount=0.015&label=")
 
 
-async def test_usdc_limits_are_the_sol_limits_converted_and_at_least_one_check() -> None:
+async def test_purchase_limits_are_dollar_limits_and_at_least_one_check() -> None:
     book = PriceBook(Settings(), StaticOracle("100"))
-    assert await purchase_limits(Settings(), book, "SOL") == (1_500_000, 10_000_000_000)
     assert await purchase_limits(Settings(), book, "USDC") == (150_000, 1_000_000_000)  # $0.15 … $1,000
+    assert await purchase_limits(Settings(), book, "SOL") == (1_500_000, 10_000_000_000)  # the same at $100/SOL
 
 
-async def test_price_list_shows_sol_prices_and_a_live_usdc_quote() -> None:
+async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() -> None:
     doc = await pricing(Settings(), HOT, PriceBook(Settings(), StaticOracle("100")), USDC)
-    assert (doc["analysis_lamports"], doc["purchase"]["min_lamports"]) == (1_500_000, 1_500_000)
+    assert (doc["currency"], doc["analysis_usd_micros"], doc["analysis_usd"]) == ("USD", 150_000, "$0.15")
+    assert doc["x402"] == {"quick_usd_micros": 10_000, "deep_usd_micros": 150_000}
+    assert doc["bonuses"][0] == {"min_usd_micros": 5_000_000, "bonus_pct": 10}
+    assert doc["suggested_packs"][0] == {"checks": 10, "usd_micros": 1_500_000}
     usdc = doc["usdc"]
-    assert (usdc["mint"], usdc["analysis_units"], usdc["source"]) == (str(USDC), 150_000, "pyth")
+    assert (usdc["mint"], usdc["analysis_units"]) == (str(USDC), 150_000)
     assert usdc["x402"] == {"quick_units": 10_000, "deep_units": 150_000}
-    assert usdc["sol_usd"] == "100" and usdc["quoted_at"]
+    sol = doc["sol"]
+    assert (sol["usd_per_sol"], sol["source"], sol["analysis_lamports"]) == ("100", "pyth", 1_500_000)
+    assert sol["x402"] == {"quick_lamports": 100_000, "deep_lamports": 1_500_000}
+    assert doc["analysis_lamports"] == 1_500_000  # backward compatible: the current SOL price of a check
 
     stale = await pricing(Settings(), HOT, PriceBook(Settings(), StaticOracle(None)), USDC)
-    assert stale["usdc"] is None and "stale" in stale["usdc_unavailable"]
-    assert stale["analysis_lamports"] == 1_500_000  # SOL prices never depend on the oracle
+    assert stale["sol"] is None and "stale" in stale["sol_unavailable"]
+    assert stale["usdc"]["analysis_units"] == 150_000  # USDC prices never depend on the oracle
 
 
 def token_tx(*ixs: dict[str, Any], fee_payer: str | None = None, err: Any = None) -> dict[str, Any]:

@@ -1,16 +1,19 @@
 """
 Pay Veridex's x402 ``402 Payment Required`` from the agent's own wallet, within a spend guard.
 
-Veridex offers wSOL and, while it can price it, USDC. The agent pays in USDC when it prefers to and holds enough,
-otherwise in wSOL: it signs a token transfer to Veridex's hot wallet; Veridex adds its fee-payer signature and submits
-it, so the agent pays only the price. If the agent's wSOL balance is short, plain SOL is wrapped first in a separate
-transaction (native token program, no third party). Nothing here ever holds Veridex funds.
+Veridex prices checks in US dollars and offers wSOL (converted at its quote) and USDC (exact). The spend guard caps
+dollars: USDC at face value, wSOL valued at the agent's own Pyth SOL/USD reading. The agent pays in USDC when it
+prefers to and holds enough, otherwise in wSOL: it signs a token transfer to Veridex's hot wallet; Veridex adds its
+fee-payer signature and submits it, so the agent pays only the price. If the agent's wSOL balance is short, plain SOL
+is wrapped first in a separate transaction (native token program, no third party). Nothing here holds Veridex funds.
 """
 
 import base64
 import json
+import math
 import secrets
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Literal
 
 import httpx
@@ -23,6 +26,7 @@ from solders.signature import Signature
 from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
+from veridex_mcp.price import PriceError, SolUsd
 from veridex_mcp.solana import (
     CAIP2,
     USDC_MINTS,
@@ -52,49 +56,44 @@ class PaymentFailedError(RuntimeError):
 
 @dataclass
 class SpendGuard:
-    """Caps what one session may spend, per call and in total, separately per currency (base units)."""
+    """Caps what one session may spend, per call and in total, in micro-dollars (1 USD = 1,000,000)."""
 
     max_per_call: int
     session_cap: int
-    usdc_max_per_call: int = 0
-    usdc_session_cap: int = 0
     spent: int = field(default=0)
-    usdc_spent: int = field(default=0)
 
-    def reserve(self, amount: int, currency: Currency = "SOL") -> None:
+    def reserve(self, usd_micros: int) -> None:
         """
-        Reserve ``amount`` before paying.
+        Reserve a payment's dollar value before paying.
 
-        :param amount: The price (lamports for SOL, base units for USDC).
-        :param currency: ``SOL`` or ``USDC``.
+        :param usd_micros: What the payment is worth, in micro-dollars.
         :raises SpendRefusedError: If it exceeds the per-call maximum or the remaining session budget.
         """
-        per_call, cap, spent = (
-            (self.usdc_max_per_call, self.usdc_session_cap, self.usdc_spent)
-            if currency == "USDC"
-            else (self.max_per_call, self.session_cap, self.spent)
-        )
-        unit = "USDC units" if currency == "USDC" else "lamports"
-        if amount > per_call:
-            raise SpendRefusedError(f"price {amount} {unit} exceeds the per-call maximum of {per_call}")
-        if spent + amount > cap:
-            raise SpendRefusedError(f"price {amount} {unit} would exceed the session cap of {cap}")
-        if currency == "USDC":
-            self.usdc_spent += amount
-        else:
-            self.spent += amount
+        price = f"${usd_micros / 1e6:.4f}"
+        if usd_micros > self.max_per_call:
+            raise SpendRefusedError(f"price {price} exceeds the per-call maximum of ${self.max_per_call / 1e6:.2f}")
+        if self.spent + usd_micros > self.session_cap:
+            raise SpendRefusedError(f"price {price} would exceed the session cap of ${self.session_cap / 1e6:.2f}")
+        self.spent += usd_micros
 
-    def release(self, amount: int, currency: Currency = "SOL") -> None:
+    def release(self, usd_micros: int) -> None:
         """
         Give back a reservation for a payment that didn't settle.
 
-        :param amount: The reserved price.
-        :param currency: ``SOL`` or ``USDC``.
+        :param usd_micros: The reserved value.
         """
-        if currency == "USDC":
-            self.usdc_spent = max(0, self.usdc_spent - amount)
-        else:
-            self.spent = max(0, self.spent - amount)
+        self.spent = max(0, self.spent - usd_micros)
+
+
+def sol_value(lamports: int, usd_per_sol: Decimal) -> int:
+    """
+    What ``lamports`` are worth, in micro-dollars, rounded up (the guard errs towards refusing).
+
+    :param lamports: The amount of SOL.
+    :param usd_per_sol: The price.
+    :return: Micro-dollars.
+    """
+    return math.ceil(Decimal(lamports) * usd_per_sol / 1000)
 
 
 def _b64json(value: dict[str, Any]) -> str:
@@ -200,6 +199,7 @@ class Payer:
         rpc: Rpc,
         network: str,
         guard: SpendGuard,
+        sol_usd: SolUsd | None = None,
         prefer: Currency = "USDC",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
@@ -210,7 +210,8 @@ class Payer:
         :param agent: The agent's keypair.
         :param rpc: Solana RPC for the agent's network.
         :param network: ``solana-devnet`` or ``solana-mainnet``.
-        :param guard: The session spend guard.
+        :param guard: The session spend guard (dollars).
+        :param sol_usd: The agent's own SOL/USD price, to value wSOL charges; without it SOL payments are refused.
         :param prefer: Pay in USDC when offered, held and within the guard; otherwise SOL. ``SOL``: always SOL.
         :param transport: Optional httpx transport for the Veridex API (tests).
         """
@@ -219,6 +220,7 @@ class Payer:
         self.rpc = rpc
         self.network = CAIP2[network]
         self.guard = guard
+        self.sol_usd = sol_usd
         self.prefer: Currency = prefer
         self._transport = transport
 
@@ -238,30 +240,43 @@ class Payer:
         wrap = build_wrap(self.agent, deficit, await self.rpc.latest_blockhash())
         await self.rpc.send_and_confirm(bytes(wrap))
 
-    async def _choose(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], Currency]:
+    async def _sol_value(self, lamports: int) -> int:
+        if self.sol_usd is None:
+            raise PaymentFailedError("can't value a SOL payment without a SOL/USD price; pay in USDC")
+        try:
+            return sol_value(lamports, await self.sol_usd.usd_per_sol())
+        except PriceError as exc:
+            raise PaymentFailedError(f"can't value a SOL payment right now ({exc}); pay in USDC") from exc
+
+    async def _choose(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], Currency, int]:
         """
-        Choose what to pay with and reserve it in the guard.
+        Choose what to pay with and reserve its dollar value in the guard.
 
         :param payment_required: The decoded ``PAYMENT-REQUIRED`` header.
-        :return: The requirement and its currency (already reserved).
+        :return: The requirement, its currency and the reserved micro-dollars.
         :raises PaymentFailedError: If no option can be paid.
-        :raises SpendRefusedError: If the guard refuses the SOL price.
         """
-        if self.prefer == "USDC":
-            try:
-                usdc = choose_requirement(payment_required, self.network, ("USDC",))
-                amount = int(usdc["amount"])
-                held = await self.rpc.token_balance(
-                    associated_token_address(self.agent.pubkey(), Pubkey.from_string(usdc["asset"]))
-                )
-                if held >= amount:
-                    self.guard.reserve(amount, "USDC")
-                    return usdc, "USDC"
-            except (PaymentFailedError, SpendRefusedError):
-                pass  # no USDC offered, or not within the USDC caps: fall back to SOL
-        sol = choose_requirement(payment_required, self.network, ("SOL",))
-        self.guard.reserve(int(sol["amount"]), "SOL")
-        return sol, "SOL"
+        try:
+            usdc: dict[str, Any] | None = choose_requirement(payment_required, self.network, ("USDC",))
+        except PaymentFailedError:
+            usdc = None
+        if usdc is not None and self.prefer == "USDC":
+            amount = int(usdc["amount"])
+            held = await self.rpc.token_balance(
+                associated_token_address(self.agent.pubkey(), Pubkey.from_string(usdc["asset"]))
+            )
+            if held >= amount:
+                self.guard.reserve(amount)  # USDC base units are micro-dollars
+                return usdc, "USDC", amount
+        try:
+            sol = choose_requirement(payment_required, self.network, ("SOL",))
+        except PaymentFailedError:
+            if usdc is None:
+                raise
+            raise PaymentFailedError("only USDC is offered and the wallet holds too little of it") from None
+        value = await self._sol_value(int(sol["amount"]))
+        self.guard.reserve(value)
+        return sol, "SOL", value
 
     async def check(self, body: dict[str, Any]) -> dict[str, Any]:
         """
@@ -275,7 +290,7 @@ class Payer:
             first = await client.post(f"{self.api_url}/v1/check", json=body)
             if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:  # noqa: PLR2004
                 raise PaymentFailedError(f"expected 402 Payment Required, got {first.status_code}: {first.text[:200]}")
-            requirement, currency = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))
+            requirement, currency, usd_micros = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))
             amount = int(requirement["amount"])
             settled = False
             try:
@@ -296,12 +311,16 @@ class Payer:
                 settled = bool(settlement.get("success"))
             finally:
                 if not settled:
-                    self.guard.release(amount, currency)
+                    self.guard.release(usd_micros)
         result: dict[str, Any] = {
             "status": second.status_code,
             "transaction": settlement.get("transaction"),
             "paid_lamports": amount if settled and currency == "SOL" else 0,
-            "paid": {"currency": currency, "amount": amount if settled else 0},
+            "paid": {
+                "currency": currency,
+                "amount": amount if settled else 0,
+                "usd_micros": usd_micros if settled else 0,
+            },
         }
         result["verdict" if second.status_code == 200 else "error"] = second.json()  # noqa: PLR2004
         return result

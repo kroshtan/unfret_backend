@@ -92,7 +92,7 @@ def wallet(pool: asyncpg.Pool) -> Callable[[int], Awaitable[tuple[str, dict[str,
     async def _create(lamports: int = 0) -> tuple[str, dict[str, str]]:
         address = str(Keypair().pubkey())
         if lamports:
-            await pool.execute("INSERT INTO wallets (pubkey, balance_lamports) VALUES ($1, $2)", address, lamports)
+            await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", address, lamports)
         return address, bearer(address)
 
     return _create

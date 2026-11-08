@@ -11,6 +11,8 @@ from tests.unit.x402_helpers import (
     FakeRpc,
     configured,
     cpi_payment_instructions,
+    expected,
+    make_x402,
     payment_header,
     payment_instructions,
     sign_payment,
@@ -18,8 +20,7 @@ from tests.unit.x402_helpers import (
 from veridex.config import Settings
 from veridex.main import app
 from veridex.x402.payment import decode_header
-from veridex.x402.service import X402
-from veridex.x402.solana import RpcError, SettlementPendingError
+from veridex.x402.solana import USDC_MINTS, RpcError, SettlementPendingError
 
 HOT = Keypair()
 CLIENT = Keypair()
@@ -51,7 +52,7 @@ def graph() -> FakeGraph:
 
 @pytest.fixture
 async def client(rpc: FakeRpc, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncClient]:
-    monkeypatch.setattr(app, "x402", X402(configured(HOT, COLD), rpc=rpc))
+    monkeypatch.setattr(app, "x402", make_x402(configured(HOT, COLD), rpc))
     monkeypatch.setattr(app, "quick_graph", graph)
     monkeypatch.setattr(app, "graph", graph)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
@@ -60,12 +61,11 @@ async def client(rpc: FakeRpc, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
 
 def paid_header(amount: int = 100_000) -> str:
     tx = sign_payment(payment_instructions(CLIENT.pubkey(), HOT.pubkey(), amount), HOT.pubkey(), [CLIENT])
-    x402: X402 = app.x402
-    return payment_header(tx, x402.requirements("quick"))
+    return payment_header(tx, expected(HOT.pubkey()))
 
 
 async def test_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(app, "x402", X402(Settings(), rpc=FakeRpc()))
+    monkeypatch.setattr(app, "x402", make_x402(Settings(), FakeRpc()))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         assert (await c.post("/v1/check", json=BODY)).status_code == 503
 
@@ -76,11 +76,12 @@ async def test_unpaid_request_gets_402_with_requirements(client: httpx.AsyncClie
     assert response.status_code == 402
     required = decode_header(response.headers["PAYMENT-REQUIRED"])
     assert required["x402Version"] == 2
-    (accepts,) = required["accepts"]
+    accepts, usdc = required["accepts"]  # wSOL first, then USDC once its account exists
     assert accepts["asset"] == "So11111111111111111111111111111111111111112"
-    assert accepts["amount"] == "100000"
+    assert accepts["amount"] == "100000"  # $0.01 at $100/SOL
     assert accepts["payTo"] == str(HOT.pubkey())
     assert accepts["extra"]["feePayer"] == str(HOT.pubkey())
+    assert (usdc["asset"], usdc["amount"]) == (str(USDC_MINTS["solana-devnet"]), "10000")  # exactly $0.01
     assert graph.calls == []
 
 
@@ -115,8 +116,7 @@ async def test_wrong_payment_is_refused_without_settling(client: httpx.AsyncClie
 
 async def test_smart_wallet_payment_is_accepted(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
     ixs = cpi_payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
-    x402: X402 = app.x402
-    header = payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), x402.requirements("quick"))
+    header = payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), expected(HOT.pubkey()))
 
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": header})
 
@@ -201,8 +201,9 @@ async def test_low_balance_refuses_payments(client: httpx.AsyncClient, rpc: Fake
 
 async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     discovery = (await client.get("/.well-known/x402")).json()
-    assert discovery["tiers"]["quick"]["price_lamports"] == 100_000
-    assert discovery["tiers"]["deep"]["price_lamports"] == 1_500_000
+    assert discovery["pricing"] == "canonical in USD"
+    assert discovery["tiers"]["quick"]["price_usd_micros"] == 10_000
+    assert discovery["tiers"]["deep"]["price_usd"] == "$0.15"
     text = (await client.get("/llms.txt")).text
-    assert "0.0001 SOL" in text
-    assert "0.0015 SOL" in text
+    assert "quick = $0.01" in text
+    assert "deep = $0.15" in text

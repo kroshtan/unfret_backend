@@ -1,4 +1,4 @@
-"""x402 in USDC: offered after wSOL while it can be priced and received, verified within a quote tolerance."""
+"""x402 in USDC and wSOL: dollar prices, USDC charged exactly, wSOL converted at quote time within a tolerance."""
 
 from decimal import Decimal
 from typing import Any
@@ -11,8 +11,14 @@ from solders.message import MessageV0
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from tests.unit.test_prices import StaticOracle
-from tests.unit.x402_helpers import FakeRpc, configured, payment_header, payment_instructions, sign_payment
+from tests.unit.x402_helpers import (
+    FakeRpc,
+    StaticOracle,
+    configured,
+    payment_header,
+    payment_instructions,
+    sign_payment,
+)
 from veridex.main import app
 from veridex.prices import PriceBook
 from veridex.x402.payment import PaymentError, decode_header
@@ -55,11 +61,11 @@ def service(rpc: FakeRpc, usd_per_sol: str | None = "100") -> X402:
     return X402(settings, rpc=rpc, prices=PriceBook(settings, StaticOracle(usd_per_sol)))
 
 
-async def test_usdc_is_offered_after_wsol_at_the_converted_price() -> None:
+async def test_both_are_offered_at_the_dollar_price() -> None:
     accepts = await service(TokenRpc()).accepts("deep")
     assert [a["asset"] for a in accepts] == [str(WSOL_MINT), str(USDC)]
-    assert accepts[0]["amount"] == "1500000"  # 0.0015 SOL, canonical
-    assert accepts[1]["amount"] == "150000"  # the same at $100/SOL
+    assert accepts[0]["amount"] == "1500000"  # $0.15 at $100/SOL
+    assert accepts[1]["amount"] == "150000"  # exactly $0.15
     assert accepts[1]["payTo"] == str(HOT.pubkey())
 
 
@@ -67,8 +73,12 @@ async def test_usdc_is_withheld_until_its_account_exists() -> None:
     assert [a["asset"] for a in await service(TokenRpc(usdc=None)).accepts("quick")] == [str(WSOL_MINT)]
 
 
-async def test_usdc_is_withheld_while_the_oracle_is_unavailable() -> None:
-    assert [a["asset"] for a in await service(TokenRpc(), usd_per_sol=None).accepts("quick")] == [str(WSOL_MINT)]
+async def test_wsol_is_withheld_while_the_oracle_is_unavailable() -> None:
+    assert [a["asset"] for a in await service(TokenRpc(), usd_per_sol=None).accepts("quick")] == [str(USDC)]
+
+
+async def test_nothing_is_offered_without_oracle_or_usdc_account() -> None:
+    assert await service(TokenRpc(usdc=None), usd_per_sol=None).accepts("quick") == []
 
 
 def usdc_payment(x402: X402, accepts: list[dict[str, Any]], amount: int, **overrides: Any) -> str:
@@ -77,26 +87,31 @@ def usdc_payment(x402: X402, accepts: list[dict[str, Any]], amount: int, **overr
     return payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), accepted)
 
 
-@pytest.mark.parametrize(("amount", "ok"), [(150_000, True), (147_000, True), (153_000, True), (146_000, False)])
-async def test_usdc_amount_may_drift_within_the_tolerance(amount: int, ok: bool) -> None:
+def wsol_payment(accepts: list[dict[str, Any]], amount: int) -> str:
+    ixs = payment_instructions(CLIENT.pubkey(), HOT.pubkey(), amount)
+    return payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), {**accepts[0], "amount": str(amount)})
+
+
+@pytest.mark.parametrize(
+    ("amount", "ok"), [(1_500_000, True), (1_470_000, True), (1_530_000, True), (1_460_000, False)]
+)
+async def test_wsol_amount_may_drift_within_the_tolerance(amount: int, ok: bool) -> None:
     x402 = service(TokenRpc())
     accepts = await x402.accepts("deep")
-    header = usdc_payment(x402, accepts, amount)
+    header = wsol_payment(accepts, amount)
     if ok:
         pre = x402.precheck(header, "deep", accepts)
-        assert (pre.mint, pre.amount) == (USDC, amount)
+        assert (pre.mint, pre.amount) == (WSOL_MINT, amount)
     else:
         with pytest.raises(PaymentError, match="requirements_mismatch"):
             x402.precheck(header, "deep", accepts)
 
 
-async def test_wsol_amount_stays_exact() -> None:
+async def test_usdc_amount_stays_exact() -> None:
     x402 = service(TokenRpc())
-    accepts = await x402.accepts("quick")
-    ixs = payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 99_999)
-    header = payment_header(sign_payment(ixs, HOT.pubkey(), [CLIENT]), {**accepts[0], "amount": "99999"})
+    accepts = await x402.accepts("deep")
     with pytest.raises(PaymentError, match="requirements_mismatch"):
-        x402.precheck(header, "quick", accepts)
+        x402.precheck(usdc_payment(x402, accepts, 149_999), "deep", accepts)
 
 
 async def test_other_mints_and_pay_to_addresses_are_refused() -> None:
@@ -176,5 +191,5 @@ async def test_the_402_offers_usdc_once_its_account_exists(
 
 
 def test_quote_tolerance_is_two_percent_by_default() -> None:
-    assert configured(HOT, COLD).usdc_quote_tolerance_bps == 200
+    assert configured(HOT, COLD).quote_tolerance_bps == 200
     assert Decimal(200) / 10_000 == Decimal("0.02")

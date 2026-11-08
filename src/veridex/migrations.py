@@ -88,6 +88,20 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        5,
+        "dollar balances and a trial flag",
+        """
+        -- Prices and balances move from lamports to micro-dollars (1 USD = 1,000,000). Existing balances keep their
+        -- number of checks: a check cost 1,500,000 lamports and costs 150,000 micro-dollars now, so divide by 10.
+        ALTER TABLE wallets RENAME COLUMN balance_lamports TO balance_usd_micros;
+        UPDATE wallets SET balance_usd_micros = balance_usd_micros / 10;
+        -- The trial is recorded explicitly: a row no longer means "trial spent", so a purchase (or a 1-lamport
+        -- transfer naming someone) can't use up another wallet's trial.
+        ALTER TABLE wallets ADD COLUMN trial_granted BOOLEAN NOT NULL DEFAULT FALSE;
+        UPDATE wallets SET trial_granted = TRUE;
+        """,
+    ),
 ]
 
 

@@ -5,15 +5,16 @@ An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents as
 generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
 Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in USDC or
-wSOL. Prices are set in SOL; the USDC amount is the SOL price converted at quote time (Pyth SOL/USD). By default the
-server pays in USDC when Veridex offers it and the wallet holds enough, otherwise in wSOL (`VERIDEX_MCP_PAY_WITH=SOL`
-to always use SOL); if the wallet holds plain SOL, it wraps what it needs first. Spend caps apply per currency
-(`VERIDEX_MCP_MAX_PRICE_USDC`, `VERIDEX_MCP_SESSION_CAP_USDC` next to the lamport ones). Veridex pays the network
-fee, so the agent pays only the price. The server never holds anyone else's funds.
+wSOL. Prices are in US dollars (quick $0.01, deep $0.15): USDC pays them exactly, wSOL at Veridex's SOL/USD quote. By
+default the server pays in USDC when Veridex offers it and the wallet holds enough, otherwise in wSOL
+(`VERIDEX_MCP_PAY_WITH=SOL` to always use SOL); if the wallet holds plain SOL, it wraps what it needs first. The spend
+caps are in dollars whatever the currency: the server values a wSOL charge with **its own** Pyth SOL/USD reading
+(mainnet, fully verified, ≤2 min old, confidence ≤2%) rather than Veridex's word, and refuses SOL when it has no such
+price. Veridex pays the network fee, so the agent pays only the price. The server never holds anyone else's funds.
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `check_store` | `url`, `tier` (`quick` 0.0001 SOL \| `deep` 0.0015 SOL), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
+| `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.15), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
 | `explain_flag` | `flag_type` | A one-paragraph explanation for the end user |
 
 `action` is `allow`, `warn` (ask your human first) or `block`, at thresholds set by the chosen `policy`. Flags are
@@ -27,8 +28,9 @@ fetches.
 | `VERIDEX_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `VERIDEX_MCP_SECRET_KEY`, base58) |
 | `VERIDEX_MCP_NETWORK` | `solana-devnet` | `solana-mainnet` once Veridex accepts mainnet payments |
 | `VERIDEX_MCP_RPC_URL` | the network's public RPC | |
-| `VERIDEX_MCP_MAX_PRICE_LAMPORTS` | `2000000` (0.002 SOL) | Refuse any single check priced above this |
-| `VERIDEX_MCP_SESSION_CAP_LAMPORTS` | `20000000` (0.02 SOL) | Refuse once the session has spent this |
+| `VERIDEX_MCP_MAX_PRICE_USD` | `0.25` | Refuse any single check worth more than this many dollars |
+| `VERIDEX_MCP_SESSION_CAP_USD` | `2.50` | Refuse once the session has spent this many dollars |
+| `VERIDEX_MCP_PRICE_RPC_URL` | mainnet's public RPC | Where the agent reads Pyth SOL/USD to value wSOL payments |
 | `VERIDEX_API_URL` | `https://veridex.kroshtan.com` | |
 
 ```json

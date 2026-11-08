@@ -6,8 +6,8 @@
 
 **Veridex scores e-commerce product pages for scam and dropshipping signals.** A browser extension sends the HTML of
 the page the user is viewing; the backend runs a [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of
-independent analysis "skills" in parallel and has an LLM judge condense their evidence into a 0–100 reliability score
-with a one-line explanation.
+independent analysis "skills" in parallel, and a small trained model turns their features into a calibrated 0–100
+reliability score; an LLM writes the one-line explanation from the signals that moved it.
 
 ```json
 POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sourced images and templated 5-star reviews." }
@@ -207,8 +207,10 @@ src/veridex/
 
 ## Limitations and responsible use
 
-- Scores are LLM judgements over heuristic evidence. They are a signal, not a verdict, and can be wrong in both
-  directions.
+- Scores come from a logistic regression over skill features (`src/veridex/scoring/model.json`, trained with
+  `python -m evals.train` on a private labelled corpus). They are a calibrated signal, not a verdict, and can be wrong
+  in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
+  so marketplace accuracy on real pages is likely lower than measured.
 - Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
   delimited as untrusted data, and attempts to address the model are detected and count against the page.
 - Registration data (RDAP) is often redacted; the first-certificate date is a second, registry-independent age.

@@ -12,7 +12,6 @@ concurrency:
 
 jobs:
   # The public runner: an unprivileged throwaway container with no docker socket and no secrets.
-  # No deploy job yet: the domain and the Kamal config are still to be decided.
   check:
     runs-on: kroshtan-public
     services:
@@ -35,3 +34,40 @@ jobs:
         run: uv run pytest
         env:
           VERIDEX_TEST_POSTGRES_URI: postgresql://veridex:veridex@postgres:5432/veridex
+
+  # The deploy runner: its own rootless docker daemon to build on, and the deploy credentials as read-only files
+  # under /creds. Only pushes to main (and manual runs) get here.
+  deploy:
+    needs: check
+    if: forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main'
+    runs-on: kroshtan-deploy
+    concurrency:
+      group: deploy-veridex
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Load the deploy credentials
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          install -m 600 /creds/ssh_key ~/.ssh/id_ed25519
+          install -m 644 /creds/known_hosts ~/.ssh/known_hosts
+          value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
+          [[ -n "$value" ]] && echo "::add-mask::$value"
+          printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
+      - name: Deploy
+        # The app's secrets are repo secrets (Settings → Actions → Secrets); Kamal reads them from the environment
+        # (.kamal/secrets). The database accessory is booted once, on the first deploy.
+        env:
+          VERIDEX_LLM_API_KEY: ${{ secrets.VERIDEX_LLM_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # `details` echoes its docker ps command (which names the container), so match a running row instead.
+          if ! kamal accessory details db 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
+            kamal accessory boot db
+          fi
+          kamal deploy
+      - name: Discard the deploy key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

@@ -1,0 +1,76 @@
+# Kamal: how veridex.kroshtan.com is deployed, on the same box and behind the same Caddy + kamal-proxy as
+# kroshtan-web (forge-infra README, "Adding an app"). CI runs `kamal deploy` on every push to main; kamal-proxy
+# only switches traffic over once the new container passes its readiness check.
+service: veridex
+# Kamal prefixes registry.server itself; a host here would make it git.kroshtan.com/git.kroshtan.com/….
+image: kroshtan/veridex
+
+servers:
+  web:
+    hosts:
+      # The forge's own name: it resolves straight to the server (not through Cloudflare), so SSH reaches it.
+      - git.kroshtan.com
+    # The app writes nothing to disk and needs no privileges.
+    options:
+      read-only: true
+      tmpfs: /tmp
+      cap-drop: ALL
+      security-opt: no-new-privileges:true
+      memory: 1536m
+      cpus: 1
+      pids-limit: 512
+
+ssh:
+  # A deploy-only account on the server; its only key is the deploy runner's.
+  user: kamal
+
+proxy:
+  hosts:
+    - veridex.kroshtan.com
+  # Caddy owns 80/443 on the server and terminates TLS. kamal-proxy runs behind it on the `kamal` network,
+  # unpublished, and routes plain HTTP by Host header.
+  run:
+    publish: false
+  ssl: false
+  app_port: 8080
+  healthcheck:
+    # Readiness, not liveness: a container that can't reach its database never receives traffic.
+    path: /v1/health/ready
+    interval: 3
+    timeout: 60
+
+registry:
+  server: git.kroshtan.com
+  # Packages belong to their owner, so pushing to kroshtan/… takes a kroshtan token scoped to write:package.
+  username: kroshtan
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+env:
+  clear:
+    VERIDEX_LLM_BASE_URL: https://api.scaleway.ai/v1
+    VERIDEX_LLM_MODEL: mistral-small-3.2-24b-instruct-2506
+  secret:
+    - VERIDEX_LLM_API_KEY
+    - VERIDEX_POSTGRES_URI
+
+accessories:
+  # Reached by the app as veridex-db on the `kamal` network; never published. forge-infra's nightly backup
+  # pg_dumps it (APP_PG in backup/forge-backup.sh).
+  db:
+    image: postgres:17-alpine
+    host: git.kroshtan.com
+    env:
+      clear:
+        POSTGRES_USER: veridex
+        POSTGRES_DB: veridex
+      secret:
+        - POSTGRES_PASSWORD
+    directories:
+      - data:/var/lib/postgresql/data
+    options:
+      memory: 512m
+      cpus: 1

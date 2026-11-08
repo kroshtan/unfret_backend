@@ -168,8 +168,10 @@ def score(
     for name, contribution in contributions:
         if contribution <= 0.05 or len(flags) >= 6:
             break
-        if name not in features:
-            continue  # not measured on this page: never claim evidence for it
+        if not features.get(name):
+            # Not measured, or absent (0): the model may lean on an absence, but "Countdown timer" on a page without
+            # one reads as an accusation. Absences that matter surface as plain reasons (veridex.shopper) instead.
+            continue
         evidence = _evidence(name, by_skill.get(name.split(".", 1)[0], []))
         flags.append(Flag(type=name, evidence=evidence, weight=round(contribution, 3)))
     return Assessment(

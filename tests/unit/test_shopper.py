@@ -199,6 +199,15 @@ def test_word_soup_and_generic_brand_surface_from_the_llm_judgement() -> None:
     assert "“INSOON”" in verdict.reasons[1].detail
 
 
+def test_sold_by_brand_is_good_news_only_for_a_real_brand() -> None:
+    own = FACTS.model_copy(update={"seller": "INSOON"})
+    sold_by_itself = {"listing.seller_not_brand": 0.0}
+    assert "sold_by_brand" in [p.type for p in build(60, sold_by_itself, "aggregate_listing", facts=own).positives]
+    # A white-label brand selling under its own made-up name is no reassurance next to "Unknown brand".
+    generic = build(60, {**sold_by_itself, "content.generic_brand": 0.8}, "aggregate_listing", facts=own)
+    assert "sold_by_brand" not in [p.type for p in generic.positives]
+
+
 def test_review_velocity_reads_naturally() -> None:
     verdict = build(20, {}, "aggregate_listing", findings=ALL_FINDINGS, facts=FACTS, language="nl")
     reason = next(r for r in verdict.reasons if r.type == "review_velocity")

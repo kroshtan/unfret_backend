@@ -65,11 +65,8 @@ def test_score_flags_the_strongest_risk_signals_with_evidence() -> None:
     assert assessment is not None
     assert assessment.model_version == "v1-test"
     assert assessment.risk_score > 0.99
-    assert [f.type for f in assessment.flags] == [
-        "listing.discount_pct",
-        "content.brand_recognized",
-        "reviews.off_topic_share",
-    ]
+    # "Brand recognised = 0" raises the risk, but an absence is never flagged (it would read as an accusation).
+    assert [f.type for f in assessment.flags] == ["listing.discount_pct", "reviews.off_topic_share"]
     assert assessment.flags[0].evidence.startswith("Price 19.99")  # matched by type, not the first finding
     assert assessment.flags[1].evidence == ""  # no matching finding: never the raw value; clients show the label
     assert assessment.confidence == pytest.approx(abs(2 * assessment.risk_score - 1), abs=0.01)

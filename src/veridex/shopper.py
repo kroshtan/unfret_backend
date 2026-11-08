@@ -393,8 +393,9 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     generic = e.f("content.generic_brand") >= 0.4 or e.first("brand_name") is not None
     if e.f("content.brand_recognized") >= 1 and not generic and e.facts.brand:
         fired["known_brand"] = {"brand": _quote(e.facts.brand)}
+    # A white-label seller is "the brand" too, so that only counts as good news for a real brand.
     sold_by_brand = e.marketplace and e.facts.brand and e.facts.seller and e.has("listing.seller_not_brand")
-    if sold_by_brand and e.f("listing.seller_not_brand") < 1:
+    if sold_by_brand and not generic and e.f("listing.seller_not_brand") < 1:
         fired["sold_by_brand"] = {}
     if e.f("eu_registry.vat_valid") >= 1:
         fired["vat_registered"] = {}

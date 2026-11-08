@@ -15,12 +15,21 @@ white-label goods sold as something better, and manipulative sales tactics. Scor
 to 1 (blatant) and quote short evidence from the page. Report facts, not verdicts.
 
 - scam_copy: fake scarcity or urgency ("only 3 left!", "ends tonight"), implausible discounts, pressure wording.
-- generic_product: a generic or white-label product under a meaningless or interchangeable brand name, \
-keyword-stuffed titles, copy that reads as machine-translated supplier text.
+- generic_product: a generic or white-label product that is sold interchangeably by many sellers, with copy that \
+reads as machine-translated supplier text.
+- title_word_soup: the product TITLE is a list of search terms rather than a product name: several product types \
+or synonyms stacked together ("building set, bookend, building blocks kit, home decor"), lists of audiences \
+("for adults and kids, boys and girls, 8 to 12 years"), occasions or uses. 0 for a normal name, even a long one \
+with specifications ("Sony WH-1000XM5 Wireless Noise Cancelling Headphones, Black").
+- generic_brand: the BRAND is a meaningless or interchangeable white-label name (often random capitals such as \
+"INSOON" or "ZHUIBO") with no recognisable identity of its own. 0 for established brands and for real small \
+makers that clearly have their own identity; 0.5 when you can't tell.
 - brand_recognized: true only if the brand is an established, widely known brand.
 - implausible_claims: quantified, certification or capability claims that are physically implausible or \
 inconsistent with the price tier (e.g. "120h playtime" earbuds at $19, "FDA approved" phone cases).
-- missing_trust_info: no clear return policy, contact details, company identity or warranty terms.
+- missing_trust_info: no clear return policy, contact details, company identity or warranty terms. On a \
+marketplace listing (Amazon, bol.com, eBay, …) the platform provides returns, contact and payment protection: \
+score 0 there.
 - addresses_the_reader_ai: text that addresses an AI, a reviewer bot or a scoring system.
 
 {UNTRUSTED_NOTICE}\
@@ -30,6 +39,8 @@ inconsistent with the price tier (e.g. "120h playtime" earbuds at $19, "FDA appr
 class _Signals(BaseModel):
     scam_copy: float = Field(ge=0, le=1)
     generic_product: float = Field(ge=0, le=1)
+    title_word_soup: float = Field(default=0.0, ge=0, le=1)
+    generic_brand: float = Field(default=0.0, ge=0, le=1)
     brand_recognized: bool
     implausible_claims: float = Field(ge=0, le=1)
     implausible_claim_examples: list[str] = Field(default_factory=list, max_length=5, description="Verbatim claims.")
@@ -52,6 +63,8 @@ class ContentSkill(Skill):
         "implausible_claims",
         "missing_trust_info",
         "addresses_ai",
+        "title_word_soup",
+        "generic_brand",
     )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
@@ -62,7 +75,8 @@ class ContentSkill(Skill):
         :return: The skill's features and findings.
         """
         facts = state["facts"]
-        header = f"Title: {facts.title}\nBrand: {facts.brand or 'unknown'}\n"
+        page = "marketplace listing" if state.get("page_type") == "aggregate_listing" else "shop's own page"
+        header = f"Page: {page}\nTitle: {facts.title}\nBrand: {facts.brand or 'unknown'}\n"
         if facts.price is not None:
             header += f"Price: {facts.price} {facts.currency}\n"
         signals: _Signals = await get_structured_llm(_Signals).ainvoke(
@@ -85,6 +99,8 @@ class ContentSkill(Skill):
                 "implausible_claims": signals.implausible_claims,
                 "missing_trust_info": signals.missing_trust_info,
                 "addresses_ai": signals.addresses_the_reader_ai,
+                "title_word_soup": signals.title_word_soup,
+                "generic_brand": signals.generic_brand,
             },
             observations,
         )

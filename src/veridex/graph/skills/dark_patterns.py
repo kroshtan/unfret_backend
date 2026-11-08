@@ -20,7 +20,38 @@ _ADDON_RE = re.compile(
     re.IGNORECASE,
 )
 _CONSENT_RE = re.compile(r"newsletter|terms|privacy|remember|subscribe|agree|voorwaarden|agb|cookie", re.IGNORECASE)
-_EVERGREEN_RE = re.compile(r"localstorage|sessionstorage|math\.random|evergreen|cookie", re.IGNORECASE)
+# A script countdown that keeps its deadline per visitor (storage) or makes one up (random) restarts for everyone.
+# Cookies alone prove nothing: every big site's scripts mention them.
+_EVERGREEN_RE = re.compile(r"localstorage|sessionstorage|math\.random|evergreen", re.IGNORECASE)
+# The extension reads each countdown twice; this note means it went up between the readings.
+_LIVE_RESTART = "[live: countdown restarted"
+_LIVE_RESTART_RE = re.compile(r"\[live: countdown restarted \(([\d:]+) → ([\d:]+)\)")
+# Platform deal widgets (Amazon lightning / limited-time deals, bol.com deals) count down to real deadlines.
+_PLATFORM_TIMER_RE = re.compile(
+    r"deals?_countdown|dealbadge|lightning|limited-time-deal|tijdelijke deal|blitzangebot|offre [ée]clair"
+    r"|oferta flash|offerta lampo|deal of the day|dotd|dagdeal|bol-?deal",
+    re.IGNORECASE,
+)
+# Unrendered template text (a screen-reader label template, not a running timer).
+_TEMPLATE_RE = re.compile(r"NO_OF_[A-Z]+|\{\{|\$\{")
+
+
+def shop_timers(timers: list[str], page_type: str) -> list[str]:
+    """
+    The countdowns that are the shop's own.
+
+    None on marketplace listings (sellers can't add timers there, so they are the platform's real deal countdowns),
+    and never platform deal widgets or unrendered template text.
+
+    :param timers: ``PageFacts.timers``.
+    :param page_type: The classified page type.
+    :return: The timers worth reporting.
+    """
+    if page_type == "aggregate_listing":
+        return []
+    return [t for t in timers if not _PLATFORM_TIMER_RE.search(t) and not _TEMPLATE_RE.search(t)]
+
+
 _TOTAL_RE = re.compile(
     r"(?:order total|grand total|total due|total to pay|totaal|gesamtsumme|gesamtbetrag|total)\s*:?\s*"
     r"((?:[A-Z]{3}|[$€£])?\s*\d[\d., ]*\s*(?:[A-Z]{3}|[$€£])?)",
@@ -59,10 +90,18 @@ class DarkPatternsSkill(Skill):
         facts = state["facts"]
         observations: list[Observation] = []
 
-        resets = any(_EVERGREEN_RE.search(t) for t in facts.timers if t.startswith("script:"))
-        if facts.timers:
-            evidence = facts.timers[0][:200]
-            kind = "A countdown timer that restarts per visitor" if resets else "A countdown timer"
+        timers = shop_timers(facts.timers, state.get("page_type", "storefront"))
+        resets = any(
+            _LIVE_RESTART in t or (t.startswith("script:") and _EVERGREEN_RE.search(t) is not None) for t in timers
+        )
+        if timers:
+            live = next((m for t in timers if (m := _LIVE_RESTART_RE.search(t))), None)
+            if live:
+                # The extension saw it go up between two readings: say so in words, not markup.
+                evidence = f"went up from {live.group(1)} to {live.group(2)} while it was watched"
+            else:
+                evidence = timers[0][:200]
+            kind = "A countdown timer that restarts" if resets else "A countdown timer"
             observations.append(Observation(type="timer", evidence=f"{kind}: {evidence}"))
 
         preticked = [
@@ -89,7 +128,7 @@ class DarkPatternsSkill(Skill):
 
         return self.output(
             {
-                "timer": bool(facts.timers),
+                "timer": bool(timers),
                 "timer_resets": resets,
                 "preticked_addons": len(preticked),
                 "fee_mentions": min(len(facts.fee_mentions), 5),

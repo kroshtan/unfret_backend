@@ -10,6 +10,14 @@ from veridex.config import settings
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports
+DUTCH_VERDICT = {
+    "band": "reliable",
+    "label": "Ziet er betrouwbaar uit",
+    "headline": "Er viel niets zorgwekkends op aan deze pagina.",
+    "reasons": [],
+    "positives": [{"type": "nothing_found", "title": "Geen waarschuwingssignalen", "detail": "Niets verdachts."}],
+    "language": "nl",
+}
 
 
 async def balance(pool: asyncpg.Pool, address: str) -> int | None:
@@ -25,8 +33,13 @@ async def test_analysis_is_paid_from_the_balance(
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 2 * PRICE}
-    assert graph.calls == [PAGE]
+    assert response.json() == {
+        "score": 80,
+        "explanation": "Looks legitimate.",
+        "balance_lamports": 2 * PRICE,
+        "charged": True,
+    }
+    assert graph.calls == [{**PAGE, "language": "en"}]
     assert await balance(pool, address) == 2 * PRICE
 
 
@@ -164,7 +177,7 @@ async def test_oversized_page_facts_are_rejected(client: httpx.AsyncClient, wall
     assert (await client.post("/v1/analyze", json=body, headers=headers)).status_code == 422
 
 
-async def test_same_listing_is_served_from_memory_and_still_charged(
+async def test_same_listing_is_served_from_memory_for_free(
     client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
 ) -> None:
     address, headers = await wallet(2 * PRICE)
@@ -174,8 +187,38 @@ async def test_same_listing_is_served_from_memory_and_still_charged(
     second = await client.post("/v1/analyze", json=again, headers=headers)
 
     assert first.json()["score"] == second.json()["score"] == 80
+    assert (first.json()["charged"], second.json()["charged"]) == (True, False)
+    assert second.json()["balance_lamports"] == PRICE
     assert len(graph.calls) == 1
+    assert await balance(pool, address) == PRICE  # one check used, not two
+
+
+async def test_cache_hit_needs_no_balance_and_streams_at_once(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
+) -> None:
+    address, headers = await wallet(PRICE)
+    await client.post("/v1/analyze", json=PAGE, headers=headers)
     assert await balance(pool, address) == 0
+
+    response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)  # nothing left, still served
+
+    events = [block.split("\n") for block in response.text.strip().split("\n\n")]
+    assert [e[0] for e in events] == ["event: result"]
+    assert '"charged": false' in events[0][1]
+    assert len(graph.calls) == 1
+
+
+async def test_language_follows_accept_language_and_has_its_own_cache_entry(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
+    _, headers = await wallet(3 * PRICE)
+    graph.result = {**graph.result, "verdict": DUTCH_VERDICT}
+
+    dutch = await client.post("/v1/analyze", json=PAGE, headers={**headers, "Accept-Language": "nl-NL,nl;q=0.9"})
+    await client.post("/v1/analyze", json=PAGE, headers={**headers, "Accept-Language": "en-GB,en"})
+
+    assert [c["language"] for c in graph.calls] == ["nl", "en"]  # a different language is a new analysis
+    assert dutch.json()["verdict"] == DUTCH_VERDICT
 
 
 async def test_checkout_pages_bypass_the_cache(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
@@ -211,7 +254,9 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert events[0][1] == 'data: {"skill": "classify", "findings": [], "page_type": "storefront"}'
     assert events[1][1].startswith('data: {"skill": "listing", "findings": [{')
     assert '"evidence": "85% off."' in events[1][1]
-    assert events[2][1] == 'data: {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 0}'
+    assert events[2][1] == (
+        'data: {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 0, "charged": true}'
+    )
     assert await balance(pool, address) == 0
 
 

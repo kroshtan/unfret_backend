@@ -20,6 +20,7 @@ from veridex.config import settings
 from veridex.credits import ledger
 from veridex.net import fetch_public
 from veridex.prices import format_usd
+from veridex.shopper import pick_language
 from veridex.x402.payment import PaymentError, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
 from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, usdc_mint
@@ -200,7 +201,8 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": []})
+            language = pick_language(request.headers.get("accept-language"))
+            result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "language": language})
     except Exception as exc:  # noqa: BLE001
         # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
         # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.

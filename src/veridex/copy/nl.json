@@ -1,0 +1,259 @@
+{
+  "language": "nl",
+  "labels": {
+    "reliable": "Ziet er betrouwbaar uit",
+    "concerns": "Een paar aandachtspunten",
+    "careful": "Wees voorzichtig",
+    "junk_or_scam": "Waarschijnlijk rommel of oplichting"
+  },
+  "headlines": {
+    "reliable": "Er viel niets zorgwekkends op aan deze pagina.",
+    "concerns": "Grotendeels in orde, maar een paar dingen verdienen een tweede blik voor je koopt.",
+    "careful": "Meerdere waarschuwingssignalen: controleer verkoper en reviews goed voor je koopt.",
+    "junk_or_scam": "Sterke aanwijzingen voor generieke fabrieksspullen of een oneerlijk aanbod."
+  },
+  "reasons": {
+    "timer_resets": {
+      "title": "Neppe afteltimer",
+      "detail": "Deze afteltimer begint opnieuw als je de pagina herlaadt: de deadline is nep."
+    },
+    "fake_urgency_app": {
+      "title": "Trucs om je te haasten",
+      "detail": "De winkel gebruikt {app}, een tool voor aftellers of 'iemand kocht dit net'-meldingen die druk zetten."
+    },
+    "countdown": {
+      "title": "Afteltimer",
+      "detail": "Een afteltimer zet je onder druk om snel te beslissen."
+    },
+    "preticked_addon": {
+      "title": "Betaalde extra al aangevinkt",
+      "detail": "Er staat al een betaalde extra voor je aangevinkt ({label}). Dat mag niet in de EU: vink het uit als je het niet wilt."
+    },
+    "drip_pricing": {
+      "title": "Prijs stijgt bij afrekenen",
+      "detail": "Bij het afrekenen is het totaal {pct} hoger dan de prijs op de pagina."
+    },
+    "late_fees": {
+      "title": "Kosten pas later zichtbaar",
+      "detail": "Sommige kosten (zoals verzending of toeslagen) zie je pas bij het afrekenen."
+    },
+    "review_velocity": {
+      "title": "Verdacht veel reviews",
+      "detail": "{count} beoordelingen voor een product dat pas {age} te koop staat."
+    },
+    "review_shape": {
+      "title": "Onnatuurlijk patroon in beoordelingen",
+      "detail": "Bijna alleen 5 sterren en 1 ster, weinig daartussen: een patroon dat vaak voorkomt bij gekochte reviews."
+    },
+    "duplicate_reviews": {
+      "title": "Gekopieerde reviews",
+      "detail": "{pct} van de reviews herhaalt een andere review bijna woord voor woord."
+    },
+    "off_topic_reviews": {
+      "title": "Reviews over iets anders",
+      "detail": "{pct} van de reviews lijkt niet over dit product te gaan: mogelijk zijn ze overgenomen van een ander product."
+    },
+    "review_import_app": {
+      "title": "Geïmporteerde reviews",
+      "detail": "De winkel gebruikt een tool die reviews van andere sites kopieert, zoals AliExpress."
+    },
+    "word_soup": {
+      "title": "Titel vol zoekwoorden",
+      "detail": "De titel is een opsomming van zoekwoorden in plaats van een productnaam: typisch voor generieke fabrieksspullen."
+    },
+    "generic_brand": {
+      "title": "Onbekend merk",
+      "detail": "{brand} is geen herkenbaar merk: meestal een teken van generieke fabrieksspullen onder een verzonnen naam."
+    },
+    "generic_product": {
+      "title": "Generiek product",
+      "detail": "Dit lijkt een generiek product dat elders onder andere namen wordt verkocht, vaak voor minder."
+    },
+    "implausible_claims": {
+      "title": "Ongeloofwaardige claims",
+      "detail": "De pagina doet claims die moeilijk te geloven zijn voor dit product: {claim}."
+    },
+    "pushy_copy": {
+      "title": "Opdringerige verkooppraat",
+      "detail": "De tekst gebruikt druk, zoals schaarste of 'alleen vandaag'-aanbiedingen."
+    },
+    "big_discount": {
+      "title": "Te mooie korting",
+      "detail": "{pct} korting op een 'van'-prijs die misschien nooit gevraagd is."
+    },
+    "seller_not_brand": {
+      "title": "Verkocht door een ander bedrijf",
+      "detail": "Verkocht door {seller}, niet door het merk zelf."
+    },
+    "ships_from_far": {
+      "title": "Wordt van ver verzonden",
+      "detail": "Wordt verzonden vanuit {place}: reken op een lange levertijd, en retourneren kan lastig zijn."
+    },
+    "dropshipping_tools": {
+      "title": "Dropshipping",
+      "detail": "De winkel gebruikt dropshipping-tools: producten komen rechtstreeks van een leverancier."
+    },
+    "supplier_links": {
+      "title": "Sporen van leveranciers",
+      "detail": "De pagina bevat links of afbeeldingen van groothandelsites zoals AliExpress of Temu."
+    },
+    "supplier_photos": {
+      "title": "Zelfde foto's op groothandelsites",
+      "detail": "Dezelfde productfoto staat ook op {sites}."
+    },
+    "photo_predates": {
+      "title": "Oudere foto's",
+      "detail": "De productfoto stond al online voordat dit aanbod verscheen."
+    },
+    "missing_trust_info": {
+      "title": "Weinig winkelinformatie",
+      "detail": "Geen duidelijk retourbeleid, contactgegevens of bedrijfsinformatie."
+    },
+    "no_withdrawal": {
+      "title": "Geen retourbeleid gevonden",
+      "detail": "Geen retour- of herroepingsbeleid gevonden, terwijl dat in de EU verplicht is."
+    },
+    "no_imprint": {
+      "title": "Geen bedrijfsgegevens",
+      "detail": "Geen bedrijfsnaam of adres gevonden op de pagina."
+    },
+    "invalid_vat": {
+      "title": "Ongeldig btw-nummer",
+      "detail": "Het getoonde btw-nummer is niet geldig in het EU-register."
+    },
+    "new_domain": {
+      "title": "Gloednieuwe webshop",
+      "detail": "Het adres van deze webshop is pas {age} geleden geregistreerd."
+    },
+    "short_registration": {
+      "title": "Voor een jaar geregistreerd",
+      "detail": "Het webadres van de winkel is maar voor één jaar geregistreerd."
+    },
+    "hidden_ai_text": {
+      "title": "Verborgen tekst om controles te misleiden",
+      "detail": "De pagina verbergt tekst voor AI-tools, om controles zoals deze te beïnvloeden."
+    },
+    "ai_text": {
+      "title": "Tekst gericht aan AI",
+      "detail": "De pagina bevat tekst die zich richt tot AI-tools of beoordelingssystemen."
+    },
+    "overall": {
+      "title": "Meerdere kleine signalen",
+      "detail": "Geen enkel groot probleem, maar meerdere kleinere signalen samen verlaagden de score."
+    }
+  },
+  "positives": {
+    "known_brand": {
+      "title": "Bekend merk",
+      "detail": "{brand} is een gevestigd merk."
+    },
+    "sold_by_brand": {
+      "title": "Verkocht door het merk",
+      "detail": "Wordt verkocht door het merk zelf."
+    },
+    "vat_registered": {
+      "title": "Geregistreerd bedrijf",
+      "detail": "Het btw-nummer klopt volgens het EU-register."
+    },
+    "established_domain": {
+      "title": "Bestaande winkel",
+      "detail": "Het adres van deze webshop bestaat al {years} jaar."
+    },
+    "trust_info_present": {
+      "title": "Winkelgegevens aanwezig",
+      "detail": "Retourbeleid en bedrijfsgegevens staan op de pagina."
+    },
+    "natural_reviews": {
+      "title": "Natuurlijke reviews",
+      "detail": "De beoordelingen zijn gevarieerd en verspreid over de tijd, zoals je van echte kopers verwacht."
+    },
+    "nothing_found": {
+      "title": "Geen waarschuwingssignalen",
+      "detail": "Niets verdachts gevonden in het aanbod, de reviews of de pagina."
+    }
+  },
+  "age_units": {
+    "day": [
+      "dag",
+      "dagen"
+    ],
+    "week": [
+      "week",
+      "weken"
+    ],
+    "month": [
+      "maand",
+      "maanden"
+    ],
+    "year": [
+      "jaar",
+      "jaar"
+    ]
+  },
+  "this_brand": "Dit merk",
+  "an_urgency_tool": "een urgentie-tool",
+  "wholesale_sites": "groothandelsites",
+  "features": {
+    "content.scam_copy": "Opdringerige verkooppraat",
+    "content.generic_product": "Generiek product",
+    "content.brand_recognized": "Bekend merk",
+    "content.implausible_claims": "Ongeloofwaardige claims",
+    "content.missing_trust_info": "Weinig winkelinformatie",
+    "content.addresses_ai": "Tekst gericht aan AI",
+    "content.title_word_soup": "Titel vol zoekwoorden",
+    "content.generic_brand": "Onbekend merk",
+    "listing.generated_brand": "Verzonnen ogende merknaam",
+    "listing.discount_pct": "Grootte van de korting",
+    "listing.keyword_stuffed": "Lange titel met veel termen",
+    "listing.title_length": "Lengte van de titel",
+    "listing.seller_not_brand": "Verkocht door een ander bedrijf dan het merk",
+    "listing.ships_from_china": "Verzonden vanuit China",
+    "listing.variations": "Aantal varianten",
+    "listing.log_rating_count": "Aantal beoordelingen",
+    "listing.rating": "Gemiddelde beoordeling",
+    "listing.is_marketplace": "Aanbod op een marktplaats",
+    "listing.is_shopify": "Shopify-winkel",
+    "reviews.has_reviews": "Heeft reviews",
+    "reviews.log_reviews_per_day": "Reviews per dag",
+    "reviews.share_five": "Aandeel 5 sterren",
+    "reviews.share_one": "Aandeel 1 ster",
+    "reviews.share_middle": "Aandeel 2–4 sterren",
+    "reviews.j_shaped": "Alleen hoogste en laagste beoordelingen",
+    "reviews.duplicate_share": "Gekopieerde reviews",
+    "reviews.short_share": "Erg korte reviews",
+    "reviews.verified_share": "Geverifieerde aankopen",
+    "reviews.burst_share": "Reviews in golven geplaatst",
+    "reviews.title_similarity_mean": "Reviews passen bij het product",
+    "reviews.off_topic_share": "Reviews over iets anders",
+    "html_source_signals.dropship_app": "Dropshipping-tools",
+    "html_source_signals.supplier_trace": "Sporen van leveranciers",
+    "html_source_signals.review_import_app": "Geïmporteerde reviews",
+    "html_source_signals.shipping_protection_app": "Betaalde verzendbescherming",
+    "html_source_signals.timer_app": "Urgentie-tool",
+    "dark_patterns.timer": "Afteltimer",
+    "dark_patterns.timer_resets": "Neppe afteltimer",
+    "dark_patterns.preticked_addons": "Betaalde extra al aangevinkt",
+    "dark_patterns.fee_mentions": "Kosten pas later zichtbaar",
+    "dark_patterns.checkout_markup_pct": "Prijs stijgt bij afrekenen",
+    "injection.hidden_chars": "Verborgen tekst",
+    "injection.instruction_hidden": "Verborgen tekst gericht aan AI",
+    "injection.instruction_visible": "Tekst gericht aan AI",
+    "eu_registry.vat_present": "Btw-nummer vermeld",
+    "eu_registry.vat_valid": "Btw-nummer klopt",
+    "eu_registry.vat_name_match": "Btw-naam past bij de winkel",
+    "eu_registry.withdrawal_right": "Retourbeleid vermeld",
+    "eu_registry.imprint": "Bedrijfsgegevens vermeld",
+    "domain_age.known": "Domeinregistratie gevonden",
+    "domain_age.age_years": "Leeftijd van het webadres",
+    "domain_age.under_6_months": "Gloednieuw webadres",
+    "domain_age.term_years": "Registratieperiode",
+    "domain_age.redacted": "Eigenaarsgegevens afgeschermd",
+    "domain_age.cert_age_years": "Leeftijd van het beveiligingscertificaat",
+    "reverse_image.searched": "Fotozoekopdracht gedaan",
+    "reverse_image.supplier_hits": "Zelfde foto's op groothandelsites",
+    "reverse_image.log_matches": "Foto elders gevonden",
+    "reverse_image.image_age_years": "Leeftijd van de foto online",
+    "reverse_image.photo_predates_listing": "Foto ouder dan het aanbod"
+  },
+  "no_check_used": "Er is geen check gebruikt."
+}

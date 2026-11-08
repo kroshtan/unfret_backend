@@ -35,6 +35,7 @@ dependencies = [
     "python-whois>=0.9.6",
     "structlog>=26.1",
     "uvicorn>=0.54",
+    "solders>=0.29",
 ]
 
 [project.urls]
@@ -123,6 +124,10 @@ ignore = [
 ]
 "tests/**" = [
     # Tests don't need docstrings, annotations on fixtures, or packages
+    "D", "ANN", "INP001", "PLR2004",
+]
+"mcp/tests/**" = [
+    # Same as tests/
     "D", "ANN", "INP001", "PLR2004",
 ]
 "scripts/**" = [

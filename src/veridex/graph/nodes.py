@@ -8,9 +8,31 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from veridex import scoring
-from veridex.facts import parse_page
+from veridex.facts import PageFacts, parse_page
 from veridex.graph.state import AnalysisState, PageType
 from veridex.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
+
+
+def _facts_text(facts: PageFacts) -> str:
+    """
+    Plain text for the LLM steps when a client sent page facts but no page text.
+
+    :param facts: The supplied facts.
+    :return: Title, brand, seller, prices and review texts, one per line.
+    """
+    price = f"{facts.price} {facts.currency}".strip() if facts.price is not None else ""
+    was = f"was {facts.list_price}" if facts.list_price is not None else ""
+    lines = [
+        facts.title,
+        f"Brand: {facts.brand}" if facts.brand else "",
+        f"Sold by: {facts.seller}" if facts.seller else "",
+    ]
+    lines += [
+        f"Price: {price} {was}".strip() if price else "",
+        f"Ships from: {facts.ships_from}" if facts.ships_from else "",
+    ]
+    lines += [f"Review: {r.title} {r.body}".strip() for r in facts.reviews]
+    return "\n".join(line for line in lines if line)
 
 
 async def preprocess_node(state: AnalysisState) -> dict:
@@ -25,6 +47,8 @@ async def preprocess_node(state: AnalysisState) -> dict:
     """
     extracted, cleaned = await asyncio.to_thread(parse_page, state["page_content"], state.get("url", ""))
     supplied = state.get("page_facts")
+    if supplied is not None and not cleaned:
+        cleaned = _facts_text(supplied)  # facts only: give the LLM steps their text from the facts
     return {
         "facts": supplied if supplied is not None else extracted,
         "cleaned_content": cleaned,

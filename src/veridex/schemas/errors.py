@@ -11,6 +11,7 @@ class CustomAPIError(Exception):
     detail: str
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code: str = "INTERNAL_ERROR"
+    headers: dict[str, str] | None = None
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class CustomAPIError(Exception):
         return JSONResponse(
             status_code=exc.status_code,
             content=jsonable_encoder(content),
+            headers=exc.headers,
         )
 
 
@@ -54,6 +56,21 @@ class BadRequestError(CustomAPIError):
 
     status_code = status.HTTP_400_BAD_REQUEST
     error_code = "BAD_REQUEST"
+
+
+class UnauthorizedError(CustomAPIError):
+    """Missing, invalid or expired session."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    error_code = "UNAUTHORIZED"
+    headers = {"WWW-Authenticate": "Bearer"}  # noqa: RUF012 - class-level constant, never mutated
+
+
+class InsufficientCreditsError(CustomAPIError):
+    """The wallet's balance doesn't cover the analysis."""
+
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    error_code = "INSUFFICIENT_CREDITS"
 
 
 class ForbiddenError(CustomAPIError):

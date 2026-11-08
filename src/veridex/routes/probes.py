@@ -2,6 +2,7 @@ import structlog
 from fastapi import APIRouter, Request
 
 from veridex import __version__
+from veridex.auth import get_credits
 from veridex.routes.check import get_x402
 from veridex.schemas.errors import ServiceUnavailableError
 from veridex.schemas.responses import Healthy
@@ -44,6 +45,8 @@ async def ready(request: Request) -> Healthy:
         logger.warning("readiness_db_failed", error=type(exc).__name__)
         raise ServiceUnavailableError("Database not ready.") from exc
     x402 = await get_x402(request).health()
+    door = get_credits(request)
+    credits = "ok" if door.purchases_enabled else "sign_in" if door.sign_in_enabled else "off"
     return Healthy(
         status="ready",
         version=__version__,
@@ -51,4 +54,5 @@ async def ready(request: Request) -> Healthy:
         hot_sol_lamports=x402.sol_lamports,
         hot_wsol_lamports=x402.wsol_lamports,
         x402_alerts=list(x402.alerts),
+        credits=credits,
     )

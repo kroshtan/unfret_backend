@@ -3,8 +3,8 @@ The x402 service: configuration, hot wallet health and alerts, settlement, and t
 
 Money flows through the hot wallet: payments land in its wSOL account, it pays their fees, and a background sweep
 moves everything above a reserve to the cold address. Run a single instance: the sweeper is not coordinated across
-processes. Credits (phase 4) will pay into the same hot wallet; their scanner must count only incoming transfers and
-ignore these sweeps.
+processes. Credit purchases pay into the same hot wallet; their scanner (veridex.credits.scanner) counts only incoming
+transfers and ignores these sweeps.
 """
 
 import asyncio

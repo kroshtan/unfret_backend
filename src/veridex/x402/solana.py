@@ -143,16 +143,44 @@ class SolanaRpc:
         )
         return [entry["signature"] for entry in result]
 
-    async def parsed_transaction(self, signature: str) -> dict[str, Any] | None:
+    async def signature_page(
+        self,
+        address: Pubkey,
+        *,
+        before: str | None = None,
+        until: str | None = None,
+        limit: int = 1000,
+        commitment: str = "finalized",
+    ) -> list[dict[str, Any]]:
         """
-        Return a confirmed transaction in ``jsonParsed`` encoding.
+        Return one page of signatures involving ``address``, newest first (``getSignaturesForAddress``).
+
+        :param address: The account.
+        :param before: Start below this signature (paging).
+        :param until: Stop at this signature (exclusive).
+        :param limit: Page size, at most 1000.
+        :param commitment: ``confirmed`` or ``finalized``.
+        :return: Entries with ``signature``, ``err``, ``blockTime``, …
+        """
+        options: dict[str, Any] = {"limit": limit, "commitment": commitment}
+        if before:
+            options["before"] = before
+        if until:
+            options["until"] = until
+        result: list[dict[str, Any]] = await self.call("getSignaturesForAddress", [str(address), options])
+        return result
+
+    async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
+        """
+        Return a transaction in ``jsonParsed`` encoding.
 
         :param signature: The transaction signature.
+        :param commitment: ``confirmed`` or ``finalized``.
         :return: The transaction, or ``None`` if not found.
         """
         result: dict[str, Any] | None = await self.call(
             "getTransaction",
-            [signature, {"encoding": "jsonParsed", "commitment": "confirmed", "maxSupportedTransactionVersion": 0}],
+            [signature, {"encoding": "jsonParsed", "commitment": commitment, "maxSupportedTransactionVersion": 0}],
         )
         return result
 

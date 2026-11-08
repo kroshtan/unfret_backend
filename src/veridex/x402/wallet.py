@@ -9,8 +9,8 @@ Every use of its key goes through one function, :meth:`HotWallet.sign`, which ac
   back into the hot wallet (unwrapping), recreate that account, and optionally transfer SOL to the cold address.
   Nothing else, and no other destination.
 
-Credits (phase 4) will also pay into the hot wallet. The credits scanner must count only INCOMING transfers and
-ignore the sweeps this module sends to the cold address.
+Credit purchases also pay into the hot wallet; their scanner (veridex.credits.scanner) counts only INCOMING transfers,
+ignoring the sweeps this module sends to the cold address.
 """
 
 import json

@@ -140,7 +140,7 @@ async def test_landed_fee_above_the_allowed_maximum_alerts() -> None:
 
 async def test_post_settlement_check_falls_back_to_the_balance(monkeypatch: pytest.MonkeyPatch) -> None:
     class Unindexed(FakeRpc):
-        async def parsed_transaction(self, signature: str) -> dict[str, Any] | None:
+        async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
             return None
 
     monkeypatch.setattr("veridex.x402.service._META_RETRIES", 1)

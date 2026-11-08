@@ -21,18 +21,18 @@ classifiers = [
 
 dependencies = [
     "asyncpg>=0.32",
-    "bcrypt>=5.0",
     "beautifulsoup4>=4.15",
     "fastapi>=0.162",
     "httpx>=0.28.1",
     "langchain-openai>=1.7",
     "langgraph>=1.2",
     "pillow>=13.0",
-    "pydantic[email]>=2.14",
+    "pydantic>=2.14",
     "pydantic-settings>=2.12",
     "structlog>=26.1",
     "uvicorn>=0.54",
     "solders>=0.29",
+    "segno>=1.6",
 ]
 
 [project.urls]

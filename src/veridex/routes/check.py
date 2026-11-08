@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from veridex import __version__
 from veridex.config import settings
+from veridex.credits import ledger
 from veridex.net import fetch_public
 from veridex.x402.payment import PaymentError, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
@@ -85,6 +86,28 @@ def _settlement(x402: X402, *, success: bool, transaction: str, payer: str, reas
     return encode_header(response)
 
 
+async def _refund_as_credits(request: Request, payer: str, lamports: int) -> int:
+    """
+    Credit a paid-but-failed check's price to the paying wallet's credits balance.
+
+    :param request: The incoming request (for the database pool).
+    :param payer: The paying wallet (base58).
+    :param lamports: The price paid.
+    :return: The lamports refunded, or 0 if it couldn't be recorded (logged for manual follow-up).
+    """
+    pool = request.app.db_pool
+    if pool is None:
+        logger.error("x402_refund_unrecorded", reason="no_database", lamports=lamports)
+        return 0
+    try:
+        await ledger.credit(pool, payer, lamports)
+    except Exception as exc:  # noqa: BLE001 - the answer must still go out; the log has what's needed to fix it
+        logger.error("x402_refund_unrecorded", error=type(exc).__name__, lamports=lamports)
+        return 0
+    logger.info("x402_refunded_as_credits", lamports=lamports)
+    return lamports
+
+
 async def _page_html(body: CheckRequest) -> str:
     if body.page_content:
         return body.page_content
@@ -93,7 +116,7 @@ async def _page_html(body: CheckRequest) -> str:
 
 
 @router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
-async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911
+async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911, PLR0912
     """
     Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
 
@@ -171,19 +194,20 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         async with asyncio.timeout(settings.analysis_timeout_s):
             result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": []})
     except Exception as exc:  # noqa: BLE001
-        # The payment settled but the analysis failed. Say so plainly.
-        # TODO(phase 4): refund this payment as credits to settlement.payer (the paying pubkey).
+        # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
+        # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.
         logger.warning("check_analysis_failed_after_payment", error=type(exc).__name__)
         timed_out = isinstance(exc, TimeoutError)
-        return JSONResponse(
-            {
-                "detail": "Payment settled, but the analysis " + ("timed out." if timed_out else "failed."),
-                "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
-                "transaction": signature,
-            },
-            status_code=504 if timed_out else 500,
-            headers=paid,
-        )
+        content: dict[str, Any] = {
+            "detail": "Payment settled, but the analysis " + ("timed out." if timed_out else "failed."),
+            "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
+            "transaction": signature,
+        }
+        refunded = await _refund_as_credits(request, payer, x402.price(body.tier))
+        if refunded:
+            content["refunded_lamports"] = refunded
+            content["refund"] = f"Credited to {payer}; sign in with that wallet at {settings.public_base_url}/connect."
+        return JSONResponse(content, status_code=504 if timed_out else 500, headers=paid)
 
     verdict = to_verdict(result, policy=body.policy, tier=body.tier)
     return JSONResponse(verdict.model_dump(mode="json"), headers=paid)

@@ -1,19 +1,22 @@
-import base64
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import asyncpg
 import httpx
 import pytest
+from pydantic import SecretStr
+from solders.keypair import Keypair
 
 from veridex import result_cache
-from veridex.auth import hash_password
+from veridex.config import settings
+from veridex.credits import siws
 from veridex.db import init_db
 from veridex.graph.state import Finding
 from veridex.main import app
 
 POSTGRES_URI = os.getenv("VERIDEX_TEST_POSTGRES_URI")
+SESSION_SECRET = "test-session-secret"
 
 
 class FakeGraph:
@@ -47,7 +50,10 @@ async def pool() -> AsyncIterator[asyncpg.Pool]:
     if not POSTGRES_URI:
         pytest.skip("VERIDEX_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
-    await pool.execute("DROP TABLE IF EXISTS analyze_log, accounts, fact_cache, usage_counters, schema_migrations")
+    await pool.execute(
+        "DROP TABLE IF EXISTS analyze_log, accounts, wallets, scan_cursor, fact_cache, usage_counters, "
+        "schema_migrations"
+    )
     await init_db(pool)
     yield pool
     await pool.close()
@@ -59,27 +65,34 @@ def graph() -> FakeGraph:
 
 
 @pytest.fixture
-async def client(pool: asyncpg.Pool, graph: FakeGraph) -> AsyncIterator[httpx.AsyncClient]:
-    # Bypass the lifespan (which builds the real graph) and inject test doubles.
+async def client(
+    pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[httpx.AsyncClient]:
+    # Bypass the lifespan (which builds the real graph) and inject test doubles; sign-in on, purchases off.
+    monkeypatch.setattr(settings, "session_secret", SecretStr(SESSION_SECRET))
     app.db_pool = pool
     app.graph = graph  # type: ignore[assignment]
+    app.credits = None
+    app.x402 = None
     result_cache.clear()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client
+    app.credits = None
+
+
+def bearer(address: str) -> dict[str, str]:
+    token, _ = siws.issue_token(SESSION_SECRET, address, 3600)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
-def create_account(pool: asyncpg.Pool) -> Any:
-    async def _create(username: str, status: str = "free", password: str = "password123") -> dict[str, str]:
-        await pool.execute(
-            "INSERT INTO accounts (username, hashed_password, contact_email, subscription_status) "
-            "VALUES ($1, $2, $3, $4)",
-            username,
-            await hash_password(password),
-            f"{username}@example.com",
-            status,
-        )
-        token = base64.b64encode(f"{username}:{password}".encode()).decode()
-        return {"Authorization": f"Basic {token}"}
+def wallet(pool: asyncpg.Pool) -> Callable[[int], Awaitable[tuple[str, dict[str, str]]]]:
+    """A signed-in wallet with ``lamports`` of credits: its address and auth headers."""
+
+    async def _create(lamports: int = 0) -> tuple[str, dict[str, str]]:
+        address = str(Keypair().pubkey())
+        if lamports:
+            await pool.execute("INSERT INTO wallets (pubkey, balance_lamports) VALUES ($1, $2)", address, lamports)
+        return address, bearer(address)
 
     return _create

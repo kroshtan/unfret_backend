@@ -46,15 +46,25 @@ class Settings(BaseSettings):
     # Database
     postgres_uri: str = "postgresql://veridex:veridex@localhost:5432/veridex"
 
-    # Accounts
-    signup_secret: str = ""
-    free_daily_limit: int = 5
-    premium_daily_limit: int = 25
-
-    # Paddle billing
-    paddle_webhook_secret: str = ""
-    paddle_api_key: str = ""
-    paddle_environment: Literal["production", "sandbox"] = "production"
+    # Credits door: wallets sign in with SIWS and spend a lamport balance (POST /v1/analyze). Sign-in is off (503)
+    # until the session secret is set; buying credits additionally needs the x402 hot wallet, which receives them.
+    session_secret: SecretStr = SecretStr("")
+    siws_domain: str = "veridex.kroshtan.com"
+    session_ttl_s: int = 30 * 24 * 3600
+    nonce_ttl_s: int = 300
+    analysis_price_lamports: int = 1_500_000
+    # (minimum purchase in lamports, bonus percent), e.g. ≥0.05 SOL buys 10% more balance.
+    credit_bonus_tiers: list[tuple[int, int]] = [(50_000_000, 10), (250_000_000, 20)]
+    suggested_packs: list[int] = [10, 50, 200]  # checks
+    purchase_min_lamports: int = 1_000_000
+    purchase_max_lamports: int = 10_000_000_000
+    credits_scan_interval_s: float = 20.0
+    # Free trial on a wallet's first sign-in, only for wallets with real on-chain history.
+    trial_checks: int = 5
+    trial_min_wallet_age_days: int = 30
+    trial_min_signatures: int = 10
+    trial_per_ip_per_day: int = 2
+    trial_daily_cap: int = 50
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://veridex.kroshtan.com"

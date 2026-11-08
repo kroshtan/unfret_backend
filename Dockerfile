@@ -25,4 +25,5 @@ RUN useradd --create-home --uid 1000 veridex
 USER veridex
 
 EXPOSE 8080
-CMD ["uvicorn", "veridex.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Behind Caddy and kamal-proxy: trust their forwarded headers; no access log, so visitor addresses stay out of logs.
+CMD ["uvicorn", "veridex.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips=*", "--no-server-header", "--no-access-log"]

@@ -22,7 +22,7 @@ _IPV6 = re.compile(r"(?<![0-9a-z:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?![0-9a-
 def _ipv6(match: re.Match[str]) -> str:
     text = match.group(0)
     # "::" or at least three colons: an address, not a time of day like 21:06:17.
-    return "<ip>" if "::" in text or text.count(":") >= 3 else text  # noqa: PLR2004
+    return "<ip>" if "::" in text or text.count(":") >= 3 else text
 
 
 def scrub(text: str) -> str:

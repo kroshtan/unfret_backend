@@ -1,12 +1,15 @@
+import asyncio
 import re
 from collections import Counter
 
 import structlog
 from fastapi import APIRouter, Depends, Request
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from veridex.auth import Account, verify_credentials
+from veridex.config import settings
 from veridex.db import count_analyses_today, log_analyze
-from veridex.schemas.errors import InternalServerError, TooManyRequestsError
+from veridex.schemas.errors import GatewayTimeoutError, InternalServerError, TooManyRequestsError
 from veridex.schemas.requests import AnalyzeRequest
 from veridex.schemas.responses import AnalyzeResponse
 
@@ -36,6 +39,7 @@ async def analyze_page(
     :param account: The authenticated account (injected by verify_credentials).
     :return: Reliability score (0–100) and one-line explanation.
     :raises InternalServerError: If the graph is not initialised or fails.
+    :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
     :raises TooManyRequestsError: If the account's daily limit is reached.
     """
     graph = request.app.graph
@@ -47,11 +51,28 @@ async def analyze_page(
     if limit is not None and await count_analyses_today(pool, account.username) >= limit:
         raise TooManyRequestsError(f"Daily limit of {limit} analyses reached.")
 
+    usage = UsageMetadataCallbackHandler()
     try:
-        result = await graph.ainvoke({"page_content": body.page_content, "url": body.url, "flags": body.flags})
+        async with asyncio.timeout(settings.analysis_timeout_s):
+            result = await graph.ainvoke(
+                {"page_content": body.page_content, "url": body.url, "flags": body.flags},
+                config={"callbacks": [usage]},
+            )
+    except TimeoutError as exc:
+        logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
+        raise GatewayTimeoutError("Analysis took too long.") from exc
     except Exception as exc:
         logger.exception("graph_execution_failed")
         raise InternalServerError("Analysis failed.") from exc
+    finally:
+        # Token counts per model, for pricing. Deliberately nothing that identifies the page or the caller.
+        for model, tokens in usage.usage_metadata.items():
+            logger.info(
+                "analysis_llm_usage",
+                model=model,
+                input_tokens=tokens.get("input_tokens", 0),
+                output_tokens=tokens.get("output_tokens", 0),
+            )
 
     skill_counts = Counter(
         m.group(1) for entry in result.get("skill_results", []) if (m := _SKILL_TAG_RE.match(entry))

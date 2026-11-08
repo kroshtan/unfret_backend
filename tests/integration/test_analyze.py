@@ -1,9 +1,12 @@
+import asyncio
 from typing import Any
 
 import asyncpg
 import httpx
+import pytest
 
 from tests.integration.conftest import FakeGraph
+from veridex.config import settings
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 
@@ -61,3 +64,27 @@ async def test_graph_failure_does_not_leak_details(
 async def test_empty_page_rejected(client: httpx.AsyncClient, create_account: Any) -> None:
     headers = await create_account("alice")
     assert (await client.post("/v1/analyze", json={"page_content": ""}, headers=headers)).status_code == 422
+
+
+async def test_slow_analysis_times_out(
+    client: httpx.AsyncClient, graph: FakeGraph, create_account: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await create_account("alice")
+    monkeypatch.setattr(settings, "analysis_timeout_s", 0.05)
+
+    async def hang(state: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+        await asyncio.sleep(3600)
+        return {}
+
+    monkeypatch.setattr(graph, "ainvoke", hang)
+    response = await client.post("/v1/analyze", json=PAGE, headers=headers)
+    assert response.status_code == 504
+    assert response.json()["error_code"] == "GATEWAY_TIMEOUT"
+
+
+async def test_oversized_page_rejected(client: httpx.AsyncClient, create_account: Any) -> None:
+    headers = await create_account("alice")
+    huge = {**PAGE, "page_content": "x" * (settings.max_page_bytes + 1)}
+    assert (await client.post("/v1/analyze", json=huge, headers=headers)).status_code == 422
+    huger = {**PAGE, "page_content": "x" * (settings.max_page_bytes + 200_000)}
+    assert (await client.post("/v1/analyze", json=huger, headers=headers)).status_code == 413

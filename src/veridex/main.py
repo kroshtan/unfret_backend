@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from veridex import __version__
 from veridex.api import VeridexAPI
+from veridex.config import settings
 from veridex.db import create_pool, init_db
 from veridex.graph import SKILLS, build_graph
-from veridex.middleware import create_process_time_middleware
+from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
 from veridex.schemas.errors import CustomAPIError
 
@@ -19,7 +19,7 @@ logger = structlog.get_logger("veridex")
 
 
 @asynccontextmanager
-async def lifespan(api: VeridexAPI) -> AsyncGenerator[None, None]:
+async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
     logger.info("Veridex backend service starting")
     api.graph = build_graph(SKILLS)
@@ -38,6 +38,10 @@ app = VeridexAPI(
     lifespan=lifespan,
 )
 
+# Body size cap and x-process-time header for all requests (added first, so CORS wraps it
+# and even a 413 carries CORS headers)
+app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_page_bytes)
+
 # The API is called from a browser extension (arbitrary page origins) and uses
 # Basic auth rather than cookies, so a wildcard origin without credentials is safe.
 app.add_middleware(
@@ -46,9 +50,6 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-# Add general middleware for all requests
-app.add_middleware(BaseHTTPMiddleware, dispatch=create_process_time_middleware(logger))
 
 
 # Redirect root to always see the API docs

@@ -54,5 +54,5 @@ def test_unassessable_page_asks_the_human() -> None:
 def test_quick_tier_runs_no_fetching_skills() -> None:
     names = {s.name for s in skills_for("quick", SKILLS)}
     assert names == QUICK_SKILLS
-    assert not names & {"reverse_image_search", "exif_check", "domain_age", "review_integrity"}
+    assert not names & {"reverse_image", "domain_age", "eu_registry"}
     assert skills_for("deep", SKILLS) == SKILLS

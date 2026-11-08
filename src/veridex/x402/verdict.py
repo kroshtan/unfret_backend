@@ -12,9 +12,11 @@ Tier = Literal["quick", "deep"]
 Policy = Literal["strict", "balanced", "lenient"]
 Action = Literal["allow", "warn", "block"]
 
-# The quick tier runs only skills that need no outbound fetches (no WHOIS, image downloads, reverse image search or
-# extra review pages); the deep tier runs every skill. Change tiers here and nowhere else.
-QUICK_SKILLS: frozenset[str] = frozenset({"page_content", "html_source_signals", "claims_verification"})
+# The quick tier runs only skills that need no outbound fetches about the shop (no RDAP/CT, VIES or reverse image
+# search); the deep tier runs every skill. Change tiers here and nowhere else.
+QUICK_SKILLS: frozenset[str] = frozenset(
+    {"content", "listing", "reviews", "html_source_signals", "dark_patterns", "injection"}
+)
 
 # risk_score thresholds per caller policy: at or above `block` → block; at or above `warn` → warn ("ask your
 # human"); below → allow. The caller chooses the policy; the flags stay factual either way.

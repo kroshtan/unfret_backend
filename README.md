@@ -15,39 +15,43 @@ POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sou
 
 > **Project status: prototype.** Veridex is an exploratory prototype, not a finished product. It was built to try out
 > what an agentic LLM pipeline can do for shopping-fraud detection, and to put a modern Python stack to work
-> (FastAPI, LangGraph, structured LLM output, asyncpg, Playwright, uv). Accounts, quotas and Paddle billing are
+> (FastAPI, LangGraph, structured LLM output, asyncpg, uv). Accounts, quotas and Paddle billing are
 > included to show how it would fit into a real service. It is not maintained for production use.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    A[POST /v1/analyze] --> P[preprocess<br/><sub>strip HTML to text</sub>]
-    P --> C{classify<br/><sub>LLM</sub>}
+    A[POST /v1/analyze] --> P[preprocess<br/><sub>PageFacts + text, one parse</sub>]
+    P --> C{classify<br/><sub>LLM, or known marketplace</sub>}
     C -- article / non-product --> X[early exit<br/><sub>score = -1</sub>]
-    C -- marketplace listing / storefront --> S1[page_content]
-    C --> S2[html_source_signals]
-    C --> S3[review_integrity]
-    C --> S4[claims_verification]
-    C --> S5[domain_age]
-    C --> S6[exif_check]
-    C --> S7[reverse_image_search]
+    C -- marketplace listing / storefront --> S1[content]
+    C --> S2[listing]
+    C --> S3[reviews]
+    C --> S4[html_source_signals]
+    C --> S5[dark_patterns]
+    C --> S6[injection]
+    C --> S7[eu_registry / domain_age<br/><sub>storefronts</sub>]
     S1 & S2 & S3 & S4 & S5 & S6 & S7 --> J[judge<br/><sub>LLM → score + explanation</sub>]
 ```
 
-Each skill is a small class that reads the shared graph state and appends a plain-text finding. The graph fans out to
-all active skills with LangGraph's `Send` API, so they run concurrently, and a reducer merges their findings before
-the judge runs.
+Preprocessing parses the page once into typed **`PageFacts`** (title, brand, prices, seller, rating histogram, dated
+reviews, hidden text, checkboxes, timers, VAT IDs, policy links, …); a browser extension can send them directly
+(`page_facts`). Each skill reads the facts and reports numeric **features** plus factual **findings** (evidence, never a
+verdict). The graph fans out to the skills that handle the page type with LangGraph's `Send` API, so they run
+concurrently. All page content is passed to the LLM as clearly delimited untrusted data.
 
 | Skill | What it checks |
 | --- | --- |
-| `page_content` | LLM scan of the listing text for scam copy, fake urgency, missing return policy, white-label branding |
-| `html_source_signals` | Regex match on known dropship apps (Oberlo, DSers, CJ Dropshipping, …) and supplier CDNs, plus an LLM pass over script sources, meta tags and comments |
-| `review_integrity` | Extracts reviews from JSON-LD / microdata (following a "see all reviews" link if needed) and looks for templated praise, rating skew and date bursts |
-| `claims_verification` | Extracts concrete product claims ("waterproof to 50 m", "FDA approved") and rates their plausibility against price tier and known standards |
-| `domain_age` | WHOIS lookup; flags newly registered, short-lived or privacy-hidden domains typical of pop-up stores |
-| `exif_check` | Downloads the main product images and compares EXIF metadata (dates, GPS, camera, editing software) with the listing |
-| `reverse_image_search` | Reverse-searches product images on Google and reports hits on AliExpress, Temu, DHgate and similar sources |
+| `content` | One LLM read of the listing text: scam copy and fake urgency, generic white-label product, whether the brand is established, implausible claims, missing trust information |
+| `listing` | Generated-looking brand names, inflated "was" prices, keyword-stuffed titles, seller ≠ brand, ships from China |
+| `reviews` | Reviews per day since the listing appeared, rating shape, duplicate and very short reviews, bursts, and review/title embedding similarity (reviews borrowed from other products) |
+| `html_source_signals` | Known dropship apps, supplier CDNs, AliExpress review importers, shipping-protection and countdown apps |
+| `dark_patterns` | Countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
+| `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
+| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint |
+| `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
+| `reverse_image` | The main product photo on TinEye: copies on Temu, AliExpress & co. and how long it has been online (paid, off unless configured) |
 
 ### Adding a skill
 
@@ -55,11 +59,11 @@ the judge runs.
 class ShippingTimeSkill(Skill):
     name = "shipping_time"
     description = "Flags multi-week shipping estimates."
-    always_run = False  # only runs when "shipping_time" is in the request's `flags`
+    features = ("weeks",)
 
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
-        ...
-        return {"skill_results": ["[shipping_time]\n<finding>"]}
+    async def run(self, state: AnalysisState) -> SkillOutput:
+        weeks = ...  # from state["facts"] / state["cleaned_content"]
+        return self.output({"weeks": weeks}, [Observation(type="shipping", evidence=f"Ships in {weeks} weeks.")])
 ```
 
 Register an instance in `SKILLS` in [`src/veridex/graph/__init__.py`](src/veridex/graph/__init__.py).
@@ -144,6 +148,9 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_LLM_API_KEY` | — | Required |
 | `VERIDEX_LLM_BASE_URL` | `https://api.scaleway.ai/v1` | Any OpenAI-compatible chat completions API |
 | `VERIDEX_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
+| `VERIDEX_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
+| `VERIDEX_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
+| `VERIDEX_TINEYE_API_KEY` / `VERIDEX_TINEYE_MONTHLY_BUDGET` | — / `1000` | Reverse image search; off while the key is empty |
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
@@ -202,11 +209,11 @@ src/veridex/
 
 - Scores are LLM judgements over heuristic evidence. They are a signal, not a verdict, and can be wrong in both
   directions.
-- Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score.
-- `reverse_image_search` automates Google Search through a headless browser. That is against Google's Terms of Service
-  and may be blocked at any time. If you run this yourself, replace it with a licensed reverse-image API or remove
-  it from `SKILLS`.
-- WHOIS data is often redacted and inconsistently formatted across registries.
+- Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
+  delimited as untrusted data, and attempts to address the model are detected and count against the page.
+- Registration data (RDAP) is often redacted; the first-certificate date is a second, registry-independent age.
+- Reverse image search uses the licensed TinEye API, paid per search, with a hard monthly budget
+  (`VERIDEX_TINEYE_MONTHLY_BUDGET`). Only the public product image URL is sent.
 
 ## License
 

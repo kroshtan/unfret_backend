@@ -54,6 +54,8 @@ async def analyze_page(
     state: dict[str, object] = {"page_content": body.page_content, "url": body.url, "flags": body.flags}
     if body.page_facts is not None:
         state["page_facts"] = body.page_facts
+    if body.checkout_content:
+        state["checkout_content"] = body.checkout_content
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):

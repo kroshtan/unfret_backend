@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from veridex.config import settings
 from veridex.facts import PageFacts
 from veridex.graph import build_graph, nodes
-from veridex.graph.skills import Skill
+from veridex.graph.skills import Skill, SkillOutput
 from veridex.graph.state import AnalysisState, PageType
 
 
@@ -19,9 +19,9 @@ class _RecordingSkill(Skill):
         self.always_run = always_run
         self.calls = 0
 
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+    async def run(self, state: AnalysisState) -> SkillOutput:
         self.calls += 1
-        return {"skill_results": [f"[{self.name}]\nok"]}
+        return self.output({"ok": True}, note="ok")
 
 
 class FakeLLM:
@@ -68,6 +68,7 @@ async def test_listing_runs_skills_and_judge(fake_llm: FakeLLM) -> None:
     assert (always.calls, optional.calls, disabled.calls) == (1, 1, 0)
     assert result["skill_results"][0].startswith("[classify]\nPage type: aggregate_listing (Amazon)")
     assert sorted(r.split("\n")[0] for r in result["skill_results"][1:]) == ["[a]", "[b]"]
+    assert result["features"] == {"a.ok": 1.0, "b.ok": 1.0}
     judge_prompt = fake_llm.prompts[-1][1].content
     assert "[a]" in judge_prompt
     assert "[b]" in judge_prompt
@@ -106,14 +107,14 @@ async def test_no_active_skills_still_judges(fake_llm: FakeLLM) -> None:
 
 
 class _BrokenSkill(_RecordingSkill):
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+    async def run(self, state: AnalysisState) -> SkillOutput:
         raise RuntimeError("upstream exploded")
 
 
 class _HangingSkill(_RecordingSkill):
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+    async def run(self, state: AnalysisState) -> SkillOutput:
         await asyncio.sleep(3600)
-        return {"skill_results": []}
+        return self.output({})
 
 
 @pytest.mark.parametrize("failing", [_BrokenSkill("bad"), _HangingSkill("bad")], ids=["raises", "hangs"])

@@ -1,138 +1,165 @@
-import asyncio
-import contextlib
-from datetime import UTC, datetime
+"""
+How long the shop's domain has existed: RDAP registration data and the first certificate in the CT logs.
 
-import whois
-from langchain_core.messages import HumanMessage, SystemMessage
-
-from veridex.graph.skills import Skill
-from veridex.graph.state import AnalysisState
-from veridex.llm import get_llm
-from veridex.net import hostname
-
-_WHOIS_TIMEOUT = 15  # seconds passed to asyncio.wait_for
-
-_ANALYZE_SYSTEM = """\
-You are an e-commerce trust analyst assessing a domain's registration data for pop-up store signals.
-
-Given WHOIS / registry metadata, look for:
-- Domain registered very recently (under 6 months) — strong pop-up store signal
-- Short registration period (1-year only) suggesting low long-term commitment
-- Registrant country inconsistent with the seller's claimed location or shipping origin
-- Privacy-protected or hidden WHOIS (registrant name/org redacted) combined with a new domain
-- Bulk or low-cost registrar frequently used by scam or disposable stores
-- Domain name pattern suggesting a temporary store (random strings, keyword-stuffed, hyphenated brand knockoffs)
-
-Summarise the findings concisely and factually. Highlight specific concerns.\
+RDAP is the registries' structured successor to WHOIS (ICANN retired WHOIS for gTLDs in 2025). The first TLS
+certificate ever logged for the domain (crt.sh) gives a second, registry-independent age, which still works when
+registration data is redacted. Both are store-level facts, cached across callers by :mod:`veridex.fact_cache`.
 """
 
+import json
+from datetime import UTC, date, datetime
+from typing import Any
+from urllib.parse import quote
 
-def _lookup_whois(domain: str) -> dict[str, str]:
-    """
-    Perform a synchronous WHOIS lookup and return a flat string dict.
+from veridex.config import settings
+from veridex.fact_cache import cached_fact
+from veridex.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from veridex.graph.state import AnalysisState
+from veridex.net import fetch_public, hostname
 
-    Intended to be called via :func:`asyncio.to_thread`.
-
-    :param domain: Bare domain name to look up.
-    :return: Dict of WHOIS fields as strings; empty on failure.
-    """
-    try:
-        w = whois.whois(domain)
-    except Exception:  # noqa: BLE001
-        return {}
-
-    def _str(val: object) -> str:
-        if val is None:
-            return ""
-        if isinstance(val, list):
-            val = val[0]
-        if isinstance(val, datetime):
-            return val.strftime("%Y-%m-%d")
-        return str(val)
-
-    return {k: _str(v) for k, v in w.items() if _str(v)}
+_RDAP_TIMEOUT_S = 10.0
+_CRTSH_TIMEOUT_S = 15.0
+_REDACTED_MARKERS = ("redacted", "privacy", "withheld", "data protected", "not disclosed")
 
 
-def _domain_age_days(whois_data: dict[str, str]) -> int | None:
-    """
-    Compute domain age in days from the WHOIS creation date.
-
-    :param whois_data: Flat WHOIS dict as returned by :func:`_lookup_whois`.
-    :return: Age in days, or ``None`` if the creation date is unavailable.
-    """
-    raw = whois_data.get("creation_date", "")
-    if not raw:
+def _parse_rdap_date(value: object) -> date | None:
+    if not isinstance(value, str) or len(value) < 10:
         return None
-    with contextlib.suppress(Exception):
-        created = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC)
-        return (datetime.now(tz=UTC) - created).days
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def parse_rdap(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Pick the useful fields out of an RDAP domain response.
+
+    :param data: The parsed RDAP JSON.
+    :return: ``registered`` and ``expires`` (ISO dates or ``None``), ``registrar`` and ``redacted`` (bool).
+    """
+    events = {e.get("eventAction"): _parse_rdap_date(e.get("eventDate")) for e in data.get("events", []) or []}
+    registrar = ""
+    for entity in data.get("entities", []) or []:
+        if "registrar" in (entity.get("roles") or []):
+            for field in (entity.get("vcardArray") or [None, []])[1] or []:
+                if isinstance(field, list) and len(field) >= 4 and field[0] == "fn":
+                    registrar = str(field[3])
+    text = json.dumps(data.get("remarks", [])) + json.dumps(data.get("entities", []))
+    registered, expires = events.get("registration"), events.get("expiration")
+    return {
+        "registered": registered.isoformat() if registered else None,
+        "expires": expires.isoformat() if expires else None,
+        "registrar": registrar[:200],
+        "redacted": any(marker in text.lower() for marker in _REDACTED_MARKERS),
+    }
+
+
+async def rdap_lookup(domain: str) -> dict[str, Any] | None:
+    """
+    Look a domain up via the RDAP bootstrap service, trying parent domains for subdomains.
+
+    :param domain: A hostname such as ``shop.example.co.uk``.
+    :return: The parsed fields (see :func:`parse_rdap`), or ``None`` if no registry answered.
+    """
+    labels = domain.split(".")
+    for start in range(min(3, max(len(labels) - 1, 1))):
+        candidate = ".".join(labels[start:])
+        try:
+            body = await fetch_public(settings.rdap_bootstrap_url + quote(candidate), timeout=_RDAP_TIMEOUT_S)
+            return parse_rdap(json.loads(body))
+        except Exception:  # noqa: BLE001 - not found / not supported: try the parent domain
+            continue
     return None
 
 
+def earliest_certificate(entries: list[dict[str, Any]]) -> str | None:
+    """
+    The earliest ``not_before`` date among crt.sh entries.
+
+    :param entries: crt.sh JSON entries.
+    :return: ISO date, or ``None`` when there are none.
+    """
+    dates = [d for e in entries if (d := _parse_rdap_date(e.get("not_before")))]
+    return min(dates).isoformat() if dates else None
+
+
+async def first_certificate(domain: str) -> str | None:
+    """
+    Ask crt.sh for the first certificate logged for the domain.
+
+    :param domain: The registrable domain.
+    :return: ISO date of the earliest certificate, or ``None`` if crt.sh had none or didn't answer.
+    """
+    url = f"{settings.crtsh_url}?q={quote(domain)}&output=json"
+    try:
+        entries = json.loads(await fetch_public(url, timeout=_CRTSH_TIMEOUT_S, max_bytes=20 * 1024 * 1024))
+    except Exception:  # noqa: BLE001 - crt.sh is often slow or overloaded; this signal is optional
+        return None
+    return earliest_certificate(entries) if isinstance(entries, list) else None
+
+
+def _days_since(iso: str | None, today: date) -> int | None:
+    return (today - date.fromisoformat(iso)).days if iso else None
+
+
 class DomainAgeSkill(Skill):
-    """Look up WHOIS data for the page domain and flag pop-up store signals."""
+    """Domain registration age, registration term, privacy and first-certificate age for storefronts."""
 
     name = "domain_age"
-    description = "Checks domain registration age, registrar, and WHOIS metadata for pop-up store signals."
-    always_run = True
+    description = "Checks domain registration (RDAP) and first certificate (CT logs) for pop-up store signals."
+    page_types = STOREFRONTS
+    features = ("known", "age_years", "under_6_months", "term_years", "redacted", "cert_age_years")
 
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+    async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Resolve the page domain, fetch WHOIS data, and analyse for pop-up store signals.
+        Look up the page's domain in RDAP and the CT logs (cached per domain).
 
         :param state: Current graph state; uses ``url``.
-        :return: Skill findings appended to ``skill_results``.
+        :return: The skill's features and findings.
         """
-        url = state.get("url", "")
-        if not url:
-            return {"skill_results": ["[domain_age]\nNo URL provided; domain check skipped."]}
+        domain = hostname(state.get("url", ""))
+        if not domain or not settings.network_lookups:
+            return self.output({"known": False}, note="No domain to look up.")
+        rdap = await cached_fact("rdap", domain, lambda: rdap_lookup(domain))
+        cert = await cached_fact("crtsh", domain, lambda: first_certificate(domain))
+        if rdap is None and cert is None:
+            return self.output({"known": False}, note=f"No registration or certificate data for {domain}.")
 
-        domain = hostname(url)
-        if not domain:
-            return {"skill_results": [f"[domain_age]\nCould not parse domain from URL: {url}"]}
+        today = datetime.now(tz=UTC).date()
+        age = _days_since((rdap or {}).get("registered"), today)
+        cert_age = _days_since(cert, today)
+        expires = (rdap or {}).get("expires")
+        registered = (rdap or {}).get("registered")
+        term = (
+            (date.fromisoformat(expires) - date.fromisoformat(registered)).days / 365
+            if expires and registered
+            else None
+        )
 
-        # WHOIS lookup (synchronous network I/O off the event loop)
-        try:
-            whois_data = await asyncio.wait_for(
-                asyncio.to_thread(_lookup_whois, domain),
-                timeout=_WHOIS_TIMEOUT,
+        observations: list[Observation] = []
+        if age is not None:
+            observations.append(
+                Observation(type="registered", evidence=f"{domain} registered {registered} ({age} days ago).")
             )
-        except TimeoutError:
-            return {"skill_results": [f"[domain_age]\nWHOIS lookup timed out for {domain}."]}
+        if cert_age is not None:
+            observations.append(
+                Observation(type="first_certificate", evidence=f"First certificate for {domain}: {cert}.")
+            )
+        if rdap and rdap.get("redacted"):
+            observations.append(Observation(type="registrant", evidence="Registrant details are redacted."))
+        if term is not None and term <= 1.1:
+            observations.append(Observation(type="term", evidence="Registered for one year only."))
 
-        if not whois_data:
-            return {"skill_results": [f"[domain_age]\nNo WHOIS data returned for {domain}."]}
-
-        # Build a human-readable summary of key fields
-        age_days = _domain_age_days(whois_data)
-        age_str = (
-            f"{age_days} days ({age_days // 365}y {(age_days % 365) // 30}m)" if age_days is not None else "unknown"
+        youngest = min((d for d in (age, cert_age) if d is not None), default=None)
+        return self.output(
+            {
+                "known": True,
+                "age_years": (age if age is not None else cert_age or 0) / 365,
+                "under_6_months": youngest is not None and youngest < 183,
+                "term_years": term if term is not None else 0.0,
+                "redacted": bool(rdap and rdap.get("redacted")),
+                "cert_age_years": (cert_age or 0) / 365,
+            },
+            observations,
         )
-
-        interesting_keys = (
-            "creation_date",
-            "expiration_date",
-            "updated_date",
-            "registrar",
-            "registrant_country",
-            "country",
-            "org",
-            "name",
-            "status",
-            "dnssec",
-            "name_servers",
-        )
-        whois_summary = "\n".join(f"  {k}: {whois_data[k]}" for k in interesting_keys if k in whois_data)
-
-        # LLM analysis
-        prompt = f"Domain: {domain}\nAge: {age_str}\n\nWHOIS data:\n{whois_summary}"
-        response = await get_llm().ainvoke([SystemMessage(content=_ANALYZE_SYSTEM), HumanMessage(content=prompt)])
-
-        lines = [
-            "[domain_age]",
-            f"Domain: {domain}",
-            f"Age: {age_str}",
-            f"\nWHOIS summary:\n{whois_summary}",
-            f"\nAnalysis:\n{response.content}",
-        ]
-        return {"skill_results": ["\n".join(lines)]}

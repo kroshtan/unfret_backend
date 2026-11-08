@@ -1,123 +1,75 @@
+"""Known apps and supplier traces in the page source, by pattern: deterministic, fast, high precision."""
+
 import re
 
-from bs4 import BeautifulSoup, Comment
-from langchain_core.messages import HumanMessage, SystemMessage
-
-from veridex.graph.skills import Skill
+from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
-from veridex.llm import get_llm
 
-# ── Hard-coded signal patterns ────────────────────────────────────────────────
-# Each entry is (compiled_regex, human_readable_label).
-# Patterns are matched case-insensitively against the raw HTML source.
-_HARD_SIGNALS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"oberlo", re.IGNORECASE), "Oberlo app (Shopify dropship fulfilment)"),
-    (re.compile(r"dsers[.\-/]", re.IGNORECASE), "DSers app (AliExpress order management)"),
-    (re.compile(r"autods", re.IGNORECASE), "AutoDS (automated dropshipping platform)"),
-    (re.compile(r"spocket\.co", re.IGNORECASE), "Spocket (dropship supplier marketplace)"),
-    (re.compile(r"dropified", re.IGNORECASE), "Dropified (dropshipping platform)"),
-    (re.compile(r"cjdropshipping|cjpacket", re.IGNORECASE), "CJ Dropshipping / CJPacket fulfilment"),
-    (re.compile(r"zendrop", re.IGNORECASE), "Zendrop (dropshipping platform)"),
-    (re.compile(r"eprolo", re.IGNORECASE), "Eprolo (dropshipping platform)"),
-    (re.compile(r"yakkyofy", re.IGNORECASE), "Yakkyofy (dropshipping platform)"),
-    (re.compile(r"ae01\.alicdn\.com", re.IGNORECASE), "AliExpress product image CDN (ae01.alicdn.com)"),
-    (re.compile(r"aliexpress\.com/item/", re.IGNORECASE), "Direct AliExpress product link in source"),
-    (re.compile(r"temu\.com/", re.IGNORECASE), "Temu link in source"),
-    (re.compile(r"dhgate\.com/product", re.IGNORECASE), "DHgate product link in source"),
+# (category, pattern, label). Matched case-insensitively against the raw HTML.
+_SIGNALS: list[tuple[str, re.Pattern[str], str]] = [
+    (cat, re.compile(pattern, re.IGNORECASE), label)
+    for cat, pattern, label in [
+        # Dropshipping fulfilment apps and platforms
+        ("dropship_app", r"oberlo", "Oberlo (Shopify dropship fulfilment)"),
+        ("dropship_app", r"dsers[.\-/]", "DSers (AliExpress order management)"),
+        ("dropship_app", r"autods", "AutoDS (automated dropshipping)"),
+        ("dropship_app", r"spocket\.co", "Spocket (dropship supplier marketplace)"),
+        ("dropship_app", r"dropified", "Dropified (dropshipping platform)"),
+        ("dropship_app", r"cjdropshipping|cjpacket", "CJ Dropshipping / CJPacket"),
+        ("dropship_app", r"zendrop", "Zendrop (dropshipping platform)"),
+        ("dropship_app", r"eprolo", "Eprolo (dropshipping platform)"),
+        ("dropship_app", r"yakkyofy", "Yakkyofy (dropshipping platform)"),
+        ("dropship_app", r"syncee", "Syncee (dropship supplier sync)"),
+        ("dropship_app", r"modalyst", "Modalyst (dropship supplier marketplace)"),
+        ("dropship_app", r"sup-?dropshipping", "Sup Dropshipping"),
+        ("dropship_app", r"dropshipman", "Dropshipman"),
+        ("dropship_app", r"hyperspace-?ai|hyperspace\.ai", "Hyperspace AI (dropship product import)"),
+        # Supplier marketplaces and their CDNs
+        ("supplier_trace", r"ae\d{2}\.alicdn\.com", "AliExpress image CDN (aeNN.alicdn.com)"),
+        ("supplier_trace", r"aliexpress\.(?:com|us)/item/", "Direct AliExpress product link"),
+        ("supplier_trace", r"img\.kwcdn\.com|temu\.com/", "Temu link or image CDN"),
+        ("supplier_trace", r"dhgate\.com/product", "DHgate product link"),
+        ("supplier_trace", r"alibaba\.com/product-detail", "Alibaba product link"),
+        ("supplier_trace", r"cbu01\.alicdn\.com", "1688.com image CDN"),
+        # Review apps that import reviews from AliExpress
+        ("review_import_app", r"loox\.io|loox-reviews", "Loox (reviews with AliExpress import)"),
+        ("review_import_app", r"ali-?reviews|alireviews", "Ali Reviews (AliExpress review import)"),
+        ("review_import_app", r"rivyo", "Rivyo (AliExpress review import)"),
+        ("review_import_app", r"ryviu", "Ryviu (AliExpress review import)"),
+        ("review_import_app", r"vitals\.co|vitals-app", "Vitals (bundle incl. AliExpress review import)"),
+        # Paid "shipping protection" add-ons, often pre-ticked
+        ("shipping_protection_app", r"route\.com/|routeapp|route-widget", "Route shipping protection"),
+        ("shipping_protection_app", r"seel\.com|seel-widget|seel_", "Seel worry-free purchase"),
+        ("shipping_protection_app", r"shipinsure", "ShipInsure shipping protection"),
+        ("shipping_protection_app", r"extend\.com/|helloextend", "Extend product protection"),
+        ("shipping_protection_app", r"corso\.com|corso-", "Corso shipping protection"),
+        # Countdown / urgency apps
+        ("timer_app", r"hurrify", "Hurrify countdown timer"),
+        ("timer_app", r"essential-?countdown|essential_countdown", "Essential Countdown Timer"),
+        ("timer_app", r"countdown-?timer-?bar|timer-?bar\.", "Countdown timer bar app"),
+        ("timer_app", r"urgency-?bear|urgencybear", "Urgency Bear"),
+        ("timer_app", r"sales-?pop|salespop|fomo\.com|proof-?factor", "Fake 'someone just bought' pop-ups"),
+    ]
 ]
-
-_MAX_FINGERPRINT_CHARS = 5_000
-
-_ANALYZE_SYSTEM = """\
-You are an e-commerce fraud analyst reviewing the technical fingerprint of a product page's HTML source.
-
-The fingerprint contains: external script sources, meta tags, and HTML comments.
-
-Look for soft dropship signals such as:
-- Shopify theme names or app scripts associated with dropshipping stores
-- Currency converters or multi-currency widgets common in international dropship stores
-- Shipping-time meta tags or template variables revealing supplier lead times
-- Supplier-referencing hidden fields, data attributes, or comments (e.g. vendor IDs, warehouse codes)
-- Fulfilment app SDK references (Printful, Printify, Modalyst, Syncee, Sup Dropshipping, etc.)
-- Tracking pixels from platforms commonly used by dropshippers
-- Anything that suggests the seller does not hold their own inventory
-
-Be concise and factual. Report only genuine signals — do not speculate without evidence.\
-"""
-
-
-def _build_fingerprint(html: str) -> str:
-    """
-    Extract a condensed technical fingerprint from raw HTML for LLM analysis.
-
-    Collects external script sources, meta tag pairs, and HTML comments, then
-    truncates the result to ``_MAX_FINGERPRINT_CHARS``.
-
-    :param html: Raw HTML source of the page.
-    :return: Multi-line string summarising the page's technical metadata.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    # External script sources
-    lines: list[str] = [f"script src: {tag['src']}" for tag in soup.find_all("script", src=True)]
-
-    # Meta tags
-    for tag in soup.find_all("meta"):
-        name = tag.get("name") or tag.get("property") or tag.get("http-equiv") or ""
-        content = tag.get("content") or ""
-        if name or content:
-            lines.append(f"meta {name}: {content[:200]}")
-
-    # HTML comments (first 120 chars each)
-    for comment in soup.find_all(string=lambda t: isinstance(t, Comment)):
-        snippet = str(comment).strip()[:120]
-        if snippet:
-            lines.append(f"comment: {snippet}")
-
-    fingerprint = "\n".join(lines)
-    return fingerprint[:_MAX_FINGERPRINT_CHARS]
+_CATEGORIES = ("dropship_app", "supplier_trace", "review_import_app", "shipping_protection_app", "timer_app")
 
 
 class HtmlSourceSignalsSkill(Skill):
-    """Scan raw HTML source for hard-coded and soft dropship signals."""
+    """Scan the raw HTML for dropship apps, supplier CDNs, review importers, protection and urgency apps."""
 
     name = "html_source_signals"
-    description = "Scans page HTML source for dropship app scripts, supplier CDN links, and related signals."
-    always_run = True
+    description = "Scans page HTML source for dropship apps, supplier links, review import and urgency apps."
+    features = _CATEGORIES
 
-    async def run(self, state: AnalysisState) -> dict[str, list[str]]:
+    async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Check raw HTML for known dropship patterns and analyse the technical fingerprint.
-
-        Step 1 performs fast regex matching against a curated list of high-confidence
-        identifiers. Step 2 sends a condensed HTML fingerprint (script sources, meta
-        tags, comments) to the LLM for softer pattern detection.
+        Match the known patterns against the raw HTML.
 
         :param state: Current graph state; uses ``page_content``.
-        :return: Skill findings appended to ``skill_results``.
+        :return: Counts per category and one finding per distinct hit.
         """
         html = state["page_content"]
-
-        # Step 1 – hard signal scan
-        hits = [label for pattern, label in _HARD_SIGNALS if pattern.search(html)]
-
-        # Step 2 – LLM soft-signal analysis on technical fingerprint
-        fingerprint = _build_fingerprint(html)
-        llm_finding = ""
-        if fingerprint.strip():
-            response = await get_llm().ainvoke(
-                [SystemMessage(content=_ANALYZE_SYSTEM), HumanMessage(content=fingerprint)]
-            )
-            llm_finding = str(response.content)
-
-        # Compose result
-        lines = ["[html_source_signals]"]
-        if hits:
-            lines.append("Hard dropship signals detected:")
-            lines.extend(f"  • {h}" for h in hits)
-        else:
-            lines.append("No hard-coded dropship app or CDN signals detected.")
-        if llm_finding:
-            lines.append(f"\nSoft-signal analysis:\n{llm_finding}")
-
-        return {"skill_results": ["\n".join(lines)]}
+        hits = [(category, label) for category, pattern, label in _SIGNALS if pattern.search(html)]
+        counts = {category: sum(1 for c, _ in hits if c == category) for category in _CATEGORIES}
+        observations = [Observation(type=category, evidence=label) for category, label in hits]
+        return self.output(counts, observations)

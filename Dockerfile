@@ -4,7 +4,6 @@ COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
@@ -12,9 +11,6 @@ WORKDIR /app
 # Dependencies (cached layer, only rebuilt when the lock file changes)
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-
-# Chromium + system libraries for the reverse image search skill
-RUN playwright install chromium --with-deps && rm -rf /var/lib/apt/lists/*
 
 # Application
 COPY README.md LICENSE ./

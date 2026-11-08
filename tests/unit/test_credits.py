@@ -9,8 +9,9 @@ from solders.transaction import VersionedTransaction
 
 from veridex.credits import siws
 from veridex.credits.pricing import purchase_transaction, sol_string, solana_pay_url, with_bonus
-from veridex.credits.scanner import incoming_transfers
+from veridex.credits.scanner import credit_beneficiary, credits_for, incoming_transfers
 from veridex.credits.trial import TrialLimiter, has_history
+from veridex.x402.solana import MEMO_PROGRAM
 
 SECRET = "unit-secret"
 NOW = 1_800_000_000.0
@@ -154,15 +155,23 @@ def test_sol_amounts_for_solana_pay() -> None:
     assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Veridex&message=Veridex%20credits"
 
 
-def test_purchase_transaction_is_an_unsigned_transfer_to_the_hot_wallet() -> None:
-    payer, hot = Keypair().pubkey(), Keypair().pubkey()
-    tx = VersionedTransaction.from_bytes(purchase_transaction(payer, hot, 7, "11111111111111111111111111111111"))
-    message = tx.message
-    assert message.account_keys[0] == payer  # fee payer and signer
+def test_purchase_transaction_is_an_unsigned_transfer_with_a_credit_memo() -> None:
+    payer, hot, member = Keypair().pubkey(), Keypair().pubkey(), Keypair().pubkey()
+    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", member)
+    message = VersionedTransaction.from_bytes(raw).message
+    assert message.account_keys[0] == payer  # fee payer and the only signer
     assert message.header.num_required_signatures == 1
-    [ix] = message.instructions
-    assert message.account_keys[ix.program_id_index] == Pubkey.from_string("11111111111111111111111111111111")
-    assert int.from_bytes(bytes(ix.data)[4:12], "little") == 7
+    pay, memo = message.instructions
+    assert message.account_keys[pay.program_id_index] == Pubkey.from_string("11111111111111111111111111111111")
+    assert int.from_bytes(bytes(pay.data)[4:12], "little") == 7
+    assert message.account_keys[memo.program_id_index] == MEMO_PROGRAM
+    assert bytes(memo.data) == f"veridex:credit:{member}".encode()
+    assert list(memo.accounts) == []
+
+
+def test_solana_pay_url_carries_the_beneficiary_memo() -> None:
+    hot, member = Keypair().pubkey(), Keypair().pubkey()
+    assert solana_pay_url(hot, 1_000_000, member).endswith(f"&memo=veridex%3Acredit%3A{member}")
 
 
 # ── Trial ─────────────────────────────────────────────────────────────────────
@@ -240,3 +249,44 @@ def test_incoming_transfers_by_sender() -> None:
 def test_failed_transactions_credit_nothing() -> None:
     parsed = tx(system("transfer", source="alice", destination=HOT, lamports=5), err={"InstructionError": [0, 1]})
     assert incoming_transfers(parsed, HOT) == {}
+
+
+def memo(text: str) -> dict[str, Any]:
+    return {"program": "spl-memo", "programId": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", "parsed": text}
+
+
+MEMBER = str(Keypair().pubkey())
+
+
+def test_a_memo_names_who_is_credited() -> None:
+    # A smart-wallet vault pays through a program; its member key (which can sign in) gets the credits.
+    parsed = tx(
+        memo(f"veridex:credit:{MEMBER}"), inner=[system("transfer", source="vault", destination=HOT, lamports=9)]
+    )
+    assert credit_beneficiary(parsed) == MEMBER
+    assert credits_for(parsed, HOT) == {MEMBER: 9}
+
+
+@pytest.mark.parametrize(
+    "memos",
+    [
+        [],
+        ["veridex:credit:not-a-pubkey"],
+        [f"veridex:credit:{MEMBER}", f"veridex:credit:{Keypair().pubkey()}"],
+        [f"veridex:credit:{MEMBER}", f"veridex:credit:{MEMBER}"],
+        [f"thanks! {MEMBER}"],
+    ],
+)
+def test_without_exactly_one_good_memo_the_sender_is_credited(memos: list[str]) -> None:
+    parsed = tx(*(memo(m) for m in memos), system("transfer", source="alice", destination=HOT, lamports=5))
+    assert credits_for(parsed, HOT) == {"alice": 5}
+
+
+def test_a_memo_without_a_payment_credits_nothing() -> None:
+    assert credits_for(tx(memo(f"veridex:credit:{MEMBER}")), HOT) == {}
+
+
+def test_a_memo_naming_the_hot_wallet_is_ignored() -> None:
+    hot = str(Keypair().pubkey())
+    parsed = tx(memo(f"veridex:credit:{hot}"), system("transfer", source="alice", destination=hot, lamports=5))
+    assert credits_for(parsed, hot) == {"alice": 5}

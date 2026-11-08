@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import quote
 
 from solders.hash import Hash
+from solders.instruction import Instruction
 from solders.message import MessageV0
 from solders.pubkey import Pubkey
 from solders.signature import Signature
@@ -12,6 +13,7 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
+from veridex.x402.solana import MEMO_PROGRAM
 
 LAMPORTS_PER_SOL = 1_000_000_000
 
@@ -39,29 +41,45 @@ def sol_string(lamports: int) -> str:
     return format(value, "f")
 
 
-def solana_pay_url(hot: Pubkey, lamports: int) -> str:
+def credit_memo(beneficiary: Pubkey) -> str:
+    """
+    The memo that names who gets the credits (the scanner reads it).
+
+    :param beneficiary: The wallet to credit.
+    :return: ``veridex:credit:<pubkey>``.
+    """
+    return f"veridex:credit:{beneficiary}"
+
+
+def solana_pay_url(hot: Pubkey, lamports: int, beneficiary: Pubkey | None = None) -> str:
     """
     A Solana Pay transfer request for a phone wallet: pay ``lamports`` to the hot wallet.
 
     :param hot: The receiving (hot) wallet.
     :param lamports: The amount.
+    :param beneficiary: The wallet to credit, as a memo; without one the paying wallet is credited.
     :return: The ``solana:`` URL.
     """
-    return f"solana:{hot}?amount={sol_string(lamports)}&label=Veridex&message={quote('Veridex credits')}"
+    url = f"solana:{hot}?amount={sol_string(lamports)}&label=Veridex&message={quote('Veridex credits')}"
+    return f"{url}&memo={quote(credit_memo(beneficiary))}" if beneficiary else url
 
 
-def purchase_transaction(payer: Pubkey, hot: Pubkey, lamports: int, blockhash: str) -> bytes:
+def purchase_transaction(payer: Pubkey, hot: Pubkey, lamports: int, blockhash: str, beneficiary: Pubkey) -> bytes:
     """
-    Build the unsigned transfer the buyer's wallet signs and sends: ``lamports`` from ``payer`` to the hot wallet.
+    Build the unsigned transfer the buyer's wallet signs and sends.
 
-    :param payer: The buying wallet (also the fee payer).
+    ``lamports`` go from ``payer`` to the hot wallet, with a memo naming the wallet to credit.
+
+    :param payer: The paying wallet (also the fee payer).
     :param hot: The receiving (hot) wallet.
     :param lamports: The amount.
     :param blockhash: A recent blockhash.
+    :param beneficiary: The wallet that gets the credits (often the payer itself).
     :return: The serialised, unsigned versioned transaction.
     """
-    ix = transfer(TransferParams(from_pubkey=payer, to_pubkey=hot, lamports=lamports))
-    message = MessageV0.try_compile(payer, [ix], [], Hash.from_string(blockhash))
+    pay = transfer(TransferParams(from_pubkey=payer, to_pubkey=hot, lamports=lamports))
+    memo = Instruction(MEMO_PROGRAM, credit_memo(beneficiary).encode(), [])
+    message = MessageV0.try_compile(payer, [pay, memo], [], Hash.from_string(blockhash))
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))
 
 

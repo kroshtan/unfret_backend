@@ -30,8 +30,14 @@ class CreditsResponse(BaseModel):
 class PurchaseRequest(BaseModel):
     """Who buys how much."""
 
-    address: str = Field(max_length=64, description="The buying wallet (base58); credits go to it.")
+    address: str = Field(max_length=64, description="The paying wallet (base58), which signs and sends the transfer.")
     lamports: int = Field(gt=0, description="Amount of SOL to send, in lamports.")
+    beneficiary: str | None = Field(
+        default=None,
+        max_length=64,
+        description="The wallet that gets the credits (defaults to address), e.g. a member key when a smart-wallet "
+        "vault pays. Recorded in a memo the scanner reads.",
+    )
 
 
 class PurchaseResponse(BaseModel):
@@ -70,7 +76,7 @@ async def get_balance(request: Request, address: str = Depends(require_wallet)) 
     )
 
 
-def _purchase_parties(request: Request, address: str, lamports: int) -> tuple[Pubkey, Pubkey]:
+def _hot_for_purchase(request: Request, lamports: int) -> Pubkey:
     door = get_credits(request)
     if not door.purchases_enabled or door.hot is None:
         raise ServiceUnavailableError("Buying credits is not available yet.")
@@ -79,13 +85,17 @@ def _purchase_parties(request: Request, address: str, lamports: int) -> tuple[Pu
             "Amount out of range.",
             metadata={"min_lamports": settings.purchase_min_lamports, "max_lamports": settings.purchase_max_lamports},
         )
+    return door.hot
+
+
+def _wallet(address: str, hot: Pubkey) -> Pubkey:
     try:
-        payer = Pubkey.from_string(address)
+        wallet = Pubkey.from_string(address)
     except ValueError as exc:
         raise BadRequestError("Not a Solana address.") from exc
-    if payer == door.hot:
+    if wallet == hot:
         raise BadRequestError("Not a buyer's address.")
-    return payer, door.hot
+    return wallet
 
 
 @router.post("/v1/credits/purchase-tx", response_model=PurchaseResponse)
@@ -93,40 +103,42 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
     """
     Build the unsigned SOL transfer that buys credits; the buyer's wallet signs and sends it.
 
-    Credits arrive once the transfer is finalized (about 15–30 seconds), credited to the sending wallet with any
-    purchase bonus. No sign-in needed: anyone may fund any wallet.
+    Credits arrive once the transfer is finalized (about 15–30 seconds), credited with any purchase bonus to the
+    beneficiary named in the transaction's memo (the paying wallet unless ``beneficiary`` says otherwise). No sign-in
+    needed: anyone may fund any wallet.
 
     :param body: Who buys how much.
     :param request: The incoming request.
     :return: The transaction (base64) and a Solana Pay link for phone wallets.
     """
-    payer, hot = _purchase_parties(request, body.address, body.lamports)
-    raw = purchase_transaction(payer, hot, body.lamports, await get_credits(request).rpc.latest_blockhash())
+    hot = _hot_for_purchase(request, body.lamports)
+    payer = _wallet(body.address, hot)
+    beneficiary = _wallet(body.beneficiary, hot) if body.beneficiary else payer
+    blockhash = await get_credits(request).rpc.latest_blockhash()
+    raw = purchase_transaction(payer, hot, body.lamports, blockhash, beneficiary)
     return PurchaseResponse(
         transaction=base64.b64encode(raw).decode(),
         lamports=body.lamports,
         hot_wallet=str(hot),
-        solana_pay_url=solana_pay_url(hot, body.lamports),
+        solana_pay_url=solana_pay_url(hot, body.lamports, beneficiary),
     )
 
 
 @router.get("/v1/credits/solana-pay.svg", response_class=Response)
-def solana_pay_qr(request: Request, lamports: int = Query(gt=0)) -> Response:
+def solana_pay_qr(
+    request: Request, lamports: int = Query(gt=0), beneficiary: str | None = Query(default=None, max_length=64)
+) -> Response:
     """
     The Solana Pay request for ``lamports`` as a QR code, for paying from a phone wallet.
 
     :param request: The incoming request.
     :param lamports: The amount.
+    :param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.
     :return: An SVG image.
-    :raises ServiceUnavailableError: If buying credits is not available.
-    :raises BadRequestError: If the amount is out of range.
     """
-    door = get_credits(request)
-    if not door.purchases_enabled or door.hot is None:
-        raise ServiceUnavailableError("Buying credits is not available yet.")
-    if not settings.purchase_min_lamports <= lamports <= settings.purchase_max_lamports:
-        raise BadRequestError("Amount out of range.")
-    svg = segno.make(solana_pay_url(door.hot, lamports), error="m").svg_inline(scale=6, border=2, dark="#111")
+    hot = _hot_for_purchase(request, lamports)
+    target = _wallet(beneficiary, hot) if beneficiary else None
+    svg = segno.make(solana_pay_url(hot, lamports, target), error="m").svg_inline(scale=6, border=2, dark="#111")
     return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 

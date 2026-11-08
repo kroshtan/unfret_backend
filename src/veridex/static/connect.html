@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Sign in · Veridex</title>
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/connect.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Sign in to Veridex</h1>
+    <p>Pick your wallet and approve the sign-in request. It is a plain message, not a transaction: it costs nothing
+      and gives Veridex no access to your funds. Your credits belong to this wallet.</p>
+
+    <section aria-labelledby="wallets-heading">
+      <h2 id="wallets-heading">Your wallets</h2>
+      <div id="wallets" class="wallets"></div>
+      <p id="no-wallets" class="muted">No Solana wallet found in this browser. Install one (Phantom, Solflare,
+        Backpack…) and reload this page.</p>
+    </section>
+
+    <p id="status" role="status" aria-live="polite"></p>
+    <p id="done" tabindex="-1" hidden><strong>Extension connected</strong> — you can close this tab.</p>
+    <p id="no-extension" hidden>You're signed in, but the Veridex extension didn't answer. Install or enable it, then
+      open this page from the extension again. You can still <a href="/checkout">buy credits</a> for this wallet.</p>
+
+    <footer><a href="/checkout">Buy credits</a> · <a href="/llms.txt">For AI agents</a></footer>
+  </main>
+</body>
+</html>

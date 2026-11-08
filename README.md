@@ -95,11 +95,18 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in lamports`**: no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
-Credits are bought by sending SOL to the hot wallet (`/v1/credits/purchase-tx` builds the transfer; any wallet may
-fund any wallet). A background scanner walks the hot wallet's finalized transactions and credits the sender of every
-incoming System transfer, top-level or inside a program call, with the purchase bonus (≥0.05 SOL +10%, ≥0.25 SOL
-+20%), moving its cursor in the same database transaction by compare-and-swap, so each transfer is credited exactly
-once. Sweeps, fees and x402 settlements are ignored. An analysis costs `VERIDEX_ANALYSIS_PRICE_LAMPORTS` (0.0015 SOL),
+Credits are bought by sending SOL to the hot wallet: `/v1/credits/purchase-tx` builds the transfer with a
+`veridex:credit:<beneficiary>` memo (any wallet may fund any wallet, so a smart-wallet vault can buy for the key that
+signs in), and [`/checkout`](https://veridex.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
+Pay QR). A background scanner walks the hot wallet's finalized transactions and credits every incoming System
+transfer, top-level or inside a program call, to the memo's beneficiary (exactly one well-formed memo) or else the
+sender, with the purchase bonus (≥0.05 SOL +10%, ≥0.25 SOL +20%). It moves its cursor in the same database
+transaction by compare-and-swap, so each transfer is credited exactly once. Sweeps, fees and x402 settlements are
+ignored; any other SOL sent to the hot wallet, a manual top-up included, counts as a purchase.
+
+[`/connect`](https://veridex.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
+(`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
+strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs `VERIDEX_ANALYSIS_PRICE_LAMPORTS` (0.0015 SOL),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
 A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a

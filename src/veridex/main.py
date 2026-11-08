@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from veridex import __version__, fact_cache, scoring, tineye
 from veridex.api import VeridexAPI
@@ -16,6 +17,7 @@ from veridex.db import PostgresBudget, PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
+from veridex.routes.pages import STATIC_DIR
 from veridex.schemas.errors import CustomAPIError
 from veridex.x402.service import X402
 from veridex.x402.verdict import skills_for
@@ -81,8 +83,9 @@ async def docs_redirect() -> RedirectResponse:
     return RedirectResponse(url="/docs")
 
 
-# Include API routes
+# Include API routes, and the scripts and styles of the /connect and /checkout pages
 app.include_router(router)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Add custom exception handlers
 app.add_exception_handler(CustomAPIError, CustomAPIError.handle)

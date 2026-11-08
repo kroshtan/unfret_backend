@@ -8,6 +8,9 @@ Open-source release.
 
 * Credits door replaces accounts: Sign-In With Solana (stateless nonces and session tokens; the signature grants no spending rights) and a lamport balance per wallet, the only user state stored. `/v1/analyze` (and its stream) debits atomically and refunds pages that can't be analysed and failed analyses
 * Buying credits with SOL: `/v1/pricing`, `/v1/credits`, `/v1/credits/purchase-tx` (unsigned transfer + Solana Pay link) and a QR endpoint; a scanner credits finalized incoming transfers to the hot wallet exactly once (cursor moved by compare-and-swap), with purchase bonuses
+* `/connect` (sign in, hand the session to the browser extension, which confirms receipt) and `/checkout` (buy credits from a browser wallet or a phone via Solana Pay QR): static HTML and vanilla JS with a strict CSP, Wallet Standard discovery without dependencies
+* Smart-wallet purchases: `purchase-tx` takes a `beneficiary`, recorded in a `veridex:credit:<pubkey>` memo the scanner credits (exactly one well-formed memo, else the sender), so a vault can buy for the key that signs in
+* `/v1/analyze/stream` emits contract `step` events (`{"skill", "findings"}`); the scanner's first start waits for the newest hot-wallet transaction to finalize, so funding just before start-up is never credited
 * Free trial on a wallet's first sign-in, only for wallets with on-chain history, within a per-visitor limit and a daily cap kept in memory
 * Paid x402 checks whose analysis fails are refunded as credits to the paying wallet
 * `/v1/schema/page-facts` serves the `PageFacts` JSON schema; `/v1/analyze` accepts `page_facts` without `page_content` and returns the scorer's assessment and the balance

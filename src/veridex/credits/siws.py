@@ -95,6 +95,9 @@ def message_text(fields: SignInFields) -> str:
     """
     Render the canonical sign-in text (the Wallet Standard ``createSignInMessageText`` layout).
 
+    The optional ``Chain ID`` line is left out: wallets refuse a request whose chain ID doesn't match their selected
+    network exactly, and the nonce already binds the message to this site and a short window.
+
     :param fields: The message fields.
     :return: The text to sign.
     """
@@ -102,7 +105,6 @@ def message_text(fields: SignInFields) -> str:
     lines += [
         f"URI: {fields.uri}",
         f"Version: {fields.version}",
-        f"Chain ID: {fields.chain_id}",
         f"Nonce: {fields.nonce}",
         f"Issued At: {fields.issued_at}",
         f"Expiration Time: {fields.expiration_time}",

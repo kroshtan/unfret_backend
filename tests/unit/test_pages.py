@@ -85,3 +85,12 @@ def test_connect_page_has_a_phone_pairing_mode() -> None:
     assert "Sign in to the device showing" in html
     assert "/v1/auth/pair/" in script and "pairId" in script
     assert "pair_id: pairId" in (STATIC_DIR / "wallet.js").read_text()
+
+
+def test_sign_in_never_asks_the_wallet_for_a_chain_id() -> None:
+    # Phantom refuses the request when the chain ID doesn't match its selected network ("chain ID does not match").
+    script = (STATIC_DIR / "wallet.js").read_text()
+    assert "chainId:" not in script
+    assert "Chain ID" not in script
+    fields = siws.nonce_response("s", domain="d.test", uri="https://d.test", chain_id="devnet", ttl_s=300)
+    assert "Chain ID" not in siws.message_text(siws.SignInFields(address="x", **fields))

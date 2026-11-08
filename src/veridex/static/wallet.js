@@ -65,7 +65,8 @@ export function chainOf(network) {
   return network === "solana-mainnet" ? "solana:mainnet" : "solana:devnet";
 }
 
-// The canonical sign-in text (the Wallet Standard createSignInMessageText layout); the server parses what was signed.
+// The canonical sign-in text (the Wallet Standard createSignInMessageText layout, without the optional chain-id line);
+// the server parses what was signed.
 export function signInText(fields, address) {
   return [
     `${fields.domain} wants you to sign in with your Solana account:`,
@@ -75,7 +76,6 @@ export function signInText(fields, address) {
     "",
     `URI: ${fields.uri}`,
     `Version: ${fields.version}`,
-    `Chain ID: ${fields.chain_id}`,
     `Nonce: ${fields.nonce}`,
     `Issued At: ${fields.issued_at}`,
     `Expiration Time: ${fields.expiration_time}`,
@@ -113,7 +113,8 @@ export async function signIn(wallet, { pairId } = {}) {
       statement: fields.statement,
       uri: fields.uri,
       version: fields.version,
-      chainId: fields.chain_id,
+      // The chain ID is left out on purpose: wallets refuse the request when it doesn't match their selected network exactly (and differ
+      // on "devnet" vs "solana:devnet"). The nonce already binds the sign-in to this site and a 5-minute window.
       nonce: fields.nonce,
       issuedAt: fields.issued_at,
       expirationTime: fields.expiration_time,

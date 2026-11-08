@@ -13,21 +13,29 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
-from veridex.prices import LAMPORTS_PER_SOL, Currency, PriceBook, PriceUnavailableError
+from veridex.prices import (
+    LAMPORTS_PER_SOL,
+    Currency,
+    PriceBook,
+    PriceUnavailableError,
+    format_usd,
+    usd_to_lamports,
+    usdc_to_lamports,
+)
 from veridex.x402.solana import MEMO_PROGRAM, associated_token_address, decimals, transfer_checked
 from veridex.x402.wallet import create_ata_idempotent
 
 
-def with_bonus(lamports: int, tiers: list[tuple[int, int]]) -> int:
+def with_bonus(value: int, tiers: list[tuple[int, int]]) -> int:
     """
-    The balance a purchase buys: its SOL value plus the best bonus tier that value reaches.
+    The balance a purchase buys: its dollar value plus the best bonus tier that value reaches.
 
-    :param lamports: The amount paid, or for USDC its converted SOL value.
-    :param tiers: ``(minimum lamports, bonus percent)`` pairs.
-    :return: The lamports credited.
+    :param value: The purchase's value in micro-dollars (SOL converted at crediting time).
+    :param tiers: ``(minimum micro-dollars, bonus percent)`` pairs.
+    :return: The micro-dollars credited.
     """
-    pct = max((bonus for minimum, bonus in tiers if lamports >= minimum), default=0)
-    return lamports + lamports * pct // 100
+    pct = max((bonus for minimum, bonus in tiers if value >= minimum), default=0)
+    return value + value * pct // 100
 
 
 def decimal_string(amount: int, places: int) -> str:
@@ -113,28 +121,26 @@ def purchase_transaction(  # noqa: PLR0913
 
 async def purchase_limits(settings: Settings, book: PriceBook, currency: Currency) -> tuple[int, int]:
     """
-    The smallest and largest purchase in ``currency`` (base units): the SOL limits, converted for USDC.
+    The smallest and largest purchase in ``currency`` (base units): the dollar limits, converted for SOL.
 
-    USDC that can't be priced right now raises :class:`~veridex.prices.PriceUnavailableError`.
+    SOL that can't be priced right now raises :class:`~veridex.prices.PriceUnavailableError`.
 
     :param settings: The service settings.
     :param book: The price book.
     :param currency: ``SOL`` or ``USDC``.
     :return: ``(minimum, maximum)``.
     """
-    if currency == "SOL":
-        return settings.purchase_min_lamports, settings.purchase_max_lamports
-    per_check_usdc = await book.price("analysis", "USDC")
-    per_check = book.lamports("analysis")
-    return (
-        -(-settings.purchase_min_lamports * per_check_usdc // per_check),  # rounded up: never below one check
-        settings.purchase_max_lamports * per_check_usdc // per_check,
-    )
+    if currency == "USDC":
+        return settings.purchase_min_usd_micros, settings.purchase_max_usd_micros
+    reading = await book.sol_usd()
+    low = usd_to_lamports(settings.purchase_min_usd_micros, reading.usd_per_sol)  # rounded up: at least one check
+    high = usdc_to_lamports(settings.purchase_max_usd_micros, reading.usd_per_sol)  # rounded down: at most the max
+    return low, high
 
 
 async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc: Pubkey) -> dict[str, Any]:
     """
-    The public price list (``GET /v1/pricing``): canonical SOL prices plus a live USDC quote.
+    The public price list (``GET /v1/pricing``): canonical dollar prices, exact USDC amounts and a live SOL quote.
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -142,37 +148,51 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     :param usdc: The USDC mint.
     :return: The contract's pricing document.
     """
-    price = book.lamports("analysis")
+    analysis = book.usd("analysis")
+    quick, deep = book.usd("x402_quick"), book.usd("x402_deep")
     document: dict[str, Any] = {
-        "analysis_lamports": price,
-        "x402": {"quick_lamports": book.lamports("x402_quick"), "deep_lamports": book.lamports("x402_deep")},
-        "bonuses": [{"min_lamports": m, "bonus_pct": pct} for m, pct in sorted(settings.credit_bonus_tiers)],
-        "suggested_packs": [{"checks": n, "lamports": n * price} for n in settings.suggested_packs],
-        "purchase": {"min_lamports": settings.purchase_min_lamports, "max_lamports": settings.purchase_max_lamports},
+        "currency": "USD",
+        "analysis_usd_micros": analysis,
+        "analysis_usd": format_usd(analysis),
+        "x402": {"quick_usd_micros": quick, "deep_usd_micros": deep},
+        "bonuses": [{"min_usd_micros": m, "bonus_pct": pct} for m, pct in sorted(settings.credit_bonus_tiers)],
+        "suggested_packs": [{"checks": n, "usd_micros": n * analysis} for n in settings.suggested_packs],
+        "purchase": {
+            "min_usd_micros": settings.purchase_min_usd_micros,
+            "max_usd_micros": settings.purchase_max_usd_micros,
+        },
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,
         "trial_checks": settings.trial_checks,
-        "price_mode": settings.price_mode,
-    }
-    try:
-        reading = await book.sol_usd() if settings.price_mode == "sol" else None
-        low, high = await purchase_limits(settings, book, "USDC")
-        document["usdc"] = {
+        # USDC base units are micro-dollars: USDC amounts equal the dollar prices.
+        "usdc": {
             "mint": str(usdc),
             "decimals": 6,
-            "analysis_units": await book.price("analysis", "USDC"),
+            "analysis_units": analysis,
+            "x402": {"quick_units": quick, "deep_units": deep},
+            "purchase": {"min_units": settings.purchase_min_usd_micros, "max_units": settings.purchase_max_usd_micros},
+        },
+        "analysis_lamports": None,
+    }
+    try:
+        reading = await book.sol_usd()
+        low, high = await purchase_limits(settings, book, "SOL")
+        per_check = usd_to_lamports(analysis, reading.usd_per_sol)
+        document["sol"] = {
+            "usd_per_sol": str(reading.usd_per_sol),
+            "quoted_at": reading.publish_time,
+            "source": "pyth",
+            "analysis_lamports": per_check,
             "x402": {
-                "quick_units": await book.price("x402_quick", "USDC"),
-                "deep_units": await book.price("x402_deep", "USDC"),
+                "quick_lamports": usd_to_lamports(quick, reading.usd_per_sol),
+                "deep_lamports": usd_to_lamports(deep, reading.usd_per_sol),
             },
-            "purchase": {"min_units": low, "max_units": high},
-            "sol_usd": str(reading.usd_per_sol) if reading else None,
-            "quoted_at": reading.publish_time if reading else None,
-            "source": "pyth" if reading else "fixed",
+            "purchase": {"min_lamports": low, "max_lamports": high},
         }
+        document["analysis_lamports"] = per_check  # backward compatible: the current SOL price of a check
     except PriceUnavailableError as exc:
-        document["usdc"] = None
-        document["usdc_unavailable"] = str(exc)
+        document["sol"] = None
+        document["sol_unavailable"] = str(exc)
     return document
 
 

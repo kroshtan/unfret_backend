@@ -1,4 +1,4 @@
-"""The price book: canonical SOL prices, USDC converted with a validated Pyth SOL/USD price, the fixed fallback."""
+"""The price book: canonical dollar prices, USDC exact, SOL converted with a validated Pyth SOL/USD price."""
 
 import base64
 import struct
@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from solders.pubkey import Pubkey
 
+from tests.unit.x402_helpers import StaticOracle
 from veridex.config import Settings
 from veridex.prices import (
     PYTH_RECEIVER_PROGRAM,
@@ -16,7 +17,10 @@ from veridex.prices import (
     PriceUnavailableError,
     PythSolUsd,
     SolUsd,
+    format_usd,
+    lamports_to_usd,
     lamports_to_usdc,
+    usd_to_lamports,
     usdc_to_lamports,
     validate_sol_usd,
 )
@@ -77,43 +81,43 @@ def test_conversions_round_in_veridexs_disfavour_never_the_payers() -> None:
     assert usdc_to_lamports(1_000_000, price) == 11_159_797  # 1 USDC
 
 
-class StaticOracle(PythSolUsd):
-    def __init__(self, usd_per_sol: str | None) -> None:
-        self.value = usd_per_sol
-
-    async def read(self, now: float | None = None) -> SolUsd:
-        if self.value is None:
-            raise PriceUnavailableError("oracle price is stale (99 s old)")
-        return SolUsd(Decimal(self.value), Decimal("0.05"), NOW)
-
-
-async def test_sol_mode_converts_the_canonical_sol_prices() -> None:
+async def test_dollar_prices_are_canonical_usdc_exact_and_sol_converted() -> None:
     book = PriceBook(Settings(), StaticOracle("100"))
-    assert await book.price("analysis", "SOL") == 1_500_000
-    assert await book.price("analysis", "USDC") == 150_000  # 0.0015 SOL at $100
-    assert await book.price("x402_quick", "USDC") == 10_000
-    assert await book.lamports_for(150_000, "USDC") == 1_500_000
-    assert await book.converted("USDC") and not await book.converted("SOL")
+    assert book.usd("analysis") == 150_000 and book.usd("x402_quick") == 10_000 and book.usd("x402_deep") == 150_000
+    assert await book.price("analysis", "USDC") == 150_000  # $0.15 exactly
+    assert await book.price("analysis", "SOL") == 1_500_000  # $0.15 at $100/SOL
+    assert await book.price("x402_quick", "SOL") == 100_000
+    assert await book.value(1_500_000, "SOL") == 150_000
+    assert await book.value(150_000, "USDC") == 150_000
+    assert book.converted("SOL") and not book.converted("USDC")
 
 
-async def test_usdc_is_refused_while_the_oracle_is_unavailable() -> None:
+async def test_sol_conversions_round_in_veridexs_disfavour() -> None:
+    book = PriceBook(Settings(), StaticOracle("89.6073631"))
+    # $0.15 / $89.6073631 = 1_673_969.4 lamports: charged as 1_673_970 (rounded up).
+    assert await book.price("analysis", "SOL") == 1_673_970
+    # 1_673_970 lamports = $0.15000005…: credited as 150_000 micro-dollars (rounded down).
+    assert await book.value(1_673_970, "SOL") == 150_000
+    assert usd_to_lamports(150_000, Decimal(100)) == 1_500_000
+    assert lamports_to_usd(1_499_999, Decimal(100)) == 149_999
+
+
+async def test_sol_is_refused_while_the_oracle_is_unavailable_and_usdc_still_works() -> None:
     book = PriceBook(Settings(), StaticOracle(None))
-    assert await book.price("x402_deep", "SOL") == 1_500_000  # SOL never needs the oracle
+    assert await book.price("x402_deep", "USDC") == 150_000  # USDC never needs the oracle
     with pytest.raises(PriceUnavailableError):
-        await book.price("x402_deep", "USDC")
+        await book.price("x402_deep", "SOL")
     with pytest.raises(PriceUnavailableError):
-        await book.lamports_for(150_000, "USDC")
+        await book.value(1_500_000, "SOL")
     with pytest.raises(PriceUnavailableError):
-        await PriceBook(Settings(), None).price("analysis", "USDC")
+        await PriceBook(Settings(), None).price("analysis", "SOL")
 
 
-async def test_fixed_mode_is_an_explicit_fallback() -> None:
-    book = PriceBook(Settings(price_mode="fixed"), None)
-    assert await book.price("analysis", "USDC") == 150_000
-    assert await book.price("x402_quick", "USDC") == 10_000
-    assert await book.lamports_for(300_000, "USDC") == 3_000_000
-    assert not await book.converted("USDC")
-    assert Settings().price_mode == "sol"  # the default is canonical SOL + oracle
+def test_format_usd() -> None:
+    assert format_usd(150_000) == "$0.15"
+    assert format_usd(10_000) == "$0.01"
+    assert format_usd(5_000_000) == "$5.00"
+    assert format_usd(1_234) == "$0.001234"
 
 
 class AccountRpc(SolanaRpc):

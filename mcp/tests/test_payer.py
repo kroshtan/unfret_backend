@@ -1,5 +1,7 @@
 import base64
 import json
+import struct
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -17,6 +19,7 @@ from veridex_mcp.payer import (
     build_payment,
     choose_requirement,
 )
+from veridex_mcp.price import SOL_USD_FEED_ID, PriceError, SolUsd
 from veridex_mcp.solana import CAIP2, SYSTEM_PROGRAM, USDC_MINTS, WSOL_MINT, Rpc, associated_token_address
 
 AGENT = Keypair()
@@ -61,16 +64,50 @@ class FakeRpc(Rpc):
         return "wrapsig"
 
 
-def test_guard_refuses_over_per_call_max_and_session_cap() -> None:
-    guard = SpendGuard(max_per_call=1_500_000, session_cap=2_000_000)
-    with pytest.raises(SpendRefusedError, match="per-call"):
-        guard.reserve(1_500_001)
-    guard.reserve(1_500_000)
+class FixedPrice(SolUsd):
+    """A SOL/USD price that never touches the network (None: unavailable)."""
+
+    def __init__(self, usd_per_sol: str | None = "100") -> None:
+        super().__init__(Rpc("http://rpc.invalid"))
+        self.value = usd_per_sol
+
+    async def usd_per_sol(self) -> Decimal:
+        if self.value is None:
+            raise PriceError("stale")
+        return Decimal(self.value)
+
+
+def test_guard_caps_dollars_per_call_and_per_session() -> None:
+    guard = SpendGuard(max_per_call=150_000, session_cap=200_000)  # $0.15, $0.20
+    with pytest.raises(SpendRefusedError, match=r"per-call maximum of \$0.15"):
+        guard.reserve(150_001)
+    guard.reserve(150_000)
     with pytest.raises(SpendRefusedError, match="session cap"):
-        guard.reserve(600_000)
-    guard.release(1_500_000)
-    guard.reserve(600_000)
-    assert guard.spent == 600_000
+        guard.reserve(60_000)
+    guard.release(150_000)
+    guard.reserve(60_000)
+    assert guard.spent == 60_000
+
+
+def price_update(
+    price: int = 10_000_000_000, conf: int = 1_000_000, publish_time: int = 1_000, full: bool = True
+) -> bytes:
+    level = b"\x01" if full else b"\x00\x05"
+    message = SOL_USD_FEED_ID + struct.pack("<qQiqqqQ", price, conf, -8, publish_time, publish_time, price, conf)
+    return bytes(40) + level + message + bytes(8)
+
+
+def test_the_agents_own_price_is_checked_before_use() -> None:
+    reader = SolUsd(Rpc("http://rpc.invalid"))
+    assert reader.check(price_update(), now=1_010) == Decimal(100)
+    for data, now, reason in [
+        (price_update(), 1_121, "stale"),
+        (price_update(full=False), 1_010, "verified"),
+        (price_update(conf=300_000_000), 1_010, "uncertain"),  # $3 on $100: over 2%
+        (price_update(price=0), 1_010, "positive"),
+    ]:
+        with pytest.raises(PriceError, match=reason):
+            reader.check(data, now=now)
 
 
 def test_chooses_only_wsol_exact_on_our_network() -> None:
@@ -102,7 +139,14 @@ def test_payment_uses_seller_memo_when_given() -> None:
 
 async def test_wraps_only_the_shortfall() -> None:
     rpc = FakeRpc(wsol=30_000)
-    payer = Payer(api_url="http://api", agent=AGENT, rpc=rpc, network="solana-devnet", guard=SpendGuard(10**7, 10**8))
+    payer = Payer(
+        api_url="http://api",
+        agent=AGENT,
+        rpc=rpc,
+        network="solana-devnet",
+        guard=SpendGuard(10**7, 10**8),
+        sol_usd=FixedPrice(),
+    )
 
     await payer.ensure_wsol(100_000)
 
@@ -114,7 +158,14 @@ async def test_wraps_only_the_shortfall() -> None:
 
 async def test_no_wrap_when_wsol_suffices_and_refusal_when_sol_is_short() -> None:
     rpc = FakeRpc(wsol=100_000)
-    payer = Payer(api_url="http://api", agent=AGENT, rpc=rpc, network="solana-devnet", guard=SpendGuard(10**7, 10**8))
+    payer = Payer(
+        api_url="http://api",
+        agent=AGENT,
+        rpc=rpc,
+        network="solana-devnet",
+        guard=SpendGuard(10**7, 10**8),
+        sol_usd=FixedPrice(),
+    )
     await payer.ensure_wsol(100_000)
     assert rpc.sent == []
 
@@ -124,6 +175,7 @@ async def test_no_wrap_when_wsol_suffices_and_refusal_when_sol_is_short() -> Non
         rpc=FakeRpc(wsol=0, sol=50_000),
         network="solana-devnet",
         guard=SpendGuard(10**7, 10**8),
+        sol_usd=FixedPrice(),
     )
     with pytest.raises(PaymentFailedError, match="not enough SOL"):
         await poor.ensure_wsol(100_000)
@@ -143,10 +195,16 @@ def api(amount: int, *, settle: bool = True) -> httpx.MockTransport:
     return httpx.MockTransport(handle)
 
 
-async def test_check_pays_and_counts_spend() -> None:
-    guard = SpendGuard(max_per_call=2_000_000, session_cap=20_000_000)
+async def test_check_pays_and_counts_spend_in_dollars() -> None:
+    guard = SpendGuard(max_per_call=250_000, session_cap=2_500_000)
     payer = Payer(
-        api_url="http://api", agent=AGENT, rpc=FakeRpc(), network="solana-devnet", guard=guard, transport=api(100_000)
+        api_url="http://api",
+        agent=AGENT,
+        rpc=FakeRpc(),
+        network="solana-devnet",
+        guard=guard,
+        sol_usd=FixedPrice("100"),
+        transport=api(100_000),
     )
 
     result = await payer.check({"url": "https://shop.test"})
@@ -155,20 +213,21 @@ async def test_check_pays_and_counts_spend() -> None:
         "status": 200,
         "transaction": "5ig",
         "paid_lamports": 100_000,
-        "paid": {"currency": "SOL", "amount": 100_000},
+        "paid": {"currency": "SOL", "amount": 100_000, "usd_micros": 10_000},
         "verdict": {"action": "warn"},
     }
-    assert guard.spent == 100_000
+    assert guard.spent == 10_000  # 0.0001 SOL at $100 = $0.01
 
 
 async def test_failed_settlement_releases_the_reservation() -> None:
-    guard = SpendGuard(max_per_call=2_000_000, session_cap=20_000_000)
+    guard = SpendGuard(max_per_call=250_000, session_cap=2_500_000)
     payer = Payer(
         api_url="http://api",
         agent=AGENT,
         rpc=FakeRpc(),
         network="solana-devnet",
         guard=guard,
+        sol_usd=FixedPrice(),
         transport=api(100_000, settle=False),
     )
 
@@ -184,11 +243,29 @@ async def test_overpriced_check_is_refused_before_paying() -> None:
         agent=AGENT,
         rpc=rpc,
         network="solana-devnet",
-        guard=SpendGuard(max_per_call=1_000_000, session_cap=20_000_000),
-        transport=api(1_500_000),
+        guard=SpendGuard(max_per_call=100_000, session_cap=2_500_000),  # $0.10
+        sol_usd=FixedPrice("100"),
+        transport=api(1_500_000),  # 0.0015 SOL = $0.15
     )
     with pytest.raises(SpendRefusedError):
         await payer.check({"url": "https://shop.test"})
+    assert rpc.sent == []
+
+
+async def test_sol_is_refused_without_the_agents_own_price() -> None:
+    rpc = FakeRpc()
+    for price in (None, FixedPrice(None)):
+        payer = Payer(
+            api_url="http://api",
+            agent=AGENT,
+            rpc=rpc,
+            network="solana-devnet",
+            guard=SpendGuard(250_000, 2_500_000),
+            sol_usd=price,
+            transport=api(100_000),
+        )
+        with pytest.raises(PaymentFailedError, match="pay in USDC"):
+            await payer.check({"url": "https://shop.test"})
     assert rpc.sent == []
 
 
@@ -223,14 +300,18 @@ def offers(sol: int = 1_500_000, usdc: int = 150_000) -> httpx.MockTransport:
 
 
 def guard() -> SpendGuard:
-    return SpendGuard(
-        max_per_call=2_000_000, session_cap=20_000_000, usdc_max_per_call=250_000, usdc_session_cap=2_500_000
-    )
+    return SpendGuard(max_per_call=250_000, session_cap=2_500_000)
 
 
 def usdc_payer(rpc: FakeRpc, spend: SpendGuard, **kwargs: Any) -> Payer:
     return Payer(
-        api_url="http://api", agent=AGENT, rpc=rpc, network="solana-devnet", guard=spend, transport=offers(**kwargs)
+        api_url="http://api",
+        agent=AGENT,
+        rpc=rpc,
+        network="solana-devnet",
+        guard=spend,
+        sol_usd=FixedPrice("100"),
+        transport=offers(**kwargs),
     )
 
 
@@ -239,19 +320,23 @@ async def test_pays_in_usdc_when_offered_and_held() -> None:
     rpc = TokenRpc(usdc=1_000_000)
     result = await usdc_payer(rpc, spend).check({"url": "https://shop.test", "tier": "deep"})
     assert result["verdict"] == {"paid_in": str(USDC)}
-    assert result["paid"] == {"currency": "USDC", "amount": 150_000}
+    assert result["paid"] == {"currency": "USDC", "amount": 150_000, "usd_micros": 150_000}
     assert result["paid_lamports"] == 0
-    assert (spend.usdc_spent, spend.spent) == (150_000, 0)
+    assert spend.spent == 150_000
     assert rpc.sent == []  # no wrapping for USDC
 
 
-async def test_falls_back_to_sol_when_usdc_is_short_or_over_its_cap() -> None:
+async def test_falls_back_to_sol_when_usdc_is_short() -> None:
     short = guard()
     assert (await usdc_payer(TokenRpc(usdc=100_000), short).check({"url": "u"}))["paid"]["currency"] == "SOL"
-    assert (short.usdc_spent, short.spent) == (0, 1_500_000)
-    capped = guard()
-    result = await usdc_payer(TokenRpc(usdc=10**9), capped, usdc=300_000).check({"url": "u"})  # over the $0.25 cap
-    assert result["paid"]["currency"] == "SOL"
+    assert short.spent == 150_000  # 0.0015 SOL at $100, valued by the agent itself
+
+
+async def test_the_dollar_cap_applies_whatever_the_currency() -> None:
+    with pytest.raises(SpendRefusedError):  # $0.30 in USDC: over the $0.25 cap, no SOL fallback around it
+        await usdc_payer(TokenRpc(usdc=10**9), guard(), usdc=300_000).check({"url": "u"})
+    with pytest.raises(SpendRefusedError):  # 0.003 SOL at $100 = $0.30, whatever the server claims
+        await usdc_payer(TokenRpc(usdc=0), guard(), sol=3_000_000).check({"url": "u"})
 
 
 async def test_prefer_sol_always_pays_in_sol() -> None:
@@ -271,12 +356,3 @@ def test_usdc_payment_transfers_usdc_with_six_decimals() -> None:
     )
     assert accounts[:3] == [source, mint, destination]
     assert bytes(transfer.data)[9] == 6
-
-
-def test_usdc_guard_is_separate_from_the_sol_guard() -> None:
-    spend = guard()
-    spend.reserve(250_000, "USDC")
-    with pytest.raises(SpendRefusedError, match="per-call"):
-        spend.reserve(250_001, "USDC")
-    spend.reserve(2_000_000, "SOL")
-    assert (spend.usdc_spent, spend.spent) == (250_000, 2_000_000)

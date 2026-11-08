@@ -7,9 +7,9 @@ only ever receives SOL. Run a single instance: the sweeper is not coordinated ac
 into the same hot wallet; their scanner (veridex.credits.scanner) counts only incoming transfers and ignores sweeps,
 swaps and fee payments.
 
-Prices come from :class:`~veridex.prices.PriceBook`: wSOL at the canonical SOL price, USDC converted at quote time.
-While USDC can't be priced (oracle stale or uncertain) or the hot wallet's USDC account doesn't exist yet, only wSOL
-is offered.
+Prices come from :class:`~veridex.prices.PriceBook`: canonical dollar prices, charged exactly in USDC and converted to
+wSOL at quote time with Pyth's SOL/USD price. While SOL can't be priced (oracle stale or uncertain) only USDC is
+offered; while the hot wallet's USDC account doesn't exist yet, only wSOL.
 """
 
 import asyncio
@@ -97,7 +97,7 @@ class X402:
 
         :param settings: The service settings.
         :param rpc: Optional RPC client (tests pass a stub).
-        :param prices: Optional price book (by default canonical SOL prices with Pyth for USDC, via ``rpc``).
+        :param prices: Optional price book (by default dollar prices with Pyth for SOL, via ``rpc``).
         """
         self.settings = settings
         self.network = CAIP2[settings.solana_network]
@@ -156,7 +156,7 @@ class X402:
 
     async def price(self, tier: str, currency: Literal["SOL", "USDC"] = "SOL") -> int:
         """
-        Return the price of a tier (USDC raises :class:`~veridex.prices.PriceUnavailableError` if unpriceable).
+        Return the price of a tier (SOL raises :class:`~veridex.prices.PriceUnavailableError` if unpriceable).
 
         :param tier: ``quick`` or ``deep``.
         :param currency: ``SOL`` (lamports of wSOL) or ``USDC`` (base units).
@@ -164,54 +164,58 @@ class X402:
         """
         return await self.prices.price(_product(tier), currency)
 
-    def requirements(self, tier: str) -> dict[str, Any]:
+    def usd_price(self, tier: str) -> int:
         """
-        Return the wSOL ``PaymentRequirements`` for a tier (always offered). Only valid while configured.
+        Return the canonical price of a tier.
 
         :param tier: ``quick`` or ``deep``.
-        :return: The requirements object.
+        :return: Micro-dollars.
+        """
+        return self.prices.usd(_product(tier))
+
+    async def requirements(self, tier: str, currency: Literal["SOL", "USDC"] = "SOL") -> dict[str, Any]:
+        """
+        Return the ``PaymentRequirements`` for a tier in one currency. Only valid while configured.
+
+        :param tier: ``quick`` or ``deep``.
+        :param currency: ``SOL`` (paid in wSOL) or ``USDC``.
+        :return: The requirements object (SOL raises :class:`~veridex.prices.PriceUnavailableError` while the oracle
+            refuses).
         """
         assert self.hot is not None  # noqa: S101
         return requirements(
             network=self.network,
-            amount=self.prices.lamports(_product(tier)),
+            amount=await self.price(tier, currency),
             pay_to=self.hot.pubkey,
             fee_payer=self.hot.pubkey,
+            asset=WSOL_MINT if currency == "SOL" else self.usdc_mint,
         )
 
     async def accepts(self, tier: str) -> list[dict[str, Any]]:
         """
-        Return the ``accepts`` list for a tier: wSOL first, then USDC while it can be priced and received.
+        Return the ``accepts`` list for a tier: wSOL first while SOL can be priced, then USDC once it can be received.
 
         :param tier: ``quick`` or ``deep``.
-        :return: The payment options.
+        :return: The payment options (empty when neither is possible right now).
         """
         assert self.hot is not None  # noqa: S101
-        options = [self.requirements(tier)]
+        options: list[dict[str, Any]] = []
+        try:
+            options.append(await self.requirements(tier, "SOL"))
+        except PriceUnavailableError as exc:
+            logger.info("x402_wsol_not_offered", reason=str(exc)[:120])
         try:
             _, _, usdc = await self._read_balances()
-            if usdc is None:
-                return options  # the USDC account doesn't exist yet; the sweep job creates it
-            amount = await self.price(tier, "USDC")
-        except PriceUnavailableError as exc:
-            logger.info("x402_usdc_not_offered", reason=str(exc)[:120])
-            return options
-        except Exception as exc:  # noqa: BLE001 - USDC is optional; wSOL still works
+        except Exception as exc:  # noqa: BLE001 - USDC is optional; wSOL may still work
             logger.warning("x402_usdc_not_offered", error=type(exc).__name__)
             return options
-        options.append(
-            requirements(
-                network=self.network,
-                amount=amount,
-                pay_to=self.hot.pubkey,
-                fee_payer=self.hot.pubkey,
-                asset=self.usdc_mint,
-            )
-        )
+        if usdc is not None:  # the USDC account exists (the sweep job creates it)
+            options.append(await self.requirements(tier, "USDC"))
         return options
 
     def _tolerance(self) -> dict[str, int]:
-        return {str(self.usdc_mint): self.settings.usdc_quote_tolerance_bps}
+        # wSOL is converted at quote time and SOL moves before the payment arrives; USDC amounts are exact.
+        return {str(WSOL_MINT): self.settings.quote_tolerance_bps}
 
     async def _read_balances(self) -> tuple[int, int | None, int | None]:
         assert self.hot is not None  # noqa: S101
@@ -263,19 +267,19 @@ class X402:
             status = "compromise_suspected"
         return Health(status, sol, wsol, tuple(alerts), usdc)
 
-    def precheck(self, header_value: str, tier: str, accepts: list[dict[str, Any]] | None = None) -> Precheck:
+    def precheck(self, header_value: str, tier: str, accepts: list[dict[str, Any]]) -> Precheck:
         """
         Run the network-free payment checks for a tier (see :func:`~veridex.x402.payment.precheck`).
 
         :param header_value: The ``PAYMENT-SIGNATURE`` header.
         :param tier: ``quick`` or ``deep``.
-        :param accepts: The options currently offered (from :meth:`accepts`); wSOL only by default.
+        :param accepts: The options currently offered (from :meth:`accepts`).
         :return: The prechecked payment.
         """
         assert self.hot is not None  # noqa: S101
         return precheck(
             header_value,
-            accepts if accepts is not None else [self.requirements(tier)],
+            accepts,
             fee_payer=self.hot.pubkey,
             max_compute_units=self.settings.x402_max_compute_units,
             max_compute_unit_price=self.settings.x402_max_compute_unit_price_microlamports,

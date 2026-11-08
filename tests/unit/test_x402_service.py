@@ -10,6 +10,8 @@ from tests.unit.x402_helpers import (
     FakeRpc,
     configured,
     cpi_payment_instructions,
+    expected,
+    make_x402,
     payment_header,
     payment_instructions,
     sign_payment,
@@ -26,7 +28,7 @@ CLIENT = Keypair()
 
 
 def service(rpc: FakeRpc | None = None, **overrides: Any) -> X402:
-    return X402(configured(HOT, COLD, **overrides), rpc=rpc or FakeRpc())
+    return make_x402(configured(HOT, COLD, **overrides), rpc or FakeRpc())
 
 
 async def test_off_without_configuration() -> None:
@@ -52,7 +54,7 @@ async def test_hot_key_equal_to_cold_address_is_misconfigured() -> None:
 
 
 async def test_payto_and_fee_payer_are_the_hot_wallet() -> None:
-    requirements = service().requirements("deep")
+    requirements = await service().requirements("deep")
     assert requirements["payTo"] == requirements["extra"]["feePayer"] == str(HOT.pubkey())
     assert requirements["amount"] == "1500000"
     assert requirements["extra"]["paymentFlow"] == "upfront"
@@ -86,7 +88,8 @@ async def test_rpc_failure_pauses_payments() -> None:
 def prechecked(x402: X402, instructions: list[Any] | None = None) -> Any:
     ixs = instructions or payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000)
     tx = sign_payment(ixs, HOT.pubkey(), [CLIENT])
-    return x402.precheck(payment_header(tx, x402.requirements("quick")), "quick")
+    accepts = [expected(HOT.pubkey())]
+    return x402.precheck(payment_header(tx, accepts[0]), "quick", accepts)
 
 
 async def test_settles_once_and_rejects_duplicates() -> None:

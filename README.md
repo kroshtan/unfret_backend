@@ -100,14 +100,14 @@ is credited at face value; SOL at its dollar value at crediting time (Pyth SOL/U
 waits rather than guesses while the price is stale. A second scanner watches the hot wallet's USDC account. For SOL:
 `/v1/credits/purchase-tx` builds the transfer with a
 `veridex:credit:<beneficiary>` memo (any wallet may fund any wallet, so a smart-wallet vault can buy for the key that
-signs in), and [`/checkout`](https://veridex.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
+signs in), and [`/checkout`](https://unfret.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
 Pay QR). A background scanner walks the hot wallet's finalized transactions and credits every incoming System
 transfer, top-level or inside a program call, to the memo's beneficiary (exactly one well-formed memo) or else the
 sender, with the purchase bonus (≥$5 +10%, ≥$25 +20%). It moves its cursor in the same database
 transaction by compare-and-swap, so each transfer is credited exactly once. Sweeps, fees and x402 settlements are
 ignored; any other SOL sent to the hot wallet, a manual top-up included, counts as a purchase.
 
-[`/connect`](https://veridex.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
+[`/connect`](https://unfret.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
 (`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
 strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs `VERIDEX_ANALYSIS_PRICE_USD_MICROS` ($0.15),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
@@ -249,7 +249,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
 | `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
-| `VERIDEX_SIWS_DOMAIN` | `veridex.kroshtan.com` | Sign-in messages must be bound to this domain |
+| `VERIDEX_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |
 | `VERIDEX_ANALYSIS_PRICE_USD_MICROS` | `150000` | One analysis ($0.15) |
 | `VERIDEX_X402_PRICE_QUICK_USD_MICROS` / `VERIDEX_X402_PRICE_DEEP_USD_MICROS` | `10000` / `150000` | x402 tiers ($0.01 / $0.15) |
 | `VERIDEX_CREDIT_BONUS_TIERS` / `VERIDEX_SUGGESTED_PACKS` | `[[5000000,10],[25000000,20]]` / `[10,50,200]` | Purchase bonuses (min micro-dollars, %); packs in checks |

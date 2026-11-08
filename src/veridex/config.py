@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     session_secret: SecretStr = SecretStr("")
     # Bearer token for the operator endpoints (/v1/admin/…) and the detailed readiness report; off while empty.
     admin_token: SecretStr = SecretStr("")
-    siws_domain: str = "veridex.kroshtan.com"
+    siws_domain: str = "unfret.kroshtan.com"
     session_ttl_s: int = 30 * 24 * 3600
     nonce_ttl_s: int = 300
     pairing_ttl_s: int = 300  # phone sign-in pairings (in memory)
@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     trial_daily_cap: int = 50
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
-    public_base_url: str = "https://veridex.kroshtan.com"
+    public_base_url: str = "https://unfret.kroshtan.com"
     solana_network: Literal["solana-devnet", "solana-mainnet"] = "solana-devnet"
     solana_rpc_url: str = "https://api.devnet.solana.com"
     # Mainnet stays refused until this is set deliberately.

@@ -18,10 +18,17 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
+from veridex.config import settings
 from veridex.routes.pages import PAGE_HEADERS, STATIC_DIR
 
 RELEASE_DIR = STATIC_DIR / "extension"
-PUBLIC_BASE = "https://veridex.kroshtan.com/extension"
+
+
+def _public_base() -> str:
+    # Where this server is reachable (VERIDEX_PUBLIC_BASE_URL), so dev and production each link to themselves.
+    return f"{settings.public_base_url.rstrip('/')}/extension"
+
+
 _GUPDATE_NS = "{http://www.google.com/update2/response}"
 
 # The only files served, by exact name pattern: no paths, so nothing outside RELEASE_DIR can be reached.
@@ -92,7 +99,7 @@ def linux_policy_command(extension_id: str, policy_dir: str = "/etc/brave/polici
     :param policy_dir: The browser's managed-policy directory.
     :return: A shell command.
     """
-    policy = f'{{"ExtensionInstallForcelist":["{extension_id};{PUBLIC_BASE}/updates.xml"]}}'
+    policy = f'{{"ExtensionInstallForcelist":["{extension_id};{_public_base()}/updates.xml"]}}'
     return f"sudo mkdir -p {policy_dir} && echo '{policy}' | sudo tee {policy_dir}/veridex.json > /dev/null"
 
 
@@ -121,7 +128,7 @@ def install_page() -> HTMLResponse:
         values["brave"] = html.escape(linux_policy_command(release.extension_id))
         values["chromium"] = html.escape(linux_policy_command(release.extension_id, "/etc/chromium/policies/managed"))
         values["chrome"] = html.escape(linux_policy_command(release.extension_id, "/etc/opt/chrome/policies/managed"))
-        values["crx_url"] = html.escape(f"{PUBLIC_BASE}/{release.crx}")
+        values["crx_url"] = html.escape(f"{_public_base()}/{release.crx}")
     for key in ("brave", "chromium", "chrome", "crx_url"):
         values.setdefault(key, "(no release yet)")
     page = template

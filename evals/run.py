@@ -38,7 +38,6 @@ from veridex.graph import SKILLS, build_graph
 logger = structlog.get_logger("veridex.evals")
 
 DEFAULT_EXCLUDED = ("reverse_image_search", "exif_check", "domain_age")
-_UNREACHABLE = "http://127.0.0.1:9/v1"
 
 
 def select(records: list[LabelRecord], limit: int | None) -> list[LabelRecord]:
@@ -139,11 +138,10 @@ def main() -> None:
     args = parser.parse_args()
 
     corpus = Corpus()
-    set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite"))
-    if args.replay:
-        settings.llm_base_url = _UNREACHABLE
-        if not settings.llm_api_key.get_secret_value():
-            settings.llm_api_key = SecretStr("replay")
+    set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
+    if args.replay and not settings.llm_api_key.get_secret_value():
+        # The client refuses to start without a key; in replay mode it never sends one.
+        settings.llm_api_key = SecretStr("replay")
         llm.get_llm.cache_clear()
 
     records = select([r for r in corpus.labels().values() if r.label], args.limit)

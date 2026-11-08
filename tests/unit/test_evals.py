@@ -14,7 +14,7 @@ from evals.features import (
     rating_shape,
 )
 from evals.label import apply_decision, describe
-from evals.llm_cache import SQLiteLLMCache
+from evals.llm_cache import CacheMissError, SQLiteLLMCache
 from evals.metrics import Outcome, binary_metrics, page_type_confusion, roc_auc, summarise, to_markdown
 from evals.run import select
 from evals.second_opinion import reconcile, reset
@@ -294,3 +294,9 @@ def test_reset_restores_prior_label_and_keeps_human() -> None:
     assert (restored.label, restored.label_source, restored.llm_reason, restored.notes) == ("junk", "rule", "", "{}")
     human = _record(label="legit", label_source="human", prior_label="junk", llm_reason="r")
     assert reset(human).label == "legit"
+
+
+def test_strict_cache_raises_on_miss(tmp_path: Path) -> None:
+    cache = SQLiteLLMCache(tmp_path / "c.sqlite", strict=True)
+    with pytest.raises(CacheMissError):
+        cache.lookup("p", "m")

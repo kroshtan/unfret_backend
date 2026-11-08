@@ -2,8 +2,8 @@
 A persistent LangChain LLM cache, so recorded evaluation runs can be replayed without calling the API.
 
 Every chat-model call goes through LangChain's global cache when one is set. Recording stores each response keyed
-by the exact prompt and model settings; replaying serves them back. A replay run points the client at an
-unreachable address, so a cache miss shows up as a page failure instead of a silent paid call.
+by the exact prompt and model settings; replaying serves them back. In strict (replay) mode a miss raises
+:class:`CacheMissError`, so it shows up as a page failure instead of a silent paid call.
 """
 
 import sqlite3
@@ -13,15 +13,21 @@ from langchain_core.caches import RETURN_VAL_TYPE, BaseCache
 from langchain_core.load import dumps, loads
 
 
+class CacheMissError(LookupError):
+    """Raised by a strict cache when a response was never recorded."""
+
+
 class SQLiteLLMCache(BaseCache):
     """LangChain cache backed by a single SQLite file."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, strict: bool = False) -> None:
         """
         Open (and create if needed) the cache file.
 
         :param path: The SQLite database path.
+        :param strict: Raise :class:`CacheMissError` on a miss instead of letting the call through.
         """
+        self.strict = strict
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.execute(
@@ -30,10 +36,19 @@ class SQLiteLLMCache(BaseCache):
         self._db.commit()
 
     def lookup(self, prompt: str, llm_string: str) -> RETURN_VAL_TYPE | None:
-        """Return the cached generations for a prompt and model, if any."""
+        """
+        Return the cached generations for a prompt and model, if any.
+
+        :param prompt: The serialised prompt.
+        :param llm_string: The serialised model settings.
+        :return: The generations, or ``None`` on a miss.
+        :raises CacheMissError: On a miss in strict mode.
+        """
         row = self._db.execute(
             "SELECT value FROM llm_cache WHERE prompt = ? AND llm = ?", (prompt, llm_string)
         ).fetchone()
+        if row is None and self.strict:
+            raise CacheMissError("No recorded LLM response for this prompt; run without --replay to record it.")
         return loads(row[0]) if row else None
 
     def update(self, prompt: str, llm_string: str, return_val: RETURN_VAL_TYPE) -> None:

@@ -147,6 +147,7 @@ def requirements(
     fee_payer: Pubkey,
     asset: Pubkey = WSOL_MINT,
     timeout_s: int = 60,
+    constraints: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Build the ``PaymentRequirements`` for one check in one asset.
@@ -157,6 +158,8 @@ def requirements(
     :param fee_payer: Our sponsor key, which pays the network fee.
     :param asset: The mint to pay in (wSOL by default).
     :param timeout_s: How long the client has to complete the payment.
+    :param constraints: What the payment transaction must look like (``extra.constraints``), for clients that build
+        it themselves.
     :return: The requirements object.
     """
     return {
@@ -167,7 +170,11 @@ def requirements(
         "payTo": str(pay_to),
         "maxTimeoutSeconds": timeout_s,
         # Settlement happens before the analysis runs: it can take longer than a blockhash lives.
-        "extra": {"feePayer": str(fee_payer), "paymentFlow": "upfront"},
+        "extra": {
+            "feePayer": str(fee_payer),
+            "paymentFlow": "upfront",
+            **({"constraints": constraints} if constraints else {}),
+        },
     }
 
 
@@ -389,10 +396,9 @@ async def confirm_by_simulation(
     :raises PaymentError: If the simulation fails or shows any other outcome.
     """
     account = associated_token_address(pay_to, pre.mint)
-    before_token = await rpc.token_balance(account)
+    before_sol, (before_token,) = await rpc.balances(pay_to, [account])
     if before_token is None:
         raise PaymentError("pay_to_account_not_ready")
-    before_sol = await rpc.get_balance(pay_to)
     error, (after_account, after_payer), inner = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
     if error is not None or after_account is None or after_payer is None:
         raise PaymentError("simulation_failed")

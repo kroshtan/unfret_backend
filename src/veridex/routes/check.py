@@ -93,7 +93,13 @@ def _resource() -> dict[str, Any]:
 
 
 def _payment_required(accepts: list[dict[str, Any]], error: str) -> JSONResponse:
-    body = {"x402Version": 2, "error": error, "resource": _resource(), "accepts": accepts}
+    body = {
+        "x402Version": 2,
+        "error": error,
+        "error_code": "PAYMENT_REQUIRED",
+        "resource": _resource(),
+        "accepts": accepts,
+    }
     return JSONResponse(body, status_code=402, headers={PAYMENT_REQUIRED: encode_header(body)})
 
 
@@ -207,7 +213,9 @@ async def _settle(  # noqa: PLR0913
                 x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_mismatch"
             )
         }
-        return JSONResponse({"detail": "The payment did not settle as required."}, 402, headers)
+        return JSONResponse(
+            {"detail": "The payment did not settle as required.", "error_code": "SETTLEMENT_MISMATCH"}, 402, headers
+        )
     except SettlementPendingError as exc:
         x402.breaker.record_failure(payer, ip)  # it may yet land, or fail at our expense
         task = asyncio.create_task(_credit_if_it_lands(x402, pool, exc.signature, payer, usd_micros))
@@ -234,7 +242,11 @@ async def _settle(  # noqa: PLR0913
         headers = {
             PAYMENT_RESPONSE: _settlement(x402, success=False, transaction="", payer=payer, reason="settlement_failed")
         }
-        return JSONResponse({"detail": "Payment could not be settled; you were not charged."}, 402, headers)
+        return JSONResponse(
+            {"detail": "Payment could not be settled; you were not charged.", "error_code": "SETTLEMENT_FAILED"},
+            402,
+            headers,
+        )
 
 
 @router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
@@ -399,6 +411,30 @@ def _json(response: Response) -> dict[str, Any]:
     return decoded
 
 
+# error_code → (HTTP status, charged?, what to do). Published in /llms.txt and the README.
+ERRORS: dict[str, tuple[int, str, str]] = {
+    "PAYMENT_REQUIRED": (402, "no", "pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why"),
+    "INVALID_PAYMENT": (400, "no", "the PAYMENT-SIGNATURE header couldn't be decoded"),
+    "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`)"),
+    "PAGE_UNAVAILABLE": (422, "no", "the page couldn't be fetched: send page_content"),
+    "PAGE_BLOCKED": (422, "no", "the page is a bot check: send the real page as page_content"),
+    "RATE_LIMITED": (429, "no", "wait Retry-After seconds"),
+    "PRICE_UNAVAILABLE": (503, "no", "nothing can be priced right now: retry after Retry-After"),
+    "SETTLEMENTS_PAUSED": (503, "no", "too many failed settlements: retry after Retry-After"),
+    "SERVICE_UNAVAILABLE": (503, "no", "payments or analysis are off: retry later"),
+    "SETTLEMENT_FAILED": (402, "no", "the network refused the payment: pay again"),
+    "SETTLEMENT_PENDING": (402, "maybe", "don't pay again; if it lands within 2 min its price is credited"),
+    "SETTLEMENT_MISMATCH": (402, "yes", "it landed differently than simulated: no verdict (alerted)"),
+    "GATEWAY_TIMEOUT": (504, "refunded", "the analysis timed out: the price is credited to the paying wallet"),
+    "INTERNAL_ERROR": (500, "refunded", "the analysis failed: the price is credited to the paying wallet"),
+}
+
+
+def _errors_table() -> str:
+    rows = [f"| `{code}` | {status} | {charged} | {action} |" for code, (status, charged, action) in ERRORS.items()]
+    return "\n".join(["| error_code | HTTP | charged | what to do |", "| --- | --- | --- | --- |", *rows])
+
+
 def _discovery() -> dict[str, Any]:
     mint = usdc_mint(settings.solana_network, settings.usdc_mint)
     return {
@@ -490,13 +526,20 @@ with the `exact` scheme on Solana ({d["network"]}) and retry with PAYMENT-SIGNAT
 quick = {quick}, deep = {deep}. USDC pays exactly that; the wSOL amount is the dollar price converted at quote time
 with Pyth's SOL/USD price (wSOL isn't offered while the oracle is stale). Standard wallets and
 smart wallets (Squads and other program-controlled wallets paying by CPI) both work, as long as the transaction
-carries one memo and pays the quoted amount into payTo's token account for that mint. Veridex is the fee payer, so
-you only pay the price. A page we can't fetch costs nothing.
+carries one memo and pays the quoted amount into payTo's token account for that mint (all rules: `extra.constraints`
+in each option). Veridex is the fee payer, so you only pay the price. A page we can't fetch costs nothing. Retrying
+with the same PAYMENT-SIGNATURE returns the same answer and is never charged twice.
 
 ## Response
 
 {{"action": "allow|warn|block", "risk_score": 0..1, "confidence": 0..1, "flags": [{{"type", "evidence", "weight"}}],
 "policy_applied", "tier", "cached", "checked_at", "model_version"}}. "warn" means: ask your human before buying.
+
+## Errors
+
+Every error is JSON with `detail` and `error_code`.
+
+{_errors_table()}
 
 ## Machine-readable
 

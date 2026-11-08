@@ -2,7 +2,9 @@ from typing import Any
 
 from fastapi import Request, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class CustomAPIError(Exception):
@@ -127,3 +129,49 @@ class ServiceUnavailableError(CustomAPIError):
 
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     error_code = "SERVICE_UNAVAILABLE"
+
+
+_HTTP_CODES = {400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
+
+
+def handle_validation_error(_: Request, exc: Exception) -> Response:
+    """
+    Render a request validation failure with an ``error_code``, like every other error.
+
+    The offending input is left out: it can be a whole page of HTML.
+
+    :param exc: The raised ``RequestValidationError``.
+    :return: 422 with ``detail``, ``error_code: VALIDATION_ERROR`` and ``errors`` (``loc``, ``msg``, ``type``).
+    """
+    raw = exc.errors() if isinstance(exc, RequestValidationError) else []
+    errors = [
+        {"loc": [str(p) for p in e.get("loc", ())], "msg": str(e.get("msg", "")), "type": str(e.get("type", ""))}
+        for e in raw
+    ]
+    first = errors[0] if errors else {"loc": [], "msg": "invalid request"}
+    where = ".".join(first["loc"][1:]) or "body"
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": f"Invalid request: {where}: {first['msg']}",
+            "error_code": "VALIDATION_ERROR",
+            "errors": errors,
+        },
+    )
+
+
+def handle_http_error(_: Request, exc: Exception) -> Response:
+    """
+    Render a framework HTTP error (unknown route, wrong method, …) with an ``error_code``.
+
+    :param exc: The raised ``HTTPException``.
+    :return: The same status with ``detail`` and ``error_code``.
+    """
+    code = exc.status_code if isinstance(exc, StarletteHTTPException) else 500
+    detail = exc.detail if isinstance(exc, StarletteHTTPException) else "Internal error."
+    headers = exc.headers if isinstance(exc, StarletteHTTPException) else None
+    return JSONResponse(
+        status_code=code,
+        content={"detail": str(detail), "error_code": _HTTP_CODES.get(code, "HTTP_ERROR")},
+        headers=headers,
+    )

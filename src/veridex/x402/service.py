@@ -25,7 +25,15 @@ from solders.transaction import VersionedTransaction
 from veridex.config import Settings
 from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd, usdc_to_lamports
 from veridex.x402.breaker import SettlementBreaker
-from veridex.x402.payment import PAYMENT_PROGRAMS, Precheck, confirm_by_simulation, precheck, requirements
+from veridex.x402.payment import (
+    PAYMENT_PROGRAMS,
+    PaymentError,
+    Precheck,
+    VerifiedPayment,
+    confirm_by_simulation,
+    precheck,
+    requirements,
+)
 from veridex.x402.solana import (
     CAIP2,
     WSOL_MINT,
@@ -227,9 +235,12 @@ class X402:
             _, _, usdc = await self._read_balances()
         except Exception as exc:  # noqa: BLE001 - USDC is optional; wSOL may still work
             logger.warning("x402_usdc_not_offered", error=type(exc).__name__)
-            return options
+            usdc = None
         if usdc is not None:  # the USDC account exists (the sweep job creates it)
             options.append(await self.requirements(tier, "USDC"))
+        constraints = self.constraints(options)
+        for option in options:
+            option["extra"]["constraints"] = constraints
         return options
 
     def _tolerance(self) -> dict[str, int]:
@@ -241,9 +252,13 @@ class X402:
         async with self._lock:
             now = time.monotonic()
             if self._balances is None or now - self._balances[0] > _BALANCE_TTL_S:
-                sol = await self.rpc.get_balance(self.hot.pubkey)
-                wsol = await self.rpc.token_balance(associated_token_address(self.hot.pubkey))
-                usdc = await self.rpc.token_balance(associated_token_address(self.hot.pubkey, self.usdc_mint))
+                sol, (wsol, usdc) = await self.rpc.balances(
+                    self.hot.pubkey,
+                    [
+                        associated_token_address(self.hot.pubkey),
+                        associated_token_address(self.hot.pubkey, self.usdc_mint),
+                    ],
+                )
                 self._balances = (now, sol, wsol, usdc)
             return self._balances[1], self._balances[2], self._balances[3]
 
@@ -320,6 +335,25 @@ class X402:
         sol = next((int(a["amount"]) for a in accepts if a["asset"] == str(WSOL_MINT)), None)
         return s.x402_priority_fee_fallback_lamports if sol is None else sol * s.x402_max_priority_fee_bps // 10_000
 
+    def constraints(self, accepts: list[dict[str, Any]]) -> dict[str, Any]:
+        """
+        What a payment transaction must look like, as the 402 states it (``extra.constraints``).
+
+        :param accepts: The options offered for the tier.
+        :return: The rules :meth:`precheck` and the simulation apply.
+        """
+        s = self.settings
+        return {
+            "memo": "exactly one memo instruction, 1-256 bytes (any unique text: it makes the transaction unique)",
+            "maxComputeUnits": s.x402_max_compute_units,
+            "maxComputeUnitPriceMicroLamports": s.x402_max_compute_unit_price_microlamports,
+            "computeUnitLimitRequiredWithPrice": True,
+            "maxPriorityFeeLamports": self.max_priority_fee(accepts),
+            "feePayerInInstructions": False,
+            "addressLookupTables": False,
+            "programs": sorted(str(p) for p in self.programs),
+        }
+
     @property
     def programs(self) -> frozenset[Pubkey]:
         """
@@ -348,31 +382,42 @@ class X402:
         """
         assert self.hot is not None  # noqa: S101
         key = str(pre.transaction.signatures[1])
+        # The lock covers verification and signing only: sweeps and swaps can't move the balances the simulation
+        # is compared with in the meantime. Waiting for confirmation runs outside it, so payments settle in parallel.
         async with self._wallet_lock:
             now = time.monotonic()
             self._settling = {k: t for k, t in self._settling.items() if now - t < _DUPLICATE_WINDOW_S}
             if key in self._settling:
                 raise DuplicateSettlementError("duplicate_settlement")
-            payment = await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey, programs=self.programs)
+            payment = await self._simulate(pre)
             self._settling[key] = now
-
             raw = self.hot.sign(payment)
-            try:
-                signature = await self._landed(raw) or await self.rpc.send_and_confirm(
-                    raw, self.settings.x402_confirm_timeout_s
-                )
-            except TransactionFailedError, SettlementPendingError:
-                raise
-            except RpcError:
-                # Not accepted by the network: the client may retry this payment (resending the same signed bytes
-                # is idempotent on chain anyway).
-                self._settling.pop(key, None)
-                raise
-            self._balances = None  # value and fees moved; re-read on the next health check
-            await self._check_settled(signature, payment.amount, payment.max_fee, payment.mint)
+        try:
+            signature = await self._landed(raw) or await self.rpc.send_and_confirm(
+                raw, self.settings.x402_confirm_timeout_s
+            )
+        except TransactionFailedError, SettlementPendingError:
+            raise
+        except RpcError:
+            # Not accepted by the network: the client may retry this payment (resending the same signed bytes is
+            # idempotent on chain anyway).
+            self._settling.pop(key, None)
+            raise
+        self._balances = None  # value and fees moved; re-read on the next health check
+        await self._check_settled(signature, payment.amount, payment.max_fee, payment.mint)
         currency = "SOL" if payment.mint == WSOL_MINT else "USDC"
         logger.info("x402_settled", amount=payment.amount, currency=currency)
         return Settlement(signature=signature, payer=payment.payer, amount=payment.amount, mint=payment.mint)
+
+    async def _simulate(self, pre: Precheck) -> VerifiedPayment:
+        assert self.hot is not None  # noqa: S101
+        try:
+            return await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey, programs=self.programs)
+        except PaymentError as exc:
+            if exc.reason != "wrong_amount":
+                raise
+            # Another payment of ours may have landed between the balance read and the simulation: read again once.
+            return await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey, programs=self.programs)
 
     async def _landed(self, raw: bytes) -> str | None:
         """

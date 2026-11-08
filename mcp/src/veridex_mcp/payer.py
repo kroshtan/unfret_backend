@@ -56,6 +56,20 @@ class PaymentFailedError(RuntimeError):
     """The 402 could not be paid (no acceptable requirement, insufficient funds, or a refusal)."""
 
 
+class UnavailableError(PaymentFailedError):
+    """Veridex can't take a payment right now (503 or 429); nothing was paid."""
+
+    def __init__(self, detail: str, retry_after: int | None) -> None:
+        """
+        Record the answer.
+
+        :param detail: Veridex's ``error_code`` and ``detail``.
+        :param retry_after: Seconds to wait, if Veridex said.
+        """
+        super().__init__(detail)
+        self.retry_after = retry_after
+
+
 @dataclass
 class SpendGuard:
     """Caps what one session may spend, per call and in total, in micro-dollars (1 USD = 1,000,000)."""
@@ -96,6 +110,21 @@ def sol_value(lamports: int, usd_per_sol: Decimal) -> int:
     :return: Micro-dollars.
     """
     return math.ceil(Decimal(lamports) * usd_per_sol / 1000)
+
+
+def _describe(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        return f"HTTP {response.status_code}"
+    if isinstance(body, dict):
+        return f"{body.get('error_code', response.status_code)}: {body.get('detail', '')}"
+    return f"HTTP {response.status_code}"
+
+
+def _retry_after(response: httpx.Response) -> int | None:
+    value = response.headers.get("Retry-After", "")
+    return int(value) if value.isdigit() else None
 
 
 def _b64json(value: dict[str, Any]) -> str:
@@ -295,6 +324,8 @@ class Payer:
         """
         async with httpx.AsyncClient(timeout=_TIMEOUT, transport=self._transport) as client:
             first = await client.post(f"{self.api_url}/v1/check", json=body)
+            if first.status_code in {429, 503}:
+                raise UnavailableError(_describe(first), _retry_after(first))
             if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:  # noqa: PLR2004
                 raise PaymentFailedError(f"expected 402 Payment Required, got {first.status_code}: {first.text[:200]}")
             requirement, currency, usd_micros = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))

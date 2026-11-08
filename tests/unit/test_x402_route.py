@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,6 +21,7 @@ from tests.unit.x402_helpers import (
 )
 from veridex.config import Settings
 from veridex.main import app
+from veridex.routes.check import _errors_table
 from veridex.visitors import RateLimit
 from veridex.x402.payment import decode_header
 from veridex.x402.solana import USDC_MINTS, RpcError, SettlementPendingError
@@ -265,3 +267,29 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     text = (await client.get("/llms.txt")).text
     assert "quick = $0.01" in text
     assert "deep = $0.15" in text
+    assert "| `SETTLEMENT_PENDING` | 402 | maybe |" in text
+
+
+async def test_every_error_has_an_error_code(client: httpx.AsyncClient) -> None:
+    invalid = await client.post("/v1/check", json={"tier": "quick"})  # no url
+    assert invalid.status_code == 422
+    assert invalid.json()["error_code"] == "VALIDATION_ERROR"
+    assert invalid.json()["errors"][0]["loc"] == ["body", "url"]
+    missing = await client.get("/v1/nothing-here")
+    assert (missing.status_code, missing.json()["error_code"]) == (404, "NOT_FOUND")
+    unpaid = await client.post("/v1/check", json=BODY)
+    assert unpaid.json()["error_code"] == "PAYMENT_REQUIRED"
+
+
+async def test_the_402_states_what_a_payment_must_look_like(client: httpx.AsyncClient) -> None:
+    required = decode_header((await client.post("/v1/check", json=BODY)).headers["PAYMENT-REQUIRED"])
+    constraints = required["accepts"][0]["extra"]["constraints"]
+    assert constraints["maxPriorityFeeLamports"] == 5_000  # 5% of $0.01 at $100/SOL
+    assert constraints["addressLookupTables"] is False
+    assert "SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf" in constraints["programs"]
+    assert "memo" in constraints
+
+
+def test_the_readme_lists_every_error_code() -> None:
+    readme = (Path(__file__).parents[2] / "README.md").read_text()
+    assert _errors_table() in readme  # regenerate the README table from ERRORS when this fails

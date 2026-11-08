@@ -3,7 +3,9 @@ from veridex_mcp.server import explain_flag, server
 
 async def test_tools_are_registered() -> None:
     names = {tool.name for tool in await server.list_tools()}
-    assert names == {"check_store", "explain_flag"}
+    assert names == {"check_store", "explain_flag", "get_pricing"}
+    check = next(t for t in await server.list_tools() if t.name == "check_store")
+    assert all(p.get("description") for p in check.input_schema["properties"].values())
 
 
 def test_explain_flag_known_and_unknown() -> None:

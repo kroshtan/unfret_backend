@@ -177,6 +177,26 @@ class SolanaRpc:
         status: dict[str, Any] | None = result["value"][0]
         return status
 
+    async def balances(self, owner: Pubkey, token_accounts: list[Pubkey]) -> tuple[int, list[int | None]]:
+        """
+        A wallet's SOL and some token accounts' balances in one ``getMultipleAccounts`` call (one slot, one trip).
+
+        :param owner: The wallet.
+        :param token_accounts: Token accounts to read.
+        :return: The wallet's lamports (0 if it doesn't exist) and each token amount (``None`` if the account doesn't
+            exist).
+        """
+        result = await self.call(
+            "getMultipleAccounts",
+            [[str(owner), *(str(a) for a in token_accounts)], {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        )
+        first, *tokens = result["value"]
+        amounts = [
+            None if account is None else int(account["data"]["parsed"]["info"]["tokenAmount"]["amount"])
+            for account in tokens
+        ]
+        return (0 if first is None else int(first["lamports"])), amounts
+
     async def get_balance(self, address: Pubkey) -> int:
         """
         Return an account's balance in lamports.

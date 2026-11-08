@@ -1,97 +1,46 @@
-import asyncio
-from dataclasses import dataclass
-from typing import Literal
+"""Bearer-token authentication for the credits door: the caller is a wallet that signed in with SIWS."""
 
-import bcrypt
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import Request
 
 from veridex.config import settings
-from veridex.schemas.errors import ForbiddenError
-
-SubscriptionStatus = Literal["free", "premium", "admin", "blocked"]
-
-# bcrypt only hashes the first 72 bytes and rejects longer input.
-BCRYPT_MAX_PASSWORD_BYTES = 72
-
-security = HTTPBasic()
-
-# Checked against when the username does not exist, so unknown users take as long
-# to reject as wrong passwords and usernames cannot be enumerated by timing.
-_DUMMY_HASH = bcrypt.hashpw(b"veridex-dummy-password", bcrypt.gensalt())
+from veridex.credits import CreditsDoor
+from veridex.credits.siws import SignInError
+from veridex.routes.check import get_x402
+from veridex.schemas.errors import ServiceUnavailableError, UnauthorizedError
 
 
-@dataclass(frozen=True)
-class Account:
-    """The authenticated caller."""
-
-    username: str
-    subscription_status: SubscriptionStatus
-
-    @property
-    def daily_limit(self) -> int | None:
-        """Maximum analyses per UTC day, or ``None`` for unlimited (admins)."""
-        if self.subscription_status == "admin":
-            return None
-        if self.subscription_status == "premium":
-            return settings.premium_daily_limit
-        return settings.free_daily_limit
-
-
-async def hash_password(password: str) -> str:
+def get_credits(request: Request) -> CreditsDoor:
     """
-    Hash a password with bcrypt off the event loop.
+    Return the app's credits door, creating it from settings on first use.
 
-    :param password: The plain-text password.
-    :return: The bcrypt hash as a string.
+    :param request: The incoming request.
+    :return: The door.
     """
-    hashed = await asyncio.to_thread(bcrypt.hashpw, password.encode(), bcrypt.gensalt())
-    return hashed.decode()
+    app = request.app
+    if getattr(app, "credits", None) is None:
+        x402 = get_x402(request)
+        hot = x402.hot.pubkey if x402.hot is not None else None
+        app.credits = CreditsDoor(settings, x402.rpc, hot)
+    door: CreditsDoor = app.credits
+    return door
 
 
-async def verify_credentials(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(security),
-) -> Account:
+def require_wallet(request: Request) -> str:
     """
-    Verify HTTP Basic Auth credentials against the accounts table.
+    FastAPI dependency: the wallet behind the ``Authorization: Bearer`` session token.
 
-    :param request: The incoming request (used to access the DB pool).
-    :param credentials: The HTTP Basic Auth credentials.
-    :return: The authenticated account.
-    :raises HTTPException: 401 if credentials are missing or invalid.
-    :raises ForbiddenError: If the account is blocked.
+    :param request: The incoming request.
+    :return: The wallet address (base58).
+    :raises ServiceUnavailableError: If sign-in is not configured.
+    :raises UnauthorizedError: If the token is missing, forged or expired.
     """
-    username = credentials.username.lower()
-    row = await request.app.db_pool.fetchrow(
-        "SELECT hashed_password, subscription_status FROM accounts WHERE username = $1",
-        username,
-    )
-    password = credentials.password.encode()
-    stored_hash = row["hashed_password"].encode() if row else _DUMMY_HASH
-    # Signup rejects longer passwords, so an over-long one can never match (and bcrypt would raise).
-    password_ok = len(password) <= BCRYPT_MAX_PASSWORD_BYTES and await asyncio.to_thread(
-        bcrypt.checkpw, password, stored_hash
-    )
-    if row is None or not password_ok:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials.",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    if row["subscription_status"] == "blocked":
-        raise ForbiddenError("Account is blocked.")
-    return Account(username=username, subscription_status=row["subscription_status"])
-
-
-async def require_admin(account: Account = Depends(verify_credentials)) -> Account:
-    """
-    Extend :func:`verify_credentials` to also require the admin tier.
-
-    :param account: The authenticated account.
-    :return: The authenticated admin account.
-    :raises ForbiddenError: If the account is not an admin.
-    """
-    if account.subscription_status != "admin":
-        raise ForbiddenError("Admin access required.")
-    return account
+    door = get_credits(request)
+    if not door.sign_in_enabled:
+        raise ServiceUnavailableError("Sign-in is not available yet.")
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise UnauthorizedError("Sign in first (Authorization: Bearer <token>).")
+    try:
+        return door.check_token(token.strip())
+    except SignInError as exc:
+        raise UnauthorizedError(str(exc)) from exc

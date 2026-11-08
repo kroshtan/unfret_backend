@@ -160,7 +160,7 @@ class FakeRpc(SolanaRpc):
             {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
         ]
 
-    async def parsed_transaction(self, signature: str) -> dict[str, Any] | None:
+    async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
         if signature in self.transactions or not self._accounts:
             return self.transactions.get(signature)
         account, hot = (str(a) for a in self._accounts)

@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from veridex import __version__, fact_cache, scoring, tineye
 from veridex.api import VeridexAPI
 from veridex.config import settings
+from veridex.credits import CreditsDoor
 from veridex.db import PostgresBudget, PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
@@ -34,15 +35,20 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     fact_cache.use_store(PostgresFactStore(api.db_pool))
     tineye.use_budget(PostgresBudget(api.db_pool, "tineye"))
     api.x402 = X402(settings)
-    # Single instance: the sweep to cold is not coordinated across processes.
-    sweeper = asyncio.create_task(api.x402.run_forever()) if api.x402.configured else None
+    # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
+    api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None)
+    api.credits.attach(api.db_pool)
+    # Single instance: the sweep to cold is not coordinated across processes (the scanner is safe either way).
+    tasks = [asyncio.create_task(api.x402.run_forever())] if api.x402.configured else []
+    if api.credits.scanner is not None:
+        tasks.append(asyncio.create_task(api.credits.run_forever()))
     try:
         yield
     finally:
-        if sweeper:
-            sweeper.cancel()
+        for task in tasks:
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await sweeper
+                await task
         await api.db_pool.close()
     logger.info("Veridex backend service shutting down")
 
@@ -57,8 +63,8 @@ app = VeridexAPI(
 # and even a 413 carries CORS headers)
 app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_page_bytes)
 
-# The API is called from a browser extension (arbitrary page origins) and uses
-# Basic auth rather than cookies, so a wildcard origin without credentials is safe.
+# The API is called from the browser extension (chrome-extension:// and moz-extension:// origins) and from
+# agents, and uses bearer tokens rather than cookies, so a wildcard origin without credentials is safe.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

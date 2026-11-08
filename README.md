@@ -15,8 +15,8 @@ POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sou
 
 > **Project status: prototype.** Veridex is an exploratory prototype, not a finished product. It was built to try out
 > what an agentic LLM pipeline can do for shopping-fraud detection, and to put a modern Python stack to work
-> (FastAPI, LangGraph, structured LLM output, asyncpg, uv). Accounts, quotas and Paddle billing are
-> included to show how it would fit into a real service. It is not maintained for production use.
+> (FastAPI, LangGraph, structured LLM output, asyncpg, uv). Payment is SOL-native: wallets sign in with Solana and
+> spend prepaid credits, and agents pay per check over x402. It is not maintained for production use.
 
 ## How it works
 
@@ -70,25 +70,41 @@ Register an instance in `SKILLS` in [`src/veridex/graph/__init__.py`](src/veride
 
 ## API
 
-Interactive docs are served at `/docs`. All `/v1/accounts/me*`, `/v1/analyze` and `/v1/admin/*` routes use HTTP Basic
-auth.
+Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `Authorization: Bearer <session token>`.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/v1/analyze` | Analyse a page: `{ "page_content": "<html>…", "url": "https://…", "flags": [] }` |
-| `POST` | `/v1/accounts` | Create an account (server-to-server; requires the `X-Signup-Key` header) |
-| `GET` | `/v1/accounts/me` | Current account |
-| `GET` | `/v1/accounts/me/usage` | Analyses used today and remaining quota |
-| `GET` | `/v1/admin/accounts` | List/search accounts (admin only) |
-| `POST` | `/v1/admin/accounts/{username}/downgrade` \| `/block` | Revoke premium / block, cancelling any Paddle subscription |
-| `POST` | `/v1/paddle/webhook` | Paddle Billing webhook (`subscription.activated` / `subscription.canceled`) |
+| `GET` | `/v1/auth/nonce` | Start a Sign-In With Solana: nonce and message fields |
+| `POST` | `/v1/auth/verify` | Finish it: `{address, signed_message, signature}` → session token (30 days) |
+| `POST` | `/v1/analyze` | Analyse a page, paid from credits: `{ "url", "page_content"?, "page_facts"?, "checkout_content"? }` |
+| `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
+| `GET` | `/v1/credits` | The signed-in wallet's balance |
+| `GET` | `/v1/pricing` | Analysis price, x402 prices, purchase bonuses, suggested packs, hot wallet |
+| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL transfer that buys credits, plus a Solana Pay link |
+| `GET` | `/v1/credits/solana-pay.svg` | The Solana Pay request as a QR code |
+| `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `GET` | `/v1/health` | Liveness probe |
-| `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 status, the hot wallet's balances and alerts) |
+| `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
 | `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
 | `GET` | `/llms.txt` \| `/.well-known/x402` | Machine-readable description of `/v1/check`, its tiers and prices |
 
-Accounts are `free` (5 analyses/day), `premium` (25/day), `admin` (unlimited) or `blocked`. Pages that are not
-analysed (score `-1`) don't count towards the quota.
+### Credits (browser extension and platforms)
+
+There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
+message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
+user state stored is `wallet → balance in lamports`**: no emails, no purchase history (the chain is the ledger), no
+record of what was analysed.
+
+Credits are bought by sending SOL to the hot wallet (`/v1/credits/purchase-tx` builds the transfer; any wallet may
+fund any wallet). A background scanner walks the hot wallet's finalized transactions and credits the sender of every
+incoming System transfer, top-level or inside a program call, with the purchase bonus (≥0.05 SOL +10%, ≥0.25 SOL
++20%), moving its cursor in the same database transaction by compare-and-swap, so each transfer is credited exactly
+once. Sweeps, fees and x402 settlements are ignored. An analysis costs `VERIDEX_ANALYSIS_PRICE_LAMPORTS` (0.0015 SOL),
+taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
+
+A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a
+first one ≥30 days ago), within a per-visitor limit and a daily cap kept in memory only. Grant credits by hand with
+`uv run scripts/grant_credits.py <pubkey> --checks <n>`.
 
 ### Pay-per-check for agents (x402)
 
@@ -109,7 +125,8 @@ fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNI
 one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's wSOL
 account growing by exactly the price with the hot wallet paying no more than the fee. After settlement the real
 on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails after a
-payment settled, the response says so; refunding such payments as credits to the paying key is planned for phase 4.
+payment settled, the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after
+signing in with it.
 
 Money flows through: a background sweep (one atomic transaction) unwraps the hot wallet's wSOL, recreates its wSOL
 account, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot
@@ -134,18 +151,16 @@ cp .env.example .env       # add your VERIDEX_LLM_API_KEY
 docker compose up --build  # API on http://localhost:8080, Postgres alongside
 ```
 
-Create an account and analyse a page:
+Set `VERIDEX_SESSION_SECRET` (e.g. `openssl rand -hex 32`), sign in with a wallet at
+`http://localhost:8080/connect`, give it credits and analyse a page with the session token:
 
 ```bash
-curl -X POST localhost:8080/v1/accounts -H "X-Signup-Key: change-me" -H "Content-Type: application/json" \
-  -d '{"username": "demo", "password": "correct-horse", "contact_email": "demo@example.com"}'
+uv run scripts/grant_credits.py <your wallet address> --checks 10
 
 curl -s https://example-shop.com/product/123 > page.html
 jq -n --rawfile html page.html '{page_content: $html, url: "https://example-shop.com/product/123"}' \
-  | curl -X POST localhost:8080/v1/analyze -u demo:correct-horse -H "Content-Type: application/json" -d @-
+  | curl -X POST localhost:8080/v1/analyze -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @-
 ```
-
-Promote an account to admin with `uv run scripts/promote_admin.py <username>`.
 
 ### Configuration
 
@@ -164,10 +179,13 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
-| `VERIDEX_SIGNUP_SECRET` | — | Account creation is disabled while empty |
-| `VERIDEX_FREE_DAILY_LIMIT` / `VERIDEX_PREMIUM_DAILY_LIMIT` | `5` / `25` | Per UTC day |
-| `VERIDEX_PADDLE_WEBHOOK_SECRET` | — | Webhook requests are rejected while empty |
-| `VERIDEX_PADDLE_API_KEY` / `VERIDEX_PADDLE_ENVIRONMENT` | — / `production` | Used to cancel subscriptions from the admin routes |
+| `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
+| `VERIDEX_SIWS_DOMAIN` | `veridex.kroshtan.com` | Sign-in messages must be bound to this domain |
+| `VERIDEX_ANALYSIS_PRICE_LAMPORTS` | `1500000` | One analysis (0.0015 SOL) |
+| `VERIDEX_CREDIT_BONUS_TIERS` / `VERIDEX_SUGGESTED_PACKS` | `[[50000000,10],[250000000,20]]` / `[10,50,200]` | Purchase bonuses (min lamports, %); packs in analyses |
+| `VERIDEX_TRIAL_CHECKS` | `5` | Free analyses on a first sign-in (wallets with history only) |
+| `VERIDEX_TRIAL_PER_IP_PER_DAY` / `VERIDEX_TRIAL_DAILY_CAP` | `2` / `50` | Trial limits, kept in memory |
+| `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 
 ## Development
 
@@ -180,23 +198,25 @@ make audit             # pip-audit over the locked dependencies
 make run               # uvicorn with auto-reload
 ```
 
-Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection and
-webhook signature verification. Integration tests exercise the HTTP API end-to-end against a real Postgres, with the
-analysis graph replaced by a test double so no LLM calls are made.
+Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection, x402
+payment verification and SIWS. Integration tests exercise the HTTP API end-to-end against a real Postgres (sign-in,
+concurrent debits, the credits scanner), with the analysis graph replaced by a test double so no LLM calls are made.
 
 ```
 src/veridex/
 ├── main.py            # FastAPI app, lifespan (graph + DB pool), middleware
 ├── config.py          # typed settings (pydantic-settings)
 ├── middleware.py      # body size cap, x-process-time header
-├── routes/            # analyze, accounts, admin, paddle webhook, health
+├── routes/            # analyze, sign-in, credits, x402 check, health
 ├── graph/
 │   ├── __init__.py    # graph wiring + skill registry
 │   ├── nodes.py       # preprocess, classify, early_exit, judge
 │   ├── state.py       # shared LangGraph state
 │   └── skills/        # one module per skill
-├── auth.py            # Basic auth, account tiers
-├── db.py              # schema + queries (asyncpg)
+├── credits/           # SIWS, the lamport ledger, pricing, trial rules, purchase scanner
+├── x402/              # pay-per-check: verification, hot wallet, sweeps
+├── auth.py            # bearer sessions
+├── db.py, migrations.py  # versioned schema + queries (asyncpg)
 ├── llm.py             # shared chat model
 └── net.py             # SSRF-safe HTTP fetching
 ```
@@ -210,10 +230,10 @@ src/veridex/
 - **Fail soft.** Each skill runs under its own timeout; a skill that fails or hangs reports "unavailable" to the
   judge instead of failing the analysis. The whole analysis has a deadline too (504 when exceeded).
 - **Bounded input.** Request bodies over `VERIDEX_MAX_PAGE_BYTES` are refused before they are parsed.
-- **Auth.** Passwords are bcrypt-hashed off the event loop; unknown usernames are checked against a dummy hash so
-  they can't be distinguished from wrong passwords by timing.
-- **Billing webhooks** fail closed without a configured secret, reject signatures older than five minutes, never
-  modify admin or blocked accounts, and only honour a cancellation for the subscription currently linked to the account.
+- **Sign-in grants no spending power.** Wallets only ever sign a readable message (to sign in) or a transfer the
+  user sees (to buy). The server holds no user keys; a session token can spend Veridex credits, never SOL.
+- **Exactly-once crediting.** Credits and the scanner cursor move in one transaction, by compare-and-swap; debits are
+  a single conditional `UPDATE`, so concurrent analyses never overspend.
 
 ## Limitations and responsible use
 

@@ -15,3 +15,4 @@ class VeridexAPI(FastAPI):
         self.quick_graph: CompiledStateGraph | None = None  # set during lifespan; the x402 quick tier
         self.db_pool: asyncpg.Pool | None = None  # set during lifespan
         self.x402: Any = None  # veridex.x402.service.X402, created on first use
+        self.credits: Any = None  # veridex.credits.CreditsDoor, created on first use

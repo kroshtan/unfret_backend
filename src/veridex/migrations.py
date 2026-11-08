@@ -69,6 +69,25 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        4,
+        "wallet credits replace accounts",
+        """
+        -- Phase 4: no accounts, emails or analysis log any more. The only user state is a wallet's balance.
+        DROP TABLE IF EXISTS analyze_log;
+        DROP TABLE IF EXISTS accounts;
+        CREATE TABLE wallets (
+            pubkey            TEXT PRIMARY KEY,
+            balance_lamports  BIGINT NOT NULL CHECK (balance_lamports >= 0)
+        );
+        -- Operational: the newest hot-wallet transaction the credits scanner has processed.
+        CREATE TABLE scan_cursor (
+            name        TEXT PRIMARY KEY,
+            signature   TEXT NOT NULL,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """,
+    ),
 ]
 
 

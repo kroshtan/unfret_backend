@@ -69,7 +69,7 @@ def test_wallet_links_are_only_assigned_as_hrefs() -> None:
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 def test_js_sign_in_text_matches_the_server(tmp_path: Path) -> None:
-    fields = siws.nonce_response("s", domain="veridex.kroshtan.com", uri="https://veridex.kroshtan.com", ttl_s=300)
+    fields = siws.nonce_response("s", domain="unfret.kroshtan.com", uri="https://unfret.kroshtan.com", ttl_s=300)
     address = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
     module = tmp_path / "wallet.mjs"
     module.write_text((STATIC_DIR / "wallet.js").read_text())

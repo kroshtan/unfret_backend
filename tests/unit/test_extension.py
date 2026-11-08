@@ -123,7 +123,9 @@ async def test_update_manifest_is_served_as_xml(client: httpx.AsyncClient) -> No
     assert response.headers["content-type"].startswith("text/xml")
     assert "max-age=300" in response.headers["cache-control"]
     assert f"appid='{release.extension_id}'" in response.text
-    assert f"codebase='https://veridex.kroshtan.com/extension/{release.crx}'" in response.text
+    assert re.search(
+        rf"codebase='https://[a-z.]+/extension/{re.escape(release.crx)}'", response.text
+    )  # host: per release
 
 
 async def test_release_files_are_served_with_their_types(client: httpx.AsyncClient) -> None:
@@ -169,7 +171,7 @@ def test_linux_policy_command_force_installs_from_this_server() -> None:
     assert command == (
         "sudo mkdir -p /etc/brave/policies/managed && echo "
         '\'{"ExtensionInstallForcelist":["abcdefghijklmnopabcdefghijklmnop;'
-        "https://veridex.kroshtan.com/extension/updates.xml\"]}' "
+        "https://unfret.kroshtan.com/extension/updates.xml\"]}' "
         "| sudo tee /etc/brave/policies/managed/veridex.json > /dev/null"
     )
 

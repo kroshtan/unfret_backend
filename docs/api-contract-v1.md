@@ -1,13 +1,13 @@
 # Veridex API contract v1: credits door (backend phase 4 ↔ browser extension phase 5)
 
-Base URL: `https://veridex.kroshtan.com` (configurable in the extension for dev: `http://localhost:8080`).
+Base URL: `https://unfret.kroshtan.com` (configurable in the extension for dev: `http://localhost:8080`).
 All JSON. Errors use the existing shape `{"detail": str, "error_code": str, "metadata"?: any}`.
 
 ## Identity: Sign-In With Solana (SIWS), basic
 Credits belong to a wallet public key. The user proves control by signing a plain-text message; nothing else is stored.
 
 - `GET /v1/auth/nonce` →
-  `{"domain": "veridex.kroshtan.com", "uri": "https://veridex.kroshtan.com", "statement": "Sign in to Veridex. This
+  `{"domain": "unfret.kroshtan.com", "uri": "https://unfret.kroshtan.com", "statement": "Sign in to Veridex. This
   signature costs nothing and grants no spending rights.", "nonce": str, "issued_at": ISO-8601, "expiration_time":
   ISO-8601, "version": "1"}`
   The nonce is stateless (HMAC-signed by the server, carrying its own expiry, 5 minutes).
@@ -51,7 +51,7 @@ The balance is held in **lamports** (`pubkey → balance_lamports`); the UI show
 ## Pages served by the backend
 - `GET /connect` — sign-in page. After a successful verify it does
   `window.postMessage({"type": "veridex-session", "token", "address", "expires_at"}, location.origin)`.
-  The extension's content script, injected only on `https://veridex.kroshtan.com/connect*`, relays it to the
+  The extension's content script, injected only on `https://unfret.kroshtan.com/connect*`, relays it to the
   extension (works in Chrome and Firefox; no `externally_connectable`). The page then shows "You can close this tab".
 - `GET /checkout?checks=<n>` — connect a wallet, buy credits (purchase-tx → signAndSend), Solana Pay QR for phone
   wallets, polls `/v1/credits`, shows when credits land.
@@ -100,7 +100,7 @@ Allow origins `chrome-extension://*` and `moz-extension://*` plus the site itsel
 Sign in on the computer's extension with a wallet on a phone, through the phone wallet's in-app browser. No relay,
 no on-chain transaction; ordinary SIWS. All pairing state is in the server's memory (5 minutes), never persisted.
 - `POST /v1/auth/pair` (no auth) → 201 `{"pair_id": str (128 random bits, URL-safe), "confirm_code": "K7-4Q",
-  "connect_url": "https://veridex.kroshtan.com/connect?pair=<pair_id>", "expires_at": ISO-8601}`.
+  "connect_url": "https://unfret.kroshtan.com/connect?pair=<pair_id>", "expires_at": ISO-8601}`.
   429 when this visitor started too many (default 10 per 10 minutes) or the server holds too many. 503 while
   sign-in is off.
 - The extension shows `connect_url` as a QR code and `confirm_code` large ("check that your phone shows the same

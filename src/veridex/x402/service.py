@@ -25,7 +25,16 @@ from veridex.config import Settings
 from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd, usdc_to_lamports
 from veridex.x402.breaker import SettlementBreaker
 from veridex.x402.payment import PAYMENT_PROGRAMS, Precheck, confirm_by_simulation, precheck, requirements
-from veridex.x402.solana import CAIP2, WSOL_MINT, RpcError, SolanaRpc, associated_token_address, usdc_mint
+from veridex.x402.solana import (
+    CAIP2,
+    WSOL_MINT,
+    RpcError,
+    SettlementPendingError,
+    SolanaRpc,
+    TransactionFailedError,
+    associated_token_address,
+    usdc_mint,
+)
 from veridex.x402.swap import JupiterClient, SwapError, verify_swap
 from veridex.x402.wallet import HotWallet, build_sweep, load_keypair, unexpected_outflows
 
@@ -332,6 +341,9 @@ class X402:
 
         :return: The settlement.
         :raises DuplicateSettlementError: If this transaction is already being settled.
+        :raises TransactionFailedError: If it landed and failed (the fee was paid).
+        :raises SettlementPendingError: If it was submitted but not confirmed in time.
+        :raises RpcError: If the network didn't accept it (the payment may then be retried).
         """
         assert self.hot is not None  # noqa: S101
         key = str(pre.transaction.signatures[1])
@@ -346,7 +358,15 @@ class X402:
             self._settling[key] = now
 
             raw = self.hot.sign(payment)
-            signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
+            try:
+                signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
+            except TransactionFailedError, SettlementPendingError:
+                raise
+            except RpcError:
+                # Not accepted by the network: the client may retry this payment (resending the same signed bytes
+                # is idempotent on chain anyway).
+                self._settling.pop(key, None)
+                raise
             self._balances = None  # value and fees moved; re-read on the next health check
             await self._check_settled(signature, payment.amount, payment.max_fee, before or 0, payment.mint)
         currency = "SOL" if payment.mint == WSOL_MINT else "USDC"

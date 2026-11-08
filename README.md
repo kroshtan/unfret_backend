@@ -156,9 +156,14 @@ only, or answers 503 `PRICE_UNAVAILABLE` if the USDC account doesn't exist yet);
 `VERIDEX_QUOTE_TOLERANCE_BPS` (2%) off the current quote, since the price moves between the 402 and the payment. On
 devnet the oracle is read from mainnet (Pyth's devnet copy updates too rarely).
 All prices come from one place, `veridex.prices.PriceBook`. After settlement the real
-on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails after a
-payment settled, the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after
-signing in with it.
+on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails or takes
+longer than `VERIDEX_X402_ANALYSIS_TIMEOUT_S` (60 s) after a payment settled, or the page can't be assessed (score
+`-1`), the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after signing in
+with it. A payment submitted but not confirmed in time answers `402 SETTLEMENT_PENDING` with its signature; if it
+lands within two minutes its price is credited the same way. Retrying with the same payment returns the same answer
+for 15 minutes (concurrent retries wait for the first) and is never charged twice. Bot-check interstitials
+(Cloudflare, DataDome, PerimeterX, Amazon) are refused as `422 PAGE_BLOCKED` before any money moves, and
+`/v1/check` takes `VERIDEX_X402_CHECK_PER_MINUTE` (30) requests per visitor network.
 
 Money flows through, and the cold wallet only ever receives SOL. On mainnet, USDC the hot wallet received is swapped to
 wSOL once it holds `VERIDEX_SWAP_THRESHOLD_USDC` (5 USDC), or dust older than a day: Jupiter's swap API

@@ -40,6 +40,8 @@ Open-source release.
 
 ### Bug Fixes
 
+* x402 settlement robustness: retrying with the same payment returns the same answer instead of `duplicate_settlement` (and a payment the network never accepted can be retried); a payment still pending at the timeout is credited if it lands later; a paid page that can't be assessed (score `-1`) is refunded; the analysis is capped at 60 s; bot-check pages are refused before payment (`PAGE_BLOCKED`); `/v1/check` is rate-limited per visitor network (`429 RATE_LIMITED`); page fetches have a total timeout; RPC transport errors are `RpcError`s and confirmation polling (every 0.4 s) survives them; one pooled RPC connection; database queries time out after 10 s
+* Swaps: only Jupiter's aggregator, the token programs and compute budget may run at top level of a swap transaction
 * The outflow audit no longer raises a compromise signal for failed transactions or ones the hot wallet didn't sign, pages back to the last audited transaction instead of looking at the newest 20 (a burst of payments could hide an outflow), keeps a bounded memory, and its sticky alerts can be cleared by the operator (`POST /v1/admin/x402/clear-alerts`) instead of only by a restart
 * A credit purchase, or a memo naming a wallet, no longer uses up that wallet's free trial (a `trial_granted` flag replaces "has a row")
 * Passwords longer than 72 bytes caused a 500 on login

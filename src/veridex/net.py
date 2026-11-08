@@ -82,22 +82,29 @@ async def fetch_public(
     url: str,
     *,
     timeout: float = _DEFAULT_TIMEOUT,
+    total_timeout: float = 25.0,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> bytes:
     """
     GET a public URL, validating the target of every redirect hop.
 
+    Raises ``ValueError`` if the body exceeds ``max_bytes`` (``UnsafeURLError`` if a hop targets a non-public
+    address), ``httpx.HTTPError`` on network errors and non-2xx answers (``httpx.TooManyRedirects`` for a long
+    redirect chain), and ``TimeoutError`` once ``total_timeout`` has passed.
+
     :param url: Absolute http(s) URL to fetch.
-    :param timeout: Per-request timeout in seconds.
+    :param timeout: Per-request timeout in seconds (each read, connect, …).
+    :param total_timeout: The whole fetch, redirects and a slowly trickling body included.
     :param max_bytes: Maximum response body size; larger bodies are rejected.
     :param transport: Optional httpx transport (used to stub the network in tests).
     :return: The response body.
-    :raises ValueError: If the body exceeds ``max_bytes``, or (as :class:`UnsafeURLError`)
-        if any hop targets a non-public address. Network errors and non-2xx responses
-        raise :class:`httpx.HTTPError`.
-    :raises httpx.TooManyRedirects: If the redirect chain is too long.
     """
+    async with asyncio.timeout(total_timeout):
+        return await _fetch(url, timeout=timeout, max_bytes=max_bytes, transport=transport)
+
+
+async def _fetch(url: str, *, timeout: float, max_bytes: int, transport: httpx.AsyncBaseTransport | None) -> bytes:
     async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": _USER_AGENT}, transport=transport) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             address = await _assert_public(url)

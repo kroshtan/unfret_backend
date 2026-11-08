@@ -97,6 +97,9 @@ def associated_token_address(owner: Pubkey, mint: Pubkey = WSOL_MINT) -> Pubkey:
     )[0]
 
 
+_POLL_S = 0.4  # about one slot
+
+
 class RpcError(RuntimeError):
     """The Solana RPC returned an error, or the transaction failed on chain."""
 
@@ -130,6 +133,13 @@ class SolanaRpc:
         """
         self._url = url
         self._transport = transport
+        self._client: httpx.AsyncClient | None = None  # one connection pool, opened on first use
+
+    async def aclose(self) -> None:
+        """Close the connection pool (on shutdown)."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def call(self, method: str, params: list[Any]) -> Any:
         """
@@ -138,17 +148,34 @@ class SolanaRpc:
         :param method: The RPC method name.
         :param params: The positional parameters.
         :return: The ``result`` member of the response.
-        :raises RpcError: If the RPC answers with an error object.
+        :raises RpcError: If the RPC answers with an error object, or can't be reached or understood.
         """
-        async with httpx.AsyncClient(timeout=15, transport=self._transport) as client:
-            response = await client.post(
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=15, transport=self._transport)
+        try:
+            response = await self._client.post(
                 self._url, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
             )
             response.raise_for_status()
             body = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RpcError(f"{method}: {type(exc).__name__}") from exc
+        if not isinstance(body, dict):
+            raise RpcError(f"{method}: unexpected response")
         if "error" in body:
             raise RpcError(f"{method}: {body['error'].get('message', body['error'])}")
         return body["result"]
+
+    async def signature_status(self, signature: str) -> dict[str, Any] | None:
+        """
+        A transaction's status, searching history too (``None`` while the network doesn't know it).
+
+        :param signature: The transaction signature.
+        :return: The status (``err``, ``confirmationStatus``, …) or ``None``.
+        """
+        result = await self.call("getSignatureStatuses", [[signature], {"searchTransactionHistory": True}])
+        status: dict[str, Any] | None = result["value"][0]
+        return status
 
     async def get_balance(self, address: Pubkey) -> int:
         """
@@ -311,17 +338,19 @@ class SolanaRpc:
             async with asyncio.timeout(timeout_s):
                 polls = 0
                 while True:
-                    result = await self.call("getSignatureStatuses", [[signature]])
-                    status = result["value"][0]
+                    try:
+                        status = await self.signature_status(signature)
+                    except RpcError:
+                        status = None  # a hiccup while polling isn't an outcome: keep asking until the timeout
                     if status is not None:
                         if status.get("err") is not None:
                             raise TransactionFailedError(f"transaction failed: {status['err']}")
                         if status.get("confirmationStatus") in {"confirmed", "finalized"}:
                             return signature
-                    elif polls and polls % 3 == 0:
+                    elif polls and polls % 8 == 0:
                         # Leaders drop transactions; resending the same signed bytes is idempotent.
                         await self.call("sendTransaction", [encoded, {"encoding": "base64", "skipPreflight": True}])
                     polls += 1
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(_POLL_S)
         except TimeoutError as exc:
             raise SettlementPendingError(signature) from exc

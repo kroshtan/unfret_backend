@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     x402_max_compute_units: int = 400_000
     x402_max_compute_unit_price_microlamports: int = 50_000
     x402_confirm_timeout_s: float = 30.0
+    x402_analysis_timeout_s: float = 60.0  # agents wait synchronously: a paid check answers within a minute
+    x402_check_per_minute: int = 30  # requests to /v1/check per visitor network (IPv6 /64)
     # The priority fee a payment may make the hot wallet pay, at most this share of the tier's price (wSOL quote);
     # the fallback applies while SOL can't be priced.
     x402_max_priority_fee_bps: int = 500

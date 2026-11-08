@@ -1,0 +1,259 @@
+{
+  "language": "en",
+  "labels": {
+    "reliable": "Looks reliable",
+    "concerns": "Some concerns",
+    "careful": "Be careful",
+    "junk_or_scam": "Likely junk or a scam"
+  },
+  "headlines": {
+    "reliable": "Nothing worrying stood out on this page.",
+    "concerns": "Mostly fine, but a few things are worth a closer look before you buy.",
+    "careful": "Several warning signs: check the seller and reviews carefully before buying.",
+    "junk_or_scam": "Strong signs of generic factory goods or a dishonest offer."
+  },
+  "reasons": {
+    "timer_resets": {
+      "title": "Fake countdown",
+      "detail": "This countdown restarts when you reload the page: the deadline isn't real."
+    },
+    "fake_urgency_app": {
+      "title": "Urgency tricks",
+      "detail": "The shop uses {app}, a tool for countdowns or 'someone just bought this' pop-ups that create pressure."
+    },
+    "countdown": {
+      "title": "Countdown timer",
+      "detail": "A countdown timer pushes you to decide quickly."
+    },
+    "preticked_addon": {
+      "title": "Paid extra already ticked",
+      "detail": "A paid extra is ticked for you in advance ({label}). That's not allowed in the EU: untick it if you don't want it."
+    },
+    "drip_pricing": {
+      "title": "Price goes up at checkout",
+      "detail": "At checkout the total is {pct} higher than the price on the page."
+    },
+    "late_fees": {
+      "title": "Costs revealed later",
+      "detail": "Some costs (such as shipping or fees) only appear at checkout."
+    },
+    "review_velocity": {
+      "title": "Suspicious number of reviews",
+      "detail": "{count} ratings for a product that's only been listed for {age}."
+    },
+    "review_shape": {
+      "title": "Unnatural rating pattern",
+      "detail": "Almost only 5-star and 1-star ratings, hardly anything in between: a pattern often seen with bought reviews."
+    },
+    "duplicate_reviews": {
+      "title": "Copy-paste reviews",
+      "detail": "{pct} of the reviews repeat another review almost word for word."
+    },
+    "off_topic_reviews": {
+      "title": "Reviews about something else",
+      "detail": "{pct} of the reviews don't seem to be about this product: they may have been carried over from another listing."
+    },
+    "review_import_app": {
+      "title": "Imported reviews",
+      "detail": "The shop uses a tool that copies reviews from other sites, such as AliExpress."
+    },
+    "word_soup": {
+      "title": "Title full of search terms",
+      "detail": "The title is a string of search terms rather than a product name: typical of generic factory goods."
+    },
+    "generic_brand": {
+      "title": "Unknown brand",
+      "detail": "{brand} isn't a recognisable brand: usually a sign of generic factory goods sold under a made-up name."
+    },
+    "generic_product": {
+      "title": "Generic product",
+      "detail": "This looks like a generic product that's also sold elsewhere under other names, often for less."
+    },
+    "implausible_claims": {
+      "title": "Hard-to-believe claims",
+      "detail": "The page makes claims that are hard to believe for this product: {claim}."
+    },
+    "pushy_copy": {
+      "title": "Pushy sales talk",
+      "detail": "The text uses pressure tactics, such as scarcity or 'today only' offers."
+    },
+    "big_discount": {
+      "title": "Too-good discount",
+      "detail": "A {pct} discount on a 'was' price that may never have been charged."
+    },
+    "seller_not_brand": {
+      "title": "Sold by another company",
+      "detail": "Sold by {seller}, not by the brand itself."
+    },
+    "ships_from_far": {
+      "title": "Ships from far away",
+      "detail": "Ships from {place}: expect long delivery times, and returns can be hard."
+    },
+    "dropshipping_tools": {
+      "title": "Dropshipping",
+      "detail": "The shop uses dropshipping tools: products are shipped straight from a supplier."
+    },
+    "supplier_links": {
+      "title": "Supplier traces",
+      "detail": "The page contains links or images from wholesale sites such as AliExpress or Temu."
+    },
+    "supplier_photos": {
+      "title": "Same photos on wholesale sites",
+      "detail": "The same product photo also appears on {sites}."
+    },
+    "photo_predates": {
+      "title": "Older photos",
+      "detail": "The product photo was online before this listing appeared."
+    },
+    "missing_trust_info": {
+      "title": "Little shop information",
+      "detail": "No clear return policy, contact details or company information."
+    },
+    "no_withdrawal": {
+      "title": "No return policy found",
+      "detail": "No return or withdrawal policy found, though EU shops must offer one."
+    },
+    "no_imprint": {
+      "title": "No company details",
+      "detail": "No company name or address found on the page."
+    },
+    "invalid_vat": {
+      "title": "Invalid VAT number",
+      "detail": "The VAT number shown isn't valid in the EU register."
+    },
+    "new_domain": {
+      "title": "Brand-new web shop",
+      "detail": "This web shop's address was registered only {age} ago."
+    },
+    "short_registration": {
+      "title": "Registered for a year",
+      "detail": "The shop's web address is only registered for one year."
+    },
+    "hidden_ai_text": {
+      "title": "Hidden text to fool checks",
+      "detail": "The page hides text aimed at AI tools, to influence checks like this one."
+    },
+    "ai_text": {
+      "title": "Text aimed at AI",
+      "detail": "The page contains text that addresses AI tools or rating systems."
+    },
+    "overall": {
+      "title": "Several small signals",
+      "detail": "No single big problem, but several smaller signals together lowered the score."
+    }
+  },
+  "positives": {
+    "known_brand": {
+      "title": "Known brand",
+      "detail": "{brand} is an established brand."
+    },
+    "sold_by_brand": {
+      "title": "Sold by the brand",
+      "detail": "Sold by the brand itself."
+    },
+    "vat_registered": {
+      "title": "Registered company",
+      "detail": "The VAT number checks out in the EU register."
+    },
+    "established_domain": {
+      "title": "Established shop",
+      "detail": "This web shop's address has existed for {years} years."
+    },
+    "trust_info_present": {
+      "title": "Shop details present",
+      "detail": "Return policy and company details are on the page."
+    },
+    "natural_reviews": {
+      "title": "Natural-looking reviews",
+      "detail": "Ratings are mixed and spread over time, as you'd expect from real buyers."
+    },
+    "nothing_found": {
+      "title": "No warning signs",
+      "detail": "Nothing suspicious found in the listing, the reviews or the page."
+    }
+  },
+  "age_units": {
+    "day": [
+      "day",
+      "days"
+    ],
+    "week": [
+      "week",
+      "weeks"
+    ],
+    "month": [
+      "month",
+      "months"
+    ],
+    "year": [
+      "year",
+      "years"
+    ]
+  },
+  "this_brand": "This brand",
+  "an_urgency_tool": "an urgency tool",
+  "wholesale_sites": "wholesale sites",
+  "features": {
+    "content.scam_copy": "Pushy sales talk",
+    "content.generic_product": "Generic product",
+    "content.brand_recognized": "Known brand",
+    "content.implausible_claims": "Hard-to-believe claims",
+    "content.missing_trust_info": "Little shop information",
+    "content.addresses_ai": "Text aimed at AI",
+    "content.title_word_soup": "Title full of search terms",
+    "content.generic_brand": "Unknown brand",
+    "listing.generated_brand": "Made-up-looking brand name",
+    "listing.discount_pct": "Size of the discount",
+    "listing.keyword_stuffed": "Long title with many terms",
+    "listing.title_length": "Title length",
+    "listing.seller_not_brand": "Sold by another company than the brand",
+    "listing.ships_from_china": "Ships from China",
+    "listing.variations": "Number of variants",
+    "listing.log_rating_count": "Number of ratings",
+    "listing.rating": "Average rating",
+    "listing.is_marketplace": "Marketplace listing",
+    "listing.is_shopify": "Shopify shop",
+    "reviews.has_reviews": "Has reviews",
+    "reviews.log_reviews_per_day": "Reviews per day",
+    "reviews.share_five": "Share of 5-star ratings",
+    "reviews.share_one": "Share of 1-star ratings",
+    "reviews.share_middle": "Share of 2–4-star ratings",
+    "reviews.j_shaped": "Only top and bottom ratings",
+    "reviews.duplicate_share": "Copy-paste reviews",
+    "reviews.short_share": "Very short reviews",
+    "reviews.verified_share": "Verified purchases",
+    "reviews.burst_share": "Reviews posted in bursts",
+    "reviews.title_similarity_mean": "Reviews match the product",
+    "reviews.off_topic_share": "Reviews about something else",
+    "html_source_signals.dropship_app": "Dropshipping tools",
+    "html_source_signals.supplier_trace": "Supplier traces",
+    "html_source_signals.review_import_app": "Imported reviews",
+    "html_source_signals.shipping_protection_app": "Paid shipping protection",
+    "html_source_signals.timer_app": "Urgency tool",
+    "dark_patterns.timer": "Countdown timer",
+    "dark_patterns.timer_resets": "Fake countdown",
+    "dark_patterns.preticked_addons": "Paid extra already ticked",
+    "dark_patterns.fee_mentions": "Costs revealed later",
+    "dark_patterns.checkout_markup_pct": "Price goes up at checkout",
+    "injection.hidden_chars": "Hidden text",
+    "injection.instruction_hidden": "Hidden text aimed at AI",
+    "injection.instruction_visible": "Text aimed at AI",
+    "eu_registry.vat_present": "VAT number shown",
+    "eu_registry.vat_valid": "VAT number checks out",
+    "eu_registry.vat_name_match": "VAT name matches the shop",
+    "eu_registry.withdrawal_right": "Return policy shown",
+    "eu_registry.imprint": "Company details shown",
+    "domain_age.known": "Domain registration found",
+    "domain_age.age_years": "Age of the web address",
+    "domain_age.under_6_months": "Brand-new web address",
+    "domain_age.term_years": "Registration term",
+    "domain_age.redacted": "Owner details hidden",
+    "domain_age.cert_age_years": "Age of the security certificate",
+    "reverse_image.searched": "Photo search done",
+    "reverse_image.supplier_hits": "Same photos on wholesale sites",
+    "reverse_image.log_matches": "Photo found elsewhere",
+    "reverse_image.image_age_years": "Age of the photo online",
+    "reverse_image.photo_predates_listing": "Photo older than the listing"
+  },
+  "no_check_used": "No check was used."
+}

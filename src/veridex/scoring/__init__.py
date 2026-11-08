@@ -125,17 +125,14 @@ def load_model(path: Path = MODEL_PATH) -> Model | None:
     return Model.from_dict(json.loads(path.read_text()))
 
 
-def _describe(name: str, value: float) -> str:
-    return f"{name} = {value:g}"
-
-
-def _evidence(name: str, value: float, skill_findings: list[Finding]) -> str:
-    # The finding whose type shares a word with the feature (listing.discount_pct ↔ "discount"), else the value.
+def _evidence(name: str, skill_findings: list[Finding]) -> str:
+    # The finding whose type shares a word with the feature (listing.discount_pct ↔ "discount"); otherwise none.
+    # Never the raw value: clients show the flag's human label (veridex.shopper.label_flags) instead.
     words = set(name.split(".", 1)[-1].split("_"))
     for f in skill_findings:
         if words & set(f.type.split("_")):
             return f.evidence
-    return _describe(name, value)
+    return ""
 
 
 def score(
@@ -173,7 +170,7 @@ def score(
             break
         if name not in features:
             continue  # not measured on this page: never claim evidence for it
-        evidence = _evidence(name, features.get(name, 0.0), by_skill.get(name.split(".", 1)[0], []))
+        evidence = _evidence(name, by_skill.get(name.split(".", 1)[0], []))
         flags.append(Flag(type=name, evidence=evidence, weight=round(contribution, 3)))
     return Assessment(
         risk_score=round(risk, 4), confidence=round(confidence, 4), flags=flags, model_version=model.version

@@ -71,7 +71,7 @@ def test_score_flags_the_strongest_risk_signals_with_evidence() -> None:
         "reviews.off_topic_share",
     ]
     assert assessment.flags[0].evidence.startswith("Price 19.99")  # matched by type, not the first finding
-    assert assessment.flags[1].evidence == "content.brand_recognized = 0"
+    assert assessment.flags[1].evidence == ""  # no matching finding: never the raw value; clients show the label
     assert assessment.confidence == pytest.approx(abs(2 * assessment.risk_score - 1), abs=0.01)
 
 
@@ -127,11 +127,16 @@ async def test_judge_uses_the_scorer_and_only_asks_the_llm_to_explain(monkeypatc
     expected = round(100 * (1 - model.probability(state["features"])))
     assert result["score"] == expected
     assert result["explanation"] == "An 85% 'discount' and an unknown brand."
+    assert result["verdict"]["headline"] == result["explanation"]
+    assert result["verdict"]["band"] == "junk_or_scam"
     assert result["assessment"]["model_version"] == "v1-test"
     [(schema, messages)] = prompts
     assert schema is nodes._Explanation
-    assert f"{expected}/100" in messages[0].content
-    assert "listing.discount_pct" in messages[1].content
+    # The headline is written from the verdict's own plain-language points, never raw feature names or scores.
+    assert "Likely junk or a scam" in messages[0].content
+    assert "Too-good discount" in messages[1].content
+    assert "listing.discount_pct" not in messages[1].content
+    assert f"{expected}/100" not in messages[0].content
 
 
 def test_unmeasured_features_are_never_flagged() -> None:

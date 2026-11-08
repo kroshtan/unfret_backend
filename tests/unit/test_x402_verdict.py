@@ -42,13 +42,45 @@ def test_verdict_uses_the_scorer_assessment() -> None:
             ],
             "model_version": "v1-20261108-B",
         },
+        "verdict": {
+            "band": "junk_or_scam",
+            "label": "Likely junk or a scam",
+            "headline": "Thousands of reviews on a brand-new listing and a too-good discount.",
+            "reasons": [
+                {
+                    "type": "review_velocity",
+                    "title": "Suspicious number of reviews",
+                    "detail": "4,800 ratings for a product that's only been listed for 5 weeks.",
+                    "severity": "high",
+                },
+                {
+                    "type": "big_discount",
+                    "title": "Too-good discount",
+                    "detail": "An 85% discount on a 'was' price that may never have been charged.",
+                    "severity": "medium",
+                },
+            ],
+            "positives": [],
+            "language": "en",
+        },
     }
 
     verdict = to_verdict(result, policy="balanced", tier="quick")
 
     assert (verdict.action, verdict.risk_score, verdict.confidence) == ("block", 0.83, 0.71)
-    assert [f.type for f in verdict.flags] == ["reviews.per_day_since_listing", "listing.discount_pct"]
-    assert verdict.flags[0].weight == 1.42  # log-odds contributions can exceed 1
+    # Agents get the same plain evidence a shopper sees, plus the machine fields.
+    assert [f.type for f in verdict.flags] == ["review_velocity", "big_discount"]
+    assert verdict.flags[0].evidence.startswith("4,800 ratings")
+    assert [f.weight for f in verdict.flags] == [1.0, 0.6]
+    assert (verdict.band, verdict.summary) == (
+        "junk_or_scam",
+        "Thousands of reviews on a brand-new listing and a too-good discount.",
+    )
+    assert [(f.label, f.severity) for f in verdict.flags] == [
+        ("Suspicious number of reviews", "high"),
+        ("Too-good discount", "medium"),
+    ]
+    assert verdict.assessed is True
     assert verdict.model_version == "v1-20261108-B"
 
 
@@ -81,7 +113,9 @@ def test_unassessable_page_asks_the_human() -> None:
     verdict = to_verdict(
         {"score": -1, "explanation": "No product referenced on this page"}, policy="lenient", tier="deep"
     )
-    assert (verdict.action, verdict.risk_score, verdict.confidence) == ("warn", 0.0, 0.0)
+    # Not "risk 0.0" (which reads as safe): explicitly not assessed.
+    assert (verdict.action, verdict.assessed, verdict.risk_score, verdict.confidence) == ("warn", False, None, 0.0)
+    assert verdict.summary == "No product referenced on this page"
     assert verdict.flags[0].type == "not_assessable"
 
 

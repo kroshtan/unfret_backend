@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 import structlog
 from solders.pubkey import Pubkey
+from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
 from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd, usdc_to_lamports
@@ -352,14 +353,14 @@ class X402:
             self._settling = {k: t for k, t in self._settling.items() if now - t < _DUPLICATE_WINDOW_S}
             if key in self._settling:
                 raise DuplicateSettlementError("duplicate_settlement")
-            account = associated_token_address(self.hot.pubkey, pre.mint)
             payment = await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey, programs=self.programs)
-            before = await self.rpc.token_balance(account)
             self._settling[key] = now
 
             raw = self.hot.sign(payment)
             try:
-                signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
+                signature = await self._landed(raw) or await self.rpc.send_and_confirm(
+                    raw, self.settings.x402_confirm_timeout_s
+                )
             except TransactionFailedError, SettlementPendingError:
                 raise
             except RpcError:
@@ -368,30 +369,47 @@ class X402:
                 self._settling.pop(key, None)
                 raise
             self._balances = None  # value and fees moved; re-read on the next health check
-            await self._check_settled(signature, payment.amount, payment.max_fee, before or 0, payment.mint)
+            await self._check_settled(signature, payment.amount, payment.max_fee, payment.mint)
         currency = "SOL" if payment.mint == WSOL_MINT else "USDC"
         logger.info("x402_settled", amount=payment.amount, currency=currency)
         return Settlement(signature=signature, payer=payment.payer, amount=payment.amount, mint=payment.mint)
 
-    async def _check_settled(  # noqa: PLR0913
-        self, signature: str, amount: int, max_fee: int, before: int, mint: Pubkey = WSOL_MINT
-    ) -> None:
+    async def _landed(self, raw: bytes) -> str | None:
+        """
+        Whether this exact transaction already landed (a retry after a restart, say), so it isn't sent again.
+
+        :param raw: The fully signed transaction.
+        :return: Its signature if it is confirmed, ``None`` if it isn't known (or the lookup failed).
+        :raises TransactionFailedError: If it landed and failed.
+        """
+        signature = str(VersionedTransaction.from_bytes(raw).signatures[0])
+        try:
+            status = await self.rpc.signature_status(signature)
+        except RpcError:
+            return None
+        if status is None:
+            return None
+        if status.get("err") is not None:
+            raise TransactionFailedError(f"transaction failed: {status['err']}")
+        return signature if status.get("confirmationStatus") in {"confirmed", "finalized"} else None
+
+    async def _check_settled(self, signature: str, amount: int, max_fee: int, mint: Pubkey = WSOL_MINT) -> None:
         """
         Confirm from the landed transaction that the token account grew by exactly ``amount`` and fees stayed bounded.
 
-        Uses the transaction's own pre/post token balances; if the RPC hasn't indexed it yet, falls back to the
-        account balance (exact, since settlements hold the wallet lock).
+        Uses only the transaction's own pre/post token balances, never the account balance: credit purchases land in
+        the same token account at any time, so a balance difference can't be attributed. If the RPC hasn't indexed
+        the transaction after the retries, the payment stands on its confirmation and the simulation (logged).
 
         :param signature: The settled transaction.
         :param amount: The amount paid.
         :param max_fee: The largest fee the payment allowed.
-        :param before: The token account balance before submission.
         :param mint: The paid mint.
         :raises SettlementMismatchError: On any difference (also logged as an error and kept as an alert).
         """
         assert self.hot is not None  # noqa: S101
-        token_account = associated_token_address(self.hot.pubkey, mint)
-        account = str(token_account)
+        account = str(associated_token_address(self.hot.pubkey, mint))
+
         detail = ""
         for _ in range(_META_RETRIES):
             tx = await self.rpc.parsed_transaction(signature)
@@ -417,9 +435,7 @@ class X402:
                 break
             await asyncio.sleep(0.5)
         else:
-            delta = (await self.rpc.token_balance(token_account) or 0) - before
-            if delta != amount:
-                detail = f"token account grew by {delta}, expected {amount} (balance fallback)"
+            logger.warning("x402_settlement_unverified", signature=signature)
         if detail:
             logger.error("x402_post_settlement_mismatch", signature=signature, detail=detail)
             self._mismatches.append(signature)

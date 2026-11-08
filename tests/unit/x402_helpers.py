@@ -150,6 +150,7 @@ class FakeRpc(SolanaRpc):
         self.sim_error: Any = None
         self.sim_inner: list[int] | None = None
         self.failed: set[str] = set()
+        self.statuses: dict[str, dict[str, Any]] = {}  # signature → getSignatureStatuses entry
         self.landed_delta: int | None = None
         self.landed_fee = 10_000
         self.sent: list[bytes] = []
@@ -170,6 +171,9 @@ class FakeRpc(SolanaRpc):
 
     async def latest_blockhash(self) -> str:
         return BLOCKHASH
+
+    async def signature_status(self, signature: str) -> dict[str, Any] | None:
+        return self.statuses.get(signature)
 
     async def recent_signatures(self, address: Pubkey, limit: int = 20) -> list[str]:
         return self.signatures

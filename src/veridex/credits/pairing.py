@@ -19,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
+from veridex.visitors import network_of
+
 # Unambiguous characters for a code people compare by eye: no 0/O, 1/I/L, 5/S, 2/Z, 8/B.
 _CODE_ALPHABET = "34679ACDEFGHJKMNPQRTUVWXY"
 _GRACE_S = 600  # expired pairings answer "expired" (not "unknown") for this long after their expiry
@@ -101,7 +103,7 @@ class PairingStore:
         self._hits = {k: v for k, v in self._hits.items() if v and v[-1] > now - _WINDOW_S}
 
     def _allow(self, ip: str, now: float) -> bool:
-        key = hashlib.blake2b(ip.encode(), key=self._salt, digest_size=16).hexdigest()
+        key = hashlib.blake2b(network_of(ip).encode(), key=self._salt, digest_size=16).hexdigest()
         hits = self._hits.setdefault(key, deque())
         while hits and hits[0] <= now - _WINDOW_S:
             hits.popleft()
@@ -119,7 +121,8 @@ class PairingStore:
         """
         now = self.clock()
         self._sweep(now)
-        if len(self._pairings) >= self.max_pairings or not self._allow(ip, now):
+        live = sum(1 for p in self._pairings.values() if p.expires > now)  # expired ones only wait out the grace
+        if live >= self.max_pairings or not self._allow(ip, now):
             return None
         pair_id = secrets.token_urlsafe(16)
         pairing = Pairing(code=new_code(), expires=now + self.ttl_s)

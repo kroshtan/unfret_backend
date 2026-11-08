@@ -106,3 +106,59 @@ async def test_oversized_page_facts_are_rejected(client: httpx.AsyncClient, crea
     body = {**PAGE, "page_facts": {"variations": ["x"] * 101}}
 
     assert (await client.post("/v1/analyze", json=body, headers=headers)).status_code == 422
+
+
+async def test_same_listing_is_served_from_memory(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, create_account: Any
+) -> None:
+    headers = await create_account("alice")
+    again = {**PAGE, "url": f"{PAGE['url']}?utm_source=mail#reviews"}
+
+    first = await client.post("/v1/analyze", json=PAGE, headers=headers)
+    second = await client.post("/v1/analyze", json=again, headers=headers)
+
+    assert first.json() == second.json()
+    assert len(graph.calls) == 1
+    assert await pool.fetchval("SELECT COUNT(*) FROM analyze_log") == 2  # still counts towards the quota
+
+
+async def test_checkout_pages_bypass_the_cache(
+    client: httpx.AsyncClient, graph: FakeGraph, create_account: Any
+) -> None:
+    headers = await create_account("alice")
+    body = {**PAGE, "checkout_content": "<p>Total: €40</p>"}
+
+    await client.post("/v1/analyze", json=body, headers=headers)
+    await client.post("/v1/analyze", json=body, headers=headers)
+
+    assert len(graph.calls) == 2
+    assert graph.calls[0]["checkout_content"] == "<p>Total: €40</p>"
+
+
+async def test_stream_sends_findings_then_result(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, create_account: Any
+) -> None:
+    headers = await create_account("alice")
+
+    response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)
+
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = [block.split("\n") for block in response.text.strip().split("\n\n")]
+    names = [lines[0].removeprefix("event: ") for lines in events]
+    assert names == ["page_type", "finding", "result"]
+    assert '"evidence": "85% off."' in events[1][1]
+    assert events[2][1] == 'data: {"score": 80, "explanation": "Looks legitimate."}'
+    assert await pool.fetchval("SELECT COUNT(*) FROM analyze_log") == 1
+
+
+async def test_stream_reports_failure_without_details(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, create_account: Any
+) -> None:
+    headers = await create_account("alice")
+    graph.error = RuntimeError("key sk-secret invalid")
+
+    response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)
+
+    assert "event: error" in response.text
+    assert "sk-secret" not in response.text
+    assert await pool.fetchval("SELECT COUNT(*) FROM analyze_log") == 0

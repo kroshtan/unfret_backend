@@ -24,7 +24,7 @@ def get_llm() -> BaseChatModel:
         api_key=settings.llm_api_key,
         temperature=0,
         timeout=settings.llm_timeout_s,
-        max_retries=1,
+        max_retries=settings.llm_max_retries,
     )
 
 

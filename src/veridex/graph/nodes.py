@@ -121,10 +121,13 @@ async def judge_node(state: AnalysisState) -> dict:
     """
     Synthesise all skill findings into a final score and explanation.
 
+    Skills run in parallel and their findings arrive in completion order, so they are sorted (classification
+    first, then by skill name) to give the judge the same prompt for the same evidence.
+
     :param state: Current graph state; uses ``skill_results``.
     :return: ``score`` and ``explanation``.
     """
-    findings = "\n\n".join(state["skill_results"])
+    findings = "\n\n".join(sorted(state["skill_results"], key=lambda r: (not r.startswith("[classify]"), r)))
     output: _JudgeOutput = await get_structured_llm(_JudgeOutput).ainvoke(
         [
             SystemMessage(content=_JUDGE_SYSTEM),

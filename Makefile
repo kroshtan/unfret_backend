@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label eval
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -26,6 +26,23 @@ test-integration: db-up  ## Run integration tests against a throwaway Postgres c
 
 test: db-up  ## Run the full test suite
 	VERIDEX_TEST_POSTGRES_URI=$(TEST_DB_URI) uv run pytest
+
+corpus:  ## Build the eval corpus from public datasets (into VERIDEX_CORPUS_DIR)
+	uv run python -m evals.sources.beyondphish
+	uv run python -m evals.sources.amazon2023
+	uv run python -m evals.sources.mendeley
+
+opinions:  ## Get the LLM second opinion on every corpus page and rebuild the review queue
+	uv run python -m evals.second_opinion
+
+split:  ## Assign the fixed train/test split (rule-only labels never go to test)
+	uv run python -m evals.split
+
+label:  ## Work through the review queue, one keypress per page
+	uv run python -m evals.label
+
+eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
+	uv run python -m evals.run $(EVAL_ARGS)
 
 db-up:  ## Start the test Postgres container (port 55432)
 	@docker inspect $(TEST_DB_CONTAINER) >/dev/null 2>&1 || docker run -d --rm --name $(TEST_DB_CONTAINER) \

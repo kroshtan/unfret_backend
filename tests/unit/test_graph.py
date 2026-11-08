@@ -130,3 +130,13 @@ async def test_failing_skill_degrades_instead_of_failing(
     assert result["score"] == 60
     assert "[bad]\nSkill unavailable." in result["skill_results"]
     assert "[good]\nok" in result["skill_results"]
+
+
+async def test_judge_sees_findings_in_a_stable_order(fake_llm: FakeLLM) -> None:
+    fake_llm.outputs[nodes._JudgeOutput] = nodes._JudgeOutput(score=50, explanation="x")
+    state: dict[str, Any] = {"skill_results": ["[zeta]\nz", "[alpha]\na", "[classify]\nPage type: storefront"]}
+
+    await nodes.judge_node(state)  # type: ignore[arg-type]
+
+    prompt = fake_llm.prompts[-1][1].content
+    assert prompt.index("[classify]") < prompt.index("[alpha]") < prompt.index("[zeta]")

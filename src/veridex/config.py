@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.scaleway.ai/v1"
     llm_model: str = "mistral-small-3.2-24b-instruct-2506"
     llm_timeout_s: float = 60.0
+    llm_max_retries: int = 1
 
     # Analysis limits
     max_page_bytes: int = 2 * 1024 * 1024

@@ -23,6 +23,8 @@ env:
     - VERIDEX_SESSION_SECRET
     - VERIDEX_HOT_WALLET_KEY  # the mainnet hot wallet (fee payer and receiver)
     - VERIDEX_COLD_ADDRESS  # the cold wallet (sweep destination)
+    - VERIDEX_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+    - VERIDEX_VISION_API_KEY  # optional: reverse image search (Google Cloud Vision); off while empty
 
 accessories:
   # Reached by the app as veridex-prod-db on the `kamal` network; never published. forge-infra's nightly backup

@@ -23,6 +23,8 @@ env:
     - VERIDEX_SESSION_SECRET  # sign-in and credits
     - VERIDEX_HOT_WALLET_KEY  # x402 + credit purchases (fee payer and receiver); a devnet-only key
     - VERIDEX_COLD_ADDRESS  # sweep destination
+    - VERIDEX_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+    - VERIDEX_VISION_API_KEY  # optional: reverse image search (Google Cloud Vision); off while empty
 
 accessories:
   # Reached by the app as veridex-dev-db on the `kamal` network; never published. forge-infra's nightly backup

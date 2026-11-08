@@ -257,7 +257,7 @@ def compute_budget(message: Message | MessageV0, max_units: int, max_price: int)
         }
         if kind not in sizes or len(data) != sizes[kind] or kind in seen:
             raise PaymentError("invalid_compute_budget_instructions")
-        seen[kind] = struct.unpack("<I" if sizes[kind] == 5 else "<Q", data[1:])[0]  # noqa: PLR2004
+        seen[kind] = struct.unpack("<I" if sizes[kind] == 5 else "<Q", data[1:])[0]
     limit, price = seen.get(_SET_COMPUTE_UNIT_LIMIT), seen.get(_SET_COMPUTE_UNIT_PRICE, 0)
     if price > max_price or (limit is not None and limit > max_units):
         raise PaymentError("compute_budget_too_high")
@@ -345,7 +345,7 @@ def precheck(  # noqa: C901, PLR0912
     signers = message.header.num_required_signatures
     if keys[0] != fee_payer:
         raise PaymentError("fee_payer_mismatch")
-    if signers < 2 or len(tx.signatures) != signers:  # noqa: PLR2004
+    if signers < 2 or len(tx.signatures) != signers:
         raise PaymentError("unexpected_signers")
     signed = to_bytes_versioned(message)
     if not all(tx.signatures[i].verify(keys[i], signed) for i in range(1, signers)):

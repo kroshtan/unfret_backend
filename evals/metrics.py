@@ -77,7 +77,7 @@ def binary_metrics(outcomes: Sequence[Outcome], threshold: int) -> BinaryMetrics
     for o in outcomes:
         if not o.scored:
             continue
-        assert o.score is not None  # noqa: S101 - guaranteed by .scored
+        assert o.score is not None
         predicted = o.score < threshold
         actual = o.label in UNRELIABLE
         tp += predicted and actual
@@ -104,7 +104,7 @@ def roc_auc(outcomes: Sequence[Outcome]) -> float | None:
     wins = 0.0
     for p in positives:
         for n in negatives:
-            assert p is not None and n is not None  # noqa: S101 - scored pages have scores
+            assert p is not None and n is not None
             wins += 1.0 if p < n else 0.5 if p == n else 0.0
     return wins / (len(positives) * len(negatives))
 
@@ -124,7 +124,7 @@ def score_distributions(outcomes: Sequence[Outcome]) -> dict[str, dict[str, floa
     by_label: dict[str, list[float]] = defaultdict(list)
     for o in outcomes:
         if o.scored:
-            assert o.score is not None  # noqa: S101 - guaranteed by .scored
+            assert o.score is not None
             by_label[o.label].append(float(o.score))
     return {
         label: {

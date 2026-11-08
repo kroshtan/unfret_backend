@@ -45,7 +45,6 @@ class NonceResponse(BaseModel):
     issued_at: str
     expiration_time: str
     version: str
-    chain_id: str
 
 
 class VerifyRequest(BaseModel):
@@ -135,7 +134,6 @@ def nonce(request: Request, pair: str | None = Query(default=None, max_length=64
         door.secret,
         domain=settings.siws_domain,
         uri=settings.public_base_url,
-        chain_id=door.chain_id,
         ttl_s=settings.nonce_ttl_s,
         statement=statement,
     )

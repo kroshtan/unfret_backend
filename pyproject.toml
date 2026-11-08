@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "veridex"
 description = "LLM-powered API that scores e-commerce product pages for scam and dropshipping signals"
-version = "0.5.0"
+version = "0.6.0"
 authors = [
     { name = "Floris van Beers", email = "freelancing@kroshtan.com" },
 ]
@@ -94,6 +94,12 @@ select = [
     "T20",
     # to do: Format to do comments
     "TD",
+    # Bandit: security issues
+    "S",
+    # Blind except: catching Exception needs a reason (noqa with one)
+    "BLE",
+    # Unused noqa directives
+    "RUF100",
     # Ban relative imports
     "TID252",
     # Pyupgrade: Upgrade syntax to newer versions
@@ -121,12 +127,18 @@ ignore = [
     "F401", "F403",
 ]
 "tests/**" = [
-    # Tests don't need docstrings, annotations on fixtures, or packages
-    "D", "ANN", "INP001", "PLR2004",
+    # Tests don't need docstrings, annotations on fixtures, or packages; they assert, and use fake secrets
+    "D", "ANN", "INP001", "PLR2004", "S101", "S104", "S105", "S106", "S311", "S603", "S607",
 ]
 "mcp/tests/**" = [
     # Same as tests/
-    "D", "ANN", "INP001", "PLR2004",
+    "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "S311",
+]
+# Owned by the analysis work (wave B): its RDAP fallback loop is deliberate; it can move into the file there.
+"src/veridex/graph/skills/domain_age.py" = ["S112"]
+"evals/**" = [
+    # Offline evaluation tooling: asserts and seeded sampling are fine there
+    "S101", "S311",
 ]
 "scripts/**" = [
     # Standalone CLI scripts
@@ -184,8 +196,6 @@ addopts = [
 ]
 env = [
     "VERIDEX_LLM_API_KEY=test-key",
-    "VERIDEX_PADDLE_WEBHOOK_SECRET=test-webhook-secret",
-    "VERIDEX_SIGNUP_SECRET=test-signup-secret",
 ]
 
 [tool.coverage.report]

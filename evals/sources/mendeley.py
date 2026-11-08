@@ -80,7 +80,7 @@ async def build(corpus: Corpus, limit: int | None) -> None:
                 misses.add(url)
                 misses_path.write_text("\n".join(sorted(misses)) + "\n")
                 continue
-            assert snapshot is not None  # noqa: S101 - html is only set when there was a snapshot
+            assert snapshot is not None
             batch.append(
                 (
                     LabelRecord(

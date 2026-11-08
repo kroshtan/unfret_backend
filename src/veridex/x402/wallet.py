@@ -50,7 +50,7 @@ def load_keypair(secret: str) -> Keypair:
         if secret.startswith("["):
             return Keypair.from_bytes(bytes(json.loads(secret)))
         return Keypair.from_base58_string(secret)
-    except Exception:
+    except ValueError, TypeError, OverflowError:  # JSON, byte values, the key itself
         # Deliberately unchained and without detail: parsing errors can echo part of the secret.
         raise ValueError("invalid keypair") from None
 
@@ -149,7 +149,7 @@ def build_sweep(
     return Sweep(message=message, to_cold=to_cold, _token=_SWEEP)
 
 
-def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None) -> None:  # noqa: C901
+def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None) -> None:
     """
     Validate a sweep's instructions independently of how it was built.
 
@@ -193,7 +193,7 @@ def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | 
             steps.append("create_usdc")
         elif (
             program == SYSTEM_PROGRAM
-            and len(data) == 12  # noqa: PLR2004
+            and len(data) == 12
             and int.from_bytes(data[:4], "little") == _SYSTEM_TRANSFER
             and accounts == [hot, cold]
         ):

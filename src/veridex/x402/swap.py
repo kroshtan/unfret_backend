@@ -174,7 +174,7 @@ def _token_state(account: dict[str, Any] | None, *, owner: Pubkey, mint: Pubkey)
     return int(info["tokenAmount"]["amount"])
 
 
-async def verify_swap(  # noqa: C901, PLR0912, PLR0913
+async def verify_swap(  # noqa: C901, PLR0912
     raw_tx: bytes,
     *,
     rpc: SolanaRpc,

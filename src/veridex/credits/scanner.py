@@ -151,7 +151,7 @@ def credits_for(tx: dict[str, Any], hot: str, mint: str | None = None) -> dict[s
 class CreditScanner:
     """Credits incoming SOL (or USDC) transfers to the hot wallet, exactly once each."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         rpc: SolanaRpc,
         pool: asyncpg.Pool,

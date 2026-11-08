@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.0](https://github.com/kroshtan/veridex_backend/compare/0.5.0...0.6.0) (2026-11-08)
+
 Open-source release.
 
 ### Features
@@ -13,7 +15,7 @@ Open-source release.
 * USDC→SOL swaps before sweeping (mainnet): Jupiter routes, verified by simulation before the hot wallet signs (exact USDC out, at least the slippage bound and a Pyth floor in, fee-only SOL debit, no delegate/close authority/owner change); the cold wallet only ever receives SOL. The sweep job also creates the hot wallet's USDC account; the outflow audit recognises swaps by their net effect
 * The MCP server pays in USDC when offered and held, otherwise SOL, with per-currency spend caps; `/checkout` has a SOL/USDC switch
 * Minimum credit purchase raised to one check ($0.15)
-* Credits door replaces accounts: Sign-In With Solana (stateless nonces and session tokens; the signature grants no spending rights) and a lamport balance per wallet, the only user state stored. `/v1/analyze` (and its stream) debits atomically and refunds pages that can't be analysed and failed analyses
+* Credits door replaces accounts: Sign-In With Solana (stateless nonces and session tokens; the signature grants no spending rights) and a balance per wallet (micro-dollars since migration 5), the only user state stored. `/v1/analyze` (and its stream) debits atomically and refunds pages that can't be analysed and failed analyses
 * Buying credits with SOL: `/v1/pricing`, `/v1/credits`, `/v1/credits/purchase-tx` (unsigned transfer + Solana Pay link) and a QR endpoint; a scanner credits finalized incoming transfers to the hot wallet exactly once (cursor moved by compare-and-swap), with purchase bonuses
 * `/connect` (sign in, hand the session to the browser extension, which confirms receipt) and `/checkout` (buy credits from a browser wallet or a phone via Solana Pay QR): static HTML and vanilla JS with a strict CSP, Wallet Standard discovery without dependencies
 * Smart-wallet purchases: `purchase-tx` takes a `beneficiary`, recorded in a `veridex:credit:<pubkey>` memo the scanner credits (exactly one well-formed memo, else the sender), so a vault can buy for the key that signs in
@@ -32,7 +34,6 @@ Open-source release.
 
 * x402 fee drain closed: payments may not reference slot-dependent sysvars or use address lookup tables, may run only known wallet programs (System, Token, ATA, Compute Budget, Memo, Squads v3/v4, Lighthouse; checked at top level and, from the simulation, by CPI), and may set a priority fee of at most 5% of the tier's price. A failed-settlement breaker (per payer, per visitor network, global, per hour) answers `503 SETTLEMENTS_PAUSED` once failures that cost the hot wallet a fee pile up
 * Readiness shows the hot wallet's balances and the alert names only with `VERIDEX_ADMIN_TOKEN` (others get the alert count)
-* Paddle webhook now fails closed when no secret is configured, rejects stale signatures, and can no longer modify admin or blocked accounts
 * Image and review-page downloads are protected against SSRF (private/link-local addresses blocked, redirects re-validated, size capped)
 * Login no longer leaks whether a username exists through response timing; bcrypt runs off the event loop
 * Internal error details are no longer returned to API clients
@@ -48,7 +49,6 @@ Open-source release.
 * Swaps: only Jupiter's aggregator, the token programs and compute budget may run at top level of a swap transaction
 * The outflow audit no longer raises a compromise signal for failed transactions or ones the hot wallet didn't sign, pages back to the last audited transaction instead of looking at the newest 20 (a burst of payments could hide an outflow), keeps a bounded memory, and its sticky alerts can be cleared by the operator (`POST /v1/admin/x402/clear-alerts`) instead of only by a restart
 * A credit purchase, or a memo naming a wallet, no longer uses up that wallet's free trial (a `trial_granted` flag replaces "has a row")
-* Passwords longer than 72 bytes caused a 500 on login
 * Relative "see reviews" links were resolved against the site root instead of the page
 * Daily quota now resets at midnight UTC regardless of database timezone
 * Reverse image search reported "no dropship domains" when every search had failed
@@ -56,6 +56,12 @@ Open-source release.
 
 ### Maintenance
 
+* Logs are one JSON object per line, and a processor drops page and visitor fields (`url`, `ip`, …) and masks URLs and IP addresses in every other value; the start-up log states the configuration without secrets (`VERIDEX_LOG_JSON=false` for readable local logs)
+* Settings that contradict each other (purchase limits below one check, unsorted bonus tiers, a wide quote tolerance, a sweep reserve above its threshold, …) are refused at start-up
+* Ruff now also runs Bandit (`S`), blind-except (`BLE`) and unused-`noqa` (`RUF100`) checks; the real findings are fixed
+* `chain_id` removed from `GET /v1/auth/nonce` (unused since sign-in stopped sending a chain ID); leftover Paddle and signup test settings removed
+* `docs/api-contract-v1.md` is the API contract, and an OpenAPI snapshot test (`tests/snapshots/openapi.json`) flags any contract change
+* `make bump VERSION=x.y.z` sets the version and dates the CHANGELOG (no commit, tag or deploy)
 * **Breaking:** removed username/password accounts, the signup key, Paddle billing and webhooks, admin routes, tiers and daily limits, and the analysis log (migration 4 drops `accounts` and `analyze_log`); `bcrypt` and the email-validation extra are gone. `scripts/grant_credits.py` replaces `promote_admin.py`
 * LLM provider is configurable: any OpenAI-compatible API (`VERIDEX_LLM_BASE_URL`), Scaleway Generative APIs with `mistral-small-3.2-24b-instruct-2506` by default, replacing `gpt-4o-mini` (removed from OpenAI's API on 2027-01-14). `VERIDEX_OPENAI_API_KEY` is now `VERIDEX_LLM_API_KEY`
 * Structured LLM output uses tool calling

@@ -18,9 +18,9 @@ from veridex.x402.wallet import HotWallet
 
 # The MCP package lives in mcp/ with its own environment; its payment module needs only solders and httpx.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mcp" / "src"))
-from veridex_mcp.payer import build_payment, choose_requirement  # noqa: E402
+from veridex_mcp.payer import build_payment, choose_requirement
 
-from veridex.x402.payment import requirements  # noqa: E402
+from veridex.x402.payment import requirements
 
 HOT = Keypair()
 AGENT = Keypair()

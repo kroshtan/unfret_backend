@@ -65,7 +65,7 @@ class UnauthorizedError(CustomAPIError):
 
     status_code = status.HTTP_401_UNAUTHORIZED
     error_code = "UNAUTHORIZED"
-    headers = {"WWW-Authenticate": "Bearer"}  # noqa: RUF012 - class-level constant, never mutated
+    headers = {"WWW-Authenticate": "Bearer"}
 
 
 class InsufficientCreditsError(CustomAPIError):

@@ -90,7 +90,7 @@ async def evaluate(
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(record: LabelRecord) -> Outcome:
-        assert record.label is not None  # noqa: S101 - only labelled records are selected
+        assert record.label is not None
         usage = UsageMetadataCallbackHandler()
         async with semaphore:
             start = time.perf_counter()

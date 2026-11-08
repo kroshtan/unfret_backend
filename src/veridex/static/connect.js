@@ -35,9 +35,18 @@ function setButtons(enabled) {
   list.querySelectorAll("button").forEach((button) => (button.disabled = !enabled));
 }
 
+// A phone camera usually opens the system browser, which has no wallet. Phantom's and Solflare's universal links
+// reopen this exact page inside the wallet app's own browser, where the wallet is available.
+const openInWallet = document.getElementById("open-in-wallet");
+document.getElementById("open-phantom").href =
+  `https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`;
+document.getElementById("open-solflare").href =
+  `https://solflare.com/ul/v1/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`;
+
 function render(wallets) {
   list.replaceChildren(...wallets.map((wallet) => walletButton(wallet, connect)));
   empty.hidden = wallets.length > 0;
+  openInWallet.hidden = wallets.length > 0 || !pairId;
   setButtons(pairReady);
 }
 

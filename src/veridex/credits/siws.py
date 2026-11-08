@@ -86,7 +86,6 @@ class SignInFields:
     statement: str
     uri: str
     version: str
-    chain_id: str
     nonce: str
     issued_at: str
     expiration_time: str
@@ -121,7 +120,7 @@ def statement_of(text: str) -> str:
     :return: The statement.
     """
     lines = text.split("\n")
-    if len(lines) > 4 and lines[2] == "" and lines[4] == "":  # noqa: PLR2004 - header, address, blank, statement, blank
+    if len(lines) > 4 and lines[2] == "" and lines[4] == "":
         return lines[3]
     return ""
 
@@ -135,7 +134,7 @@ def parse_message(text: str) -> dict[str, str]:
     :raises SignInError: If the text isn't a Solana sign-in message.
     """
     lines = text.split("\n")
-    if len(lines) < 2 or not lines[0].endswith(_HEADER):  # noqa: PLR2004
+    if len(lines) < 2 or not lines[0].endswith(_HEADER):
         raise SignInError("Not a sign-in message.")
     fields = {"domain": lines[0][: -len(_HEADER)], "address": lines[1].strip()}
     for line in lines[2:]:
@@ -251,16 +250,13 @@ def check_token(secret: str, token: str, now: float | None = None) -> str:
     return address
 
 
-def nonce_response(
-    secret: str, *, domain: str, uri: str, chain_id: str, ttl_s: int, statement: str = STATEMENT
-) -> dict[str, str]:
+def nonce_response(secret: str, *, domain: str, uri: str, ttl_s: int, statement: str = STATEMENT) -> dict[str, str]:
     """
     Everything a client needs to build the sign-in message (``GET /v1/auth/nonce``).
 
     :param secret: The session secret.
     :param domain: The bound domain.
     :param uri: The site URI.
-    :param chain_id: ``mainnet`` or ``devnet``.
     :param ttl_s: Nonce lifetime.
     :param statement: The statement to sign (a phone pairing names its confirmation code).
     :return: The sign-in input fields.
@@ -275,5 +271,4 @@ def nonce_response(
         "issued_at": _iso(now),
         "expiration_time": _iso(expires),
         "version": "1",
-        "chain_id": chain_id,
     }

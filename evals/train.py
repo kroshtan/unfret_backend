@@ -153,7 +153,7 @@ def outcomes(model: Model, data: Dataset, names: list[str]) -> list[Outcome]:
     result: list[Outcome] = []
     for record, row in zip(data.records, data.x, strict=True):
         risk = model.probability(dict(zip(names, row.tolist(), strict=True)))
-        assert record.label is not None  # noqa: S101 - only labelled records are built
+        assert record.label is not None
         result.append(Outcome(id=record.id, label=record.label, score=round(100 * (1 - risk))))
     return result
 

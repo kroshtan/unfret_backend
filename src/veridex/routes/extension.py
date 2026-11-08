@@ -62,7 +62,8 @@ def current_release(release_dir: Path | None = None) -> Release | None:
     """
     root = release_dir or RELEASE_DIR
     try:
-        app = ET.parse(root / "updates.xml").getroot().find(f"{_GUPDATE_NS}app")
+        # Our own release manifest, written by the release script: not untrusted input.
+        app = ET.parse(root / "updates.xml").getroot().find(f"{_GUPDATE_NS}app")  # noqa: S314
         check = app.find(f"{_GUPDATE_NS}updatecheck") if app is not None else None
         checksums = (root / "SHA256SUMS").read_text(encoding="utf-8")
     except OSError, ET.ParseError:

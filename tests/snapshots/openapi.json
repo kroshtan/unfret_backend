@@ -1,0 +1,1847 @@
+{
+ "components": {
+  "schemas": {
+   "AnalyzeRequest": {
+    "description": "Request body for the analyze endpoint.",
+    "properties": {
+     "checkout_content": {
+      "anyOf": [
+       {
+        "maxLength": 2097152,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "HTML of the checkout page for this product, if available, to detect fees added at checkout.",
+      "title": "Checkout Content"
+     },
+     "flags": {
+      "description": "Names of optional skills to activate in addition to the default set.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Flags",
+      "type": "array"
+     },
+     "page_content": {
+      "anyOf": [
+       {
+        "maxLength": 2097152,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Raw HTML, or the page's cleaned main text when page_facts is supplied.",
+      "title": "Page Content"
+     },
+     "page_facts": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/PageFacts"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Facts extracted from the rendered page (e.g. by the browser extension). When absent, the server extracts them from page_content."
+     },
+     "url": {
+      "default": "",
+      "description": "URL of the product page.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "title": "AnalyzeRequest",
+    "type": "object"
+   },
+   "AnalyzeResponse": {
+    "description": "Response body for the analyze endpoint.",
+    "properties": {
+     "assessment": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The trained scorer's risk_score, confidence, weighted flags and model_version.",
+      "title": "Assessment"
+     },
+     "balance_lamports": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The wallet's balance after this analysis.",
+      "title": "Balance Lamports"
+     },
+     "charged": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether this analysis used a check: false for pages that couldn't be analysed (score -1) and for results served from the cache.",
+      "title": "Charged"
+     },
+     "explanation": {
+      "description": "One-line explanation of the score.",
+      "title": "Explanation",
+      "type": "string"
+     },
+     "score": {
+      "description": "Reliability score: 0 (scam) \u2192 100 (legitimate); -1 = not analysed.",
+      "maximum": 100.0,
+      "minimum": -1.0,
+      "title": "Score",
+      "type": "integer"
+     },
+     "verdict": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/veridex__shopper__Verdict"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "For shoppers: the band in words, a headline and up to three plain reasons, in the language of the Accept-Language header (en, nl)."
+     }
+    },
+    "required": [
+     "score",
+     "explanation"
+    ],
+    "title": "AnalyzeResponse",
+    "type": "object"
+   },
+   "CheckRequest": {
+    "description": "What to check, how deeply, and how cautious the caller wants the action to be.",
+    "properties": {
+     "page_content": {
+      "anyOf": [
+       {
+        "maxLength": 2097152,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The page's HTML, if the agent has it (required for marketplaces that block server fetches).",
+      "title": "Page Content"
+     },
+     "policy": {
+      "default": "balanced",
+      "enum": [
+       "strict",
+       "balanced",
+       "lenient"
+      ],
+      "title": "Policy",
+      "type": "string"
+     },
+     "tier": {
+      "default": "quick",
+      "enum": [
+       "quick",
+       "deep"
+      ],
+      "title": "Tier",
+      "type": "string"
+     },
+     "url": {
+      "description": "URL of the store or product page.",
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "title": "CheckRequest",
+    "type": "object"
+   },
+   "Checkbox": {
+    "description": "A checkbox on the page, e.g. an add-on in a cart or checkout form.",
+    "properties": {
+     "checked": {
+      "default": false,
+      "title": "Checked",
+      "type": "boolean"
+     },
+     "label": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Label",
+      "type": "string"
+     },
+     "name": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "title": "Checkbox",
+    "type": "object"
+   },
+   "CreditsResponse": {
+    "description": "A wallet's balance.",
+    "properties": {
+     "address": {
+      "title": "Address",
+      "type": "string"
+     },
+     "balance_lamports": {
+      "description": "Deprecated: the same micro-dollar balance under its old name, kept for older clients.",
+      "title": "Balance Lamports",
+      "type": "integer"
+     },
+     "balance_usd_micros": {
+      "description": "The balance in micro-dollars (1 USD = 1,000,000).",
+      "title": "Balance Usd Micros",
+      "type": "integer"
+     },
+     "checks_remaining": {
+      "title": "Checks Remaining",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "address",
+     "balance_usd_micros",
+     "checks_remaining",
+     "balance_lamports"
+    ],
+    "title": "CreditsResponse",
+    "type": "object"
+   },
+   "Flag": {
+    "description": "One factual signal and how much it contributed.",
+    "properties": {
+     "evidence": {
+      "title": "Evidence",
+      "type": "string"
+     },
+     "label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A short human label for the signal.",
+      "title": "Label"
+     },
+     "severity": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "high, medium or low.",
+      "title": "Severity"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     },
+     "weight": {
+      "description": "How much this signal matters (larger = more; high 1.0, medium 0.6, low 0.3).",
+      "minimum": 0.0,
+      "title": "Weight",
+      "type": "number"
+     }
+    },
+    "required": [
+     "type",
+     "evidence",
+     "weight"
+    ],
+    "title": "Flag",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "Healthy": {
+    "description": "Response schema for the health check endpoint.",
+    "properties": {
+     "credits": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Credits door: off, sign_in, ok (purchases on)",
+      "title": "Credits"
+     },
+     "hot_sol_lamports": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The x402 hot wallet's SOL (fee reserve)",
+      "title": "Hot Sol Lamports"
+     },
+     "hot_usdc_units": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Received USDC not yet swapped to SOL",
+      "title": "Hot Usdc Units"
+     },
+     "hot_wsol_lamports": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Received payments not yet swept to cold",
+      "title": "Hot Wsol Lamports"
+     },
+     "status": {
+      "default": "healthy",
+      "description": "The status of the health check",
+      "title": "Status",
+      "type": "string"
+     },
+     "version": {
+      "default": "<version>",
+      "description": "The version of the API",
+      "title": "Version",
+      "type": "string"
+     },
+     "x402": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Pay-per-check status: ok, off, low_balance, \u2026",
+      "title": "X402"
+     },
+     "x402_alert_count": {
+      "default": 0,
+      "description": "How many x402 alerts are raised",
+      "title": "X402 Alert Count",
+      "type": "integer"
+     },
+     "x402_alerts": {
+      "description": "sweep_failing, fee_reserve_low, \u2026 (with the operator token only)",
+      "items": {
+       "type": "string"
+      },
+      "title": "X402 Alerts",
+      "type": "array"
+     }
+    },
+    "title": "Healthy",
+    "type": "object"
+   },
+   "NonceResponse": {
+    "description": "The fields a wallet signs (Wallet Standard ``solana:signIn`` input).",
+    "properties": {
+     "domain": {
+      "title": "Domain",
+      "type": "string"
+     },
+     "expiration_time": {
+      "title": "Expiration Time",
+      "type": "string"
+     },
+     "issued_at": {
+      "title": "Issued At",
+      "type": "string"
+     },
+     "nonce": {
+      "title": "Nonce",
+      "type": "string"
+     },
+     "statement": {
+      "title": "Statement",
+      "type": "string"
+     },
+     "uri": {
+      "title": "Uri",
+      "type": "string"
+     },
+     "version": {
+      "title": "Version",
+      "type": "string"
+     }
+    },
+    "required": [
+     "domain",
+     "uri",
+     "statement",
+     "nonce",
+     "issued_at",
+     "expiration_time",
+     "version"
+    ],
+    "title": "NonceResponse",
+    "type": "object"
+   },
+   "PageFacts": {
+    "description": "Structured facts about one product page. Absent facts are ``None`` or empty, never guessed.",
+    "properties": {
+     "brand": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Brand",
+      "type": "string"
+     },
+     "checkboxes": {
+      "items": {
+       "$ref": "#/components/schemas/Checkbox"
+      },
+      "maxItems": 100,
+      "title": "Checkboxes",
+      "type": "array"
+     },
+     "currency": {
+      "default": "",
+      "maxLength": 8,
+      "title": "Currency",
+      "type": "string"
+     },
+     "date_first_available": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Date First Available"
+     },
+     "fee_mentions": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Fee Mentions",
+      "type": "array"
+     },
+     "hidden_text": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Hidden Text",
+      "type": "array"
+     },
+     "image_urls": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Image Urls",
+      "type": "array"
+     },
+     "json_ld": {
+      "description": "Product JSON-LD.",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "maxItems": 20,
+      "title": "Json Ld",
+      "type": "array"
+     },
+     "legal_mentions": {
+      "description": "Imprint, company register and withdrawal-right text.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Legal Mentions",
+      "type": "array"
+     },
+     "list_price": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Struck-through 'was' / compare-at price.",
+      "title": "List Price"
+     },
+     "meta": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Meta",
+      "type": "object"
+     },
+     "platform": {
+      "default": "generic",
+      "enum": [
+       "amazon",
+       "bol.com",
+       "shopify",
+       "woocommerce",
+       "generic"
+      ],
+      "title": "Platform",
+      "type": "string"
+     },
+     "policy_links": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "Kind (refund, terms, privacy, contact, imprint, shipping) to URL.",
+      "title": "Policy Links",
+      "type": "object"
+     },
+     "price": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Price"
+     },
+     "rating": {
+      "anyOf": [
+       {
+        "maximum": 5.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating"
+     },
+     "rating_count": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating Count"
+     },
+     "rating_histogram": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "description": "Share of ratings (0\u20131) per star count 1\u20135.",
+      "title": "Rating Histogram",
+      "type": "object"
+     },
+     "reviews": {
+      "items": {
+       "$ref": "#/components/schemas/Review"
+      },
+      "maxItems": 100,
+      "title": "Reviews",
+      "type": "array"
+     },
+     "script_srcs": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 300,
+      "title": "Script Srcs",
+      "type": "array"
+     },
+     "seller": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Seller",
+      "type": "string"
+     },
+     "seller_rating": {
+      "anyOf": [
+       {
+        "maximum": 100.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Positive share in percent.",
+      "title": "Seller Rating"
+     },
+     "ships_from": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Ships From",
+      "type": "string"
+     },
+     "timers": {
+      "description": "Countdown elements or scripts.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 50,
+      "title": "Timers",
+      "type": "array"
+     },
+     "title": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Title",
+      "type": "string"
+     },
+     "url": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Url",
+      "type": "string"
+     },
+     "variations": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Variations",
+      "type": "array"
+     },
+     "vat_ids": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Vat Ids",
+      "type": "array"
+     }
+    },
+    "title": "PageFacts",
+    "type": "object"
+   },
+   "PairInfoResponse": {
+    "description": "What the phone page shows: the code to compare and when the pairing expires.",
+    "properties": {
+     "confirm_code": {
+      "title": "Confirm Code",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+     }
+    },
+    "required": [
+     "confirm_code",
+     "expires_at"
+    ],
+    "title": "PairInfoResponse",
+    "type": "object"
+   },
+   "PairResponse": {
+    "description": "A new phone pairing, for the extension to show as a QR code.",
+    "properties": {
+     "confirm_code": {
+      "title": "Confirm Code",
+      "type": "string"
+     },
+     "connect_url": {
+      "title": "Connect Url",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+     },
+     "pair_id": {
+      "title": "Pair Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "pair_id",
+     "confirm_code",
+     "connect_url",
+     "expires_at"
+    ],
+    "title": "PairResponse",
+    "type": "object"
+   },
+   "Positive": {
+    "description": "Something that looks good, for a shopper.",
+    "properties": {
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "title",
+     "detail"
+    ],
+    "title": "Positive",
+    "type": "object"
+   },
+   "PurchaseRequest": {
+    "description": "Who buys how much, in which currency.",
+    "properties": {
+     "address": {
+      "description": "The paying wallet (base58), which signs and sends the transfer.",
+      "maxLength": 64,
+      "title": "Address",
+      "type": "string"
+     },
+     "amount": {
+      "anyOf": [
+       {
+        "exclusiveMinimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Amount in the currency's base units.",
+      "title": "Amount"
+     },
+     "beneficiary": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The wallet that gets the credits (defaults to address), e.g. a member key when a smart-wallet vault pays. Recorded in a memo the scanner reads.",
+      "title": "Beneficiary"
+     },
+     "currency": {
+      "default": "SOL",
+      "description": "Pay in SOL or USDC.",
+      "enum": [
+       "SOL",
+       "USDC"
+      ],
+      "title": "Currency",
+      "type": "string"
+     },
+     "lamports": {
+      "anyOf": [
+       {
+        "exclusiveMinimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Amount of SOL in lamports (same as amount for SOL).",
+      "title": "Lamports"
+     }
+    },
+    "required": [
+     "address"
+    ],
+    "title": "PurchaseRequest",
+    "type": "object"
+   },
+   "PurchaseResponse": {
+    "description": "The unsigned transfer for the buyer's wallet, and the same request as a Solana Pay link.",
+    "properties": {
+     "amount": {
+      "title": "Amount",
+      "type": "integer"
+     },
+     "currency": {
+      "enum": [
+       "SOL",
+       "USDC"
+      ],
+      "title": "Currency",
+      "type": "string"
+     },
+     "hot_wallet": {
+      "title": "Hot Wallet",
+      "type": "string"
+     },
+     "lamports": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The amount for SOL purchases (backward compatible).",
+      "title": "Lamports"
+     },
+     "mint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The token mint for USDC purchases.",
+      "title": "Mint"
+     },
+     "solana_pay_url": {
+      "title": "Solana Pay Url",
+      "type": "string"
+     },
+     "transaction": {
+      "title": "Transaction",
+      "type": "string"
+     }
+    },
+    "required": [
+     "transaction",
+     "currency",
+     "amount",
+     "hot_wallet",
+     "solana_pay_url"
+    ],
+    "title": "PurchaseResponse",
+    "type": "object"
+   },
+   "Reason": {
+    "description": "Something that lowered the score, for a shopper.",
+    "properties": {
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "severity": {
+      "enum": [
+       "high",
+       "medium",
+       "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "title",
+     "detail",
+     "severity"
+    ],
+    "title": "Reason",
+    "type": "object"
+   },
+   "Review": {
+    "description": "One review as shown on the page.",
+    "properties": {
+     "body": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Body",
+      "type": "string"
+     },
+     "posted": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Posted"
+     },
+     "rating": {
+      "anyOf": [
+       {
+        "maximum": 5.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating"
+     },
+     "title": {
+      "default": "",
+      "maxLength": 300,
+      "title": "Title",
+      "type": "string"
+     },
+     "verified": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Verified"
+     }
+    },
+    "title": "Review",
+    "type": "object"
+   },
+   "SessionResponse": {
+    "description": "A session for a wallet.",
+    "properties": {
+     "address": {
+      "title": "Address",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+     },
+     "token": {
+      "title": "Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "token",
+     "address",
+     "expires_at"
+    ],
+    "title": "SessionResponse",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   },
+   "VerifyRequest": {
+    "description": "A signed sign-in message.",
+    "properties": {
+     "address": {
+      "description": "The wallet's public key (base58).",
+      "maxLength": 64,
+      "title": "Address",
+      "type": "string"
+     },
+     "pair_id": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Attach the session to this phone pairing (sign-in on a phone).",
+      "title": "Pair Id"
+     },
+     "signature": {
+      "description": "The ed25519 signature (base64).",
+      "maxLength": 128,
+      "title": "Signature",
+      "type": "string"
+     },
+     "signed_message": {
+      "description": "The exact bytes the wallet signed (base64).",
+      "maxLength": 4096,
+      "title": "Signed Message",
+      "type": "string"
+     }
+    },
+    "required": [
+     "address",
+     "signed_message",
+     "signature"
+    ],
+    "title": "VerifyRequest",
+    "type": "object"
+   },
+   "veridex__shopper__Verdict": {
+    "description": "The shopper-facing result of an analysis.",
+    "properties": {
+     "band": {
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "junk_or_scam"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "headline": {
+      "description": "One plain sentence explaining the verdict.",
+      "title": "Headline",
+      "type": "string"
+     },
+     "label": {
+      "description": "The band in words, in the requested language.",
+      "title": "Label",
+      "type": "string"
+     },
+     "language": {
+      "default": "en",
+      "title": "Language",
+      "type": "string"
+     },
+     "positives": {
+      "items": {
+       "$ref": "#/components/schemas/Positive"
+      },
+      "maxItems": 3,
+      "title": "Positives",
+      "type": "array"
+     },
+     "reasons": {
+      "items": {
+       "$ref": "#/components/schemas/Reason"
+      },
+      "maxItems": 3,
+      "title": "Reasons",
+      "type": "array"
+     }
+    },
+    "required": [
+     "band",
+     "label",
+     "headline"
+    ],
+    "title": "Verdict",
+    "type": "object"
+   },
+   "veridex__x402__verdict__Verdict": {
+    "description": "The response of ``POST /v1/check``.",
+    "properties": {
+     "action": {
+      "description": "\"warn\" means: ask your human before buying.",
+      "enum": [
+       "allow",
+       "warn",
+       "block"
+      ],
+      "title": "Action",
+      "type": "string"
+     },
+     "assessed": {
+      "default": true,
+      "description": "False when the page couldn't be assessed (not a product page): risk_score is null.",
+      "title": "Assessed",
+      "type": "boolean"
+     },
+     "band": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees.",
+      "title": "Band"
+     },
+     "cached": {
+      "default": false,
+      "title": "Cached",
+      "type": "boolean"
+     },
+     "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+     },
+     "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+     },
+     "flags": {
+      "items": {
+       "$ref": "#/components/schemas/Flag"
+      },
+      "title": "Flags",
+      "type": "array"
+     },
+     "model_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The scorer model that set risk_score, if any.",
+      "title": "Model Version"
+     },
+     "page_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "aggregate_listing (marketplace), storefront, article or non_product.",
+      "title": "Page Type"
+     },
+     "policy_applied": {
+      "enum": [
+       "strict",
+       "balanced",
+       "lenient"
+      ],
+      "title": "Policy Applied",
+      "type": "string"
+     },
+     "risk_score": {
+      "anyOf": [
+       {
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "0 = no concerns, 1 = clear risk; null if not assessed.",
+      "title": "Risk Score"
+     },
+     "summary": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "One plain sentence for the human you're buying for.",
+      "title": "Summary"
+     },
+     "tier": {
+      "enum": [
+       "quick",
+       "deep"
+      ],
+      "title": "Tier",
+      "type": "string"
+     }
+    },
+    "required": [
+     "action",
+     "risk_score",
+     "confidence",
+     "flags",
+     "policy_applied",
+     "tier",
+     "checked_at"
+    ],
+    "title": "Verdict",
+    "type": "object"
+   }
+  }
+ },
+ "info": {
+  "title": "Veridex Backend Service",
+  "version": "<version>"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/v1/analyze": {
+   "post": {
+    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the wallet's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same listing analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The signed-in wallet (injected by require_wallet).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment and the balance left.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.",
+    "operationId": "analyze_page_v1_analyze_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalyzeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AnalyzeResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Analyze Page",
+    "tags": [
+     "Analyze"
+    ]
+   }
+  },
+  "/v1/analyze/stream": {
+   "post": {
+    "description": "Analyse a page like ``POST /v1/analyze``, streaming the findings as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\"}``, with ``page_type`` once classified), then a\nfinal ``result`` (the ``POST /v1/analyze`` body) or ``error``. A client (the browser extension) can show progress\ninstead of a spinner. Charged like ``POST /v1/analyze``: free on a cache hit (the result comes at once),\nrefunded on ``error``, a score of -1, or when the stream ends before the result was sent.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The signed-in wallet (injected by require_wallet).\n:return: A ``text/event-stream`` response.",
+    "operationId": "analyze_page_stream_v1_analyze_stream_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AnalyzeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Analyze Page Stream",
+    "tags": [
+     "Analyze"
+    ]
+   }
+  },
+  "/v1/auth/nonce": {
+   "get": {
+    "description": "Start a sign-in: a fresh, short-lived nonce and the message fields to sign.\n\nWith ``pair`` (a phone pairing), the statement names the pairing's confirmation code, and ``/verify`` only\naccepts that exact statement for that pairing.\n\n:param request: The incoming request.\n:param pair: The phone pairing id, when signing in on a phone for a desktop extension.\n:return: The sign-in input.",
+    "operationId": "nonce_v1_auth_nonce_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "pair",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 64,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Pair"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NonceResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Nonce",
+    "tags": [
+     "Sign-in"
+    ]
+   }
+  },
+  "/v1/auth/pair": {
+   "post": {
+    "description": "Start a phone sign-in for the extension: a pairing id, its confirmation code and the URL to open on the phone.\n\nThe pairing lives five minutes in memory. The extension shows ``connect_url`` as a QR code and the code next to\nit, then polls ``GET /v1/auth/pair/{pair_id}``.\n\n:param request: The incoming request.\n:return: The pairing.\n:raises TooManyRequestsError: If this visitor started too many pairings (or the server holds too many).",
+    "operationId": "start_pairing_v1_auth_pair_post",
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PairResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Start Pairing",
+    "tags": [
+     "Sign-in"
+    ]
+   }
+  },
+  "/v1/auth/pair/{pair_id}": {
+   "get": {
+    "description": "The extension's poll: the session once the phone has signed in (handed over exactly once).\n\n:param pair_id: The pairing id.\n:param request: The incoming request.\n:return: 200 with the session (then the pairing is gone), or 202 while waiting.\n:raises GoneError: If the pairing expired before anyone signed in.\n:raises NotFoundError: If the pairing is unknown (or its session was already collected).",
+    "operationId": "collect_pairing_v1_auth_pair__pair_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pair_id",
+      "required": true,
+      "schema": {
+       "title": "Pair Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "202": {
+      "description": "Not signed in yet"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Collect Pairing",
+    "tags": [
+     "Sign-in"
+    ]
+   }
+  },
+  "/v1/auth/pair/{pair_id}/info": {
+   "get": {
+    "description": "What the phone shows before signing: the confirmation code to compare with the computer's screen.\n\n:param pair_id: The pairing id from the connect URL.\n:param request: The incoming request.\n:return: The code and the pairing's expiry.",
+    "operationId": "pairing_info_v1_auth_pair__pair_id__info_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pair_id",
+      "required": true,
+      "schema": {
+       "title": "Pair Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PairInfoResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Pairing Info",
+    "tags": [
+     "Sign-in"
+    ]
+   }
+  },
+  "/v1/auth/verify": {
+   "post": {
+    "description": "Finish a sign-in: check the signed message and return a session token.\n\nThe signature only proves control of the wallet; it grants no spending rights. A wallet's first sign-in may\ncome with the free trial (only for wallets with on-chain history).\n\n:param body: The signed message.\n:param request: The incoming request.\n:return: The session.\n:raises UnauthorizedError: If the message or signature is not acceptable.",
+    "operationId": "verify_v1_auth_verify_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifyRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SessionResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Verify",
+    "tags": [
+     "Sign-in"
+    ]
+   }
+  },
+  "/v1/check": {
+   "post": {
+    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header, app state).\n:return: The verdict, or an x402 payment-required / error response.",
+    "operationId": "check_v1_check_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CheckRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/veridex__x402__verdict__Verdict"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "402": {
+      "description": "Payment required (x402)"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Check",
+    "tags": [
+     "x402"
+    ]
+   }
+  },
+  "/v1/credits": {
+   "get": {
+    "description": "The signed-in wallet's balance.\n\n:param request: The incoming request.\n:param address: The signed-in wallet.\n:return: The balance, and how many analyses it covers.",
+    "operationId": "get_balance_v1_credits_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CreditsResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Balance",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
+  "/v1/credits/purchase-tx": {
+   "post": {
+    "description": "Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.\n\nCredits arrive once the transfer is finalized (about 15\u201330 seconds): its dollar value (SOL converted at crediting\ntime, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's\nmemo (the paying wallet unless ``beneficiary`` says otherwise). No sign-in needed: anyone may fund any wallet.\n\n:param body: Who buys how much, in which currency.\n:param request: The incoming request.\n:return: The transaction (base64) and a Solana Pay link for phone wallets.",
+    "operationId": "purchase_tx_v1_credits_purchase_tx_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PurchaseRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PurchaseResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Purchase Tx",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
+  "/v1/credits/solana-pay.svg": {
+   "get": {
+    "description": "The Solana Pay request as a QR code, for paying from a phone wallet.\n\n:param request: The incoming request.\n:param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).\n:param amount: The amount in the currency's base units.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.\n:return: An SVG image.\n:raises BadRequestError: If no amount is given.",
+    "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "lamports",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "exclusiveMinimum": 0,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Lamports"
+      }
+     },
+     {
+      "in": "query",
+      "name": "amount",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "exclusiveMinimum": 0,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Amount"
+      }
+     },
+     {
+      "in": "query",
+      "name": "currency",
+      "required": false,
+      "schema": {
+       "default": "SOL",
+       "enum": [
+        "SOL",
+        "USDC"
+       ],
+       "title": "Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "beneficiary",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 64,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Beneficiary"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Solana Pay Qr",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
+  "/v1/health": {
+   "get": {
+    "description": "Liveness probe. Always returns 200 while the process is serving requests.\n\n:return: Healthy response with the running version.",
+    "operationId": "health_v1_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Healthy"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health",
+    "tags": [
+     "Health"
+    ]
+   }
+  },
+  "/v1/health/ready": {
+   "get": {
+    "description": "Readiness probe. Returns 200 only while the database answers, so a deploy can wait for it.\n\nAlso reports whether x402 payments are available and how many alerts are raised; with the operator token\n(``Authorization: Bearer``), the hot wallet's balances and the alerts themselves. A low balance or a compromise\nsignal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API keeps\nserving.\n\n:param request: The FastAPI request (used to access the DB pool).\n:return: Healthy response with the running version.\n:raises ServiceUnavailableError: If the database pool is missing or the query fails.",
+    "operationId": "ready_v1_health_ready_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Healthy"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Ready",
+    "tags": [
+     "Health"
+    ]
+   }
+  },
+  "/v1/pricing": {
+   "get": {
+    "description": "The dollar prices (analysis, x402 tiers), bonuses, packs and limits, with exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:return: The price list.",
+    "operationId": "get_pricing_v1_pricing_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Get Pricing V1 Pricing Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Pricing",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
+  "/v1/schema/page-facts": {
+   "get": {
+    "description": "The JSON schema of ``PageFacts``, for clients (the browser extension) that extract facts themselves.\n\n:return: The schema.",
+    "operationId": "page_facts_schema_v1_schema_page_facts_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Page Facts Schema V1 Schema Page Facts Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Page Facts Schema",
+    "tags": [
+     "Credits"
+    ]
+   }
+  }
+ }
+}

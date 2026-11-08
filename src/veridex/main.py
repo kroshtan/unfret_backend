@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from veridex import __version__, fact_cache, scoring, tineye
+from veridex import __version__, fact_cache, log, scoring, tineye
 from veridex.api import VeridexAPI
 from veridex.config import settings
 from veridex.credits import CreditsDoor
@@ -24,13 +24,14 @@ from veridex.schemas.errors import CustomAPIError, handle_http_error, handle_val
 from veridex.x402.service import X402
 from veridex.x402.verdict import skills_for
 
+log.configure(json=settings.log_json)
 logger = structlog.get_logger("veridex")
 
 
 @asynccontextmanager
 async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
-    logger.info("Veridex backend service starting")
+    logger.info("Veridex backend service starting", version=__version__, config=settings.summary())
     api.graph = build_graph(SKILLS)
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
     api.db_pool = await create_pool()
@@ -100,5 +101,8 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "veridex.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8080")), reload=bool(os.getenv("RELOAD"))
+        "veridex.main:app",
+        host="0.0.0.0",  # noqa: S104 - in a container, behind the proxy
+        port=int(os.getenv("PORT", "8080")),
+        reload=bool(os.getenv("RELOAD")),
     )

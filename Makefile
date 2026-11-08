@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label eval
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label eval bump
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -59,6 +59,11 @@ run:  ## Run the API locally with auto-reload (needs Postgres, see docker-up)
 
 docker-up:  ## Build and start the API + Postgres with docker compose
 	docker compose up --build
+
+bump:  ## Cut a release: VERSION=x.y.z sets the version and dates the CHANGELOG (no commit, tag or deploy)
+	@test -n "$(VERSION)" || (echo "usage: make bump VERSION=x.y.z" && exit 1)
+	uv run scripts/bump_version.py $(VERSION)
+	uv lock
 
 clean:  ## Remove build, test and cache artifacts
 	rm -rf build/ dist/ *.egg-info .coverage coverage.xml htmlcov/ .pytest_cache/ .mypy_cache/ .ruff_cache/

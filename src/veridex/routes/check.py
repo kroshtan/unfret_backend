@@ -184,7 +184,7 @@ async def _credit_if_it_lands(x402: X402, pool: Any, signature: str, payer: str,
     logger.warning("x402_pending_payment_unresolved")
 
 
-async def _settle(  # noqa: PLR0913
+async def _settle(
     x402: X402, pre: Precheck, accepts: list[dict[str, Any]], payer: str, ip: str, *, pool: Any, usd_micros: int
 ) -> Settlement | Response:
     """
@@ -315,7 +315,7 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     return JSONResponse(content, status_code=status, headers=headers)
 
 
-async def _paid_check(  # noqa: PLR0911, PLR0913
+async def _paid_check(  # noqa: PLR0911
     body: CheckRequest, request: Request, x402: X402, pre: Precheck, *, accepts: list[dict[str, Any]], ip: str
 ) -> Response | tuple[int, dict[str, Any], dict[str, str]]:
     """

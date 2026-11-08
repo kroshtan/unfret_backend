@@ -222,7 +222,7 @@ def build_wrap(agent: Keypair, lamports: int, blockhash: str) -> VersionedTransa
 class Payer:
     """Calls Veridex's ``/v1/check``, paying the 402 from the agent's wallet."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         *,
         api_url: str,
@@ -326,7 +326,7 @@ class Payer:
             first = await client.post(f"{self.api_url}/v1/check", json=body)
             if first.status_code in {429, 503}:
                 raise UnavailableError(_describe(first), _retry_after(first))
-            if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:  # noqa: PLR2004
+            if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:
                 raise PaymentFailedError(f"expected 402 Payment Required, got {first.status_code}: {first.text[:200]}")
             requirement, currency, usd_micros = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))
             amount = int(requirement["amount"])
@@ -351,7 +351,7 @@ class Payer:
                 except httpx.TransportError:
                     second = None
                     continue
-                if second.status_code < 500 or "PAYMENT-RESPONSE" in second.headers:  # noqa: PLR2004
+                if second.status_code < 500 or "PAYMENT-RESPONSE" in second.headers:
                     break
         return self._outcome(second, currency, amount, usd_micros, str(tx.signatures[1]))
 
@@ -367,7 +367,7 @@ class Payer:
             readable, content = False, {"detail": response.text[:200] if response is not None else ""}
         settled = bool(receipt.get("success"))
         unanswered = response is None or not readable or not isinstance(content, dict)
-        if unanswered or (not receipt and response is not None and response.status_code >= 500):  # noqa: PLR2004
+        if unanswered or (not receipt and response is not None and response.status_code >= 500):
             status = "unknown"
         elif settled:
             status = "ok"
@@ -380,7 +380,7 @@ class Payer:
         charged = settled or status in {"pending", "unknown"}
         result: dict[str, Any] = {
             "status": status,
-            "ok": status == "ok" and response is not None and response.status_code == 200,  # noqa: PLR2004
+            "ok": status == "ok" and response is not None and response.status_code == 200,
             "http_status": response.status_code if response is not None else None,
             "transaction": receipt.get("transaction") or None,
             "payment": payment,

@@ -87,7 +87,7 @@ def solana_pay_url(hot: Pubkey, amount: int, beneficiary: Pubkey | None = None, 
     return f"{url}&memo={quote(credit_memo(beneficiary))}" if beneficiary else url
 
 
-def purchase_transaction(  # noqa: PLR0913
+def purchase_transaction(
     payer: Pubkey, hot: Pubkey, amount: int, blockhash: str, beneficiary: Pubkey, *, mint: Pubkey | None = None
 ) -> bytes:
     """

@@ -26,7 +26,6 @@ def signed(keypair: Keypair, **overrides: str) -> tuple[bytes, bytes]:
         "statement": siws.STATEMENT,
         "uri": "https://veridex.kroshtan.com",
         "version": "1",
-        "chain_id": "mainnet",
         "nonce": nonce,
         "issued_at": "2027-01-15T08:00:00Z",
         "expiration_time": "2027-01-15T08:05:00Z",
@@ -127,9 +126,9 @@ def test_session_tokens() -> None:
 
 
 def test_nonce_response_fields() -> None:
-    fields = siws.nonce_response(SECRET, domain=DOMAIN, uri="https://x", chain_id="devnet", ttl_s=300)
+    fields = siws.nonce_response(SECRET, domain=DOMAIN, uri="https://x", ttl_s=300)
     assert set(fields) == {
-        "domain", "uri", "statement", "nonce", "issued_at", "expiration_time", "version", "chain_id"
+        "domain", "uri", "statement", "nonce", "issued_at", "expiration_time", "version"
     }  # fmt: skip
     siws.check_nonce(SECRET, fields["nonce"])
 

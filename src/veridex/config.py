@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal, Self
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -145,6 +145,60 @@ class Settings(BaseSettings):
     x402_breaker_per_payer: int = 3
     x402_breaker_per_ip: int = 5
     x402_breaker_global: int = 20
+
+    log_json: bool = True  # one JSON object per line (False: human-readable, for local development)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        """
+        Refuse settings that contradict each other, at start-up rather than at the first payment.
+
+        :return: The settings.
+        :raises ValueError: Listing every contradiction found.
+        """
+        problems = []
+        prices = (self.analysis_price_usd_micros, self.x402_price_quick_usd_micros, self.x402_price_deep_usd_micros)
+        if min(prices) <= 0:
+            problems.append("prices must be positive")
+        if not self.analysis_price_usd_micros <= self.purchase_min_usd_micros <= self.purchase_max_usd_micros:
+            problems.append("purchases need analysis price <= purchase_min_usd_micros <= purchase_max_usd_micros")
+        thresholds = [t for t, _ in self.credit_bonus_tiers]
+        if thresholds != sorted(thresholds) or any(not 0 < pct <= 100 for _, pct in self.credit_bonus_tiers):
+            problems.append("credit_bonus_tiers must ascend, with bonuses of 1-100%")
+        if not 0 <= self.quote_tolerance_bps <= 1_000:
+            problems.append("quote_tolerance_bps must be 0-1000 (at most 10%)")
+        if not 0 < self.x402_max_priority_fee_bps <= 5_000:
+            problems.append("x402_max_priority_fee_bps must be 1-5000")
+        if not self.x402_min_fee_lamports <= self.sweep_reserve_lamports < self.sweep_threshold_lamports:
+            problems.append("need x402_min_fee_lamports <= sweep_reserve_lamports < sweep_threshold_lamports")
+        if self.x402_analysis_timeout_s <= 0 or self.x402_confirm_timeout_s <= 0:
+            problems.append("timeouts must be positive")
+        if problems:
+            raise ValueError("inconsistent settings: " + "; ".join(problems))
+        return self
+
+    def summary(self) -> dict[str, Any]:
+        """
+        What this instance runs with, for the start-up log: no secrets, only whether each is set.
+
+        :return: A flat dict.
+        """
+        return {
+            "network": self.solana_network,
+            "x402": bool(self.hot_wallet_key.get_secret_value() and self.cold_address),
+            "mainnet_allowed": self.x402_allow_mainnet,
+            "sign_in": bool(self.session_secret.get_secret_value()),
+            "admin_token": bool(self.admin_token.get_secret_value()),
+            "prices_usd_micros": {
+                "analysis": self.analysis_price_usd_micros,
+                "quick": self.x402_price_quick_usd_micros,
+                "deep": self.x402_price_deep_usd_micros,
+            },
+            "quote_tolerance_bps": self.quote_tolerance_bps,
+            "pyth_account": self.pyth_sol_usd_account,
+            "swaps": self.solana_network == "solana-mainnet",
+            "tineye": bool(self.tineye_api_key.get_secret_value()),
+        }
 
     @property
     def analysis_price_lamports(self) -> int:

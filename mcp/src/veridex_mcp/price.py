@@ -49,7 +49,7 @@ class SolUsd:
         """
         try:
             info = await self.rpc.call("getAccountInfo", [str(SOL_USD_ACCOUNT), {"encoding": "base64"}])
-        except Exception as exc:  # noqa: BLE001 - any failure to read means no price
+        except Exception as exc:
             raise PriceError(f"SOL/USD unreadable: {exc}") from exc
         value = (info or {}).get("value")
         if not value or value.get("owner") != str(PYTH_RECEIVER_PROGRAM):

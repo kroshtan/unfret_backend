@@ -92,7 +92,6 @@ async def sign_in(client: httpx.AsyncClient, keypair: Keypair, *, domain: str | 
             statement=fields["statement"],
             uri=fields["uri"],
             version=fields["version"],
-            chain_id=fields["chain_id"],
             nonce=fields["nonce"],
             issued_at=fields["issued_at"],
             expiration_time=fields["expiration_time"],

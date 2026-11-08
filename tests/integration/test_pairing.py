@@ -21,7 +21,6 @@ def message(fields: dict[str, str], keypair: Keypair, statement: str | None = No
             statement=fields["statement"] if statement is None else statement,
             uri=fields["uri"],
             version=fields["version"],
-            chain_id=fields["chain_id"],
             nonce=fields["nonce"],
             issued_at=fields["issued_at"],
             expiration_time=fields["expiration_time"],

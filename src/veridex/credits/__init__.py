@@ -65,11 +65,6 @@ class CreditsDoor:
         """Whether credits can also be bought with USDC (its scanner has its cursor too)."""
         return self.purchases_enabled and self.usdc_scanner is not None and self.usdc_scanner.ready
 
-    @property
-    def chain_id(self) -> str:
-        """``mainnet`` or ``devnet``, for the sign-in message."""
-        return "mainnet" if self.settings.solana_network == "solana-mainnet" else "devnet"
-
     def attach(self, pool: asyncpg.Pool) -> None:
         """
         Create the scanner once a database is available (only with a hot wallet and sign-in on).

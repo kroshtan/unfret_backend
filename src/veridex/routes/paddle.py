@@ -35,7 +35,7 @@ def verify_signature(raw_body: bytes, signature_header: str, secret: str, now: f
         parts = dict(part.split("=", 1) for part in signature_header.split(";"))
         ts, h1 = parts["ts"], parts["h1"]
         age = (time.time() if now is None else now) - int(ts)
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         return False
     if abs(age) > _SIGNATURE_TOLERANCE_S:
         return False

@@ -156,6 +156,28 @@ KNOWN_BRANDS: frozenset[str] = frozenset(
 )
 
 
+# The inputs each labelling rule reads. A scorer trained on rule-labelled items must not use these naively, or it
+# just learns the rule back.
+JUNK_RULE_FEATURES = (
+    "generated_brand_score",
+    "price",
+    "keyword_stuffed",
+    "duplicate_share",
+    "j_shaped",
+    "early_burst_180d",
+)
+LEGIT_RULE_FEATURES = ("known_brand", "rating_number", "duplicate_share", "j_shaped", "keyword_stuffed")
+
+
+def rule_features_for(label: str | None) -> list[str]:
+    """The features the rule for ``label`` used (empty for no rule label)."""
+    if label == "junk":
+        return list(JUNK_RULE_FEATURES)
+    if label == "legit":
+        return list(LEGIT_RULE_FEATURES)
+    return []
+
+
 @dataclass
 class Product:
     """Metadata and review aggregates for one product."""
@@ -319,6 +341,14 @@ def assess(product: Product, store_counts: Counter[str], dictionary: frozenset[s
         "rating_five": round(shape.five, 3),
         "early_burst_180d": burst,
         "reviews_streamed": product.seen,
+        "price": product.price,
+        "rating_number": product.rating_number,
+        "average_rating": product.average_rating,
+        "histogram": list(product.histogram),
+        "title_length": len(product.title),
+        "title_commas": product.title.count(","),
+        "known_brand": product.store.lower() in KNOWN_BRANDS,
+        "feature_bullets": len(product.features),
         **signals,
     }
     cheap = product.price is not None and product.price < 30
@@ -472,12 +502,43 @@ def build(corpus: Corpus, categories: tuple[str, ...], per_label: int, unlabelle
                         origin_id=product.asin,
                         collected_at="2023",
                         notes=json.dumps({"category": product.category, **assessment.features}),
+                        rule_features=rule_features_for(label),
                     ),
                     render(product),
                 )
             )
     corpus.add_many(picked)
+    corpus.write_features({record.id: json.loads(record.notes) for record, _ in picked})
     logger.info("amazon_done", added=len(picked))
+
+
+def features_from_notes(notes: str) -> dict[str, object] | None:
+    """
+    Recover the feature dict stored in a record's notes (also after a "withheld: ... | " prefix).
+
+    :param notes: The record's notes.
+    :return: The features, or ``None`` if the notes hold none.
+    """
+    payload = notes.split(" | ", 1)[1] if notes.startswith("withheld:") else notes
+    try:
+        features = json.loads(payload)
+    except ValueError:
+        return None
+    return features if isinstance(features, dict) else None
+
+
+def backfill(corpus: Corpus) -> int:
+    """
+    Write ``features.jsonl`` and ``rule_features`` for Amazon items added before either existed.
+
+    :param corpus: The corpus to update.
+    :return: The number of items backfilled.
+    """
+    records = [r for r in corpus.labels().values() if r.origin_dataset == DATASET]
+    features = {r.id: f for r in records if (f := features_from_notes(r.notes)) is not None}
+    corpus.write_features(features)
+    corpus.update(r.model_copy(update={"rule_features": rule_features_for(r.prior_label)}) for r in records)
+    return len(features)
 
 
 def main() -> None:
@@ -486,7 +547,11 @@ def main() -> None:
     parser.add_argument("--categories", nargs="+", default=list(DEFAULT_CATEGORIES))
     parser.add_argument("--per-label", type=int, default=150)
     parser.add_argument("--unlabelled", type=int, default=60)
+    parser.add_argument("--backfill", action="store_true", help="only backfill features for existing items")
     args = parser.parse_args()
+    if args.backfill:
+        logger.info("amazon_backfilled", items=backfill(Corpus()))
+        return
     build(Corpus(), tuple(args.categories), args.per_label, args.unlabelled)
 
 

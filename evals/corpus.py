@@ -20,6 +20,7 @@ from evals.config import eval_settings
 
 Label = Literal["legit", "junk", "scam"]
 LabelSource = Literal["dataset", "rule", "llm", "agreed", "human"]
+Split = Literal["train", "test"]
 UNRELIABLE: frozenset[str] = frozenset({"junk", "scam"})
 
 
@@ -43,6 +44,11 @@ class LabelRecord(BaseModel):
     llm_label: Label | None = None
     llm_confidence: float = 0.0
     llm_reason: str = ""
+    # Training support for the feature scorer.
+    split: Split | None = Field(default=None, description="Fixed, seeded train/test split; None while unlabelled.")
+    rule_features: list[str] = Field(
+        default_factory=list, description="Features a labelling rule used; exclude or check them when training."
+    )
 
 
 class QueueItem(BaseModel):
@@ -78,6 +84,7 @@ class Corpus:
         self.labels_path = self.root / "labels.jsonl"
         self.queue_path = self.root / "review_queue.jsonl"
         self._lock_path = self.root / ".labels.lock"
+        self.features_path = self.root / "features.jsonl"
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -146,6 +153,24 @@ class Corpus:
             current = self.labels()
             current.update((r.id, r) for r in records)
             self.write_labels(current.values())
+
+    def features(self) -> dict[str, dict[str, object]]:
+        """Computed per-item features (``features.jsonl``), keyed by id."""
+        if not self.features_path.exists():
+            return {}
+        rows = (json.loads(line) for line in self.features_path.read_text().splitlines())
+        return {str(row["id"]): row["features"] for row in rows}
+
+    def write_features(self, features: dict[str, dict[str, object]]) -> None:
+        """
+        Merge ``features`` into ``features.jsonl`` (replacing items with the same id).
+
+        :param features: Feature dicts keyed by item id.
+        """
+        with self.locked():
+            merged = {**self.features(), **features}
+            lines = (json.dumps({"id": k, "features": v}, sort_keys=True) for k, v in sorted(merged.items()))
+            self.features_path.write_text("".join(f"{line}\n" for line in lines))
 
     def queue(self) -> list[QueueItem]:
         """The review queue, highest priority first."""

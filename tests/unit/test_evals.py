@@ -19,8 +19,17 @@ from evals.metrics import Outcome, binary_metrics, page_type_confusion, roc_auc,
 from evals.run import select
 from evals.second_opinion import reconcile, reset
 from evals.shopcheck import looks_like_shop
-from evals.sources.amazon2023 import Product, assess, render
+from evals.sources.amazon2023 import (
+    JUNK_RULE_FEATURES,
+    Product,
+    assess,
+    backfill,
+    features_from_notes,
+    render,
+    rule_features_for,
+)
 from evals.sources.mendeley import read_rows
+from evals.split import assign_splits
 
 
 def _record(**overrides: object) -> LabelRecord:
@@ -300,3 +309,39 @@ def test_strict_cache_raises_on_miss(tmp_path: Path) -> None:
     cache = SQLiteLLMCache(tmp_path / "c.sqlite", strict=True)
     with pytest.raises(CacheMissError):
         cache.lookup("p", "m")
+
+
+# ── split and training support ──────────────────────────────────────────────
+
+
+def test_rule_labels_never_enter_test_and_split_is_stratified() -> None:
+    records = (
+        [_record(id=f"d{i}", label="scam", label_source="dataset") for i in range(10)]
+        + [_record(id=f"a{i}", source="synthetic", label="junk", label_source="agreed") for i in range(10)]
+        + [_record(id=f"r{i}", source="synthetic", label="junk", label_source="rule") for i in range(10)]
+        + [_record(id="u", source="synthetic")]
+    )
+    split = {r.id: r.split for r in assign_splits(records, 0.3, "seed")}
+    assert all(split[f"r{i}"] == "train" for i in range(10))
+    assert sum(split[f"d{i}"] == "test" for i in range(10)) == 3
+    assert sum(split[f"a{i}"] == "test" for i in range(10)) == 3
+    assert split["u"] is None
+    assert split == {r.id: r.split for r in assign_splits(list(reversed(records)), 0.3, "seed")}
+    assert split != {r.id: r.split for r in assign_splits(records, 0.3, "other-seed")}
+
+
+def test_rule_features_and_feature_backfill_from_notes(tmp_path: Path) -> None:
+    assert "generated_brand_score" in rule_features_for("junk")
+    assert "known_brand" in rule_features_for("legit")
+    assert rule_features_for(None) == []
+    assert features_from_notes('withheld: dispute | {"price": 9.99}') == {"price": 9.99}
+    assert features_from_notes("not json") is None
+
+    corpus = Corpus(tmp_path)
+    record = _record(
+        id="amz-1", source="synthetic", origin_dataset="amazon-reviews-2023", prior_label="junk", notes='{"price": 5}'
+    )
+    corpus.add_many([(record, "<html></html>")])
+    assert backfill(corpus) == 1
+    assert corpus.features() == {"amz-1": {"price": 5}}
+    assert corpus.labels()["amz-1"].rule_features == list(JUNK_RULE_FEATURES)

@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions label eval
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label eval
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -34,6 +34,9 @@ corpus:  ## Build the eval corpus from public datasets (into VERIDEX_CORPUS_DIR)
 
 opinions:  ## Get the LLM second opinion on every corpus page and rebuild the review queue
 	uv run python -m evals.second_opinion
+
+split:  ## Assign the fixed train/test split (rule-only labels never go to test)
+	uv run python -m evals.split
 
 label:  ## Work through the review queue, one keypress per page
 	uv run python -m evals.label

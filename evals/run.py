@@ -3,7 +3,7 @@ Run the analysis graph over the labelled corpus and report how well it separates
 
 Usage::
 
-    uv run python -m evals.run [--limit N] [--record | --replay] [--skills a b ...] [--with-url]
+    uv run python -m evals.run [--limit N] [--split test|train|all] [--record | --replay] [--skills ...] [--with-url]
 
 ``--record`` (the default) calls the LLM on cache misses and stores every response in the corpus's
 ``llm_cache.sqlite``; ``--replay`` serves only cached responses and fails any page that would need a new call, so
@@ -134,6 +134,7 @@ def main() -> None:
     mode.add_argument("--replay", action="store_true", help="only use cached LLM responses")
     parser.add_argument("--skills", nargs="+", default=[s.name for s in SKILLS if s.name not in DEFAULT_EXCLUDED])
     parser.add_argument("--with-url", action="store_true")
+    parser.add_argument("--split", choices=["test", "train", "all"], default="test", help="which split to score")
     parser.add_argument("--concurrency", type=int, default=4)
     args = parser.parse_args()
 
@@ -144,13 +145,15 @@ def main() -> None:
         settings.llm_api_key = SecretStr("replay")
         llm.get_llm.cache_clear()
 
-    records = select([r for r in corpus.labels().values() if r.label], args.limit)
+    labelled = [r for r in corpus.labels().values() if r.label and args.split in {"all", r.split}]
+    records = select(labelled, args.limit)
     logger.info("eval_start", pages=len(records), skills=args.skills, replay=args.replay)
     outcomes = asyncio.run(evaluate(corpus, records, args.skills, args.with_url, args.concurrency))
 
     report = summarise(outcomes)
     report["skills"] = args.skills
     report["mode"] = "replay" if args.replay else "record"
+    report["split"] = args.split
     report["model"] = settings.llm_model
     report["pages_with_unavailable_skills"] = [{"id": o.id, "note": o.note} for o in outcomes if o.note]
 

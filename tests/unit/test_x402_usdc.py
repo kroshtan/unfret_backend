@@ -45,15 +45,19 @@ class TokenRpc(FakeRpc):
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
         self.simulated.append(raw_tx)
         self._accounts = addresses
         before = await self.token_balance(addresses[0]) or 0
         token = {"tokenAmount": {"amount": str(before + self.sim_delta)}}
-        return self.sim_error, [
-            {"lamports": 2_039_280, "data": {"parsed": {"info": token}}},
-            {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
-        ]
+        return (
+            self.sim_error,
+            [
+                {"lamports": 2_039_280, "data": {"parsed": {"info": token}}},
+                {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
+            ],
+            self.inner_programs(raw_tx),
+        )
 
 
 def service(rpc: FakeRpc, usd_per_sol: str | None = "100") -> X402:

@@ -215,7 +215,7 @@ async def verify_swap(  # noqa: C901, PLR0913
     before_usdc, before_wsol = await rpc.token_balance(usdc_ata), await rpc.token_balance(wsol_ata)
     if before_usdc is None or before_wsol is None:
         raise SwapError("hot wallet token accounts not ready")
-    error, (after_hot, after_usdc, after_wsol) = await rpc.simulate_accounts(raw_tx, [hot, usdc_ata, wsol_ata])
+    error, (after_hot, after_usdc, after_wsol), _ = await rpc.simulate_accounts(raw_tx, [hot, usdc_ata, wsol_ata])
     if error is not None or after_hot is None:
         raise SwapError("swap simulation failed")
     if after_hot.get("owner") != SYSTEM_PROGRAM:

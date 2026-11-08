@@ -9,12 +9,20 @@ submits it. Verification is behaviour-based, in two stages:
 
 1. :func:`precheck` (no network): the hot wallet appears in no instruction, so its signature can only pay the fee;
    every other required signature is present and valid; compute budget and priority fee are capped; exactly one
-   memo (the spec's uniqueness nonce); no signature-verification precompiles (they add fee-paid signatures); size.
+   memo (the spec's uniqueness nonce); no signature-verification precompiles (they add fee-paid signatures); no
+   slot-dependent sysvars and no address lookup tables; only allowlisted top-level programs; size.
 2. :func:`confirm_by_simulation`: a simulation shows the hot wallet's token account for the paid mint growing by
-   exactly the accepted amount and the hot wallet losing no more than the computed fee.
+   exactly the accepted amount, the hot wallet losing no more than the computed fee, and only allowlisted programs
+   running (top level and CPI).
 
-USDC amounts are converted from the SOL price list at quote time, so an accepted USDC amount may differ from the
-current quote by up to a tolerance (see :func:`precheck`); wSOL amounts must match exactly.
+The last two precheck rules and the program allowlist close the fee drain: the hot wallet pays the fee of every
+transaction it submits, landed or failed, so a payment must not be able to pass the simulation and then fail on
+chain. A program can branch on the slot through the ``Clock`` syscall, which no account check sees; known wallet
+programs (token, ATA, memo, compute budget, Squads v3/v4, Lighthouse) don't, so they are the only ones allowed. What
+remains (the payer racing its own payment, say) is bounded by the failed-settlement breaker in the route.
+
+wSOL amounts are converted from the dollar price at quote time, so an accepted wSOL amount may differ from the
+current quote by up to a tolerance (see :func:`precheck`); USDC amounts must match exactly.
 
 After settlement the service checks the real on-chain delta again (``X402.settle``).
 """
@@ -31,7 +39,20 @@ from solders.message import Message, MessageV0, to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from veridex.x402.solana import COMPUTE_BUDGET_PROGRAM, MEMO_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
+from veridex.x402.solana import (
+    ASSOCIATED_TOKEN_PROGRAM,
+    COMPUTE_BUDGET_PROGRAM,
+    LIGHTHOUSE_PROGRAM,
+    MEMO_PROGRAM,
+    MEMO_V1_PROGRAM,
+    SQUADS_V3_PROGRAM,
+    SQUADS_V4_PROGRAM,
+    SYSTEM_PROGRAM_ID,
+    TOKEN_PROGRAM,
+    WSOL_MINT,
+    SolanaRpc,
+    associated_token_address,
+)
 
 X402_VERSION = 2
 LAMPORTS_PER_SIGNATURE = 5_000
@@ -46,6 +67,33 @@ PRECOMPILES = frozenset(
         "KeccakSecp256k11111111111111111111111111111",
         "Secp256r1SigVerify1111111111111111111111111",
     )
+)
+
+
+# Sysvars whose content changes slot by slot: a program reading them can pass the simulation and fail on chain.
+SLOT_SYSVARS = frozenset(
+    Pubkey.from_string(p)
+    for p in (
+        "SysvarC1ock11111111111111111111111111111111",
+        "SysvarS1otHashes111111111111111111111111111",
+        "SysvarS1otHistory11111111111111111111111111",
+        "SysvarRecentB1ockHashes11111111111111111111",
+        "SysvarEpochRewards1111111111111111111111111",
+    )
+)
+# The programs a payment may run, top level or by CPI (see the module docstring).
+PAYMENT_PROGRAMS = frozenset(
+    {
+        SYSTEM_PROGRAM_ID,
+        TOKEN_PROGRAM,
+        ASSOCIATED_TOKEN_PROGRAM,
+        COMPUTE_BUDGET_PROGRAM,
+        MEMO_PROGRAM,
+        MEMO_V1_PROGRAM,
+        SQUADS_V3_PROGRAM,
+        SQUADS_V4_PROGRAM,
+        LIGHTHOUSE_PROGRAM,
+    }
 )
 
 
@@ -247,6 +295,8 @@ def precheck(  # noqa: C901, PLR0912
     max_compute_units: int,
     max_compute_unit_price: int,
     tolerance_bps: dict[str, int] | None = None,
+    max_priority_fee: int | None = None,
+    programs: frozenset[Pubkey] = PAYMENT_PROGRAMS,
 ) -> Precheck:
     """
     Run every check that needs no network on a ``PAYMENT-SIGNATURE`` header.
@@ -257,6 +307,8 @@ def precheck(  # noqa: C901, PLR0912
     :param max_compute_units: Largest accepted compute unit limit.
     :param max_compute_unit_price: Largest accepted compute unit price (micro-lamports).
     :param tolerance_bps: How far an accepted amount may be from our current quote, per asset (default: exact).
+    :param max_priority_fee: Largest accepted priority fee in lamports (default: only the compute caps apply).
+    :param programs: The programs the transaction may call at top level.
     :return: The prechecked payment.
     :raises PaymentError: With a reason, if anything does not match.
     """
@@ -295,8 +347,16 @@ def precheck(  # noqa: C901, PLR0912
         raise PaymentError("fee_payer_not_isolated")
     if any(keys[ix.program_id_index] in PRECOMPILES for ix in message.instructions):
         raise PaymentError("precompile_not_allowed")
+    if isinstance(message, MessageV0) and message.address_table_lookups:
+        raise PaymentError("address_lookup_tables_not_allowed")  # their accounts would escape the checks below
+    if any(key in SLOT_SYSVARS for key in keys):
+        raise PaymentError("slot_dependent_sysvar_not_allowed")
+    if any(keys[ix.program_id_index] not in programs for ix in message.instructions):
+        raise PaymentError("program_not_allowed")
 
     priority_fee = compute_budget(message, max_compute_units, max_compute_unit_price)
+    if max_priority_fee is not None and priority_fee > max_priority_fee:
+        raise PaymentError("priority_fee_too_high")
     memos = [bytes(ix.data) for ix in message.instructions if keys[ix.program_id_index] == MEMO_PROGRAM]
     if len(memos) != 1 or not 0 < len(memos[0]) <= _MAX_MEMO_BYTES:
         raise PaymentError("memo_required")
@@ -312,9 +372,11 @@ def precheck(  # noqa: C901, PLR0912
     )
 
 
-async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey) -> VerifiedPayment:
+async def confirm_by_simulation(
+    pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey, programs: frozenset[Pubkey] = PAYMENT_PROGRAMS
+) -> VerifiedPayment:
     """
-    Simulate the payment: exactly the amount into ``pay_to``'s account for the paid mint, no debit beyond the fee.
+    Simulate the payment: exactly the amount into ``pay_to``'s account, no debit beyond the fee, known programs only.
 
     Call it with settlements serialised (``X402`` holds a lock), so no payment of ours lands between the balance
     read and the simulation.
@@ -322,6 +384,7 @@ async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey
     :param pre: A payment that passed :func:`precheck`.
     :param rpc: The Solana RPC.
     :param pay_to: The hot wallet (``payTo`` and fee payer).
+    :param programs: The programs the payment may invoke by CPI.
     :return: The verified payment.
     :raises PaymentError: If the simulation fails or shows any other outcome.
     """
@@ -330,9 +393,12 @@ async def confirm_by_simulation(pre: Precheck, *, rpc: SolanaRpc, pay_to: Pubkey
     if before_token is None:
         raise PaymentError("pay_to_account_not_ready")
     before_sol = await rpc.get_balance(pay_to)
-    error, (after_account, after_payer) = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
+    error, (after_account, after_payer), inner = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
     if error is not None or after_account is None or after_payer is None:
         raise PaymentError("simulation_failed")
+    keys = pre.transaction.message.account_keys
+    if any(index >= len(keys) or keys[index] not in programs for index in inner):
+        raise PaymentError("program_not_allowed")
     after_token = int(after_account["data"]["parsed"]["info"]["tokenAmount"]["amount"])
     if after_token - before_token != pre.amount:
         raise PaymentError("wrong_amount")

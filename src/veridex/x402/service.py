@@ -22,7 +22,8 @@ from solders.pubkey import Pubkey
 
 from veridex.config import Settings
 from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd, usdc_to_lamports
-from veridex.x402.payment import Precheck, confirm_by_simulation, precheck, requirements
+from veridex.x402.breaker import SettlementBreaker
+from veridex.x402.payment import PAYMENT_PROGRAMS, Precheck, confirm_by_simulation, precheck, requirements
 from veridex.x402.solana import CAIP2, WSOL_MINT, RpcError, SolanaRpc, associated_token_address, usdc_mint
 from veridex.x402.swap import JupiterClient, SwapError, verify_swap
 from veridex.x402.wallet import HotWallet, build_sweep, load_keypair, unexpected_outflows
@@ -132,6 +133,9 @@ class X402:
         self._seen: set[str] = set()
         self._compromise: list[str] = []
         self._mismatches: list[str] = []
+        self.breaker = SettlementBreaker(
+            settings.x402_breaker_per_payer, settings.x402_breaker_per_ip, settings.x402_breaker_global
+        )
         self._swap_failures = 0
         self._last_swap = time.monotonic()
         self._audit_rate_floor: float | None = None  # lamports per USDC unit, from the last oracle reading
@@ -262,6 +266,8 @@ class X402:
             alerts.append("usdc_above_threshold")
         if self._mismatches:
             alerts.append("post_settlement_mismatch")
+        if self.breaker.global_failures >= self.settings.x402_breaker_global:
+            alerts.append("settlements_failing")  # payments pause through the breaker, not the status
         if self._compromise:
             alerts.append("outflow_to_non_cold")
             status = "compromise_suspected"
@@ -284,7 +290,29 @@ class X402:
             max_compute_units=self.settings.x402_max_compute_units,
             max_compute_unit_price=self.settings.x402_max_compute_unit_price_microlamports,
             tolerance_bps=self._tolerance(),
+            max_priority_fee=self.max_priority_fee(accepts),
+            programs=self.programs,
         )
+
+    def max_priority_fee(self, accepts: list[dict[str, Any]]) -> int:
+        """
+        The largest priority fee (lamports) a payment for this tier may make the hot wallet pay.
+
+        :param accepts: The options offered for the tier.
+        :return: A share of the tier's wSOL price, or the fallback while SOL isn't offered.
+        """
+        s = self.settings
+        sol = next((int(a["amount"]) for a in accepts if a["asset"] == str(WSOL_MINT)), None)
+        return s.x402_priority_fee_fallback_lamports if sol is None else sol * s.x402_max_priority_fee_bps // 10_000
+
+    @property
+    def programs(self) -> frozenset[Pubkey]:
+        """
+        The programs a payment may run: the built-in wallet programs plus any configured extras.
+
+        :return: The allowlist.
+        """
+        return PAYMENT_PROGRAMS | {Pubkey.from_string(p) for p in self.settings.x402_extra_programs}
 
     async def settle(self, pre: Precheck) -> Settlement:
         """
@@ -308,7 +336,7 @@ class X402:
             if key in self._settling:
                 raise DuplicateSettlementError("duplicate_settlement")
             account = associated_token_address(self.hot.pubkey, pre.mint)
-            payment = await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey)
+            payment = await confirm_by_simulation(pre, rpc=self.rpc, pay_to=self.hot.pubkey, programs=self.programs)
             before = await self.rpc.token_balance(account)
             self._settling[key] = now
 

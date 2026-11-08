@@ -148,6 +148,7 @@ class FakeRpc(SolanaRpc):
         self.sim_delta = 100_000
         self.sim_debit = 0
         self.sim_error: Any = None
+        self.sim_inner: list[int] | None = None
         self.landed_delta: int | None = None
         self.landed_fee = 10_000
         self.sent: list[bytes] = []
@@ -174,14 +175,25 @@ class FakeRpc(SolanaRpc):
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
         self.simulated.append(raw_tx)
         self._accounts = addresses
         token = {"tokenAmount": {"amount": str((self.wsol or 0) + self.sim_delta)}}
-        return self.sim_error, [
-            {"lamports": 2_039_280, "data": {"parsed": {"info": token}}},
-            {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
-        ]
+        return (
+            self.sim_error,
+            [
+                {"lamports": 2_039_280, "data": {"parsed": {"info": token}}},
+                {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
+            ],
+            self.inner_programs(raw_tx),
+        )
+
+    def inner_programs(self, raw_tx: bytes) -> list[int]:
+        """What a CPI payment invokes: the token program, by index (``sim_inner`` overrides it)."""
+        if self.sim_inner is not None:
+            return self.sim_inner
+        keys = list(VersionedTransaction.from_bytes(raw_tx).message.account_keys)
+        return [keys.index(TOKEN_PROGRAM)] if TOKEN_PROGRAM in keys else []
 
     async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
         if signature in self.transactions or not self._accounts:

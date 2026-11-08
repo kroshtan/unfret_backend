@@ -21,9 +21,9 @@ from veridex.credits import ledger
 from veridex.net import fetch_public
 from veridex.prices import format_usd
 from veridex.shopper import pick_language
-from veridex.x402.payment import PaymentError, encode_header
-from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, usdc_mint
+from veridex.x402.payment import PaymentError, Precheck, encode_header
+from veridex.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
+from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, TransactionFailedError, usdc_mint
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
 
 logger = structlog.get_logger("veridex")
@@ -117,6 +117,52 @@ async def _page_html(body: CheckRequest) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+async def _settle(
+    x402: X402, pre: Precheck, accepts: list[dict[str, Any]], payer: str, ip: str
+) -> Settlement | Response:
+    """
+    Settle a prechecked payment, or answer why it didn't settle (counting failures that cost us a fee).
+
+    :param x402: The payment service.
+    :param pre: The prechecked payment.
+    :param accepts: The options offered, for a renewed 402.
+    :param payer: The paying wallet.
+    :param ip: The visitor's address, for the breaker.
+    :return: The settlement, or the response to send instead.
+    """
+    try:
+        return await x402.settle(pre)
+    except PaymentError as exc:  # the simulation showed a different outcome; nothing was submitted
+        return _payment_required(accepts, exc.reason)
+    except DuplicateSettlementError:
+        return _payment_required(accepts, "duplicate_settlement")
+    except SettlementMismatchError as exc:
+        # It landed, but not as the simulation promised: no analysis for this payment.
+        x402.breaker.record_failure(payer, ip)
+        headers = {
+            PAYMENT_RESPONSE: _settlement(
+                x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_mismatch"
+            )
+        }
+        return JSONResponse({"detail": "The payment did not settle as required."}, 402, headers)
+    except SettlementPendingError as exc:
+        x402.breaker.record_failure(payer, ip)  # it may yet land, or fail at our expense
+        headers = {
+            PAYMENT_RESPONSE: _settlement(
+                x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_pending"
+            )
+        }
+        return JSONResponse({"detail": "Payment submitted but not yet confirmed; retry later."}, 402, headers)
+    except RpcError as exc:
+        logger.info("x402_settlement_failed", error=str(exc)[:200])
+        if isinstance(exc, TransactionFailedError):  # it landed and failed: the hot wallet paid the fee
+            x402.breaker.record_failure(payer, ip)
+        headers = {
+            PAYMENT_RESPONSE: _settlement(x402, success=False, transaction="", payer=payer, reason="settlement_failed")
+        }
+        return JSONResponse({"detail": "Payment could not be settled; you were not charged."}, 402, headers)
+
+
 @router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
 async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911, PLR0912
     """
@@ -150,6 +196,18 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
         return _payment_required(accepts, exc.reason)
+    payer = str(pre.payer)
+    ip = request.client.host if request.client else "unknown"
+    if (wait := x402.breaker.open_for(payer, ip)) is not None:
+        logger.warning("x402_breaker_open")
+        return JSONResponse(
+            {
+                "detail": "Too many payments failed to settle recently; payments are paused. You were not charged.",
+                "error_code": "SETTLEMENTS_PAUSED",
+            },
+            status_code=503,
+            headers={"Retry-After": str(max(1, int(wait)))},
+        )
 
     # Get the page before any money moves, so a page we can't read costs the caller nothing.
     try:
@@ -168,35 +226,9 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
-    payer = str(pre.payer)
-    try:
-        settlement = await x402.settle(pre)
-    except PaymentError as exc:  # the simulation showed a different outcome; nothing was submitted
-        return _payment_required(accepts, exc.reason)
-    except DuplicateSettlementError:
-        return _payment_required(accepts, "duplicate_settlement")
-    except SettlementMismatchError as exc:
-        # It landed, but not as the simulation promised: no analysis for this payment.
-        headers = {
-            PAYMENT_RESPONSE: _settlement(
-                x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_mismatch"
-            )
-        }
-        return JSONResponse({"detail": "The payment did not settle as required."}, 402, headers)
-    except SettlementPendingError as exc:
-        headers = {
-            PAYMENT_RESPONSE: _settlement(
-                x402, success=False, transaction=exc.signature, payer=payer, reason="settlement_pending"
-            )
-        }
-        return JSONResponse({"detail": "Payment submitted but not yet confirmed; retry later."}, 402, headers)
-    except RpcError as exc:
-        logger.info("x402_settlement_failed", error=str(exc)[:200])
-        headers = {
-            PAYMENT_RESPONSE: _settlement(x402, success=False, transaction="", payer=payer, reason="settlement_failed")
-        }
-        return JSONResponse({"detail": "Payment could not be settled; you were not charged."}, 402, headers)
-
+    settlement = await _settle(x402, pre, accepts, payer, ip)
+    if isinstance(settlement, Response):
+        return settlement
     signature = settlement.signature
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
     try:

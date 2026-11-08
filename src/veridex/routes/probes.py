@@ -2,6 +2,7 @@ import structlog
 from fastapi import APIRouter, Request
 
 from veridex import __version__
+from veridex.routes.check import get_x402
 from veridex.schemas.errors import ServiceUnavailableError
 from veridex.schemas.responses import Healthy
 
@@ -25,6 +26,10 @@ async def ready(request: Request) -> Healthy:
     """
     Readiness probe. Returns 200 only while the database answers, so a deploy can wait for it.
 
+    Also reports whether x402 payments are available, the hot wallet's balances and any alerts. A low balance or a
+    compromise signal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API
+    keeps serving.
+
     :param request: The FastAPI request (used to access the DB pool).
     :return: Healthy response with the running version.
     :raises ServiceUnavailableError: If the database pool is missing or the query fails.
@@ -38,4 +43,12 @@ async def ready(request: Request) -> Healthy:
     except Exception as exc:
         logger.warning("readiness_db_failed", error=type(exc).__name__)
         raise ServiceUnavailableError("Database not ready.") from exc
-    return Healthy(status="ready", version=__version__)
+    x402 = await get_x402(request).health()
+    return Healthy(
+        status="ready",
+        version=__version__,
+        x402=x402.status,
+        hot_sol_lamports=x402.sol_lamports,
+        hot_wsol_lamports=x402.wsol_lamports,
+        x402_alerts=list(x402.alerts),
+    )

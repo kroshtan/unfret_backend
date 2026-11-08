@@ -54,5 +54,29 @@ class Settings(BaseSettings):
     paddle_api_key: str = ""
     paddle_environment: Literal["production", "sandbox"] = "production"
 
+    # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
+    public_base_url: str = "https://veridex.kroshtan.com"
+    solana_network: Literal["solana-devnet", "solana-mainnet"] = "solana-devnet"
+    solana_rpc_url: str = "https://api.devnet.solana.com"
+    # Mainnet stays refused until this is set deliberately.
+    x402_allow_mainnet: bool = False
+    # The hot wallet receives payments (its wSOL account) and pays their fees; base58 secret or a Solana CLI JSON
+    # byte array. The only transfers it ever originates are sweeps to the cold address.
+    hot_wallet_key: SecretStr = SecretStr("")
+    # The cold wallet (e.g. a Ledger): sweep destination only. The server never holds its key.
+    cold_address: str = ""
+    # Sweep to cold once the hot wallet holds more than this (SOL + wSOL), keeping the reserve for fees.
+    sweep_threshold_lamports: int = 100_000_000
+    sweep_reserve_lamports: int = 10_000_000
+    sweep_interval_s: float = 60.0
+    # Payments are refused (503) while the hot wallet's SOL (for fees) is below this. Kept under the reserve, and
+    # a sweep refills it from received wSOL, so normal operation never trips it.
+    x402_min_fee_lamports: int = 2_000_000
+    x402_price_quick_lamports: int = 100_000
+    x402_price_deep_lamports: int = 1_500_000
+    x402_max_compute_units: int = 400_000
+    x402_max_compute_unit_price_microlamports: int = 50_000
+    x402_confirm_timeout_s: float = 30.0
+
 
 settings = Settings()

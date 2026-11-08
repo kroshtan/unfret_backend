@@ -252,6 +252,9 @@ class CreditScanner:
                 except PriceUnavailableError as exc:
                     logger.warning("credits_scan_waiting_for_price", reason=str(exc)[:120])
                     break  # can't value USDC right now; never skip past it, try again next round
+                # Zero-value transfers (anyone can send one) and USDC dust that values to 0 credit nothing; the
+                # cursor still moves past them. Crediting 0 would raise and stall the scanner on that transaction.
+                received = {wallet: value for wallet, value in received.items() if value > 0}
             async with self.pool.acquire() as conn, conn.transaction():
                 current = await conn.fetchval(
                     "SELECT signature FROM scan_cursor WHERE name = $1 FOR UPDATE", self.name

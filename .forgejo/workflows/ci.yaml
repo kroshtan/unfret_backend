@@ -34,6 +34,11 @@ jobs:
         run: uv run pytest
         env:
           VERIDEX_TEST_POSTGRES_URI: postgresql://veridex:veridex@postgres:5432/veridex
+      - name: MCP server (mcp/, its own environment)
+        run: |
+          uv sync --project mcp --all-groups --frozen
+          uv run --project mcp mypy mcp/src mcp/tests
+          uv run --project mcp pytest mcp/tests
 
   # The deploy runner: its own rootless docker daemon to build on, and the deploy credentials as read-only files
   # under /creds. Only pushes to main (and manual runs) get here.

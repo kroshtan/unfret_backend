@@ -1,7 +1,7 @@
 """The one LLM read of the listing text: sales tactics, branding and claims, as scores with evidence."""
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
@@ -36,6 +36,9 @@ score 0 there.
 """
 
 
+_QUOTE_CHARS = 300
+
+
 class _Signals(BaseModel):
     scam_copy: float = Field(ge=0, le=1)
     generic_product: float = Field(ge=0, le=1)
@@ -49,6 +52,29 @@ class _Signals(BaseModel):
     evidence: list[str] = Field(
         default_factory=list, max_length=6, description="Short verbatim quotes supporting the scores above."
     )
+
+    # A model that quotes seven lines or scores 1.1 has still read the page: trim and clamp instead of failing the
+    # whole skill (a failed content read degrades the assessment).
+    @field_validator("implausible_claim_examples", "evidence", mode="before")
+    @classmethod
+    def _cap(cls, value: object, info: ValidationInfo) -> object:
+        limit = 5 if info.field_name == "implausible_claim_examples" else 6
+        if isinstance(value, list):
+            return [str(v)[:_QUOTE_CHARS] for v in value if v][:limit]
+        return value
+
+    @field_validator(
+        "scam_copy",
+        "generic_product",
+        "title_word_soup",
+        "generic_brand",
+        "implausible_claims",
+        "missing_trust_info",
+        mode="before",
+    )
+    @classmethod
+    def _clamp(cls, value: object) -> object:
+        return min(max(value, 0.0), 1.0) if isinstance(value, int | float) and not isinstance(value, bool) else value
 
 
 class ContentSkill(Skill):
@@ -85,10 +111,8 @@ class ContentSkill(Skill):
                 HumanMessage(content=untrusted(header + "\n" + state["cleaned_content"][:_MAX_CHARS])),
             ]
         )
-        observations = [Observation(type="quote", evidence=e[:300]) for e in signals.evidence]
-        observations += [
-            Observation(type="implausible_claim", evidence=c[:300]) for c in signals.implausible_claim_examples
-        ]
+        observations = [Observation(type="quote", evidence=e) for e in signals.evidence]
+        observations += [Observation(type="implausible_claim", evidence=c) for c in signals.implausible_claim_examples]
         if signals.addresses_the_reader_ai:
             observations.append(Observation(type="addresses_ai", evidence="The page text addresses an AI or bot."))
         return self.output(

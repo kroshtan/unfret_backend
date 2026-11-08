@@ -152,6 +152,7 @@ def main() -> None:
     corpus = Corpus()
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
     settings.network_lookups = False
+    settings.price_observations = False  # archived pages aren't today's prices
     # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
     # turning them into "skill unavailable" findings or failed pages.
     settings.llm_max_retries = max(settings.llm_max_retries, 6)

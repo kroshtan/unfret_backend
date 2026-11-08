@@ -522,7 +522,9 @@ async def test_a_purchase_or_a_memo_doesnt_use_up_the_trial(pool: asyncpg.Pool) 
 
 
 async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Pool) -> None:
-    await pool.execute("DROP TABLE IF EXISTS wallets, scan_cursor, fact_cache, usage_counters, schema_migrations")
+    await pool.execute(
+        "DROP TABLE IF EXISTS wallets, scan_cursor, fact_cache, usage_counters, price_observations, schema_migrations"
+    )
     await migrate(pool, MIGRATIONS[:4])
     await pool.execute("INSERT INTO wallets (pubkey, balance_lamports) VALUES ('a', 4500000), ('b', 1499999)")
 

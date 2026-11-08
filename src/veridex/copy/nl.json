@@ -81,6 +81,22 @@
       "title": "Te mooie korting",
       "detail": "{pct} korting op een 'van'-prijs die misschien nooit gevraagd is."
     },
+    "was_never_charged": {
+      "title": "'Van'-prijs niet echt gevraagd",
+      "detail": "Dit product kostte de afgelopen 30 dagen {low}, maar de 'van'-prijs is {was}."
+    },
+    "implausible_discount": {
+      "title": "Ongeloofwaardige korting",
+      "detail": "{pct} korting: zulke kortingen zijn bijna altijd berekend op een prijs die niemand betaalde."
+    },
+    "reference_anchor": {
+      "title": "Korting op een 'adviesprijs'",
+      "detail": "De 'van'-prijs heet {anchor}: een richtprijs, niet wat deze winkel eerder vroeg."
+    },
+    "permanent_sale": {
+      "title": "Eeuwige uitverkoop",
+      "detail": "De pagina zegt {phrase}: winkels die altijd 'opheffen' zetten je zo onder druk."
+    },
     "seller_not_brand": {
       "title": "Verkocht door een ander bedrijf",
       "detail": "Verkocht door {seller}, niet door het merk zelf."
@@ -204,6 +220,11 @@
     "content.generic_brand": "Onbekend merk",
     "listing.generated_brand": "Verzonnen ogende merknaam",
     "listing.discount_pct": "Grootte van de korting",
+    "pricing.implausible_discount": "Ongeloofwaardige korting",
+    "pricing.reference_anchor": "Korting op een adviesprijs",
+    "pricing.permanent_sale": "Eeuwige uitverkoop",
+    "pricing.history_days": "Hoe lang we deze prijs zien",
+    "pricing.was_above_30d_low": "'Van'-prijs boven de recente laagste prijs",
     "listing.keyword_stuffed": "Lange titel met veel termen",
     "listing.title_length": "Lengte van de titel",
     "listing.seller_not_brand": "Verkocht door een ander bedrijf dan het merk",
@@ -255,5 +276,7 @@
     "reverse_image.image_age_years": "Leeftijd van de foto online",
     "reverse_image.photo_predates_listing": "Foto ouder dan het aanbod"
   },
-  "no_check_used": "Er is geen check gebruikt."
+  "no_check_used": "Er is geen check gebruikt.",
+  "headline_reasons": "{label}: {reasons}.",
+  "and": "en"
 }

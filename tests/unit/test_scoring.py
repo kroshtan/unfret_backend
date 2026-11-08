@@ -185,6 +185,34 @@ async def test_judge_falls_back_to_the_full_model_without_a_quick_artifact(monke
     assert result["assessment"]["model_version"] == "v1-test"
 
 
+async def test_agents_get_the_template_headline_without_an_llm_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: Model.from_dict(ARTIFACT))
+    monkeypatch.setattr(nodes, "get_structured_llm", lambda schema: pytest.fail("no LLM call for agents"))
+    state: Any = {
+        "features": {"listing.discount_pct": 0.85, "content.brand_recognized": 0.0},
+        "findings": [],
+        "skill_results": [],
+        "explain": False,
+    }
+
+    result = await nodes.judge_node(state)
+
+    assert result["explanation"].startswith("Likely junk or a scam: ")
+    assert "too-good discount" in result["explanation"]
+
+
+async def test_a_rambling_headline_is_replaced_by_the_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: Model.from_dict(ARTIFACT))
+    rambling = nodes._Explanation(explanation=" ".join(["word"] * 40))
+    monkeypatch.setattr(nodes, "get_structured_llm", lambda schema: RunnableLambda(lambda _: rambling))
+    state: Any = {"features": {"listing.discount_pct": 0.85}, "findings": [], "skill_results": []}
+
+    result = await nodes.judge_node(state)
+
+    assert "word word" not in result["explanation"]
+    assert len(result["explanation"].split()) <= 25
+
+
 def test_a_failed_skill_scores_as_neutral_not_as_safe() -> None:
     # Regression (audit M3): a failed content skill left its features out, which the model read as 0 ("brand not
     # recognised" etc.), so an LLM outage moved every page's score.

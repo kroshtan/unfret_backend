@@ -52,7 +52,7 @@ async def pool() -> AsyncIterator[asyncpg.Pool]:
     pool = await asyncpg.create_pool(POSTGRES_URI)
     await pool.execute(
         "DROP TABLE IF EXISTS analyze_log, accounts, wallets, scan_cursor, fact_cache, usage_counters, "
-        "schema_migrations"
+        "price_observations, schema_migrations"
     )
     await init_db(pool)
     yield pool

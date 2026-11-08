@@ -81,6 +81,22 @@
       "title": "Too-good discount",
       "detail": "A {pct} discount on a 'was' price that may never have been charged."
     },
+    "was_never_charged": {
+      "title": "'Was' price not charged recently",
+      "detail": "This product sold for {low} in the past 30 days, yet the 'was' price is {was}."
+    },
+    "implausible_discount": {
+      "title": "Unbelievable discount",
+      "detail": "{pct} off: discounts this deep are almost always measured against a price nobody paid."
+    },
+    "reference_anchor": {
+      "title": "Discount on a 'recommended' price",
+      "detail": "The 'was' price is labelled {anchor}: a reference price, not what this shop charged before."
+    },
+    "permanent_sale": {
+      "title": "Never-ending sale",
+      "detail": "The page says {phrase}: shops that are always closing down use this to rush you."
+    },
     "seller_not_brand": {
       "title": "Sold by another company",
       "detail": "Sold by {seller}, not by the brand itself."
@@ -204,6 +220,11 @@
     "content.generic_brand": "Unknown brand",
     "listing.generated_brand": "Made-up-looking brand name",
     "listing.discount_pct": "Size of the discount",
+    "pricing.implausible_discount": "Unbelievable discount",
+    "pricing.reference_anchor": "Discount on a recommended price",
+    "pricing.permanent_sale": "Never-ending sale",
+    "pricing.history_days": "How long we've seen this price",
+    "pricing.was_above_30d_low": "'Was' price above the recent low",
     "listing.keyword_stuffed": "Long title with many terms",
     "listing.title_length": "Title length",
     "listing.seller_not_brand": "Sold by another company than the brand",
@@ -255,5 +276,7 @@
     "reverse_image.image_age_years": "Age of the photo online",
     "reverse_image.photo_predates_listing": "Photo older than the listing"
   },
-  "no_check_used": "No check was used."
+  "no_check_used": "No check was used.",
+  "headline_reasons": "{label}: {reasons}.",
+  "and": "and"
 }

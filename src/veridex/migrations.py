@@ -102,6 +102,23 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         UPDATE wallets SET trial_granted = TRUE;
         """,
     ),
+    (
+        6,
+        "price observations",
+        """
+        -- Anonymous price observations (veridex.price_store): a hashed product key, the day and the prices only.
+        -- No URL, caller or time of day; one row per product per day; rows older than 90 days are deleted.
+        CREATE TABLE price_observations (
+            product_key  BYTEA NOT NULL CHECK (octet_length(product_key) = 32),
+            day          DATE NOT NULL,
+            price        NUMERIC(14, 2) NOT NULL CHECK (price >= 0),
+            currency     TEXT NOT NULL CHECK (length(currency) <= 3),
+            was_price    NUMERIC(14, 2) CHECK (was_price >= 0),
+            PRIMARY KEY (product_key, day)
+        );
+        CREATE INDEX price_observations_day_idx ON price_observations (day);
+        """,
+    ),
 ]
 
 

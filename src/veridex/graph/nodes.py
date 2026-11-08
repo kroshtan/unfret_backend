@@ -297,7 +297,7 @@ async def _verdict(state: AnalysisState, score: int, headline: str | None = None
         language=language,
         headline=headline,
     )
-    if headline or not settings.llm_explanations:
+    if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict
     points = [f"- concern: {r.title}" for r in verdict.reasons] + [f"- good: {p.title}" for p in verdict.positives]
     try:
@@ -311,7 +311,7 @@ async def _verdict(state: AnalysisState, score: int, headline: str | None = None
                 HumanMessage(content="Points:\n" + ("\n".join(points) or "- (none)")),
             ]
         )
-        written = output.explanation.strip()
+        written = shopper.fit_headline(output.explanation)  # the 25-word limit, enforced
     except Exception:  # noqa: BLE001 - the template headline is a fine answer
         return verdict
     return verdict.model_copy(update={"headline": written}) if written else verdict

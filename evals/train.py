@@ -57,8 +57,10 @@ RULE_MIRRORS = {
     "known_brand": ["content.brand_recognized"],
     "rating_number": ["listing.log_rating_count"],
 }
-# Not available offline (network lookups are off in evaluation), so not part of the model.
-EXCLUDED_SKILLS = {"reverse_image", "domain_age"}
+# Not part of the model: they look things up (network lookups are off in evaluation: today's data says nothing
+# about an archived page), or, for pricing, read a price history the corpus doesn't have. Their signals reach the
+# shopper as reasons.
+EXCLUDED_SKILLS = {"reverse_image", "domain_age", "pricing"}
 THRESHOLDS = (30, 40, 50)
 
 

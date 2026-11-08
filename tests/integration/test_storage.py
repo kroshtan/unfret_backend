@@ -1,10 +1,13 @@
 """Migrations, the Postgres fact cache and the usage budget against a real database."""
 
+from datetime import date, timedelta
+
 import asyncpg
 
 from veridex import fact_cache
 from veridex.db import PostgresBudget, PostgresFactStore
 from veridex.migrations import MIGRATIONS, migrate
+from veridex.price_store import History, Observation, PostgresPriceStore
 
 
 async def test_migrations_are_recorded_and_idempotent(pool: asyncpg.Pool) -> None:
@@ -58,3 +61,25 @@ async def test_postgres_budget_caps_per_period(pool: asyncpg.Pool) -> None:
     assert [await budget.reserve("2026-11", 2) for _ in range(3)] == [True, True, False]
     assert await budget.reserve("2026-12", 2) is True
     assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'tineye' AND period = '2026-11'") == 2
+
+
+async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncpg.Pool) -> None:
+    store = PostgresPriceStore(pool)
+    key, today = b"\x01" * 32, date(2026, 11, 8)
+    await store.record(key, Observation(today - timedelta(days=95), 5.0, "EUR", None))
+    await store.record(key, Observation(today - timedelta(days=40), 30.0, "EUR", 60.0))
+    await store.record(key, Observation(today - timedelta(days=3), 24.95, "EUR", 59.95))
+    await store.record(key, Observation(today - timedelta(days=3), 1.0, "EUR", None))  # same day: dropped
+    await store.record(key, Observation(today - timedelta(days=2), 9.0, "USD", None))
+
+    await store.purge(today - timedelta(days=90))
+    history = await store.history(key, today, "EUR")
+
+    assert history == History(first_seen=today - timedelta(days=40), days=1, lowest=24.95)
+    columns = {
+        r["column_name"]
+        for r in await pool.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'price_observations'"
+        )
+    }
+    assert columns == {"product_key", "day", "price", "currency", "was_price"}  # no URL, caller or time

@@ -56,6 +56,11 @@ env:
   secret:
     - VERIDEX_LLM_API_KEY
     - VERIDEX_POSTGRES_URI
+    # Optional: each feature stays off (503 / skipped) while its secret is empty.
+    - VERIDEX_SESSION_SECRET  # sign-in and credits
+    - VERIDEX_HOT_WALLET_KEY  # x402 + credit purchases (fee payer and receiver)
+    - VERIDEX_COLD_ADDRESS  # sweep destination (public, but kept with the wallet settings)
+    - VERIDEX_TINEYE_API_KEY  # reverse image search in deep checks
 
 accessories:
   # Reached by the app as veridex-db on the `kamal` network; never published. forge-infra's nightly backup

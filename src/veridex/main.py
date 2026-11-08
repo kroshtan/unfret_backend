@@ -38,7 +38,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     tineye.use_budget(PostgresBudget(api.db_pool, "tineye"))
     api.x402 = X402(settings)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
-    api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None)
+    api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
     api.credits.attach(api.db_pool)
     # Single instance: the sweep to cold is not coordinated across processes (the scanner is safe either way).
     tasks = [asyncio.create_task(api.x402.run_forever())] if api.x402.configured else []

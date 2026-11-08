@@ -6,14 +6,15 @@ from typing import Any
 import segno
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from solders.pubkey import Pubkey
 
 from veridex.auth import get_credits, require_wallet
 from veridex.config import settings
 from veridex.credits import ledger
-from veridex.credits.pricing import pricing, purchase_transaction, solana_pay_url
+from veridex.credits.pricing import pricing, purchase_limits, purchase_transaction, solana_pay_url
 from veridex.facts import PageFacts
+from veridex.prices import Currency, PriceUnavailableError
 from veridex.schemas.errors import BadRequestError, ServiceUnavailableError
 
 router = APIRouter(tags=["Credits"])
@@ -28,10 +29,12 @@ class CreditsResponse(BaseModel):
 
 
 class PurchaseRequest(BaseModel):
-    """Who buys how much."""
+    """Who buys how much, in which currency."""
 
     address: str = Field(max_length=64, description="The paying wallet (base58), which signs and sends the transfer.")
-    lamports: int = Field(gt=0, description="Amount of SOL to send, in lamports.")
+    currency: Currency = Field(default="SOL", description="Pay in SOL or USDC.")
+    amount: int | None = Field(default=None, gt=0, description="Amount in the currency's base units.")
+    lamports: int | None = Field(default=None, gt=0, description="Amount of SOL in lamports (same as amount for SOL).")
     beneficiary: str | None = Field(
         default=None,
         max_length=64,
@@ -39,26 +42,37 @@ class PurchaseRequest(BaseModel):
         "vault pays. Recorded in a memo the scanner reads.",
     )
 
+    @model_validator(mode="after")
+    def _one_amount(self) -> PurchaseRequest:
+        if self.amount is None:
+            if self.lamports is None or self.currency != "SOL":
+                raise ValueError("give amount (base units of the currency)")
+            self.amount = self.lamports
+        return self
+
 
 class PurchaseResponse(BaseModel):
     """The unsigned transfer for the buyer's wallet, and the same request as a Solana Pay link."""
 
     transaction: str
-    lamports: int
+    currency: Currency
+    amount: int
+    lamports: int | None = Field(default=None, description="The amount for SOL purchases (backward compatible).")
+    mint: str | None = Field(default=None, description="The token mint for USDC purchases.")
     hot_wallet: str
     solana_pay_url: str
 
 
 @router.get("/v1/pricing")
-def get_pricing(request: Request) -> dict[str, Any]:
+async def get_pricing(request: Request) -> dict[str, Any]:
     """
-    The price of an analysis, x402 tier prices, purchase bonuses, suggested packs and where payments go.
+    The canonical SOL prices (analysis, x402 tiers), bonuses, packs and limits, plus a live USDC quote.
 
     :param request: The incoming request.
     :return: The price list.
     """
     door = get_credits(request)
-    return pricing(settings, door.hot if door.purchases_enabled else None)
+    return await pricing(settings, door.hot if door.purchases_enabled else None, door.book, door.usdc_mint)
 
 
 @router.get("/v1/credits", response_model=CreditsResponse)
@@ -76,15 +90,17 @@ async def get_balance(request: Request, address: str = Depends(require_wallet)) 
     )
 
 
-def _hot_for_purchase(request: Request, lamports: int) -> Pubkey:
+async def _hot_for_purchase(request: Request, amount: int, currency: Currency = "SOL") -> Pubkey:
     door = get_credits(request)
-    if not door.purchases_enabled or door.hot is None:
+    enabled = door.usdc_purchases_enabled if currency == "USDC" else door.purchases_enabled
+    if not enabled or door.hot is None:
         raise ServiceUnavailableError("Buying credits is not available yet.")
-    if not settings.purchase_min_lamports <= lamports <= settings.purchase_max_lamports:
-        raise BadRequestError(
-            "Amount out of range.",
-            metadata={"min_lamports": settings.purchase_min_lamports, "max_lamports": settings.purchase_max_lamports},
-        )
+    try:
+        low, high = await purchase_limits(settings, door.book, currency)
+    except PriceUnavailableError as exc:
+        raise ServiceUnavailableError("USDC can't be priced right now; pay in SOL or try again shortly.") from exc
+    if not low <= amount <= high:
+        raise BadRequestError("Amount out of range.", metadata={"currency": currency, "min": low, "max": high})
     return door.hot
 
 
@@ -101,44 +117,60 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
 @router.post("/v1/credits/purchase-tx", response_model=PurchaseResponse)
 async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseResponse:
     """
-    Build the unsigned SOL transfer that buys credits; the buyer's wallet signs and sends it.
+    Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.
 
-    Credits arrive once the transfer is finalized (about 15–30 seconds), credited with any purchase bonus to the
-    beneficiary named in the transaction's memo (the paying wallet unless ``beneficiary`` says otherwise). No sign-in
-    needed: anyone may fund any wallet.
+    Credits arrive once the transfer is finalized (about 15–30 seconds): its SOL value (USDC converted at crediting
+    time) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's memo (the
+    paying wallet unless ``beneficiary`` says otherwise). No sign-in needed: anyone may fund any wallet.
 
-    :param body: Who buys how much.
+    :param body: Who buys how much, in which currency.
     :param request: The incoming request.
     :return: The transaction (base64) and a Solana Pay link for phone wallets.
     """
-    hot = _hot_for_purchase(request, body.lamports)
+    assert body.amount is not None  # noqa: S101 - set by the model validator
+    hot = await _hot_for_purchase(request, body.amount, body.currency)
     payer = _wallet(body.address, hot)
     beneficiary = _wallet(body.beneficiary, hot) if body.beneficiary else payer
-    blockhash = await get_credits(request).rpc.latest_blockhash()
-    raw = purchase_transaction(payer, hot, body.lamports, blockhash, beneficiary)
+    door = get_credits(request)
+    mint = door.usdc_mint if body.currency == "USDC" else None
+    raw = purchase_transaction(payer, hot, body.amount, await door.rpc.latest_blockhash(), beneficiary, mint=mint)
     return PurchaseResponse(
         transaction=base64.b64encode(raw).decode(),
-        lamports=body.lamports,
+        currency=body.currency,
+        amount=body.amount,
+        lamports=body.amount if mint is None else None,
+        mint=str(mint) if mint else None,
         hot_wallet=str(hot),
-        solana_pay_url=solana_pay_url(hot, body.lamports, beneficiary),
+        solana_pay_url=solana_pay_url(hot, body.amount, beneficiary, mint),
     )
 
 
 @router.get("/v1/credits/solana-pay.svg", response_class=Response)
-def solana_pay_qr(
-    request: Request, lamports: int = Query(gt=0), beneficiary: str | None = Query(default=None, max_length=64)
+async def solana_pay_qr(
+    request: Request,
+    lamports: int | None = Query(default=None, gt=0),
+    amount: int | None = Query(default=None, gt=0),
+    currency: Currency = Query(default="SOL"),
+    beneficiary: str | None = Query(default=None, max_length=64),
 ) -> Response:
     """
-    The Solana Pay request for ``lamports`` as a QR code, for paying from a phone wallet.
+    The Solana Pay request as a QR code, for paying from a phone wallet.
 
     :param request: The incoming request.
-    :param lamports: The amount.
+    :param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).
+    :param amount: The amount in the currency's base units.
+    :param currency: ``SOL`` or ``USDC``.
     :param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.
     :return: An SVG image.
+    :raises BadRequestError: If no amount is given.
     """
-    hot = _hot_for_purchase(request, lamports)
+    value = amount if amount is not None else (lamports if currency == "SOL" else None)
+    if value is None:
+        raise BadRequestError("Give amount (base units of the currency).")
+    hot = await _hot_for_purchase(request, value, currency)
     target = _wallet(beneficiary, hot) if beneficiary else None
-    svg = segno.make(solana_pay_url(hot, lamports, target), error="m").svg_inline(scale=6, border=2, dark="#111")
+    mint = get_credits(request).usdc_mint if currency == "USDC" else None
+    svg = segno.make(solana_pay_url(hot, value, target, mint), error="m").svg_inline(scale=6, border=2, dark="#111")
     return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 

@@ -14,6 +14,12 @@ SYSTEM_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
 MEMO_PROGRAM = Pubkey.from_string("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")
 WSOL_MINT = Pubkey.from_string("So11111111111111111111111111111111111111112")
 WSOL_DECIMALS = 9
+# Circle's USDC on each network.
+USDC_MINTS = {
+    "solana-devnet": Pubkey.from_string("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
+    "solana-mainnet": Pubkey.from_string("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+}
+USDC_DECIMALS = 6
 CAIP2 = {
     "solana-devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
     "solana-mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
@@ -31,23 +37,27 @@ def associated_token_address(owner: Pubkey, mint: Pubkey = WSOL_MINT) -> Pubkey:
     return Pubkey.find_program_address([bytes(owner), bytes(TOKEN_PROGRAM), bytes(mint)], ASSOCIATED_TOKEN_PROGRAM)[0]
 
 
-def transfer_checked(source: Pubkey, destination: Pubkey, authority: Pubkey, amount: int) -> Instruction:
+def transfer_checked(
+    source: Pubkey, destination: Pubkey, authority: Pubkey, amount: int, mint: Pubkey = WSOL_MINT
+) -> Instruction:
     """
-    Build an SPL ``TransferChecked`` of wSOL.
+    Build an SPL ``TransferChecked`` of ``mint`` (wSOL by default, or USDC).
 
     :param source: The paying token account.
     :param destination: The receiving token account.
     :param authority: The owner of ``source`` (signs).
-    :param amount: Lamports of wSOL.
+    :param amount: Base units of the token.
+    :param mint: The token mint.
     :return: The instruction.
     """
-    data = bytes([12]) + amount.to_bytes(8, "little") + bytes([WSOL_DECIMALS])
+    places = WSOL_DECIMALS if mint == WSOL_MINT else USDC_DECIMALS
+    data = bytes([12]) + amount.to_bytes(8, "little") + bytes([places])
     return Instruction(
         TOKEN_PROGRAM,
         data,
         [
             AccountMeta(source, is_signer=False, is_writable=True),
-            AccountMeta(WSOL_MINT, is_signer=False, is_writable=False),
+            AccountMeta(mint, is_signer=False, is_writable=False),
             AccountMeta(destination, is_signer=False, is_writable=True),
             AccountMeta(authority, is_signer=True, is_writable=False),
         ],

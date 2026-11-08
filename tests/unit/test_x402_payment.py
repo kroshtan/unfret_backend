@@ -26,15 +26,20 @@ from veridex.x402.payment import (
     encode_header,
     precheck,
 )
-from veridex.x402.solana import MEMO_PROGRAM
+from veridex.x402.solana import MEMO_PROGRAM, WSOL_MINT
 
 HOT = Keypair()  # payTo and fee payer
 CLIENT = Keypair()
-LIMITS = {"max_compute_units": 400_000, "max_compute_unit_price": 50_000}
 
 
 def check(header: str, amount: int = 100_000) -> Precheck:
-    return precheck(header, expected(HOT.pubkey(), amount), fee_payer=HOT.pubkey(), **LIMITS)
+    return precheck(
+        header,
+        expected(HOT.pubkey(), amount),
+        fee_payer=HOT.pubkey(),
+        max_compute_units=400_000,
+        max_compute_unit_price=50_000,
+    )
 
 
 def header_for(
@@ -233,4 +238,6 @@ async def test_missing_wsol_account_is_rejected() -> None:
 def test_verified_payment_cannot_be_forged() -> None:
     tx = sign_payment(payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000), HOT.pubkey(), [CLIENT])
     with pytest.raises(TypeError):
-        VerifiedPayment(transaction=tx, payer=CLIENT.pubkey(), amount=100_000, max_fee=0, _token=object())
+        VerifiedPayment(
+            transaction=tx, payer=CLIENT.pubkey(), amount=100_000, max_fee=0, mint=WSOL_MINT, _token=object()
+        )

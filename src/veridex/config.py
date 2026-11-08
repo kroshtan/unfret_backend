@@ -55,11 +55,45 @@ class Settings(BaseSettings):
     pairing_ttl_s: int = 300  # phone sign-in pairings (in memory)
     pairing_per_ip: int = 10  # pairings a visitor may start per 10 minutes
     analysis_price_lamports: int = 1_500_000
-    # (minimum purchase in lamports, bonus percent), e.g. ≥0.05 SOL buys 10% more balance.
+    # (minimum purchase in lamports, bonus percent), e.g. ≥0.05 SOL buys 10% more balance. USDC purchases reach a
+    # tier by their converted SOL value.
     credit_bonus_tiers: list[tuple[int, int]] = [(50_000_000, 10), (250_000_000, 20)]
     suggested_packs: list[int] = [10, 50, 200]  # checks
-    purchase_min_lamports: int = 1_000_000
+    # Purchase limits in SOL; a USDC purchase is held to the same limits by its converted value. At least one check.
+    purchase_min_lamports: int = 1_500_000
     purchase_max_lamports: int = 10_000_000_000
+
+    # Prices: the SOL prices are canonical. Mode "sol" (default) derives USDC amounts at payment time from Pyth's
+    # SOL/USD price, read on chain through our RPC, and refuses USDC when that price is stale or uncertain. Mode
+    # "fixed" is an explicit fallback with fixed USDC prices (base units, 6 decimals).
+    price_mode: Literal["sol", "fixed"] = "sol"
+    pyth_sol_usd_account: str = "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"  # sponsored push feed, shard 0
+    # Where the oracle is read: empty means our own RPC on mainnet and mainnet's public RPC on devnet (Pyth's devnet
+    # copy of the feed updates too rarely to pass the staleness check; the price is the same real SOL/USD price).
+    pyth_rpc_url: str = ""
+    pyth_max_age_s: float = 60.0
+    pyth_max_conf_bps: int = 100  # confidence interval at most 1% of the price
+    # How far an x402 USDC payment may differ from the current quote (the price moves between 402 and payment).
+    usdc_quote_tolerance_bps: int = 200
+    fixed_analysis_price_usdc: int = 150_000
+    fixed_x402_price_quick_usdc: int = 10_000
+    fixed_x402_price_deep_usdc: int = 150_000
+    # USDC mint; empty picks Circle's mint for the configured network.
+    usdc_mint: str = ""
+
+    # USDC received by the hot wallet is swapped to SOL (through Jupiter's swap API) before sweeping, so the cold
+    # wallet only ever receives SOL. Every swap is verified by simulation before the hot wallet signs it, including
+    # a floor from the Pyth price, so no swap runs while the oracle is unavailable. Mainnet only: Jupiter has no
+    # devnet routes, so on devnet USDC stays in the hot wallet (test money).
+    swap_api_url: str = "https://lite-api.jup.ag/swap/v1"
+    swap_api_key: SecretStr = SecretStr("")
+    swap_threshold_usdc: int = 5_000_000  # swap once the hot wallet holds this much USDC
+    swap_dust_usdc: int = 500_000  # …or at least this much and nothing was swapped for swap_max_interval_s
+    swap_max_interval_s: float = 24 * 3600.0
+    swap_max_slippage_bps: int = 100
+    swap_oracle_tolerance_bps: int = 300  # minimum output at most this far below the Pyth-implied amount
+    swap_max_priority_lamports: int = 100_000
+    swap_max_compute_units: int = 1_400_000
     credits_scan_interval_s: float = 20.0
     # Free trial on a wallet's first sign-in, only for wallets with real on-chain history.
     trial_checks: int = 5

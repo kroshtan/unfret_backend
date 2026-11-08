@@ -17,7 +17,7 @@ from tests.unit.x402_helpers import (
 from veridex.config import Settings
 from veridex.x402.payment import PaymentError
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import associated_token_address
+from veridex.x402.solana import USDC_MINTS, associated_token_address
 from veridex.x402.wallet import SYSTEM_PROGRAM, check_sweep
 
 HOT = Keypair()
@@ -154,7 +154,7 @@ async def test_post_settlement_check_falls_back_to_the_balance(monkeypatch: pyte
 def sent_sweep(rpc: FakeRpc) -> VersionedTransaction:
     (raw,) = rpc.sent
     tx = VersionedTransaction.from_bytes(raw)
-    check_sweep(tx.message, HOT.pubkey(), COLD)
+    check_sweep(tx.message, HOT.pubkey(), COLD, USDC_MINTS["solana-devnet"])
     return tx
 
 

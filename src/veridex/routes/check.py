@@ -1,5 +1,5 @@
 """
-``POST /v1/check``: pay-per-check for AI shopping agents over x402 (v2, ``exact`` scheme, wSOL on Solana).
+``POST /v1/check``: pay-per-check for AI shopping agents over x402 (v2, ``exact`` scheme, wSOL or USDC on Solana).
 
 Flow (``upfront``): no ``PAYMENT-SIGNATURE`` header → 402 with ``PAYMENT-REQUIRED``. With one: verify it strictly,
 fetch the page if only a URL was given (before any money moves), co-sign as fee payer (the hot wallet, which is also
@@ -19,9 +19,10 @@ from veridex import __version__
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.net import fetch_public
+from veridex.prices import Product
 from veridex.x402.payment import PaymentError, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import RpcError, SettlementPendingError
+from veridex.x402.solana import RpcError, SettlementPendingError, usdc_mint
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
 
 logger = structlog.get_logger("veridex")
@@ -69,8 +70,8 @@ def _resource() -> dict[str, Any]:
     }
 
 
-def _payment_required(request: Request, x402: X402, tier: Tier, error: str) -> JSONResponse:
-    body = {"x402Version": 2, "error": error, "resource": _resource(), "accepts": [x402.requirements(tier)]}
+def _payment_required(accepts: list[dict[str, Any]], error: str) -> JSONResponse:
+    body = {"x402Version": 2, "error": error, "resource": _resource(), "accepts": accepts}
     return JSONResponse(body, status_code=402, headers={PAYMENT_REQUIRED: encode_header(body)})
 
 
@@ -131,16 +132,17 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             {"detail": "Payments are not available right now.", "error_code": "SERVICE_UNAVAILABLE"}, status_code=503
         )
 
+    accepts = await x402.accepts(body.tier)
     header = request.headers.get(PAYMENT_SIGNATURE)
     if not header:
-        return _payment_required(request, x402, body.tier, f"{PAYMENT_SIGNATURE} header is required")
+        return _payment_required(accepts, f"{PAYMENT_SIGNATURE} header is required")
 
     try:
-        pre = x402.precheck(header, body.tier)
+        pre = x402.precheck(header, body.tier, accepts)
     except PaymentError as exc:
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
-        return _payment_required(request, x402, body.tier, exc.reason)
+        return _payment_required(accepts, exc.reason)
 
     # Get the page before any money moves, so a page we can't read costs the caller nothing.
     try:
@@ -163,9 +165,9 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     try:
         settlement = await x402.settle(pre)
     except PaymentError as exc:  # the simulation showed a different outcome; nothing was submitted
-        return _payment_required(request, x402, body.tier, exc.reason)
+        return _payment_required(accepts, exc.reason)
     except DuplicateSettlementError:
-        return _payment_required(request, x402, body.tier, "duplicate_settlement")
+        return _payment_required(accepts, "duplicate_settlement")
     except SettlementMismatchError as exc:
         # It landed, but not as the simulation promised: no analysis for this payment.
         headers = {
@@ -203,7 +205,8 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
             "transaction": signature,
         }
-        refunded = await _refund_as_credits(request, payer, x402.price(body.tier))
+        # The tier's canonical SOL price, whichever currency paid for it (a USDC payment was that price, converted).
+        refunded = await _refund_as_credits(request, payer, x402.prices.lamports(_tier_product(body.tier)))
         if refunded:
             content["refunded_lamports"] = refunded
             content["refund"] = f"Credited to {payer}; sign in with that wallet at {settings.public_base_url}/connect."
@@ -213,7 +216,12 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     return JSONResponse(verdict.model_dump(mode="json"), headers=paid)
 
 
+def _tier_product(tier: str) -> Product:
+    return "x402_deep" if tier == "deep" else "x402_quick"
+
+
 def _discovery() -> dict[str, Any]:
+    mint = usdc_mint(settings.solana_network, settings.usdc_mint)
     return {
         "x402Version": 2,
         "service": "Veridex",
@@ -222,7 +230,14 @@ def _discovery() -> dict[str, Any]:
         "method": "POST",
         "scheme": "exact",
         "network": settings.solana_network,
-        "asset": "wSOL (So11111111111111111111111111111111111111112)",
+        "assets": {
+            "wSOL": {"mint": "So11111111111111111111111111111111111111112", "pricing": "canonical, fixed in SOL"},
+            "USDC": {
+                "mint": str(mint),
+                "pricing": "converted from the SOL price at quote time (Pyth SOL/USD); offered only while the oracle "
+                "is fresh, otherwise pay in wSOL",
+            },
+        },
         "feePayer": "Veridex pays the network fee",
         "wallets": "standard wallets and smart wallets (Squads and other program-controlled wallets paying by CPI)",
         "tiers": {
@@ -281,11 +296,13 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 
 ## Payment (x402 v2)
 
-The first call answers 402 with a PAYMENT-REQUIRED header. Pay with the `exact` scheme on Solana ({d["network"]}) in
-wSOL (wrapped SOL; no stablecoins) and retry with PAYMENT-SIGNATURE. Standard wallets and smart wallets (Squads and
-other program-controlled wallets paying by CPI) both work, as long as the transaction carries one memo and pays
-exactly the price into payTo's wSOL account. Veridex is the fee payer, so you only pay the
-price: quick = {quick / 1e9:.4f} SOL, deep = {deep / 1e9:.4f} SOL. A page we can't fetch costs nothing.
+The first call answers 402 with a PAYMENT-REQUIRED header listing the options: wSOL (wrapped SOL) first, then USDC
+when it can be priced. Pay one with the `exact` scheme on Solana ({d["network"]}) and retry with PAYMENT-SIGNATURE.
+Prices are set in SOL: quick = {quick / 1e9:.4f} SOL, deep = {deep / 1e9:.4f} SOL; the USDC amount is that price
+converted at quote time with Pyth's SOL/USD price (USDC isn't offered while the oracle is stale). Standard wallets and
+smart wallets (Squads and other program-controlled wallets paying by CPI) both work, as long as the transaction
+carries one memo and pays the quoted amount into payTo's token account for that mint. Veridex is the fee payer, so
+you only pay the price. A page we can't fetch costs nothing.
 
 ## Response
 

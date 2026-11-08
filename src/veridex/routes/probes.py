@@ -53,6 +53,7 @@ async def ready(request: Request) -> Healthy:
         x402=x402.status,
         hot_sol_lamports=x402.sol_lamports,
         hot_wsol_lamports=x402.wsol_lamports,
+        hot_usdc_units=x402.usdc_units,
         x402_alerts=list(x402.alerts),
         credits=credits,
     )

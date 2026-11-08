@@ -6,6 +6,10 @@ Open-source release.
 
 ### Features
 
+* USDC alongside SOL on both payment tracks. Prices stay canonical in SOL; USDC is converted at payment time with Pyth's SOL/USD price read on chain (fully verified, ≤60 s old, confidence ≤1%) and refused while the oracle fails those checks. x402 offers wSOL first, then USDC once the hot wallet's USDC account exists, accepting ≤2% drift from the quote; USDC credit purchases are credited at their SOL value with the SOL bonus tiers. All prices come from one `PriceBook` (a `fixed` USDC mode exists, off by default)
+* USDC→SOL swaps before sweeping (mainnet): Jupiter routes, verified by simulation before the hot wallet signs (exact USDC out, at least the slippage bound and a Pyth floor in, fee-only SOL debit, no delegate/close authority/owner change); the cold wallet only ever receives SOL. The sweep job also creates the hot wallet's USDC account; the outflow audit recognises swaps by their net effect
+* The MCP server pays in USDC when offered and held, otherwise SOL, with per-currency spend caps; `/checkout` has a SOL/USDC switch
+* Minimum credit purchase raised to one analysis (0.0015 SOL, or its USDC value)
 * Credits door replaces accounts: Sign-In With Solana (stateless nonces and session tokens; the signature grants no spending rights) and a lamport balance per wallet, the only user state stored. `/v1/analyze` (and its stream) debits atomically and refunds pages that can't be analysed and failed analyses
 * Buying credits with SOL: `/v1/pricing`, `/v1/credits`, `/v1/credits/purchase-tx` (unsigned transfer + Solana Pay link) and a QR endpoint; a scanner credits finalized incoming transfers to the hot wallet exactly once (cursor moved by compare-and-swap), with purchase bonuses
 * `/connect` (sign in, hand the session to the browser extension, which confirms receipt) and `/checkout` (buy credits from a browser wallet or a phone via Solana Pay QR): static HTML and vanilla JS with a strict CSP, Wallet Standard discovery without dependencies

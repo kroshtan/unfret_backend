@@ -11,12 +11,15 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from tests.integration.conftest import bearer
+from tests.unit.test_prices import StaticOracle
 from veridex.auth import get_credits
 from veridex.config import settings
 from veridex.credits import CreditsDoor, siws
 from veridex.credits.scanner import CreditScanner
 from veridex.main import app
+from veridex.prices import PriceBook
 from veridex.routes.check import _refund_as_credits
+from veridex.x402.solana import USDC_MINTS, associated_token_address
 
 HOT = Keypair()
 PRICE = settings.analysis_price_lamports
@@ -414,3 +417,70 @@ async def test_first_start_waits_for_funding_to_finalize(pool: asyncpg.Pool) -> 
     assert await pool.fetchval("SELECT signature FROM scan_cursor") == "seed"
     assert await scanner.scan_once() == 0
     assert await balance(pool, "owner") is None
+
+
+# ── USDC purchases ────────────────────────────────────────────────────────────
+
+
+USDC = USDC_MINTS["solana-devnet"]
+HOT_USDC = associated_token_address(HOT.pubkey(), USDC)
+
+
+class UsdcChainRpc(ChainRpc):
+    """The same fake chain, served as the hot wallet's USDC account's history."""
+
+    async def signature_page(self, address: Pubkey, **kwargs: Any) -> list[dict[str, Any]]:
+        return await super().signature_page(HOT.pubkey() if address == HOT_USDC else address, **kwargs)
+
+
+def usdc_transfer(authority: str, units: int, *, fee_payer: str | None = None) -> dict[str, Any]:
+    info = {
+        "authority": authority,
+        "destination": str(HOT_USDC),
+        "mint": str(USDC),
+        "tokenAmount": {"amount": str(units)},
+    }
+    message: dict[str, Any] = {
+        "instructions": [{"program": "spl-token", "parsed": {"type": "transferChecked", "info": info}}]
+    }
+    if fee_payer:
+        message["accountKeys"] = [{"pubkey": fee_payer}]
+    return {"transaction": {"message": message}, "meta": {"err": None, "innerInstructions": []}}
+
+
+def usdc_scanner(rpc: ChainRpc, pool: asyncpg.Pool, oracle: StaticOracle) -> CreditScanner:
+    book = PriceBook(settings, oracle)
+    tiers = settings.credit_bonus_tiers
+    return CreditScanner(rpc, pool, HOT.pubkey(), tiers, book=book, usdc_mint=USDC)  # type: ignore[arg-type]
+
+
+async def test_usdc_purchases_are_credited_at_their_sol_value_exactly_once(pool: asyncpg.Pool) -> None:
+    rpc = UsdcChainRpc()
+    scanner = usdc_scanner(rpc, pool, StaticOracle("100"))
+    await scanner.initialise()
+    assert scanner.name.startswith("credits-usdc:")  # its own cursor, next to the SOL scanner's
+
+    rpc.add("buy", usdc_transfer("alice", 1_500_000))  # $1.50 at $100/SOL = 0.015 SOL
+    rpc.add("big", usdc_transfer("bob", 6_000_000))  # $6 = 0.06 SOL: reaches the ≥0.05 SOL tier, +10%
+    rpc.add("x402", usdc_transfer("carol", 150_000, fee_payer=str(HOT.pubkey())))  # a settlement we paid for
+
+    assert await scanner.scan_once() == 2
+    assert await scanner.scan_once() == 0
+    assert await usdc_scanner(rpc, pool, StaticOracle("100")).scan_once() == 0  # the cursor survives restarts
+    assert await balance(pool, "alice") == 15_000_000
+    assert await balance(pool, "bob") == 66_000_000
+    assert await balance(pool, "carol") is None
+
+
+async def test_usdc_purchases_wait_for_a_fresh_price_rather_than_guess(pool: asyncpg.Pool) -> None:
+    rpc = UsdcChainRpc()
+    oracle = StaticOracle(None)
+    scanner = usdc_scanner(rpc, pool, oracle)
+    await scanner.initialise()
+    rpc.add("buy", usdc_transfer("alice", 1_500_000))
+
+    assert await scanner.scan_once() == 0  # stale oracle: not credited, the cursor stays before it
+    assert await balance(pool, "alice") is None
+    oracle.value = "150"
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, "alice") == 10_000_000  # $1.50 at $150/SOL

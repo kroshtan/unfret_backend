@@ -80,7 +80,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
 | `GET` | `/v1/credits` | The signed-in wallet's balance |
 | `GET` | `/v1/pricing` | Analysis price, x402 prices, purchase bonuses, suggested packs, hot wallet |
-| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL transfer that buys credits, plus a Solana Pay link |
+| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys credits, plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The Solana Pay request as a QR code |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `GET` | `/v1/health` | Liveness probe |
@@ -95,7 +95,10 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in lamports`**: no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
-Credits are bought by sending SOL to the hot wallet: `/v1/credits/purchase-tx` builds the transfer with a
+Credits are bought by sending SOL or USDC to the hot wallet (at least one analysis' worth). A USDC purchase is
+credited at its SOL value at crediting time (Pyth SOL/USD) and gets the SOL bonus tier that value reaches; a second
+scanner watches the hot wallet's USDC account, and waits rather than guesses while the price is stale. For SOL:
+`/v1/credits/purchase-tx` builds the transfer with a
 `veridex:credit:<beneficiary>` memo (any wallet may fund any wallet, so a smart-wallet vault can buy for the key that
 signs in), and [`/checkout`](https://veridex.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
 Pay QR). A background scanner walks the hot wallet's finalized transactions and credits every incoming System
@@ -116,9 +119,9 @@ first one ≥30 days ago), within a per-visitor limit and a daily cap kept in me
 ### Pay-per-check for agents (x402)
 
 `POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call
-over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL; no stablecoins). Without a
-`PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header. The client signs a transaction that
-pays exactly the price in wSOL into the **hot wallet**'s wSOL account: a plain `TransferChecked` from a standard
+over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL) or **USDC**. Without a
+`PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header listing wSOL first, then USDC. The client
+signs a transaction that pays the price into the **hot wallet**'s token account for that mint: a plain `TransferChecked` from a standard
 wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Veridex co-signs as **fee
 payer** with the same hot wallet (agents pay only the price: quick 0.0001 SOL, deep 0.0015 SOL), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
@@ -129,19 +132,37 @@ stored.
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
 fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly
-one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's wSOL
-account growing by exactly the price with the hot wallet paying no more than the fee. After settlement the real
+one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's token
+account growing by exactly the accepted amount with the hot wallet paying no more than the fee.
+
+**Prices are canonical in SOL** (`VERIDEX_X402_PRICE_*_LAMPORTS`, `VERIDEX_ANALYSIS_PRICE_LAMPORTS`). USDC amounts are
+those prices converted at payment time with Pyth's SOL/USD price, read on chain from the Pyth receiver's
+`PriceUpdateV2` account (`VERIDEX_PYTH_SOL_USD_ACCOUNT`): fully verified, at most `VERIDEX_PYTH_MAX_AGE_S` (60 s) old,
+confidence at most `VERIDEX_PYTH_MAX_CONF_BPS` (1%). USDC isn't offered while the oracle fails those checks, nor until
+the hot wallet's USDC account exists; a USDC payment may be up to `VERIDEX_USDC_QUOTE_TOLERANCE_BPS` (2%) off the
+current quote, since the price moves between the 402 and the payment. On devnet the oracle is read from mainnet (Pyth's
+devnet copy updates too rarely). `VERIDEX_PRICE_MODE=fixed` switches to fixed USDC prices instead (off by default).
+All prices come from one place, `veridex.prices.PriceBook`. After settlement the real
 on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails after a
 payment settled, the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after
 signing in with it.
 
-Money flows through: a background sweep (one atomic transaction) unwraps the hot wallet's wSOL, recreates its wSOL
-account, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot
-wallet holds more than `VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). All signing goes through one function that accepts
-only verified payments (as fee payer, never referenced by an instruction) and sweeps to the cold address. Alerts are
-logged at error level and shown in readiness: value stuck above 1.5x the threshold (sweeps failing), SOL for fees
-below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), and any transfer from the hot wallet to anywhere but cold,
-checked from its recent transactions (payments pause; a compromise signal).
+Money flows through, and the cold wallet only ever receives SOL. On mainnet, USDC the hot wallet received is swapped to
+wSOL once it holds `VERIDEX_SWAP_THRESHOLD_USDC` (5 USDC), or dust older than a day: Jupiter's swap API
+(`VERIDEX_SWAP_API_URL`, self-hostable) builds the route, and the transaction is **verified by simulation before the
+hot wallet signs it**: the hot wallet is the only signer and fee payer; its USDC account loses exactly the amount; its
+wSOL account gains at least the stricter of the route's slippage bound (`VERIDEX_SWAP_MAX_SLIPPAGE_BPS`, 1%) and a floor
+3% under the Pyth-implied amount (no swap without a fresh price); its SOL drops by no more than the capped fee; and it
+still owns both token accounts with no delegate or close authority, and is still a plain System account. A background
+sweep (one atomic transaction) then unwraps the hot wallet's wSOL, recreates its wSOL account, creates its USDC account
+if missing, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the
+hot wallet holds more than `VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). All signing goes through one function that
+accepts only verified payments (as fee payer, never referenced by an instruction), sweeps to the cold address and
+verified swaps. Alerts are logged at error level and shown in readiness: value stuck above 1.5x the threshold (sweeps
+failing), SOL for fees below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), swaps failing repeatedly or USDC piling
+up beyond 3x the swap threshold, and any value leaving the hot wallet except to cold or in a USDC→SOL swap (recognised
+by its net effect: USDC down, wSOL up at a sane rate, nothing else lost), checked from its recent transactions
+(payments pause; a compromise signal).
 
 The feature is off (`503`) until `VERIDEX_HOT_WALLET_KEY` and `VERIDEX_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `VERIDEX_X402_ALLOW_MAINNET=true`. Run one instance:

@@ -5,6 +5,7 @@ import base64
 from typing import Any
 
 import httpx
+from solders.instruction import AccountMeta, Instruction
 from solders.pubkey import Pubkey
 
 TOKEN_PROGRAM = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
@@ -17,6 +18,59 @@ LIGHTHOUSE_PROGRAM = Pubkey.from_string("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA
 # Wrapped SOL: SOL held in an SPL token account, minted by the token program itself (no issuer).
 WSOL_MINT = Pubkey.from_string("So11111111111111111111111111111111111111112")
 WSOL_DECIMALS = 9
+
+# Circle's USDC: mainnet (https://www.circle.com/multi-chain-usdc/solana) and devnet (Circle's developer quickstart).
+USDC_MINTS = {
+    "solana-mainnet": Pubkey.from_string("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
+    "solana-devnet": Pubkey.from_string("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
+}
+USDC_DECIMALS = 6
+
+
+def usdc_mint(network: str, override: str = "") -> Pubkey:
+    """
+    The USDC mint for a network, or an explicit override.
+
+    :param network: ``solana-devnet`` or ``solana-mainnet``.
+    :param override: A mint address that takes precedence (empty for Circle's).
+    :return: The mint.
+    """
+    return Pubkey.from_string(override) if override else USDC_MINTS[network]
+
+
+def transfer_checked(source: Pubkey, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: int) -> Instruction:
+    """
+    SPL ``TransferChecked`` between two token accounts of ``mint``.
+
+    :param source: The paying token account.
+    :param mint: The token mint.
+    :param destination: The receiving token account.
+    :param authority: The owner of ``source`` (signs).
+    :param amount: Base units.
+    :return: The instruction.
+    """
+    data = bytes([12]) + amount.to_bytes(8, "little") + bytes([decimals(mint)])
+    return Instruction(
+        TOKEN_PROGRAM,
+        data,
+        [
+            AccountMeta(source, is_signer=False, is_writable=True),
+            AccountMeta(mint, is_signer=False, is_writable=False),
+            AccountMeta(destination, is_signer=False, is_writable=True),
+            AccountMeta(authority, is_signer=True, is_writable=False),
+        ],
+    )
+
+
+def decimals(mint: Pubkey) -> int:
+    """
+    The decimals of the mints Veridex accepts.
+
+    :param mint: wSOL or a USDC mint.
+    :return: 9 for wSOL, 6 otherwise.
+    """
+    return WSOL_DECIMALS if mint == WSOL_MINT else USDC_DECIMALS
+
 
 # CAIP-2 identifiers: "solana:" + the first 32 characters of the cluster's genesis hash.
 CAIP2 = {

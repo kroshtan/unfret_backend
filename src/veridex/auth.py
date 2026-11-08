@@ -20,7 +20,7 @@ def get_credits(request: Request) -> CreditsDoor:
     if getattr(app, "credits", None) is None:
         x402 = get_x402(request)
         hot = x402.hot.pubkey if x402.hot is not None else None
-        app.credits = CreditsDoor(settings, x402.rpc, hot)
+        app.credits = CreditsDoor(settings, x402.rpc, hot, x402.prices)
     door: CreditsDoor = app.credits
     return door
 

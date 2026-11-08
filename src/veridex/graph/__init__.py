@@ -1,14 +1,16 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 import structlog
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
+from veridex import scoring
 from veridex.config import settings
 from veridex.graph import triage
-from veridex.graph.nodes import classify_node, early_exit_node, judge_node, preprocess_node
+from veridex.graph.nodes import classify_node, early_exit_node, make_judge_node, preprocess_node
 from veridex.graph.skills import Skill, SkillOutput
 from veridex.graph.skills.content import ContentSkill
 from veridex.graph.skills.dark_patterns import DarkPatternsSkill
@@ -115,7 +117,7 @@ def _triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, objec
 MAX_TRIAGE_ROUNDS = 2
 
 
-def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
+def build_graph(skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH) -> CompiledStateGraph:
     """
     Compile the analysis graph.
 
@@ -137,6 +139,7 @@ def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
     an instance in :data:`SKILLS`.
 
     :param skills: List of skill instances to wire into the graph.
+    :param model_path: The scorer artifact the judge uses (the quick tier has its own).
     :return: A compiled LangGraph ``StateGraph``.
     """
     builder = StateGraph(AnalysisState)
@@ -148,7 +151,7 @@ def build_graph(skills: list[Skill] = SKILLS) -> CompiledStateGraph:
     for skill in skills:
         builder.add_node(skill.name, _isolated(skill))
     builder.add_node("triage", _triage_node(skills))
-    builder.add_node("judge", judge_node)
+    builder.add_node("judge", make_judge_node(model_path))
 
     # Edges
     builder.set_entry_point("preprocess")

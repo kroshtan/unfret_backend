@@ -7,15 +7,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from veridex.graph.skills import Skill
+from veridex.graph.skills.eu_registry import EuRegistrySkill
 
 Tier = Literal["quick", "deep"]
 Policy = Literal["strict", "balanced", "lenient"]
 Action = Literal["allow", "warn", "block"]
 
 # The quick tier runs only skills that need no outbound fetches about the shop (no RDAP/CT, VIES or reverse image
-# search); the deep tier runs every skill. Change tiers here and nowhere else.
+# search); the deep tier runs every skill. eu_registry runs in both, without its VIES lookup in quick, so the quick
+# tier computes the same features the shipped scorer was trained on (offline, without network lookups). Change
+# tiers here and nowhere else.
 QUICK_SKILLS: frozenset[str] = frozenset(
-    {"content", "listing", "reviews", "html_source_signals", "dark_patterns", "injection"}
+    {"content", "listing", "reviews", "html_source_signals", "dark_patterns", "injection", "eu_registry"}
 )
 
 # risk_score thresholds per caller policy: at or above `block` → block; at or above `warn` → warn ("ask your
@@ -38,7 +41,9 @@ def skills_for(tier: Tier, skills: list[Skill]) -> list[Skill]:
     :param skills: The full skill registry.
     :return: The skills for that tier.
     """
-    return skills if tier == "deep" else [s for s in skills if s.name in QUICK_SKILLS]
+    if tier == "deep":
+        return skills
+    return [EuRegistrySkill(vies=False) if s.name == "eu_registry" else s for s in skills if s.name in QUICK_SKILLS]
 
 
 class Flag(BaseModel):

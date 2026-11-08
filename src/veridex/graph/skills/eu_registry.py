@@ -78,6 +78,15 @@ class EuRegistrySkill(Skill):
     page_types = STOREFRONTS
     features = ("vat_present", "vat_valid", "vat_name_match", "withdrawal_right", "imprint")
 
+    def __init__(self, *, vies: bool = True) -> None:
+        """
+        Configure the skill.
+
+        :param vies: Whether to look the VAT ID up in VIES (an outbound request about the shop). The quick tier turns
+            it off and keeps the local checks.
+        """
+        self.vies = vies
+
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
         Check the legally required information, and the VAT ID with VIES when network lookups are on.
@@ -100,7 +109,7 @@ class EuRegistrySkill(Skill):
         if not imprint:
             observations.append(Observation(type="imprint", evidence="No company identity (imprint) found."))
 
-        if facts.vat_ids and settings.network_lookups:
+        if facts.vat_ids and self.vies and settings.network_lookups:
             vat_id = facts.vat_ids[0]
             result = await cached_fact("vies", vat_id, lambda: check_vat(vat_id))
             if result is not None:

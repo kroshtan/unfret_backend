@@ -21,6 +21,9 @@ if TYPE_CHECKING:  # the graph imports this module, so no runtime import back in
     from veridex.graph.state import Finding
 
 MODEL_PATH = Path(__file__).with_name("model.json")
+# The quick tier skips the skills that look the shop up elsewhere, so it has its own model trained on exactly the
+# features it computes (scoring a missing feature as 0 would read "never checked" as "absent").
+MODEL_QUICK_PATH = Path(__file__).with_name("model-quick.json")
 
 
 @dataclass(frozen=True)
@@ -143,8 +146,8 @@ def score(
 
     ``confidence`` combines how decisive the probability is (``|2p - 1|``) with how many of the model's features
     were measured on this page (a page where most skills found nothing to measure is scored, but less surely).
-    ``flags`` are the features that pushed the score towards unreliable, strongest first, each with the matching
-    skill's finding as evidence where there is one.
+    ``flags`` are the measured features that pushed the score towards unreliable, strongest first, each with the
+    matching skill's finding as evidence where there is one. Features absent from ``features`` are never flagged.
 
     :param features: The skill features from the graph state.
     :param findings: The skill findings, used as evidence for the flags.
@@ -168,6 +171,8 @@ def score(
     for name, contribution in contributions:
         if contribution <= 0.05 or len(flags) >= 6:
             break
+        if name not in features:
+            continue  # not measured on this page: never claim evidence for it
         evidence = _evidence(name, features.get(name, 0.0), by_skill.get(name.split(".", 1)[0], []))
         flags.append(Flag(type=name, evidence=evidence, weight=round(contribution, 3)))
     return Assessment(

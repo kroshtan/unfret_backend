@@ -88,3 +88,21 @@ async def test_oversized_page_rejected(client: httpx.AsyncClient, create_account
     assert (await client.post("/v1/analyze", json=huge, headers=headers)).status_code == 422
     huger = {**PAGE, "page_content": "x" * (settings.max_page_bytes + 200_000)}
     assert (await client.post("/v1/analyze", json=huger, headers=headers)).status_code == 413
+
+
+async def test_page_facts_are_forwarded_to_the_graph(
+    client: httpx.AsyncClient, graph: FakeGraph, create_account: Any
+) -> None:
+    headers = await create_account("alice")
+    body = {**PAGE, "page_facts": {"platform": "shopify", "title": "Sweater", "price": 49.0}}
+
+    assert (await client.post("/v1/analyze", json=body, headers=headers)).status_code == 200
+    facts = graph.calls[0]["page_facts"]
+    assert (facts.platform, facts.title, facts.price) == ("shopify", "Sweater", 49.0)
+
+
+async def test_oversized_page_facts_are_rejected(client: httpx.AsyncClient, create_account: Any) -> None:
+    headers = await create_account("alice")
+    body = {**PAGE, "page_facts": {"variations": ["x"] * 101}}
+
+    assert (await client.post("/v1/analyze", json=body, headers=headers)).status_code == 422

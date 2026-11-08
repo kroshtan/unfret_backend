@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
 from veridex.config import settings
+from veridex.facts import PageFacts
 from veridex.graph import build_graph, nodes
 from veridex.graph.skills import Skill
 from veridex.graph.state import AnalysisState, PageType
@@ -140,3 +141,26 @@ async def test_judge_sees_findings_in_a_stable_order(fake_llm: FakeLLM) -> None:
 
     prompt = fake_llm.prompts[-1][1].content
     assert prompt.index("[classify]") < prompt.index("[alpha]") < prompt.index("[zeta]")
+
+
+LAMP_PAGE = (
+    '<html><body><h1>Lamp</h1><script type="application/ld+json">'
+    '{"@type": "Product", "name": "Lamp", "brand": "Acme"}</script></body></html>'
+)
+
+
+async def test_preprocess_extracts_facts() -> None:
+    result = await nodes.preprocess_node({"page_content": LAMP_PAGE, "url": "", "flags": []})  # type: ignore[typeddict-item]
+
+    assert (result["facts"].title, result["facts"].brand) == ("Lamp", "Acme")
+    assert result["cleaned_content"] == "Lamp"
+
+
+async def test_preprocess_prefers_supplied_facts() -> None:
+    supplied = PageFacts(title="From the extension")
+    state = {"page_content": LAMP_PAGE, "url": "", "flags": [], "page_facts": supplied}
+
+    result = await nodes.preprocess_node(state)  # type: ignore[arg-type]
+
+    assert result["facts"] is supplied
+    assert result["cleaned_content"] == "Lamp"

@@ -1,22 +1,29 @@
+import asyncio
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from veridex.facts import parse_page
 from veridex.graph.state import AnalysisState, PageType
-from veridex.html_cleaner import clean_html
 from veridex.llm import get_structured_llm
 
 
-def preprocess_node(state: AnalysisState) -> dict:
+async def preprocess_node(state: AnalysisState) -> dict:
     """
-    Clean raw HTML and initialise the skill_results accumulator.
+    Parse the page once: extract its facts and the plain text the LLM sees, and initialise the accumulators.
 
-    :param state: Current graph state; uses ``page_content``.
-    :return: ``cleaned_content`` and an empty ``skill_results`` list.
+    Facts supplied by the client (e.g. a browser extension, which sees the rendered page) take precedence over
+    the ones extracted from raw HTML. Parsing runs off the event loop, since a large page takes a while.
+
+    :param state: Current graph state; uses ``page_content``, ``url`` and the optional ``page_facts``.
+    :return: ``facts``, ``cleaned_content`` and an empty ``skill_results`` list.
     """
+    extracted, cleaned = await asyncio.to_thread(parse_page, state["page_content"], state.get("url", ""))
+    supplied = state.get("page_facts")
     return {
-        "cleaned_content": clean_html(state["page_content"]),
+        "facts": supplied if supplied is not None else extracted,
+        "cleaned_content": cleaned,
         "skill_results": [],
     }
 

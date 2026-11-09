@@ -399,3 +399,19 @@ valid 7 days. Nothing is stored when a check runs.
   instructions), then by the quote memo, then the older `veridex:credit:` memo, then credits the sender. The
   reference is never credited.
 - The Solana Pay link's `message` is now `Unfret checks`.
+
+## Changes (x402 client edges, backwards-compatible except discovery's `network`)
+
+- `/.well-known/x402` `network` is now the CAIP-2 identifier used in `accepts[].network`
+  (`solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` on devnet, `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` on mainnet); the
+  cluster name it used to carry (`solana-devnet`) moved to `network_name`. `/llms.txt` names both. Its `assets` gain
+  `decimals` and `quote_tolerance_bps`, and a `feeCap` sentence explains the fee cap's units.
+- Each 402 `accepts[].extra` gains `decimals` (9 for wSOL, 6 for USDC), `quoteToleranceBps` (200 for wSOL, 0 for
+  USDC: how far a paid amount may be from the quote; re-fetch the 402 right before paying) and `feeCapNote`.
+  `extra.constraints.maxPriorityFeeLamports` is unchanged: it is in lamports on every option, USDC included (the fee
+  is paid in SOL), the tier's dollar price times `VERIDEX_X402_MAX_PRIORITY_FEE_BPS` converted at the SOL/USD quote.
+- A 402 for a refused payment may carry `reason` next to `error`. With `error: "simulation_failed"` it says why the
+  payment's simulation failed, derived from the simulation's error and logs: `insufficient_funds`,
+  `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_frozen`, `account_not_found`,
+  `blockhash_not_found`, `insufficient_funds_for_rent`, another error class in snake case (`invalid_account_data`),
+  or `custom_program_error_<code>` for another program's own error. Treat unknown values as opaque.

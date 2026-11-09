@@ -151,6 +151,7 @@ class FakeRpc(SolanaRpc):
         self.sim_delta = 100_000
         self.sim_debit = 0
         self.sim_error: Any = None
+        self.sim_logs: list[str] = []
         self.sim_inner: list[int] | None = None
         self.failed: set[str] = set()
         self.statuses: dict[str, dict[str, Any]] = {}  # signature → getSignatureStatuses entry
@@ -203,7 +204,7 @@ class FakeRpc(SolanaRpc):
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int], list[str]]:
         self.simulated.append(raw_tx)
         self._accounts = addresses
         token = {"tokenAmount": {"amount": str((self.wsol or 0) + self.sim_delta)}}
@@ -214,6 +215,7 @@ class FakeRpc(SolanaRpc):
                 {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
             ],
             self.inner_programs(raw_tx),
+            self.sim_logs,
         )
 
     def inner_programs(self, raw_tx: bytes) -> list[int]:

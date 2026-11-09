@@ -45,7 +45,7 @@ class TokenRpc(FakeRpc):
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int], list[str]]:
         self.simulated.append(raw_tx)
         self._accounts = addresses
         before = await self.token_balance(addresses[0]) or 0
@@ -57,6 +57,7 @@ class TokenRpc(FakeRpc):
                 {"lamports": self.sol - self.sim_debit, "data": ["", "base64"]},
             ],
             self.inner_programs(raw_tx),
+            self.sim_logs,
         )
 
 
@@ -79,6 +80,14 @@ async def test_usdc_is_withheld_until_its_account_exists() -> None:
 
 async def test_wsol_is_withheld_while_the_oracle_is_unavailable() -> None:
     assert [a["asset"] for a in await service(TokenRpc(), usd_per_sol=None).accepts("quick")] == [str(USDC)]
+
+
+async def test_usdc_only_option_explains_the_fallback_fee_cap() -> None:
+    (usdc,) = await service(TokenRpc(), usd_per_sol=None).accepts("quick")
+    fallback = configured(HOT, COLD).x402_priority_fee_fallback_lamports
+    assert usdc["extra"]["constraints"]["maxPriorityFeeLamports"] == fallback
+    assert f"a fixed {fallback} lamports while SOL can't be priced" in usdc["extra"]["feeCapNote"]
+    assert (usdc["extra"]["decimals"], usdc["extra"]["quoteToleranceBps"]) == (6, 0)
 
 
 async def test_nothing_is_offered_without_oracle_or_usdc_account() -> None:

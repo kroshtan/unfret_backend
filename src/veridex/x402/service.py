@@ -230,9 +230,32 @@ class X402:
         if usdc is not None:  # the USDC account exists (the sweep job creates it)
             options.append(await self.requirements(tier, "USDC"))
         constraints = self.constraints(options)
+        note = self.fee_cap_note(options)
+        tolerance = self._tolerance()
         for option in options:
             option["extra"]["constraints"] = constraints
+            option["extra"]["feeCapNote"] = note
+            # How far a paid amount may be from this quote (wSOL moves with the price; USDC is exact).
+            option["extra"]["quoteToleranceBps"] = tolerance.get(option["asset"], 0)
         return options
+
+    def fee_cap_note(self, accepts: list[dict[str, Any]]) -> str:
+        """
+        Explain ``constraints.maxPriorityFeeLamports``, which is in lamports for every option, USDC included.
+
+        :param accepts: The options offered for the tier.
+        :return: The note (``extra.feeCapNote``).
+        """
+        s = self.settings
+        share = f"{s.x402_max_priority_fee_bps / 100:g}%"
+        if any(a["asset"] == str(WSOL_MINT) for a in accepts):
+            basis = f"{share} of this tier's dollar price, converted to lamports at the current SOL/USD quote"
+        else:
+            basis = f"a fixed {s.x402_priority_fee_fallback_lamports} lamports while SOL can't be priced"
+        return (
+            "constraints.maxPriorityFeeLamports is in lamports (SOL) for every option, USDC included, because Unfret "
+            f"pays the network fee in SOL: it caps the transaction's priority fee at {basis}."
+        )
 
     def _tolerance(self) -> dict[str, int]:
         # wSOL is converted at quote time and SOL moves before the payment arrives; USDC amounts are exact.

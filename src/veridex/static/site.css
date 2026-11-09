@@ -79,10 +79,16 @@ button.wallet img { border-radius: 0.35rem; }
 }
 
 .pack:has(input:checked) { border-color: var(--accent); }
+.pack .price { float: right; font-weight: 600; }
+.pack .crypto { display: block; margin-left: 1.6rem; font-size: 0.9rem; }
+.choices { border: 0; padding: 0; margin: 0; }
+.choices label { display: block; margin: 0.35rem 0; }
+.choices .muted { display: block; margin-left: 1.6rem; font-size: 0.9rem; }
+.custom select { margin-left: 0.4rem; font: inherit; padding: 0.3rem 0.4rem; }
 .custom { display: block; margin-top: 0.9rem; }
 .custom input { width: 7rem; margin-left: 0.4rem; font: inherit; padding: 0.3rem 0.4rem; }
 
-#qr { display: block; margin-top: 0.5rem; background: #fff; padding: 0.5rem; border-radius: 0.5rem; }
+#qr:not([hidden]) { display: block; margin-top: 0.5rem; background: #fff; padding: 0.5rem; border-radius: 0.5rem; }
 
 #status:empty { display: none; }
 
@@ -129,3 +135,6 @@ details summary { cursor: pointer; }
 .brand h1 { margin: 0; font-size: 2.2rem; }
 .brand .logo { flex: none; }
 .lead { font-size: 1.1rem; }
+#key-input, #recovery-input { display: block; width: 100%; max-width: 32rem; margin: 0.3rem 0 0; }
+fieldset.currency { border: 0; padding: 0; margin: 0.5rem 0 0; }
+fieldset.currency legend { padding: 0; margin-bottom: 0.2rem; }

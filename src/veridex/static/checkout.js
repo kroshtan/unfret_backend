@@ -216,7 +216,7 @@ function describe() {
   document.getElementById("card-price").textContent = formatUsd(pack.price_usd_micros);
   document.getElementById("card-tax").textContent = "plus sales tax/VAT where applicable, added at checkout";
   if (!countryField.value) {
-    summary.textContent = `${checksWord(pack.checks)}: choose your country to see the crypto price with VAT.`;
+    summary.textContent = `${checksWord(pack.checks)}: choose your country to see the price with VAT.`;
     return;
   }
   const { pct, net, vat, total } = vatFor(countryField.value);
@@ -244,7 +244,16 @@ function renderPacks() {
         pack = option;
         refreshTarget();
       });
-      label.append(input, ` ${option.label.en}`);
+      // The card price is the price; crypto is shown as the discount (never as a card surcharge).
+      const name = document.createElement("strong");
+      name.textContent = ` ${checksWord(option.checks)}`;
+      const price = document.createElement("span");
+      price.className = "price";
+      price.textContent = option.price_usd;
+      const crypto = document.createElement("span");
+      crypto.className = "muted crypto";
+      crypto.textContent = `or ${option.crypto_usd} with crypto (+ VAT where applicable)`;
+      label.append(input, name, price, crypto);
       return label;
     }),
   );
@@ -321,7 +330,7 @@ async function buy(wallet) {
     if (!forKey) {
       let session = recall(account.address);
       if (!session) {
-        setStatus(status, "Sign in first, so this page can show when your credits arrive (no spending rights).");
+        setStatus(status, "Sign in first, so this page can show when your checks arrive (signing in gives us no spending rights).");
         ({ session } = await signIn(wallet));
       }
       token = session.token;
@@ -344,16 +353,16 @@ async function buy(wallet) {
       chain: chainOf(pricing.network),
       transaction: fromBase64(purchase.transaction),
     });
-    setStatus(status, "Payment sent. Credits arrive once it is final, usually within 30 seconds…");
+    setStatus(status, "Payment sent. Your checks arrive once it is final, usually within 30 seconds…");
     if (!token) {
-      setStatus(status, "Payment sent. The credits reach your key once it is final, usually within 30 seconds.", "ok");
+      setStatus(status, "Payment sent. The checks reach your key once it is final, usually within 30 seconds.", "ok");
       return;
     }
     const credits = await waitForCredits(token, before);
     if (credits) {
       setStatus(status, `Done: you have ${checksWord(credits.checks_remaining)} (${formatUsd(credits.balance_usd_micros)}).`, "ok");
     } else {
-      setStatus(status, "The payment is still settling. Your credits will appear in the extension shortly.", "info");
+      setStatus(status, "The payment is still settling. Your checks will appear in the extension shortly.", "info");
     }
   } catch (error) {
     setStatus(status, error.message || "The purchase didn't go through.", "error");
@@ -394,7 +403,7 @@ async function start() {
   }
   document.getElementById("beneficiary").querySelector(`input[value="${forKey ? "key" : "wallet"}"]`).checked = true;
   if (new URLSearchParams(window.location.search).get("paid")) {
-    setStatus(status, "Thanks! Your card payment is being confirmed; the credits reach your key in a minute.", "ok");
+    setStatus(status, "Thanks! Your card payment is being confirmed; the checks reach your key within a minute.", "ok");
   }
   renderCountries();
   renderPacks();

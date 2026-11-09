@@ -284,6 +284,9 @@ async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc, pool: as
     assert response.text.startswith("<svg")
     quote_id = await pool.fetchval("SELECT id FROM vat_quotes")
     assert response.headers["x-unfret-quote"] == quote_id  # the page reads it (same origin) to poll the quote
+    reference = await pool.fetchval("SELECT reference FROM vat_quotes")
+    pay_url = response.headers["x-unfret-pay-url"]  # for a wallet app on the same phone
+    assert pay_url.startswith("solana:") and f"reference={reference}" in pay_url
     # Loaded by the page as an <img>: a standalone SVG only renders there with the SVG namespace.
     assert 'xmlns="http://www.w3.org/2000/svg"' in response.text.split(">", 1)[0]
 

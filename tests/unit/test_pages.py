@@ -116,3 +116,10 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert response.text.count("<script") == 1
     assert '<script type="module" src="/static/showcase-list.js"></script>' in response.text
     assert 'id="spotted"' in response.text
+
+
+def test_scripts_only_load_images_the_policy_allows() -> None:
+    # The pages' CSP allows images from 'self' and data: only; a blob: URL (createObjectURL) would render nothing,
+    # as the checkout's QR code once did.
+    for script in STATIC_DIR.glob("*.js"):
+        assert "createObjectURL" not in script.read_text(encoding="utf-8"), script.name

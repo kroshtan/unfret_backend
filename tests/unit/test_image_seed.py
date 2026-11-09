@@ -12,7 +12,7 @@ async def test_a_file_with_the_wrong_hash_is_refused_before_anything_is_read(tmp
     seed = tmp_path / "seed.npz"
     seed.write_bytes(b"not the published seed")
     with pytest.raises(ValueError, match="expected SHA-256"):
-        await image_seed.import_seed(None, seed, "abo", expected_sha256="00" * 32)  # type: ignore[arg-type]
+        await image_seed.import_seed(None, seed, "abo", expected_sha256="00" * 32)
 
 
 def test_the_command_reports_a_hash_mismatch_without_a_traceback(tmp_path: Path) -> None:

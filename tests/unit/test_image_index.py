@@ -44,9 +44,9 @@ def product_photo(seed: int, size: tuple[int, int] = (400, 400)) -> Image.Image:
     image = Image.new("RGB", size, (255, 255, 255))
     draw = ImageDraw.Draw(image)
     for _ in range(12):
-        x0, y0 = rng.integers(0, size[0] - 60), rng.integers(0, size[1] - 60)
+        x0, y0 = int(rng.integers(0, size[0] - 60)), int(rng.integers(0, size[1] - 60))
         colour = tuple(int(c) for c in rng.integers(0, 255, 3))
-        draw.ellipse((x0, y0, x0 + rng.integers(30, 160), y0 + rng.integers(30, 160)), fill=colour)
+        draw.ellipse((x0, y0, x0 + int(rng.integers(30, 160)), y0 + int(rng.integers(30, 160))), fill=colour)
     return image
 
 

@@ -57,11 +57,14 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "fact_cache",
         "usage_counters",
         "price_observations",
+        "shops",
+        "shop_links",
         "schema_migrations",
     }
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
     # Price observations are keyed by a product hash and hold no URL; this page has no public product ID anyway.
     assert await pool.fetchval("SELECT COUNT(*) FROM price_observations") == 0
+    # Shop fingerprints hold facts about web shops, never the page or the caller (test_storage greps them).
 
 
 async def test_insufficient_credits(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:

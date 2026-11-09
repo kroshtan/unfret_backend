@@ -1,13 +1,18 @@
-"""Migrations, the Postgres fact cache and the usage budget against a real database."""
+"""Migrations, the Postgres fact cache, price and shop stores against a real database."""
 
 from datetime import date, timedelta
 
 import asyncpg
+import pytest
+from pydantic import SecretStr
 
-from veridex import fact_cache
+from veridex import fact_cache, shop_store
+from veridex.config import settings
 from veridex.db import PostgresFactStore
+from veridex.facts import PageFacts
 from veridex.migrations import MIGRATIONS, migrate
 from veridex.price_store import History, Observation, PostgresPriceStore
+from veridex.shop_store import MAX_SHARE, PostgresShopStore, ShopRecord
 
 
 async def test_migrations_are_recorded_and_idempotent(pool: asyncpg.Pool) -> None:
@@ -76,3 +81,95 @@ async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncp
         )
     }
     assert columns == {"product_key", "day", "price", "currency", "was_price"}  # no URL, caller or time
+
+
+TODAY = date(2026, 11, 9)
+
+
+async def test_postgres_shop_store_links_one_hop_and_keeps_first_seen(pool: asyncpg.Pool) -> None:
+    store = PostgresShopStore(pool)
+    await store.record(ShopRecord("a.shop", TODAY - timedelta(days=3), links={"meta_pixel": {"111"}}))
+    await store.record(ShopRecord("a.shop", TODAY, registered=date(2026, 10, 1), links={"meta_pixel": {"111"}}))
+    await store.record(ShopRecord("b.shop", TODAY, links={"meta_pixel": {"111"}, "ga": {"G-BBBBBBBB1"}}))
+    await store.record(ShopRecord("c.shop", TODAY, links={"ga": {"G-BBBBBBBB1"}}))
+    (link,) = await store.linked("a.shop", {})
+    assert (link.domain, link.kinds, link.shared) == ("b.shop", ("meta_pixel",), ("111",))  # c.shop isn't linked
+    (back,) = [x for x in await store.linked("c.shop", {}) if x.domain == "b.shop"]
+    assert back.kinds == ("ga",)
+    row = await pool.fetchrow("SELECT first_seen, last_seen, registered FROM shops WHERE domain = 'a.shop'")
+    assert tuple(row) == (TODAY - timedelta(days=3), TODAY, date(2026, 10, 1))
+    assert [x.domain for x in await store.linked("new.shop", {"ga": {"G-BBBBBBBB1"}})] == ["b.shop", "c.shop"]
+
+
+async def test_postgres_shop_store_ignores_overshared_ids_and_forgets(pool: asyncpg.Pool) -> None:
+    store = PostgresShopStore(pool)
+    for i in range(MAX_SHARE + 1):
+        await store.record(ShopRecord(f"s{i}.shop", TODAY, links={"gtm": {"GTM-AGENCY1"}}))
+    assert await store.linked("s0.shop", {}) == []
+    await store.record(ShopRecord("x.shop", TODAY - timedelta(days=200), links={"email": {"e" * 64}, "ga": {"G-X1"}}))
+    await store.record(ShopRecord("y.shop", TODAY, links={"email": {"e" * 64}}))
+    await store.purge(TODAY)
+    kinds = {r["kind"] for r in await pool.fetch("SELECT kind FROM shop_links WHERE domain = 'x.shop'")}
+    assert kinds == {"ga"}  # the contact went after 180 days, the shop stays 400
+    assert await store.forget_contact("email", "e" * 64) == 1
+    assert await store.forget_shop("x.shop") is True
+    assert await pool.fetchval("SELECT COUNT(*) FROM shop_links WHERE domain = 'x.shop'") == 0
+    await store.purge(TODAY + timedelta(days=401))
+    assert await pool.fetchval("SELECT COUNT(*) FROM shops") == 0
+
+
+async def test_contacts_can_only_be_stored_hashed(pool: asyncpg.Pool) -> None:
+    store = PostgresShopStore(pool)
+    with pytest.raises(asyncpg.CheckViolationError):
+        await store.record(ShopRecord("z.shop", TODAY, links={"email": {"owner@z.shop"}}))
+    assert await pool.fetchval("SELECT COUNT(*) FROM shops WHERE domain = 'z.shop'") == 0  # one transaction
+
+
+async def test_fingerprint_tables_hold_no_people_pages_times_or_verdicts(pool: asyncpg.Pool) -> None:
+    columns = await pool.fetch(
+        "SELECT table_name, column_name, data_type FROM information_schema.columns "
+        "WHERE table_name IN ('shops', 'shop_links')"
+    )
+    names = {c["column_name"] for c in columns}
+    forbidden = (
+        "url",
+        "path",
+        "ip",
+        "wallet",
+        "pubkey",
+        "payer",
+        "caller",
+        "user",
+        "score",
+        "verdict",
+        "risk",
+        "flag",
+    )
+    assert not {n for n in names if any(word in n for word in forbidden)}
+    assert {c["data_type"] for c in columns if "seen" in c["column_name"]} == {"date"}
+    assert not [c for c in columns if "time" in c["data_type"]]
+
+
+async def test_recording_a_real_page_leaves_no_page_or_contact_in_any_row(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "contact_hash_key", SecretStr("k"))
+    shop_store.use_store(PostgresShopStore(pool))
+    try:
+        await shop_store.observe(
+            {
+                "url": "https://www.glowlamp.shop/products/secret-lamp?utm_source=friend&ref=wallet9xyz",
+                "page_type": "storefront",
+                "facts": PageFacts(platform="shopify", title="Secret Lamp"),
+                "page_content": "<script>fbq('init', '1234509876543')</script>"
+                '<a href="mailto:owner@glowlamp.shop">mail</a> <a href="tel:+31612345678">call</a>',
+            }
+        )
+    finally:
+        shop_store.use_store(shop_store.MemoryShopStore())
+    rows = [r["row"] for r in await pool.fetch("SELECT row_to_json(t)::text AS row FROM shops t")]
+    rows += [r["row"] for r in await pool.fetch("SELECT row_to_json(t)::text AS row FROM shop_links t")]
+    dump = " ".join(rows).lower()
+    assert "glowlamp.shop" in dump and "1234509876543" in dump  # the shop and its pixel are what is kept
+    for leaked in ("secret-lamp", "products", "utm_source", "wallet9xyz", "owner@", "612345678", "secret lamp"):
+        assert leaked not in dump, leaked

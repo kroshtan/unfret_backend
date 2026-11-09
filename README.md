@@ -51,6 +51,7 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
 | `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
+| `shop_links` | Storefronts: other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
 
 ### Adding a skill
 
@@ -243,6 +244,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
 | `VERIDEX_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `VERIDEX_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
+| `VERIDEX_FINGERPRINTS` / `VERIDEX_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop fingerprint store; the key for contact hashes (no key and no session secret: contacts aren't stored) |
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |

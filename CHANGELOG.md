@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Features
+
+* **Shop fingerprint store** (migration 7, `veridex.shop_store`): every analysed web shop (not marketplaces) is recorded after the answer, in the background: first/last day seen (days, never times), platform and apps, a template simhash, the RDAP/CT dates the analysis already looked up, and the account identifiers on its pages (Google Analytics/Tag Manager/Ads, AdSense, Meta/TikTok/Pinterest pixels, Stripe and PayPal merchant IDs, the `*.myshopify.com` name). Contact e-mail addresses and phone numbers only as HMAC-SHA256 hashes (enforced by a check constraint), never shown, deleted after 180 days; the rest after 400 days. No URL, caller, score or verdict is stored. `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget` handle removal requests. Off in evaluation runs. The privacy page (en/nl) describes it
+* `shop_links` skill (quick and deep tiers): shops sharing an identifier, one hop only, ignoring identifiers held by more than 25 shops; evidence names the shared public ID and the shops, never a contact. Features are logged but have no weight in the scorer until the corpus has them
+
 ### Removed
 
 * The Google Cloud Vision photo lookup (`reverse_image` skill, `VERIDEX_VISION_API_KEY` / `VERIDEX_VISION_MONTHLY_BUDGET`, the `vision` status field and the "same photo on wholesale sites" reason): no external image services any more. Product photos will be matched against Unfret's own image index instead. The privacy page no longer mentions Google

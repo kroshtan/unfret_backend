@@ -124,3 +124,19 @@ async def cached_fact[T](kind: str, key: str, load: Callable[[], Awaitable[T | N
     except Exception:  # noqa: BLE001
         logger.warning("fact_cache_write_failed", kind=kind)
     return value
+
+
+async def peek(kind: str, key: str) -> Any:
+    """
+    A cached fact without loading it on a miss (e.g. to record what an analysis already looked up).
+
+    :param kind: The fact kind.
+    :param key: The fact key.
+    :return: The value, or ``None`` when absent, expired or unreadable.
+    """
+    try:
+        _, value = await _store.get(kind, key)
+    except Exception:  # noqa: BLE001
+        logger.warning("fact_cache_read_failed", kind=kind)
+        return None
+    return value

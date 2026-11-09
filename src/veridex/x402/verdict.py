@@ -18,7 +18,17 @@ Action = Literal["allow", "warn", "block"]
 # tier computes the same features the shipped scorer was trained on (offline, without network lookups). Change
 # tiers here and nowhere else.
 QUICK_SKILLS: frozenset[str] = frozenset(
-    {"content", "listing", "pricing", "reviews", "html_source_signals", "dark_patterns", "injection", "eu_registry"}
+    {
+        "content",
+        "listing",
+        "pricing",
+        "reviews",
+        "html_source_signals",
+        "dark_patterns",
+        "injection",
+        "eu_registry",
+        "shop_links",
+    }
 )
 
 # risk_score thresholds per caller policy: at or above `block` → block; at or above `warn` → warn ("ask your

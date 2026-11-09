@@ -260,7 +260,11 @@
     "domain_age.under_6_months": "Gloednieuw webadres",
     "domain_age.term_years": "Registratieperiode",
     "domain_age.redacted": "Eigenaarsgegevens afgeschermd",
-    "domain_age.cert_age_years": "Leeftijd van het beveiligingscertificaat"
+    "domain_age.cert_age_years": "Leeftijd van het beveiligingscertificaat",
+    "shop_links.linked_shops": "Andere winkels met dezelfde accounts",
+    "shop_links.linked_young_shops": "Jonge winkels met dezelfde accounts",
+    "shop_links.shared_payment": "Betaalaccount gedeeld met andere winkels",
+    "shop_links.shared_contact": "Contactgegevens gedeeld met andere winkels"
   },
   "no_check_used": "Er is geen check gebruikt.",
   "headline_reasons": "{label}: {reasons}.",

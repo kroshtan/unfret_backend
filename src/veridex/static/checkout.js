@@ -28,6 +28,19 @@ const list = document.getElementById("wallets");
 const empty = document.getElementById("no-wallets");
 const qr = document.getElementById("qr");
 const qrShow = document.getElementById("qr-show");
+const payLink = document.getElementById("pay-link");
+
+function onPhone() {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
+if (onPhone()) {
+  // The wallet is on this same phone: open it with the payment instead of showing a code to scan.
+  document.getElementById("phone-heading").textContent = "With a wallet app on this phone";
+  document.getElementById("phone-help").textContent =
+    "Phantom, Solflare or any wallet that supports Solana Pay opens with the payment filled in. (On a computer, this shows a QR code to scan.)";
+  qrShow.textContent = "Pay in my wallet app";
+}
 const shop = document.getElementById("shop");
 const unavailable = document.getElementById("unavailable");
 const currencyField = document.getElementById("currency");
@@ -48,7 +61,6 @@ const signedIn = recallAny();
 let forKey = new URLSearchParams(window.location.search).get("for") === "key";
 let fullKey = null; // the whole key, when typed or made here: lets the page show the balance
 let watch = null; // the purchase being waited for (see watchQuote)
-let qrUrl = null; // the QR code's object URL, revoked when replaced
 
 const POLL_MS = 3000;
 const POLL_ROUNDS = 60; // about three minutes of waiting while the page is visible
@@ -336,6 +348,7 @@ function clearPanel() {
   payPanel.hidden = true;
   payMessage.replaceChildren();
   qr.hidden = true;
+  payLink.hidden = true;
   payOptions.hidden = false;
   paySetup.hidden = false;
 }
@@ -490,11 +503,13 @@ qrShow.addEventListener("click", async () => {
       throw new Error(body.detail ?? `Request failed (${response.status})`);
     }
     const quoteId = response.headers.get("X-Unfret-Quote");
-    const image = await response.blob();
-    if (qrUrl) URL.revokeObjectURL(qrUrl);
-    qrUrl = URL.createObjectURL(new Blob([image], { type: "image/svg+xml" }));
-    qr.src = qrUrl;
+    const payUrl = response.headers.get("X-Unfret-Pay-Url");
+    // A data: URL, not a blob: one: the page's CSP allows images from 'self' and data: only.
+    qr.src = `data:image/svg+xml;base64,${btoa(await response.text())}`;
     qr.hidden = false;
+    // On a phone the code can't be scanned by the same phone: offer the request as a link that opens the wallet app.
+    payLink.hidden = !(payUrl && onPhone());
+    if (payUrl) payLink.href = payUrl;
     if (quoteId) {
       watchQuote({ ...info, quoteId });
     } else {

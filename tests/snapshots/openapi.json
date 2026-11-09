@@ -2378,7 +2378,7 @@
   },
   "/v1/credits/solana-pay.svg": {
    "get": {
-    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
+    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay\nlink itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
     "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
     "parameters": [
      {

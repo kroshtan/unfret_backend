@@ -314,7 +314,8 @@ async def solana_pay_qr(
     The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
 
     The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
-    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``.
+    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay
+    link itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
 
     :param request: The incoming request.
     :param checks: The pack size.
@@ -333,15 +334,16 @@ async def solana_pay_qr(
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
     buffer = io.BytesIO()
-    segno.make(solana_pay_url(hot, amount, quote.memo, mint, reference=quote.reference), error="m").save(
-        buffer, kind="svg", scale=6, border=2, dark="#111", xmldecl=False
-    )
+    pay_url = solana_pay_url(hot, amount, quote.memo, mint, reference=quote.reference)
+    segno.make(pay_url, error="m").save(buffer, kind="svg", scale=6, border=2, dark="#111", xmldecl=False)
     svg = buffer.getvalue()
     headers = {
         "Cache-Control": "no-store",
         "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),
         "X-Unfret-Vat-Rate": format(quote.vat_rate_bps / 100, "g"),
         "X-Unfret-Quote": quote.id,
+        # The same request as a link, for a wallet app on the device the page is open on (a phone can't scan itself).
+        "X-Unfret-Pay-Url": pay_url,
     }
     return Response(svg, media_type="image/svg+xml", headers=headers)
 

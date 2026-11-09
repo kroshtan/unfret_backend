@@ -69,7 +69,6 @@ jobs:
           VERIDEX_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
           VERIDEX_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
           VERIDEX_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
-          VERIDEX_VISION_API_KEY: ${{ secrets.VISION_API_KEY }}
         run: |
           set -euo pipefail
           missing=()

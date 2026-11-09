@@ -19,9 +19,11 @@ uses features the quick tier doesn't compute (e.g. network lookups); until then 
 full model, which ``tests/unit/test_x402_verdict.py`` checks.
 
 Each is a standardised logistic regression with its regularisation chosen by cross-validation on TRAIN, calibrated
-with isotonic regression on cross-validated TRAIN predictions, and scored once on TEST. A gradient-boosted model is
-reported for comparison only. The shipped artifact goes to ``src/veridex/scoring/model.json``; the report to
-``<corpus>/reports/scorer-<stamp>.md``.
+with isotonic regression on cross-validated TRAIN predictions, and scored once on TEST. The calibration reweights
+the classes to a base rate of ``--prior`` (default 0.5): the corpus share of unreliable pages says how the corpus was
+collected, not how likely a page is to be unreliable, and left in it tilts every page towards "unreliable". A
+gradient-boosted model is reported for comparison only. The shipped artifact goes to
+``src/veridex/scoring/model.json``; the report to ``<corpus>/reports/scorer-<stamp>.md``.
 """
 
 import argparse
@@ -119,13 +121,14 @@ def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]],
     return Dataset(kept, x.reshape(len(kept), len(names)), y)
 
 
-def fit(train: Dataset, names: list[str], version: str) -> Model:
+def fit(train: Dataset, names: list[str], version: str, prior: float = 0.5) -> Model:
     """
     Fit a standardised, cross-validated, isotonic-calibrated logistic regression.
 
     :param train: The training data.
     :param names: Its feature columns.
     :param version: Version string for the artifact.
+    :param prior: The base rate of unreliable pages the calibration assumes (the classes are reweighted to it).
     :return: The model.
     """
     means = np.nan_to_num(np.nanmean(train.x, axis=0)) if train.x.size else np.zeros(len(names))
@@ -143,7 +146,9 @@ def fit(train: Dataset, names: list[str], version: str) -> Model:
         cv=folds,
         method="predict_proba",
     )[:, 1]
-    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw, train.y)
+    share = float(train.y.mean())
+    weights = np.where(train.y == 1, prior / share, (1 - prior) / (1 - share))
+    iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw, train.y, sample_weight=weights)
     points = sorted(zip(iso.X_thresholds_.tolist(), iso.y_thresholds_.tolist(), strict=True))
     return Model(
         version=version,
@@ -307,6 +312,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--features", type=Path, default=None, help="a *-features.jsonl from evals.run")
     parser.add_argument("--ship", choices=["A", "B", "C", "none"], default="B")
+    parser.add_argument("--prior", type=float, default=0.5, help="base rate of unreliable pages to calibrate to")
     parser.add_argument(
         "--quick", action="store_true", help="train on the quick tier's skills only; ship model-quick.json"
     )
@@ -339,7 +345,7 @@ def main() -> None:
     for key, (description, cols, keep) in variants.items():
         train = build([r for r in labelled if r.split == "train" and keep(r)], features, cols)
         test = build(test_records, features, cols)
-        model = fit(train, cols, f"v1-{tag}{stamp}-{key}")
+        model = fit(train, cols, f"v1-{tag}{stamp}-{key}", args.prior)
         models[key] = model
         report["variants"][key] = {
             "description": description,
@@ -362,7 +368,11 @@ def main() -> None:
             "coefficients": m.coefficients,
             "intercept": m.intercept,
             "calibration": m.calibration,
-            "trained_on": {"features_file": path.name, "train_n": report["variants"][args.ship]["train_n"]},
+            "trained_on": {
+                "features_file": path.name,
+                "train_n": report["variants"][args.ship]["train_n"],
+                "prior": args.prior,
+            },
             "test": {k: report["variants"][args.ship]["test"][k] for k in ("roc_auc", "brier", "thresholds")},
         }
         (MODEL_QUICK_PATH if args.quick else MODEL_PATH).write_text(json.dumps(artifact, indent=1) + "\n")

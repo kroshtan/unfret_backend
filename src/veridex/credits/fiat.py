@@ -1,10 +1,10 @@
 """
-Fiat top-ups for API keys through a Merchant of Record (most likely Polar; not wired in yet).
+Fiat top-ups for API keys through a Merchant of Record (Polar: :mod:`veridex.credits.polar`).
 
-A provider does two things: start a hosted checkout for an amount in US cents, and turn its signed webhooks into
-:class:`FiatEvent` s: an order paid, refunded (possibly partly, possibly more than once) or disputed. Everything about
-the buyer (card, email, name, address, invoice, tax) stays with the provider: a webhook is reduced to the few fields
-of :class:`FiatEvent` on receipt, and nothing else from it is stored or logged.
+A provider does two things: start a hosted checkout for a pack at its card price in US dollars, and turn its signed
+webhooks into :class:`FiatEvent` s: an order paid, refunded (possibly partly, possibly more than once) or disputed.
+Everything about the buyer (card, email, name, address, invoice, tax) stays with the provider: a webhook is reduced to
+the few fields of :class:`FiatEvent` on receipt, and nothing else from it is stored or logged.
 
 Which key an order is for: our account id goes into the checkout's metadata, and we also keep the checkout id →
 account mapping ourselves (``fiat_checkouts``), since a provider may not echo checkout metadata on the order. The
@@ -24,8 +24,9 @@ Either may push the balance below zero, which blocks paid use until the account 
 Webhooks are verified the Standard Webhooks way (Polar uses it): an HMAC-SHA256 over ``id.timestamp.body`` with the
 ``whsec_`` secret, and a timestamp within ``fiat_webhook_tolerance_s``.
 
-Only :class:`FakeFiatProvider` exists so far, for tests; ``app.fiat`` stays ``None`` (fiat off) until a real provider
-is added.
+:class:`veridex.credits.polar.PolarProvider` is the real provider; it is built at start-up only when it is fully
+configured, and ``app.fiat`` stays ``None`` (fiat off) otherwise. :class:`FakeFiatProvider` stands in for it in
+tests.
 """
 
 import base64
@@ -44,13 +45,17 @@ import asyncpg
 
 from veridex.config import Settings
 from veridex.credits import keys, ledger
-from veridex.credits.packs import card_credits
+from veridex.credits.packs import Pack, card_credits
 
 USD_MICROS_PER_CENT = 10_000
 
 
 class FiatWebhookError(ValueError):
     """A webhook was not authentic, too old, or not understood."""
+
+
+class FiatProviderError(RuntimeError):
+    """The provider could not start a checkout (unreachable, refused, or misconfigured)."""
 
 
 @dataclass(frozen=True)
@@ -79,15 +84,19 @@ class FiatProvider(Protocol):
 
     name: str
 
-    async def create_checkout(self, account: str, amount_cents: int, return_url: str) -> FiatCheckout:
+    async def create_checkout(self, account: str, pack: Pack, return_url: str) -> FiatCheckout:
         """
         Start a hosted checkout.
 
         :param account: The ledger account to credit (``key:<id>``), for the checkout's metadata.
-        :param amount_cents: The price in US cents.
+        :param pack: The pack bought, charged its card price in US dollars.
         :param return_url: Where the provider sends the buyer afterwards.
-        :return: The checkout's id and page.
+        :return: The checkout's id and page. Raises :class:`FiatProviderError` if the provider can't start one.
         """
+        ...
+
+    async def aclose(self) -> None:
+        """Release the provider's connections."""
         ...
 
     def parse_webhook(self, headers: Mapping[str, str], body: bytes, now: float) -> FiatEvent | None:
@@ -153,7 +162,8 @@ class FakeFiatProvider:
 
     Events: ``order.paid`` and ``order.refunded`` (``data``: ``id``, ``checkout_id``, ``metadata.account``,
     ``total_amount`` and ``refunded_amount`` in cents, plus a ``customer`` block that is dropped), and
-    ``order.disputed`` (the real provider's dispute event is still to be confirmed).
+    ``order.disputed`` (Polar has no dispute event: :mod:`veridex.credits.polar` reads a lost dispute from its refund
+    events).
     """
 
     name = "fake"
@@ -172,11 +182,16 @@ class FakeFiatProvider:
         """
         self.secret, self.tolerance_s = secret, tolerance_s
 
-    async def create_checkout(self, account: str, amount_cents: int, return_url: str) -> FiatCheckout:
+    async def create_checkout(self, account: str, pack: Pack, return_url: str) -> FiatCheckout:
         """See :meth:`FiatProvider.create_checkout`."""
         checkout_id = str(uuid.uuid4())
-        query = urlencode({"id": checkout_id, "amount": amount_cents, "return": return_url})
+        query = urlencode(
+            {"id": checkout_id, "amount": pack.card_usd_micros // USD_MICROS_PER_CENT, "return": return_url}
+        )
         return FiatCheckout(checkout_id, f"https://fiat.invalid/checkout?{query}")
+
+    async def aclose(self) -> None:
+        """See :meth:`FiatProvider.aclose`."""
 
     def webhook(self, event: dict[str, object], now: float | None = None) -> tuple[bytes, dict[str, str]]:
         """

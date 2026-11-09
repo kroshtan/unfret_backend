@@ -143,6 +143,34 @@ share target; the sign-in or API key is kept in the browser until sign-out, and 
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant credits by hand with
 `uv run scripts/grant_credits.py <pubkey> --checks <n>`.
 
+### Card payments for API keys (Polar)
+
+API keys can also be topped up by card through [Polar](https://polar.sh), the Merchant of Record: Polar sells the pack,
+collects the buyer's details and sales tax/VAT, and issues the invoice; this service only learns that a key was paid
+for (`src/veridex/credits/polar.py`, `src/veridex/credits/fiat.py`). Card payments are **off** (`/v1/pricing` says
+`fiat.available: false`, `/v1/credits/fiat-checkout` answers 503, readiness says `"fiat": "off"`) until all of these
+are set:
+
+| Variable | |
+| --- | --- |
+| `VERIDEX_POLAR_ACCESS_TOKEN` | An **Organization Access Token** (Polar → Settings → Developers) with the single scope **`checkouts:write`**. Nothing else is called: no product, order, customer or refund reads |
+| `VERIDEX_POLAR_ENVIRONMENT` | `production` (https://api.polar.sh, real money) or `sandbox` (https://sandbox-api.polar.sh; the default, also when empty). The token, products and webhook must come from the same environment |
+| `VERIDEX_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,50=<product id>,100=<product id>` |
+| `VERIDEX_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
+
+**In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax ($6.00, $11.50,
+$22.00 at $0.20 a check). A checkout is created for the pack's product with `currency: "usd"`, discount codes off,
+our account id (`key:<id>`) in its metadata and `/checkout?paid=1` as the success URL; nothing about the buyer is
+sent. If Polar answers with another currency or price, the checkout is refused (503) before anyone pays.
+
+**Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
+**`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,
+and only if it is in USD, for a configured pack's product, at exactly that pack's card price before tax
+(`net_amount`); anything else credits nothing and logs `polar_order_not_credited` (order id, reason, currency and
+amount; never the buyer) for a person to sort out in Polar. Refunds take back the refunded share of the credits
+(`refunded_amount`, before tax); a refund that settles a dispute Polar lost takes back the whole order. Polar has no
+webhook for disputes themselves. Other events are acknowledged and ignored.
+
 ### "Spotted recently": the showcase
 
 No demo data: the site shows **real checks of real product pages**, run by the operator and each
@@ -344,6 +372,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 | `VERIDEX_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
+| `VERIDEX_POLAR_ACCESS_TOKEN` / `VERIDEX_POLAR_ENVIRONMENT` / `VERIDEX_POLAR_PRODUCTS` / `VERIDEX_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 
 ## Development
 
@@ -391,7 +420,7 @@ and kamal-proxy), each with its own service, database accessory, hot wallet and 
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (service `veridex-dev`, DB `veridex-dev-db`) | `config/deploy.production.yml` (`veridex-prod`, `veridex-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
-| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
+| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
 
 `VERIDEX_LLM_API_KEY` is shared. The Kamal secrets files map these onto the app's `VERIDEX_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).

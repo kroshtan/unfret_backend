@@ -25,7 +25,7 @@ from veridex import (
 )
 from veridex.api import VeridexAPI
 from veridex.config import settings
-from veridex.credits import CreditsDoor, fiat, vat
+from veridex.credits import CreditsDoor, fiat, polar, vat
 from veridex.db import PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.graph.skills import reverse_image
@@ -83,6 +83,8 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
     api.credits.attach(api.db_pool)
+    # Card top-ups for API keys: on only when Polar is fully configured (token, webhook secret, every pack's product).
+    api.fiat = polar.from_settings(settings)
     # Single instance: the sweep to cold is not coordinated across processes (the scanner is safe either way).
     tasks = [asyncio.create_task(api.x402.run_forever())] if api.x402.configured else []
     if api.credits.scanner is not None:
@@ -101,6 +103,8 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
                 await reverse_image.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
+        if api.fiat is not None:
+            await api.fiat.aclose()
     logger.info("Unfret backend service shutting down")
 
 

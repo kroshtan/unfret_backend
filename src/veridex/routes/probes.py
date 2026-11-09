@@ -27,10 +27,10 @@ async def ready(request: Request) -> Healthy:
     """
     Readiness probe. Returns 200 only while the database answers, so a deploy can wait for it.
 
-    Also reports whether x402 payments are available and how many alerts are raised; with the operator token
-    (``Authorization: Bearer``), the hot wallet's balances and the alerts themselves. A low balance or a compromise
-    signal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API keeps
-    serving.
+    Also reports whether x402 payments and card top-ups are available and how many alerts are raised; with the
+    operator token (``Authorization: Bearer``), the hot wallet's balances and the alerts themselves. A low balance or
+    a compromise signal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API
+    keeps serving.
 
     :param request: The FastAPI request (used to access the DB pool).
     :return: Healthy response with the running version.
@@ -48,8 +48,14 @@ async def ready(request: Request) -> Healthy:
     x402 = await get_x402(request).health()
     door = get_credits(request)
     credits = "ok" if door.purchases_enabled else "sign_in" if door.sign_in_enabled else "off"
+    provider = request.app.fiat
     report = Healthy(
-        status="ready", version=__version__, x402=x402.status, x402_alert_count=len(x402.alerts), credits=credits
+        status="ready",
+        version=__version__,
+        x402=x402.status,
+        x402_alert_count=len(x402.alerts),
+        credits=credits,
+        fiat="off" if provider is None else getattr(provider, "status", provider.name),
     )
     if is_admin(request):
         report.hot_sol_lamports = x402.sol_lamports

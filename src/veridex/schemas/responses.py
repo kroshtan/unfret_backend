@@ -20,6 +20,7 @@ class Healthy(BaseModel):
     )
     x402_alert_count: int = Field(default=0, description="How many x402 alerts are raised")
     credits: str | None = Field(default=None, description="Credits door: off, sign_in, ok (purchases on)")
+    fiat: str | None = Field(default=None, description="Card top-ups: off, or the provider (polar:production, …)")
 
 
 class AnalyzeResponse(BaseModel):

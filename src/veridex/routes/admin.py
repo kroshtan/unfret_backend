@@ -1,18 +1,20 @@
 """
 Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``.
 
-Clearing the sticky x402 alerts after investigating them, and removing shops or contact details from the
-fingerprint store on request.
+Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
+fingerprint store on request, and the review queue of reported results (``make reports``).
 """
 
+import json
 from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from veridex import shop_store
+from veridex import reports, shop_store
 from veridex.auth import require_admin
+from veridex.config import settings
 from veridex.fingerprint import contact_hash, normalise_email, normalise_phone
 from veridex.price_store import registrable_domain
 from veridex.routes.check import get_x402
@@ -77,3 +79,50 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     removed = await shop_store.store().forget_contact(body.kind, contact_hash(body.kind, value, key).hex())
     logger.info("contact_forgotten", removed=removed)
     return {"removed": removed}
+
+
+@router.get("/reports")
+async def report_queue(request: Request, limit: int = 50) -> dict[str, Any]:
+    """
+    The review queue: open reports, most corroborated and least certain first, without the reporters' accounts.
+
+    :param request: The incoming request.
+    :param limit: How many items (at most 200).
+    :return: The items and how many are open.
+    """
+    pool = request.app.db_pool
+    await reports.expire(pool, settings)
+    items = await reports.queue(pool, min(max(limit, 1), 200))
+    for item in items:
+        item["payload"] = json.loads(item["payload"])
+        item["created_at"] = item["created_at"].isoformat()
+    return {"open": await pool.fetchval("SELECT COUNT(*) FROM reports"), "items": items}
+
+
+class LabelRequest(BaseModel):
+    """The human decision on a reported page."""
+
+    label: Literal["legit", "junk", "scam", "reject"]
+
+
+@router.post("/reports/{report_id}/label")
+async def label_report(report_id: int, body: LabelRequest, request: Request) -> dict[str, Any]:
+    """
+    Label a reported page: pay the reporter if the score was far off, keep the page as training data, unlink it.
+
+    :param report_id: The item.
+    :param body: The label, or ``reject`` (not a product page, unusable, can't tell): no sample, no reward.
+    :param request: The incoming request.
+    :return: The gap, the reward and whether the page counts as training data.
+    :raises HTTPException: 404 if the item is gone (handled or expired).
+    """
+    label = None if body.label == "reject" else body.label
+    done = await reports.handle(request.app.db_pool, settings, report_id, label)
+    if done is None:
+        raise HTTPException(404, "No such open report.")
+    return {
+        "label": done.label,
+        "gap": done.gap,
+        "reward_usd_micros": done.reward_usd_micros,
+        "training": done.training,
+    }

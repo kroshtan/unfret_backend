@@ -4,6 +4,7 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import asyncpg
 import structlog
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +12,10 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from veridex import __version__, fact_cache, log, price_store, scoring, shop_store
+from veridex import __version__, fact_cache, log, price_store, reports, scoring, shop_store
 from veridex.api import VeridexAPI
 from veridex.config import settings
-from veridex.credits import CreditsDoor
+from veridex.credits import CreditsDoor, fiat
 from veridex.db import PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
@@ -26,6 +27,25 @@ from veridex.x402.verdict import skills_for
 
 log.configure(json=settings.log_json)
 logger = structlog.get_logger("veridex")
+
+
+async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
+    """
+    Every hour until cancelled: expire unhandled reports (and their account links), delete old fiat order rows.
+
+    :param pool: The database pool.
+    :param interval_s: Seconds between rounds.
+    """
+    while True:
+        for name, job in (
+            ("reports", reports.expire(pool, settings)),
+            ("fiat", fiat.purge(pool, settings.fiat_retention_days)),
+        ):
+            try:
+                await job
+            except Exception as exc:  # noqa: BLE001 - retried next round
+                logger.warning("housekeeping_failed", job=name, error=type(exc).__name__)
+        await asyncio.sleep(interval_s)
 
 
 @asynccontextmanager
@@ -48,6 +68,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     tasks = [asyncio.create_task(api.x402.run_forever())] if api.x402.configured else []
     if api.credits.scanner is not None:
         tasks.append(asyncio.create_task(api.credits.run_forever()))
+    tasks.append(asyncio.create_task(housekeeping(api.db_pool)))
     try:
         yield
     finally:
@@ -79,7 +100,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE"],
+    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE"],  # Authorization: sessions and API keys
     expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
 

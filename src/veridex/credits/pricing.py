@@ -59,23 +59,26 @@ def sol_string(lamports: int) -> str:
     return decimal_string(lamports, 9)
 
 
-def credit_memo(beneficiary: Pubkey) -> str:
+def credit_memo(beneficiary: Pubkey | str) -> str:
     """
     The memo that names who gets the credits (the scanner reads it).
 
-    :param beneficiary: The wallet to credit.
-    :return: ``veridex:credit:<pubkey>``.
+    :param beneficiary: The wallet to credit, or an API key's account (``key:<id>``).
+    :return: ``veridex:credit:<pubkey>`` or ``veridex:credit:key:<id>``.
     """
     return f"veridex:credit:{beneficiary}"
 
 
-def solana_pay_url(hot: Pubkey, amount: int, beneficiary: Pubkey | None = None, mint: Pubkey | None = None) -> str:
+def solana_pay_url(
+    hot: Pubkey, amount: int, beneficiary: Pubkey | str | None = None, mint: Pubkey | None = None
+) -> str:
     """
     A Solana Pay transfer request for a phone wallet: pay ``amount`` to the hot wallet, in SOL or a token.
 
     :param hot: The receiving (hot) wallet.
     :param amount: The amount in base units (lamports, or the token's base units with ``mint``).
-    :param beneficiary: The wallet to credit, as a memo; without one the paying wallet is credited.
+    :param beneficiary: The account to credit (a wallet or ``key:<id>``), as a memo; without one the paying wallet
+        is credited.
     :param mint: The token to pay in (``spl-token``); ``None`` for SOL.
     :return: The ``solana:`` URL.
     """
@@ -88,7 +91,13 @@ def solana_pay_url(hot: Pubkey, amount: int, beneficiary: Pubkey | None = None, 
 
 
 def purchase_transaction(
-    payer: Pubkey, hot: Pubkey, amount: int, blockhash: str, beneficiary: Pubkey, *, mint: Pubkey | None = None
+    payer: Pubkey,
+    hot: Pubkey,
+    amount: int,
+    blockhash: str,
+    beneficiary: Pubkey | str,
+    *,
+    mint: Pubkey | None = None,
 ) -> bytes:
     """
     Build the unsigned transfer the buyer's wallet signs and sends.
@@ -101,7 +110,7 @@ def purchase_transaction(
     :param hot: The receiving (hot) wallet.
     :param amount: The amount in base units.
     :param blockhash: A recent blockhash.
-    :param beneficiary: The wallet that gets the credits (often the payer itself).
+    :param beneficiary: The account that gets the credits (often the payer itself, or an API key's ``key:<id>``).
     :param mint: The token to pay in; ``None`` for SOL.
     :return: The serialised, unsigned versioned transaction.
     """

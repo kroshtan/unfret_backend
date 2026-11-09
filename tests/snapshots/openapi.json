@@ -98,7 +98,7 @@
         "type": "null"
        }
       ],
-      "description": "The wallet's balance after this analysis, in micro-dollars (1 USD = 1,000,000).",
+      "description": "The account's balance after this analysis, in micro-dollars (1 USD = 1,000,000).",
       "title": "Balance Usd Micros"
      },
      "charged": {
@@ -117,6 +117,18 @@
       "description": "One-line explanation of the score.",
       "title": "Explanation",
       "type": "string"
+     },
+     "report_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account). Absent for pages that couldn't be analysed.",
+      "title": "Report Token"
      },
      "score": {
       "description": "Reliability score: 0 (scam) \u2192 100 (legitimate); -1 = not analysed.",
@@ -142,6 +154,31 @@
      "explanation"
     ],
     "title": "AnalyzeResponse",
+    "type": "object"
+   },
+   "ChallengeResponse": {
+    "description": "A proof-of-work challenge for creating a key.",
+    "properties": {
+     "bits": {
+      "description": "Find a solution with SHA-256(challenge + ':' + solution) starting with this many zero bits (solution: at most 32 characters, e.g. a decimal counter).",
+      "title": "Bits",
+      "type": "integer"
+     },
+     "challenge": {
+      "title": "Challenge",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "number"
+     }
+    },
+    "required": [
+     "challenge",
+     "bits",
+     "expires_at"
+    ],
+    "title": "ChallengeResponse",
     "type": "object"
    },
    "CheckRequest": {
@@ -215,10 +252,33 @@
     "title": "Checkbox",
     "type": "object"
    },
+   "CreateKeyRequest": {
+    "description": "A solved challenge.",
+    "properties": {
+     "challenge": {
+      "maxLength": 200,
+      "title": "Challenge",
+      "type": "string"
+     },
+     "solution": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Solution",
+      "type": "string"
+     }
+    },
+    "required": [
+     "challenge",
+     "solution"
+    ],
+    "title": "CreateKeyRequest",
+    "type": "object"
+   },
    "CreditsResponse": {
-    "description": "A wallet's balance.",
+    "description": "An account's balance.",
     "properties": {
      "address": {
+      "description": "The account: the wallet's address, or key:<id> for an API key.",
       "title": "Address",
       "type": "string"
      },
@@ -244,6 +304,48 @@
      "balance_lamports"
     ],
     "title": "CreditsResponse",
+    "type": "object"
+   },
+   "FiatCheckoutRequest": {
+    "description": "Which key to top up with how much.",
+    "properties": {
+     "amount_usd_micros": {
+      "description": "The amount in micro-dollars, whole cents, at least fiat.min_usd_micros from /v1/pricing.",
+      "exclusiveMinimum": 0.0,
+      "title": "Amount Usd Micros",
+      "type": "integer"
+     },
+     "key_id": {
+      "description": "The API key's id (or the key itself: only the id is used).",
+      "maxLength": 120,
+      "title": "Key Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key_id",
+     "amount_usd_micros"
+    ],
+    "title": "FiatCheckoutRequest",
+    "type": "object"
+   },
+   "FiatCheckoutResponse": {
+    "description": "Where to send the buyer.",
+    "properties": {
+     "checkout_url": {
+      "title": "Checkout Url",
+      "type": "string"
+     },
+     "provider": {
+      "title": "Provider",
+      "type": "string"
+     }
+    },
+    "required": [
+     "checkout_url",
+     "provider"
+    ],
+    "title": "FiatCheckoutResponse",
     "type": "object"
    },
    "Flag": {
@@ -400,6 +502,44 @@
      }
     },
     "title": "Healthy",
+    "type": "object"
+   },
+   "KeyResponse": {
+    "description": "A key and its recovery code: shown this once, stored only as hashes. Save both.",
+    "properties": {
+     "account": {
+      "description": "The ledger account, key:<id>.",
+      "title": "Account",
+      "type": "string"
+     },
+     "balance_usd_micros": {
+      "title": "Balance Usd Micros",
+      "type": "integer"
+     },
+     "key": {
+      "description": "Send as Authorization: Bearer <key>.",
+      "title": "Key",
+      "type": "string"
+     },
+     "key_id": {
+      "description": "The public id: name it to top up the key (memos, checkout).",
+      "title": "Key Id",
+      "type": "string"
+     },
+     "recovery_code": {
+      "description": "Gets a new key (and a new code) with the same balance if the key is lost.",
+      "title": "Recovery Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key_id",
+     "key",
+     "recovery_code",
+     "account",
+     "balance_usd_micros"
+    ],
+    "title": "KeyResponse",
     "type": "object"
    },
    "NonceResponse": {
@@ -809,6 +949,19 @@
       "title": "Currency",
       "type": "string"
      },
+     "key_id": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Top up this API key instead (its id, or the key itself: only the id is used). Recorded in the memo as key:<id>.",
+      "title": "Key Id"
+     },
      "lamports": {
       "anyOf": [
        {
@@ -923,6 +1076,110 @@
      "severity"
     ],
     "title": "Reason",
+    "type": "object"
+   },
+   "RecoverRequest": {
+    "description": "A recovery code.",
+    "properties": {
+     "recovery_code": {
+      "maxLength": 100,
+      "title": "Recovery Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "recovery_code"
+    ],
+    "title": "RecoverRequest",
+    "type": "object"
+   },
+   "ReportRequest": {
+    "description": "A wrong result, sent back with the check it came from.",
+    "properties": {
+     "consent": {
+      "const": true,
+      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; once reviewed, it is kept without any link to my account.",
+      "title": "Consent",
+      "type": "boolean"
+     },
+     "explanation": {
+      "description": "The result's explanation, exactly as it was returned.",
+      "maxLength": 4000,
+      "title": "Explanation",
+      "type": "string"
+     },
+     "reason": {
+      "description": "What the page really is: real_brand (a genuine product or shop), scam, junk (dropship or low-quality), other.",
+      "enum": [
+       "real_brand",
+       "scam",
+       "junk",
+       "other"
+      ],
+      "title": "Reason",
+      "type": "string"
+     },
+     "report_token": {
+      "description": "The report_token from the analysis result.",
+      "maxLength": 600,
+      "title": "Report Token",
+      "type": "string"
+     },
+     "request": {
+      "$ref": "#/components/schemas/AnalyzeRequest",
+      "description": "The analysed request, exactly as it was sent."
+     },
+     "verdict": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Verdict-Input"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The result's verdict, as returned."
+     }
+    },
+    "required": [
+     "report_token",
+     "reason",
+     "consent",
+     "request",
+     "explanation"
+    ],
+    "title": "ReportRequest",
+    "type": "object"
+   },
+   "ReportResponse": {
+    "description": "What happened to the report.",
+    "properties": {
+     "reports_per_month": {
+      "title": "Reports Per Month",
+      "type": "integer"
+     },
+     "reports_used": {
+      "description": "Reports this account made this month, this one included.",
+      "title": "Reports Used",
+      "type": "integer"
+     },
+     "status": {
+      "description": "queued (in the review queue), already_reported (someone reported this page first: your report counts as confirmation), already_known (reviewed recently).",
+      "enum": [
+       "queued",
+       "already_reported",
+       "already_known"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "reports_used",
+     "reports_per_month"
+    ],
+    "title": "ReportResponse",
     "type": "object"
    },
    "Review": {
@@ -1042,6 +1299,59 @@
      "type"
     ],
     "title": "ValidationError",
+    "type": "object"
+   },
+   "Verdict-Input": {
+    "description": "The shopper-facing result of an analysis.",
+    "properties": {
+     "band": {
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "junk_or_scam"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "headline": {
+      "description": "One plain sentence explaining the verdict.",
+      "title": "Headline",
+      "type": "string"
+     },
+     "label": {
+      "description": "The band in words, in the requested language.",
+      "title": "Label",
+      "type": "string"
+     },
+     "language": {
+      "default": "en",
+      "title": "Language",
+      "type": "string"
+     },
+     "positives": {
+      "items": {
+       "$ref": "#/components/schemas/Positive"
+      },
+      "maxItems": 3,
+      "title": "Positives",
+      "type": "array"
+     },
+     "reasons": {
+      "items": {
+       "$ref": "#/components/schemas/Reason"
+      },
+      "maxItems": 3,
+      "title": "Reasons",
+      "type": "array"
+     }
+    },
+    "required": [
+     "band",
+     "label",
+     "headline"
+    ],
+    "title": "Verdict",
     "type": "object"
    },
    "VerifyRequest": {
@@ -1284,7 +1594,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the wallet's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The signed-in wallet (injected by require_wallet).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment and the balance left.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left and a\n    report token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {
@@ -1326,7 +1636,7 @@
   },
   "/v1/analyze/stream": {
    "post": {
-    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\"}`` with the finding types, plus ``page_type``\nonce classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score\nof -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client\nthat lost the connection gets it again for free by repeating the request.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The signed-in wallet (injected by require_wallet).\n:return: A ``text/event-stream`` response.",
+    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\"}`` with the finding types, plus ``page_type``\nonce classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score\nof -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client\nthat lost the connection gets it again for free by repeating the request.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: A ``text/event-stream`` response.",
     "operationId": "analyze_page_stream_v1_analyze_stream_post",
     "requestBody": {
      "content": {
@@ -1610,7 +1920,7 @@
   },
   "/v1/credits": {
    "get": {
-    "description": "The signed-in wallet's balance.\n\n:param request: The incoming request.\n:param address: The signed-in wallet.\n:return: The balance, and how many analyses it covers.",
+    "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, and how many analyses it covers.",
     "operationId": "get_balance_v1_credits_get",
     "responses": {
      "200": {
@@ -1630,9 +1940,51 @@
     ]
    }
   },
+  "/v1/credits/fiat-checkout": {
+   "post": {
+    "description": "Start a card (or other fiat) payment that tops up an API key, at the provider's hosted checkout.\n\nThe provider handles the buyer's details, invoice and tax; this service only learns that the key was paid for.\nCredited when the provider's webhook confirms the payment, with the same bonus tiers as crypto.\n\n:param body: The key and the amount.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured.\n:raises BadRequestError: If the amount is out of range.",
+    "operationId": "fiat_checkout_v1_credits_fiat_checkout_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FiatCheckoutRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FiatCheckoutResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Fiat Checkout",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
   "/v1/credits/purchase-tx": {
    "post": {
-    "description": "Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.\n\nCredits arrive once the transfer is finalized (about 15\u201330 seconds): its dollar value (SOL converted at crediting\ntime, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's\nmemo (the paying wallet unless ``beneficiary`` says otherwise). No sign-in needed: anyone may fund any wallet.\n\n:param body: Who buys how much, in which currency.\n:param request: The incoming request.\n:return: The transaction (base64) and a Solana Pay link for phone wallets.",
+    "description": "Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.\n\nCredits arrive once the transfer is finalized (about 15\u201330 seconds): its dollar value (SOL converted at crediting\ntime, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's\nmemo (the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise). No sign-in needed: anyone may fund\nany wallet or API key.\n\n:param body: Who buys how much, in which currency.\n:param request: The incoming request.\n:return: The transaction (base64) and a Solana Pay link for phone wallets.",
     "operationId": "purchase_tx_v1_credits_purchase_tx_post",
     "requestBody": {
      "content": {
@@ -1674,7 +2026,7 @@
   },
   "/v1/credits/solana-pay.svg": {
    "get": {
-    "description": "The Solana Pay request as a QR code, for paying from a phone wallet.\n\n:param request: The incoming request.\n:param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).\n:param amount: The amount in the currency's base units.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.\n:return: An SVG image.\n:raises BadRequestError: If no amount is given.",
+    "description": "The Solana Pay request as a QR code, for paying from a phone wallet.\n\n:param request: The incoming request.\n:param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).\n:param amount: The amount in the currency's base units.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.\n:param key_id: The API key to credit instead (a memo).\n:return: An SVG image.\n:raises BadRequestError: If no amount is given.",
     "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
     "parameters": [
      {
@@ -1740,6 +2092,23 @@
         }
        ],
        "title": "Beneficiary"
+      }
+     },
+     {
+      "in": "query",
+      "name": "key_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 120,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Key Id"
       }
      }
     ],
@@ -1808,6 +2177,112 @@
     ]
    }
   },
+  "/v1/keys": {
+   "post": {
+    "description": "Create an empty API key (no trial) with a solved challenge; a few per visitor network per day.\n\n:param body: The solved challenge.\n:param request: The incoming request.\n:return: The key and recovery code, shown this once.\n:raises BadRequestError: If the challenge is invalid, expired, used or unsolved.\n:raises TooManyRequestsError: If this network created too many keys today.",
+    "operationId": "create_key_v1_keys_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateKeyRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/KeyResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Key",
+    "tags": [
+     "API keys"
+    ]
+   }
+  },
+  "/v1/keys/challenge": {
+   "get": {
+    "description": "A proof-of-work challenge for ``POST /v1/keys``: a few seconds of hashing in a browser, used once.\n\n:param request: The incoming request.\n:return: The challenge.",
+    "operationId": "challenge_v1_keys_challenge_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ChallengeResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Challenge",
+    "tags": [
+     "API keys"
+    ]
+   }
+  },
+  "/v1/keys/recover": {
+   "post": {
+    "description": "Replace a lost key: a new key and a new recovery code, the same id and balance. The old key and code stop working.\n\n:param body: The recovery code.\n:param request: The incoming request.\n:return: The new key and recovery code, shown this once.\n:raises TooManyRequestsError: If this network tried too many recoveries today.\n:raises UnauthorizedError: If the code is not (any longer) valid.",
+    "operationId": "recover_key_v1_keys_recover_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecoverRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/KeyResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Recover Key",
+    "tags": [
+     "API keys"
+    ]
+   }
+  },
   "/v1/pricing": {
    "get": {
     "description": "The dollar prices (analysis, x402 tiers), bonuses, packs and limits, with exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:return: The price list.",
@@ -1829,6 +2304,48 @@
     "summary": "Get Pricing",
     "tags": [
      "Credits"
+    ]
+   }
+  },
+  "/v1/reports": {
+   "post": {
+    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got. Personal details are scrubbed before anything is stored.\nA page already in the queue counts the report as confirmation; a page reviewed recently is ``already_known``.\nIf the review shows the score was far off (30+ points outside the label's zone), the first reporter gets free\nchecks. Limits: a few reports per account per month, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "operationId": "report_v1_reports_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReportRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReportResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Report",
+    "tags": [
+     "Reports"
     ]
    }
   },

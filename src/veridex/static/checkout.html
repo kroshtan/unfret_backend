@@ -11,13 +11,46 @@
 <body>
   <main>
     <h1>Buy Veridex credits</h1>
-    <p>Checks are priced in US dollars and paid in SOL or USDC. They belong to the wallet that pays: use them in the
-      browser extension after signing in with the same wallet.</p>
+    <p>Checks are priced in US dollars and paid in SOL or USDC. They belong to the wallet that pays (use them in the
+      browser extension after signing in with the same wallet), or to an API key, which works without a wallet in the
+      extension and in scripts.</p>
     <p id="network" class="muted"></p>
 
     <p id="unavailable" hidden>Buying credits isn't available yet. Please try again later.</p>
 
     <div id="shop" hidden>
+      <section aria-labelledby="for-heading">
+        <h2 id="for-heading">Credits for</h2>
+        <fieldset class="currency" id="beneficiary">
+          <legend class="visually-hidden">Credits for</legend>
+          <label><input type="radio" name="for" value="wallet" checked> The wallet that pays</label>
+          <label><input type="radio" name="for" value="key"> An API key</label>
+        </fieldset>
+        <div id="key-panel" hidden>
+          <label class="custom">Your API key or its ID
+            <input id="key-input" autocomplete="off" spellcheck="false" placeholder="ufk_… or the 10-letter ID">
+          </label>
+          <p>
+            <button id="new-key" type="button">Create a new key</button>
+            <button id="recover-open" type="button">Lost your key?</button>
+          </p>
+          <div id="recover-panel" hidden>
+            <label class="custom">Recovery code
+              <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="ufr_…">
+            </label>
+            <button id="recover" type="button">Get a new key</button>
+          </div>
+          <div id="key-reveal" hidden>
+            <p><strong>Save both now.</strong> They are shown once: we store only a hash and can't show them again.</p>
+            <p>API key<br><code id="key-value"></code> <button type="button" data-copy="key-value">Copy</button></p>
+            <p>Recovery code (gets you a new key with the same balance if you lose this one)<br>
+              <code id="recovery-value"></code> <button type="button" data-copy="recovery-value">Copy</button></p>
+            <label><input type="checkbox" id="saved"> I've saved both somewhere safe</label>
+          </div>
+          <p id="key-status" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
       <section aria-labelledby="amount-heading">
         <fieldset class="currency" id="currency">
           <legend>Pay with</legend>
@@ -48,6 +81,12 @@
         <p>Scan with a wallet app that supports Solana Pay. Credits go to the wallet you signed in with on this site, or
           else to the wallet you pay from.</p>
         <a id="qr-link" href="#"><img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden></a>
+      </section>
+
+      <section id="card" aria-labelledby="card-heading" hidden>
+        <h2 id="card-heading">Or pay by card</h2>
+        <p class="muted">Through our payment provider, for API keys, from <span id="card-min"></span>.</p>
+        <button id="card-pay" type="button">Pay by card</button>
       </section>
 
       <p id="status" role="status" aria-live="polite"></p>

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -9,6 +10,7 @@ import pytest
 from tests.integration.conftest import FakeGraph
 from veridex.config import settings
 from veridex.routes import analyze
+from veridex.schemas.requests import AnalyzeRequest
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports
@@ -35,7 +37,9 @@ async def test_analysis_is_paid_from_the_balance(
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert body.pop("report_token")  # lets this account report the result later; nothing is stored now
+    assert body == {
         "score": 80,
         "explanation": "Looks legitimate.",
         "balance_usd_micros": 2 * PRICE,
@@ -59,8 +63,17 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "price_observations",
         "shops",
         "shop_links",
+        "api_keys",
+        "fiat_payments",
+        "fiat_checkouts",
+        "reports",
+        "report_votes",
+        "report_quota",
+        "labelled_pages",
         "schema_migrations",
     }
+    for table in ("reports", "report_votes", "report_quota", "labelled_pages"):  # only a consented report fills them
+        assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
     # Price observations are keyed by a product hash and hold no URL; this page has no public product ID anyway.
     assert await pool.fetchval("SELECT COUNT(*) FROM price_observations") == 0
@@ -305,10 +318,15 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert events[1][1].startswith('data: {"skill": "listing", "findings": [{')
     assert '"type": "discount"' in events[1][1]
     assert "85% off" not in events[1][1]  # steps are progress only: the evidence comes with the charged result
-    assert events[2][1] == (
-        'data: {"score": 80, "explanation": "Looks legitimate.", "balance_usd_micros": 0, "balance_lamports": 0, '
-        '"charged": true}'
-    )
+    result = json.loads(events[2][1].removeprefix("data: "))
+    assert result.pop("report_token")
+    assert result == {
+        "score": 80,
+        "explanation": "Looks legitimate.",
+        "balance_usd_micros": 0,
+        "balance_lamports": 0,
+        "charged": True,
+    }
     assert await balance(pool, address) == 0
 
 
@@ -320,7 +338,8 @@ async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
     address, _ = await wallet(PRICE)
     request: Any = SimpleNamespace(app=SimpleNamespace(db_pool=pool))
     left = await analyze._debit(request, address)
-    events = analyze._live_events(request, address, graph, {}, key="k", left=left)
+    body = AnalyzeRequest.model_validate(PAGE)
+    events = analyze._live_events(request, body, address, graph, {}, key="k", left=left)
 
     first = await anext(events)
     second = await anext(events)

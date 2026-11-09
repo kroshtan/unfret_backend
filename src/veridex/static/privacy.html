@@ -10,7 +10,7 @@
 <body>
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: 8 November 2026.</em> Veridex is made by Kroshtan (Floris van Beers, the Netherlands).
+    <p><em>Last updated: 9 November 2026.</em> Veridex is made by Kroshtan (Floris van Beers, the Netherlands).
       <a href="#nl" lang="nl">Nederlands</a></p>
 
     <h2>When anything is sent</h2>
@@ -23,6 +23,11 @@
     <ul>
       <li><strong>Your wallet and its balance</strong>: the Solana address you signed in with and how many checks you
         have left. No name, email or password.</li>
+      <li><strong>Or your API key and its balance</strong>: if you use a key instead of a wallet, a one-way hash of the
+        key and of its recovery code, the key's public ID and its balance. The key itself is shown to you once and
+        never stored, so we can't recover it for you: keep the recovery code. A card payment, once available, is
+        handled by the payment provider, which keeps your payment details; we keep only the order number, the amount and
+        which key it topped up, for 180 days (for refunds and questions), never your name, e-mail or address.</li>
       <li><strong>Not the pages you check.</strong> Page addresses and contents are not stored and are never linked to
         your wallet. A result is kept in memory for up to an hour so the same page checked again is free; a restart
         clears it.</li>
@@ -42,6 +47,16 @@
       stored only as a keyed one-way hash, never shown to anyone, used only to tell whether two shops share them
       (our legitimate interest in warning shoppers about networks of fake shops), and deleted 180 days after they were
       last seen. To object or have a shop or contact detail removed, use the contact details at kroshtan.com.</p>
+
+    <h2>When you report a wrong result</h2>
+    <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that one check's page
+      facts, page text and result are shared for review. Personal details are removed in your browser and again on the
+      server: greetings with your name, delivery addresses, e-mail addresses, phone numbers, bank and card numbers, and
+      everything after the <code>?</code> in links. The checkout page is never kept. While the report waits for review
+      it is linked to your wallet or key, only so a good report can be rewarded with free checks; we also count your
+      reports per month (as a keyed hash). After review the report is deleted and the page, with its label, stays as
+      an example for improving the checks, without any link to you. Reports nobody got to are deleted after 30
+      days.</p>
 
     <h2>Who else sees what</h2>
     <ul>
@@ -77,6 +92,20 @@
         ze delen (ons gerechtvaardigd belang: kopers waarschuwen voor netwerken van nepwinkels) en 180 dagen na de
         laatste keer gezien verwijderd. Bezwaar maken of een winkel of contactgegeven laten verwijderen kan via de
         contactgegevens op kroshtan.com.</p>
+      <p>Gebruik je een API-sleutel in plaats van een wallet, dan bewaren we alleen een eenrichtingshash van de sleutel
+        en van de herstelcode, de openbare ID van de sleutel en het tegoed. De sleutel zelf zie je één keer; wij
+        kunnen hem niet terughalen, dus bewaar de herstelcode. Een betaling met een kaart (zodra dat kan) loopt via de
+        betaalprovider, die je betaalgegevens bewaart; wij bewaren alleen het ordernummer, het bedrag en welke sleutel
+        is opgewaardeerd, 180 dagen lang (voor terugbetalingen en vragen), nooit je naam, e-mail of adres.</p>
+      <p><strong>Een fout resultaat melden:</strong> druk je op <strong>Dit klopt niet</strong> en geef je
+        toestemming, dan delen we de productgegevens, paginatekst en uitslag van die ene controle ter beoordeling.
+        Persoonlijke gegevens worden in je browser en nog eens op de server verwijderd (begroetingen met je naam,
+        bezorgadressen, e-mailadressen, telefoon-, bank- en kaartnummers, en alles na het <code>?</code> in links); de
+        afrekenpagina bewaren we nooit. Zolang de melding wacht op beoordeling is ze aan je wallet of sleutel
+        gekoppeld, alleen om een goede melding te kunnen belonen met gratis controles; we tellen je meldingen per
+        maand (als hash). Na beoordeling wordt de melding verwijderd; de pagina en het label blijven als voorbeeld om
+        de controles te verbeteren, zonder koppeling aan jou. Meldingen waar niemand aan toekwam verdwijnen na 30
+        dagen.</p>
       <p>De paginatekst wordt gelezen door een taalmodel van Scaleway in de EU; Veridex stuurt daarbij niets mee dat
         jou identificeert. Er wordt niets verkocht; er zijn geen affiliate-links, trackers of advertenties.</p>
     </div>

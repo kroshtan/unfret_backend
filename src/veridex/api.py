@@ -16,3 +16,4 @@ class VeridexAPI(FastAPI):
         self.db_pool: asyncpg.Pool | None = None  # set during lifespan
         self.x402: Any = None  # veridex.x402.service.X402, created on first use
         self.credits: Any = None  # veridex.credits.CreditsDoor, created on first use
+        self.fiat: Any = None  # a veridex.credits.fiat.FiatProvider once one is chosen; fiat is off while None

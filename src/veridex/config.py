@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     verdict_absence_only_min_confidence: float = Field(default=0.2, ge=0, le=1)
     # An LLM judgement (0–1) this strong is shown to the shopper as a reason, whatever its model weight
     verdict_llm_signal_min: float = 0.6
+    # Tell the content read which policy pages a shop's page links to (returns, contact, …): its text has the footer
+    # stripped. Off until measured: it changes the prompt (every recorded eval response for those pages misses) and
+    # the meaning of content.missing_trust_info, which the shipped scorer was trained on without it.
+    content_policy_links: bool = False
 
     # Outbound lookups about the shop (RDAP, certificate transparency, EU VIES). Off in offline evaluation, where
     # today's registry data says nothing about a page captured years ago.

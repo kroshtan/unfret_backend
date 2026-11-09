@@ -487,7 +487,8 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if not e.storefront:
         return
     if e.has("eu_registry.withdrawal_right") and e.f("eu_registry.withdrawal_right") < 1:
-        # Only EU law requires a withdrawal right; elsewhere a missing return policy is still worth knowing.
+        # Only EU law requires a withdrawal right. Outside the EU, eu_registry reports a missing policy as not
+        # applicable, so this fires there only for features recorded before that (never citing EU law).
         fired["no_withdrawal" if e.market == "eu" else "no_return_policy"] = {}
     if e.has("eu_registry.imprint") and e.f("eu_registry.imprint") < 1:
         fired["no_imprint"] = {}

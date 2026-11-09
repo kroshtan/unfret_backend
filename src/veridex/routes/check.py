@@ -502,7 +502,14 @@ def _discovery() -> dict[str, Any]:
                 "skills": "all",
             },
         },
-        "policies": {name: {"warn_at": w, "block_at": b} for name, (w, b) in POLICY_THRESHOLDS.items()},
+        "policies": {
+            name: {
+                "warn_at": w,
+                "block_at": b,
+                "never_warns_on_bands": [] if name == "strict" else ["reliable", "concerns"],
+            }
+            for name, (w, b) in POLICY_THRESHOLDS.items()
+        },
         "request": {
             "url": "string",
             "page_content": "string (optional)",
@@ -573,7 +580,10 @@ same answer and is never charged twice.
 ## Response
 
 {{"action": "allow|warn|block", "risk_score": 0..1, "confidence": 0..1, "flags": [{{"type", "evidence", "weight"}}],
-"policy_applied", "tier", "cached", "checked_at", "model_version"}}. "warn" means: ask your human before buying.
+"policy_applied", "tier", "cached", "checked_at", "model_version", "band"}}. "warn" means: ask your human before
+buying.
+Under the balanced and lenient policies you are never told to warn about a page a shopper would be shown as
+"reliable" or "concerns" (the band); choose strict to be warned about those too.
 
 ## Errors
 

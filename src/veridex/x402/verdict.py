@@ -35,7 +35,8 @@ QUICK_SKILLS: frozenset[str] = frozenset(
 )
 
 # risk_score thresholds per caller policy: at or above `block` → block; at or above `warn` → warn ("ask your
-# human"); below → allow. The caller chooses the policy; the flags stay factual either way.
+# human"); below → allow. The caller chooses the policy; the flags stay factual either way. Except under `strict`,
+# a page a shopper would be shown as "reliable" or "concerns" (the band) is never warned about or blocked.
 POLICY_THRESHOLDS: dict[Policy, tuple[float, float]] = {
     "strict": (0.25, 0.5),
     "balanced": (0.4, 0.7),
@@ -101,14 +102,24 @@ class Verdict(BaseModel):
     )
 
 
-def action_for(risk_score: float, policy: Policy) -> Action:
+# Bands at which a shopper is not warned; only `strict` callers are warned about them.
+_UNWARNED_BANDS = frozenset({"reliable", "concerns"})
+
+
+def action_for(risk_score: float, policy: Policy, band: str | None = None) -> Action:
     """
     Apply a caller policy to a risk score.
 
+    Under ``balanced`` and ``lenient`` an agent is never told to warn about (or block) a page that a shopper would
+    see as "reliable" or "concerns": the agent's answer never sounds more alarmed than the shopper's.
+
     :param risk_score: Risk from 0 (no concerns) to 1.
     :param policy: The caller's policy.
+    :param band: The shopper band of the same result, when there is one.
     :return: The action for the agent to take.
     """
+    if policy != "strict" and band in _UNWARNED_BANDS:
+        return "allow"
     warn, block = POLICY_THRESHOLDS[policy]
     if risk_score >= block:
         return "block"
@@ -153,7 +164,7 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
     if assessment:
         risk_score = float(assessment["risk_score"])
         shopper_verdict = result.get("verdict") or {}
-        action = action_for(risk_score, policy)
+        action = action_for(risk_score, policy, shopper_verdict.get("band"))
         if assessment.get("degraded") and action == "allow":
             action = "warn"  # a key skill failed: never wave a purchase through on partial evidence
         return Verdict(

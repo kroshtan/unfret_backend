@@ -51,7 +51,7 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `html_source_signals` | Known dropship apps, supplier CDNs, AliExpress review importers, shipping-protection and countdown apps |
 | `dark_patterns` | Countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
 | `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
-| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint; on a US shop a named company or US business address counts as its imprint, and a missing imprint or VAT ID is not applicable (neutral), since US law requires neither |
+| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint; outside the EU (a US shop, or one on a non-European country domain or currency) a named company or US business address counts as its imprint, and a missing imprint, VAT ID or return policy is not applicable (neutral), since no law there requires them |
 | `us_identity` | US storefronts: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
@@ -185,7 +185,8 @@ wallet, or **a smart wallet** (Squads and other program-controlled wallets) payi
 payer** with the same hot wallet (agents pay only the price: quick $0.01, deep one check, $0.20), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
 confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
-human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
+human". Under `balanced` and `lenient` an agent is never warned about a page a shopper would see as "reliable" or
+"concerns" (the `band`); `strict` warns from risk 0.25 whatever the band. A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
 stored.
 
 Each `accepts` option names the network in CAIP-2 form (`solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` on devnet), as do

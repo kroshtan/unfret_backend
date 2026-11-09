@@ -138,3 +138,158 @@ details summary { cursor: pointer; }
 #key-input, #recovery-input { display: block; width: 100%; max-width: 32rem; margin: 0.3rem 0 0; }
 fieldset.currency { border: 0; padding: 0; margin: 0.5rem 0 0; }
 fieldset.currency legend { padding: 0; margin-bottom: 0.2rem; }
+
+/* ── The link checker (/check): phone first ─────────────────────────────────────────────────────────────────── */
+.app main { padding: max(1.25rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+.app [hidden] { display: none !important; }
+.brand.small { gap: 0.6rem; margin-bottom: 1.25rem; }
+.brand.small h1 { font-size: 1.5rem; }
+.brand .home { display: flex; }
+.small { font-size: 0.9rem; }
+
+.app button, .app .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.app button.primary, .app .button.primary {
+  border-color: #1f8a70;
+  background: #1f8a70;
+  color: #fff;
+  font-weight: 600;
+}
+.app button:disabled { opacity: 0.55; cursor: default; }
+.app button.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.app button.wallet { justify-content: flex-start; }
+.buttons { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+
+.check-form { display: grid; gap: 0.5rem; }
+.check-form label { font-weight: 600; }
+.field-row { display: flex; gap: 0.5rem; }
+.app input[type="url"], .app input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 2.9rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  font-size: max(1rem, 16px); /* 16px or more: iOS doesn't zoom in on focus */
+}
+.check-form button.primary { width: 100%; font-size: 1.1rem; min-height: 3.1rem; }
+.error-text { margin: 0; color: var(--error); }
+
+.account { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 1rem; margin-bottom: 1rem; }
+.account p { margin: 0; }
+.checks { font-weight: 600; white-space: nowrap; }
+
+.panel {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--card);
+}
+.panel h2:first-child { margin-top: 0; }
+.notice { border-left: 4px solid #b35900; }
+.choice { border-top: 1px solid var(--line); padding: 0.75rem 0; }
+.choice summary { font-weight: 600; min-height: 2rem; }
+.choice input { margin: 0.3rem 0 0.5rem; }
+.choice-link { border-top: 1px solid var(--line); padding-top: 0.75rem; margin-bottom: 0; }
+
+.steps { list-style: none; padding: 0; margin: 0.5rem 0 1rem; }
+.steps li { display: flex; gap: 0.6rem; align-items: center; padding: 0.2rem 0; color: var(--muted); }
+.steps li.done { color: var(--fg); }
+.steps .tick {
+  display: inline-flex;
+  justify-content: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-size: 0.8rem;
+  line-height: 1.2rem;
+}
+.steps li.done .tick { border-color: var(--ok); color: var(--ok); }
+
+/* The verdict: a word and a symbol, never colour alone. */
+.verdict {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 2px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--card);
+}
+.verdict .symbol {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--muted);
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.verdict .label { margin: 0; font-size: 1.3rem; font-weight: 700; line-height: 1.25; }
+.verdict.reliable { border-color: #1f7a3d; }
+.verdict.reliable .symbol { background: #1f7a3d; }
+.verdict.concerns { border-color: #8a6d00; }
+.verdict.concerns .symbol { background: #8a6d00; }
+.verdict.careful { border-color: #b35900; }
+.verdict.careful .symbol { background: #b35900; }
+.verdict.junk_or_scam { border-color: #b3261e; }
+.verdict.junk_or_scam .symbol { background: #b3261e; }
+.headline { font-size: 1.05rem; margin: 0.75rem 0 0; }
+.source-note { margin-top: 0.75rem; }
+
+.cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }
+.card {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 0.6rem;
+  background: var(--card);
+}
+.card.high { border-left-color: #b3261e; }
+.card.medium { border-left-color: #b35900; }
+.card.low { border-left-color: #8a6d00; }
+.card.good { border-left-color: #1f7a3d; }
+.card .title { display: block; font-weight: 600; }
+.card details { margin-top: 0.35rem; }
+.card summary { color: var(--accent); font-size: 0.95rem; }
+.card details p { margin: 0.35rem 0 0; }
+.thumbs { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+.thumbs img { border-radius: 0.35rem; object-fit: cover; }
+.details ul { padding-left: 1.2rem; }
+#again-row { margin-top: 1.5rem; }
+#again { width: 100%; }
+
+@media (min-width: 40rem) {
+  .app main { padding-top: 2.5rem; }
+  .check-form button.primary, #again { width: auto; min-width: 12rem; justify-self: start; }
+}

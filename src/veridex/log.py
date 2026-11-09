@@ -59,6 +59,10 @@ def configure(*, json: bool = True, level: int = logging.INFO) -> None:
     :param json: One JSON object per line (production) or readable console output (development).
     :param level: The lowest level logged.
     """
+    # httpx logs every request with its full URL at INFO, outside structlog's redaction: the pages the server
+    # fetches for a URL-only check would land in the log.
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
     renderer: Any = structlog.processors.JSONRenderer() if json else structlog.dev.ConsoleRenderer()
     structlog.configure(
         processors=[

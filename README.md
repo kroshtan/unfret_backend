@@ -133,6 +133,12 @@ transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored
 strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs one check ($0.20),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
+[`/check`](https://unfret.kroshtan.com/check) is the link checker for phones and browsers without the extension: it
+sends only the link (`POST /v1/analyze/stream` with `{"url"}`), the server fetches the page itself before charging,
+and a page it can't read (an error, a shop that refuses automatic visitors, a bot check, an empty shell that needs a
+browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
+share target; the sign-in or API key is kept in the browser until sign-out, and there is no history.
+
 A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a
 first one ≥30 days ago), within a per-visitor limit and a daily cap kept in memory only. Grant credits by hand with
 `uv run scripts/grant_credits.py <pubkey> --checks <n>`.
@@ -268,6 +274,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_IMAGE_MODEL_PATH` / `VERIDEX_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
+| `VERIDEX_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
 | `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
 | `VERIDEX_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |

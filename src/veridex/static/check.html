@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#1f8a70">
+  <meta name="description" content="Check a product link before you buy: fake discounts, made-up brands, generic factory goods sold as something special and pushy tricks.">
+  <title>Check a link · Unfret</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/check.js"></script>
+</head>
+<body class="app">
+  <main>
+    <header class="brand small">
+      <a href="/" class="home" aria-label="Unfret home">
+        <svg class="logo" viewBox="0 0 128 128" width="36" height="36" aria-hidden="true">
+          <rect x="4" y="4" width="120" height="120" rx="30" fill="#1f8a70"/>
+          <circle cx="45" cy="44" r="7.5" fill="#fff"/>
+          <circle cx="79" cy="44" r="7.5" fill="#fff"/>
+          <path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <h1>Check a link</h1>
+    </header>
+
+    <section id="account" class="account" aria-label="Account" hidden>
+      <p><span id="account-status"></span> <span id="checks" class="checks"></span></p>
+      <p class="small"><a id="buy-more" href="/checkout">Buy checks</a> · <button id="sign-out" type="button"
+        class="link">Sign out</button></p>
+    </section>
+
+    <form id="form" class="check-form" novalidate>
+      <label for="link">Link to a product page</label>
+      <div class="field-row">
+        <input id="link" name="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
+          spellcheck="false" enterkeyhint="go" placeholder="https://shop.example/product">
+        <button id="paste" type="button" class="secondary" hidden>Paste link</button>
+      </div>
+      <p id="link-error" class="error-text" role="alert" hidden></p>
+      <button id="check" type="submit" class="primary">Check</button>
+      <p id="hint" class="muted small">One check per link. Nothing is sent until you tap Check.</p>
+    </form>
+
+    <section id="sign-in" class="panel" aria-labelledby="sign-in-heading" hidden>
+      <h2 id="sign-in-heading">Sign in to check links</h2>
+      <p id="sign-in-note" class="muted small"></p>
+
+      <details class="choice" id="choice-wallet">
+        <summary>Solana wallet</summary>
+        <p class="small">Approve a sign-in message in your wallet. It is not a transaction: it costs nothing and gives
+          Unfret no access to your funds.</p>
+        <div id="wallets" class="wallets"></div>
+        <p id="no-wallets" class="muted small">No Solana wallet in this browser. On your phone, open this page in your
+          wallet app's browser: <a id="open-phantom" href="#" rel="noopener">Phantom</a> ·
+          <a id="open-solflare" href="#" rel="noopener">Solflare</a>. On a computer, <a href="/connect">sign in on the
+          sign-in page</a> (it can use the wallet on your phone).</p>
+        <p id="wallet-status" class="small" role="status" aria-live="polite"></p>
+      </details>
+
+      <details class="choice" id="choice-key">
+        <summary>Use an API key</summary>
+        <p class="small">An API key holds checks without a wallet. You get one when you buy checks by card.</p>
+        <label for="key">API key</label>
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+        <button id="key-use" type="button" class="secondary">Use this key</button>
+        <p id="key-status" class="small" role="status" aria-live="polite"></p>
+      </details>
+
+      <p class="choice-link"><a href="/checkout?for=key">Buy checks</a> <span class="muted small">by card or crypto;
+        no wallet needed.</span></p>
+    </section>
+
+    <section id="progress" class="panel" aria-labelledby="progress-status" hidden>
+      <p id="progress-status" role="status" aria-live="polite"></p>
+      <ul id="steps" class="steps"></ul>
+      <button id="cancel" type="button" class="secondary">Cancel</button>
+    </section>
+
+    <section id="result" aria-label="Result" hidden>
+      <div id="result-body"></div>
+      <section id="report-area" hidden>
+        <p id="report-open-row"><button id="report-open" type="button" class="secondary">This is wrong</button></p>
+        <form id="report" hidden>
+          <fieldset class="choices">
+            <legend>What is this page really?</legend>
+            <label><input type="radio" name="reason" value="real_brand"> A real brand or shop</label>
+            <label><input type="radio" name="reason" value="scam"> A scam</label>
+            <label><input type="radio" name="reason" value="junk"> Junk or dropshipping</label>
+            <label><input type="radio" name="reason" value="other"> Something else</label>
+          </fieldset>
+          <p id="report-consent" class="muted small">Sending this shares this check's link, the page as Unfret sees it
+            and the result with Unfret for review. Personal details are removed first; once reviewed, it is kept
+            without any link to you.</p>
+          <p class="buttons"><button id="report-send" type="submit" class="primary" disabled>Send report</button>
+            <button id="report-cancel" type="button" class="secondary">Cancel</button></p>
+        </form>
+        <p id="report-status" role="status" aria-live="polite" hidden></p>
+      </section>
+    </section>
+
+    <section id="unreadable" class="panel notice" aria-labelledby="unreadable-heading" hidden>
+      <h2 id="unreadable-heading"></h2>
+      <p id="unreadable-body"></p>
+      <p id="unreadable-shop" class="small"></p>
+      <p><strong>No check was used.</strong></p>
+      <p>For a full check, open the page on a computer with the <a href="/extension">Unfret browser extension</a>: it
+        checks the page as your browser shows it.</p>
+    </section>
+
+    <section id="no-checks" class="panel notice" aria-labelledby="no-checks-heading" hidden>
+      <h2 id="no-checks-heading">You have no checks left</h2>
+      <p>Buy a pack and check on. Nothing was charged for this link.</p>
+      <p class="buttons">
+        <a id="buy-card" class="button primary" href="/checkout?for=key">Pay by card</a>
+        <a id="buy-crypto" class="button secondary" href="/checkout">Pay with crypto</a>
+      </p>
+      <p id="buy-card-note" class="muted small">By card, the checks go to an API key: save it, then use it here.</p>
+    </section>
+
+    <section id="error" class="panel notice" role="alert" hidden>
+      <p id="error-message"></p>
+      <p id="error-refunded" class="small" hidden>No check was used.</p>
+    </section>
+
+    <p id="again-row" hidden><button id="again" type="button" class="primary">Check another link</button></p>
+
+    <footer><a href="/">About Unfret</a> · <a href="/extension">Browser extension</a> · <a href="/privacy">Privacy</a>
+      <br><span class="small">No history: this page keeps no list of the links you check, and Unfret's server
+        doesn't store them or link them to you.</span></footer>
+  </main>
+</body>
+</html>

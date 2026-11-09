@@ -349,3 +349,16 @@ valid 7 days. Nothing is stored when a check runs.
   from a page Unfret fetched itself in the last day is served again (the shop's fingerprint unchanged). It is paid as
   usual, `cached` is `true`, and `action`/`policy_applied` follow the caller's policy. Requests with `page_content`
   are always analysed.
+
+## Changes (link checker, backwards-compatible)
+
+- `POST /v1/analyze` and `/v1/analyze/stream` accept a body with only `url` (no `page_content`/`page_facts`): the
+  server fetches the page itself (`veridex.page_fetch`) before anything is charged. An account whose balance doesn't
+  cover a check gets its 402 without a fetch. A page that can't be checked that way is a free `422` (plain JSON, no
+  stream) with `error_code` `PAGE_UNAVAILABLE` (couldn't be fetched), `PAGE_BLOCKED` (the shop answered 401/403/405/
+  406/429/503/999, or with a Cloudflare/DataDome/PerimeterX/Amazon bot check), `PAGE_TOO_THIN` (under 400 characters
+  of visible text with no price and no product JSON-LD: a shell its scripts fill in) or `INVALID_URL` (not a public
+  http(s) address). Fetches are limited per account (`VERIDEX_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
+  The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back
+  `{"url": …}` and the server fetches the page again for the review queue.
+- Requests that send the page (the extension) are unchanged.

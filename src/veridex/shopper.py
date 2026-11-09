@@ -587,6 +587,7 @@ def build(
     headline: str | None = None,
     market: str = "eu",
     confidence: float | None = None,
+    concrete_only: bool = False,
 ) -> Verdict:
     """
     Build the shopper verdict for an analysed page.
@@ -597,7 +598,8 @@ def build(
 
     A shopper is only told "careful" (or worse) when there is something concrete to show for it, or the scorer is
     sure: when the only reasons are things missing from the page (:data:`ABSENCE_REASONS`, or none at all) and the
-    scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead.
+    scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead. With
+    ``concrete_only`` (the quick tier, which reads too little to be sure) that holds however sure the scorer is.
 
     :param score: The 0–100 reliability score.
     :param features: The skill features from the graph state.
@@ -608,6 +610,7 @@ def build(
     :param headline: The headline sentence; the catalogue's template for the band when not given.
     :param market: The shop's market (:func:`veridex.market.shop_market`), for reasons that depend on its law.
     :param confidence: The scorer's confidence (:class:`veridex.scoring.Assessment`); ``None`` without a scorer.
+    :param concrete_only: Never warn without a concrete reason, whatever the scorer's confidence.
     :return: The verdict.
     """
     language = language if language in LANGUAGES else DEFAULT_LANGUAGE
@@ -623,7 +626,7 @@ def build(
     for group in _GROUPS:
         for key in [k for k in group if k in fired][1:]:
             del fired[key]
-    unsure = confidence is not None and confidence < settings.verdict_absence_only_min_confidence
+    unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
     if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= set(ABSENCE_REASONS):
         band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
     order = list(REASON_SEVERITY)

@@ -261,7 +261,7 @@ warning. Only the lowest verdict may suggest the offer could be dishonest.\
 """
 
 
-async def _judge(state: AnalysisState, model_path: Path) -> dict:
+async def _judge(state: AnalysisState, model_path: Path, *, concrete_only: bool = False) -> dict:
     """
     Produce the final score and a one-line explanation.
 
@@ -272,13 +272,14 @@ async def _judge(state: AnalysisState, model_path: Path) -> dict:
 
     :param state: Current graph state; uses ``features``, ``findings`` and ``skill_results``.
     :param model_path: The scorer artifact; falls back to the full model when it isn't shipped.
+    :param concrete_only: Warn only with a concrete reason (see :func:`shopper.build`).
     :return: ``score`` and ``explanation`` (and the scorer's ``assessment`` when it was used).
     """
     model = scoring.load_model(model_path) or scoring.load_model()
     assessment = scoring.score(state.get("features", {}), state.get("findings", []), model)
     if assessment is not None:
         score = round(100 * (1 - assessment.risk_score))
-        verdict = await _verdict(state, score, confidence=assessment.confidence)
+        verdict = await _verdict(state, score, confidence=assessment.confidence, concrete_only=concrete_only)
         details = asdict(assessment)
         details["flags"] = shopper.label_flags(details["flags"], verdict.language)
         return {
@@ -302,7 +303,12 @@ async def _judge(state: AnalysisState, model_path: Path) -> dict:
 
 
 async def _verdict(
-    state: AnalysisState, score: int, headline: str | None = None, confidence: float | None = None
+    state: AnalysisState,
+    score: int,
+    headline: str | None = None,
+    confidence: float | None = None,
+    *,
+    concrete_only: bool = False,
 ) -> shopper.Verdict:
     """
     The shopper verdict, with a headline written by the LLM from the verdict's own reasons (or a band template).
@@ -313,6 +319,7 @@ async def _verdict(
     :param score: The 0–100 reliability score.
     :param headline: A headline already written; skips the LLM.
     :param confidence: The scorer's confidence, when the scorer set the score.
+    :param concrete_only: Warn only with a concrete reason (see :func:`shopper.build`).
     :return: The verdict.
     """
     language = state.get("language", shopper.DEFAULT_LANGUAGE)
@@ -326,6 +333,7 @@ async def _verdict(
         headline=headline,
         market=shop_market(state.get("facts") or PageFacts(), state.get("url", ""), state.get("cleaned_content", "")),
         confidence=confidence,
+        concrete_only=concrete_only,
     )
     if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict
@@ -351,6 +359,9 @@ def make_judge_node(model_path: Path = scoring.MODEL_PATH, *, llm: bool = True) 
     """
     A judge node bound to one scorer artifact (the quick tier uses its own, see :data:`scoring.MODEL_QUICK_PATH`).
 
+    The quick tier reads only the page, by rules, so its judge warns only with a concrete reason: a page missing
+    some legal information alone is "concerns", not "careful".
+
     :param model_path: The scorer artifact.
     :param llm: Whether the judge may call the LLM (the headline, or the LLM judge without a scorer). Without it the
         headline is the template, and a missing scorer is an error.
@@ -369,7 +380,7 @@ def make_judge_node(model_path: Path = scoring.MODEL_PATH, *, llm: bool = True) 
             if scoring.load_model(model_path) is None and scoring.load_model() is None:
                 raise RuntimeError("no scorer shipped, and this graph may not use the LLM judge")
             state = {**state, "explain": False}
-        return await _judge(state, model_path)
+        return await _judge(state, model_path, concrete_only=model_path == scoring.MODEL_QUICK_PATH)
 
     return judge_node
 

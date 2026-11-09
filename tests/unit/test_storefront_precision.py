@@ -99,7 +99,7 @@ def test_scorer_reads_a_single_not_applicable_feature_as_neutral() -> None:
 def test_absences_alone_never_make_a_page_careful_when_the_scorer_is_unsure(market: str) -> None:
     features = {"eu_registry.imprint": 0.0, "eu_registry.withdrawal_right": 1.0}
 
-    def band(confidence: float | None, extra: dict[str, float] | None = None) -> str:
+    def band(confidence: float | None, extra: dict[str, float] | None = None, *, concrete_only: bool = False) -> str:
         return shopper.build(
             39,
             features=features | (extra or {}),
@@ -108,12 +108,38 @@ def test_absences_alone_never_make_a_page_careful_when_the_scorer_is_unsure(mark
             page_type="storefront",
             market=market,
             confidence=confidence,
+            concrete_only=concrete_only,
         ).band
 
     assert band(0.19) == "concerns"
     assert band(0.5) == "careful"  # a sure scorer still warns
     assert band(None) == "careful"  # the LLM judge's score: no confidence to go by
     assert band(0.19, {"dark_patterns.preticked_addons": 1.0}) == "careful"  # something concrete to show
+    # The quick tier warns only on something concrete, however sure its scorer is.
+    assert band(0.9, concrete_only=True) == "concerns"
+    assert band(0.9, {"dark_patterns.preticked_addons": 1.0}, concrete_only=True) == "careful"
+
+
+async def test_the_quick_judge_warns_only_on_something_concrete(monkeypatch: pytest.MonkeyPatch) -> None:
+    sure = scoring.Model(
+        version="t",
+        features=["eu_registry.imprint"],
+        means=[0.5],
+        scales=[0.5],
+        coefficients=[-5.0],
+        intercept=0.0,
+        calibration=[],
+    )
+    monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: sure)
+    state: Any = {**_state(PageFacts(currency="EUR", price=20.0), "Shoes."), "features": {"eu_registry.imprint": 0.0}}
+    state |= {"findings": [], "skill_results": [], "explain": False}
+
+    quick = await nodes.make_judge_node(scoring.MODEL_QUICK_PATH, llm=False)(state)
+    deep = await nodes.make_judge_node(scoring.MODEL_PATH, llm=False)(state)
+
+    assert quick["assessment"]["confidence"] > 0.5
+    assert quick["verdict"]["band"] == "concerns"
+    assert deep["verdict"]["band"] in {"careful", "junk_or_scam"}
 
 
 # ── The whole graph on the fetched page, with the shipped scorer ─────────────

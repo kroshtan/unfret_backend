@@ -11,8 +11,8 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from veridex import result_cache, shopper
-from veridex.auth import require_wallet
+from veridex import reports, result_cache, shopper
+from veridex.auth import require_account
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.graph.state import Finding
@@ -55,10 +55,10 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
 
 async def _debit(request: Request, address: str) -> int:
     """
-    Take the analysis price from the wallet's balance.
+    Take the analysis price from the account's balance.
 
     :param request: The FastAPI request.
-    :param address: The signed-in wallet.
+    :param address: The account (a signed-in wallet or an API key).
     :return: The balance left after the debit.
     :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
     """
@@ -116,7 +116,21 @@ def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
         )
 
 
-def _response(result: dict[str, Any], balance: int, *, charged: bool) -> AnalyzeResponse:
+def _report_token(body: AnalyzeRequest, address: str, result: dict[str, Any]) -> str | None:
+    # Lets this account report the result later (POST /v1/reports) without anything being stored now.
+    return reports.issue_token(
+        settings.session_secret.get_secret_value(),
+        address,
+        body,
+        score=int(result["score"]),
+        explanation=str(result["explanation"]),
+        ttl_s=settings.report_window_s,
+    )
+
+
+def _response(
+    result: dict[str, Any], balance: int, *, charged: bool, report_token: str | None = None
+) -> AnalyzeResponse:
     return AnalyzeResponse(
         score=result["score"],
         explanation=result["explanation"],
@@ -125,6 +139,7 @@ def _response(result: dict[str, Any], balance: int, *, charged: bool) -> Analyze
         balance_usd_micros=balance,
         balance_lamports=balance,
         charged=charged,
+        report_token=report_token,
     )
 
 
@@ -132,22 +147,26 @@ def _response(result: dict[str, Any], balance: int, *, charged: bool) -> Analyze
 async def analyze_page(
     body: AnalyzeRequest,
     request: Request,
-    address: str = Depends(require_wallet),
+    address: str = Depends(require_account),
 ) -> AnalyzeResponse:
     """
-    Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the wallet's credits.
+    Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.
 
     Passes the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the
     facts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a
     reliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis
     price is taken from the balance up front and refunded when the page can't be analysed (score -1) or the
     analysis fails. The same input analysed again within the hour is served from an in-memory cache, free of
-    charge. Nothing about the page or the result is stored.
+    charge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong
+    result later (``POST /v1/reports``), sharing the page only then and only with their consent.
+
+    The caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_…``).
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
-    :param address: The signed-in wallet (injected by require_wallet).
-    :return: Reliability score (0–100), explanation, verdict, the scorer's assessment and the balance left.
+    :param address: The account (injected by require_account).
+    :return: Reliability score (0–100), explanation, verdict, the scorer's assessment, the balance left and a
+        report token.
     :raises InternalServerError: If the graph fails.
     :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
     :raises asyncio.CancelledError: If the client hung up (after the refund).
@@ -157,7 +176,8 @@ async def analyze_page(
     cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")
-        return _response(cached, await _balance(request, address), charged=False)
+        token = _report_token(body, address, cached)
+        return _response(cached, await _balance(request, address), charged=False, report_token=token)
 
     left = await _debit(request, address)
     usage = UsageMetadataCallbackHandler()
@@ -185,7 +205,7 @@ async def analyze_page(
 
     if result["score"] == -1:
         return _response(result, await _refund(request, address), charged=False)
-    return _response(result, left, charged=True)
+    return _response(result, left, charged=True, report_token=_report_token(body, address, result))
 
 
 def _event(name: str, data: dict[str, Any]) -> str:
@@ -219,7 +239,7 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
 async def analyze_page_stream(
     body: AnalyzeRequest,
     request: Request,
-    address: str = Depends(require_wallet),
+    address: str = Depends(require_account),
 ) -> StreamingResponse:
     """
     Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.
@@ -232,7 +252,7 @@ async def analyze_page_stream(
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
-    :param address: The signed-in wallet (injected by require_wallet).
+    :param address: The account (injected by require_account).
     :return: A ``text/event-stream`` response.
     """
     graph, state = _graph_input(body, request)
@@ -240,11 +260,12 @@ async def analyze_page_stream(
     cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")
-        hit = _response(cached, await _balance(request, address), charged=False)
+        token = _report_token(body, address, cached)
+        hit = _response(cached, await _balance(request, address), charged=False, report_token=token)
         return _stream(_replay(hit))
 
     left = await _debit(request, address)
-    return _stream(_live_events(request, address, graph, state, key=key, left=left))
+    return _stream(_live_events(request, body, address, graph, state, key=key, left=left))
 
 
 def _stream(events: AsyncIterator[str]) -> StreamingResponse:
@@ -256,13 +277,21 @@ async def _replay(hit: AnalyzeResponse) -> AsyncIterator[str]:
 
 
 async def _live_events(
-    request: Request, address: str, graph: Any, state: dict[str, object], *, key: str, left: int
+    request: Request,
+    body: AnalyzeRequest,
+    address: str,
+    graph: Any,
+    state: dict[str, object],
+    *,
+    key: str,
+    left: int,
 ) -> AsyncGenerator[str]:
     """
     Run the graph and stream its steps, then the result; refund unless the analysis finished.
 
     :param request: The FastAPI request.
-    :param address: The signed-in wallet (already debited).
+    :param body: The request body (for the report token).
+    :param address: The account (already debited).
     :param graph: The compiled graph.
     :param state: The graph input.
     :param key: The result cache key.
@@ -296,7 +325,7 @@ async def _live_events(
         if final["score"] == -1:
             result = _response(final, await _refund(request, address), charged=False)
         else:
-            result = _response(final, left, charged=True)
+            result = _response(final, left, charged=True, report_token=_report_token(body, address, final))
         yield _event("result", result.model_dump(mode="json", exclude_none=True))
     finally:
         if refund:

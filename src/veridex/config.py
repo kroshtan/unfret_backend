@@ -116,6 +116,31 @@ class Settings(BaseSettings):
     trial_min_signatures: int = 10
     trial_per_ip_per_day: int = 2
     trial_daily_cap: int = 50
+    # API keys (no trial: they start empty). Creating one takes a small proof of work in the browser (a few
+    # seconds at 18 bits) and is limited per visitor network (IPv6 /64) and in total per day; recovery attempts too.
+    key_pow_bits: int = 18
+    key_pow_ttl_s: int = 600
+    key_create_per_ip_per_day: int = 5
+    key_create_daily_cap: int = 500
+    key_recover_per_ip_per_day: int = 10
+    # Fiat top-ups for API keys through a Merchant of Record (off until a provider is wired in). Prices in USD;
+    # webhooks are Standard Webhooks, signed with this whsec_ secret and refused outside the replay window.
+    fiat_webhook_secret: SecretStr = SecretStr("")
+    fiat_webhook_tolerance_s: int = 300
+    fiat_min_usd_micros: int = 10_000_000  # $10
+    fiat_retention_days: int = 180
+
+    # Reports of wrong results ("this is wrong", POST /v1/reports). A report can be made within report_window_s of
+    # the check. It pays report_reward_checks to the first reporter when the human label shows the score was at
+    # least report_reward_gap points on the wrong side of the label's zone (legit >= 70, junk/scam <= 40).
+    reports_per_month: int = 5
+    report_queue_cap: int = 200
+    report_window_s: int = 7 * 24 * 3600
+    report_expiry_days: int = 30
+    report_known_days: int = 90
+    report_reward_checks: int = 3
+    report_reward_gap: int = 30
+    report_training_gap: int = 10
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.kroshtan.com"
@@ -182,6 +207,23 @@ class Settings(BaseSettings):
             problems.append("need x402_min_fee_lamports <= sweep_reserve_lamports < sweep_threshold_lamports")
         if self.x402_analysis_timeout_s <= 0 or self.x402_confirm_timeout_s <= 0:
             problems.append("timeouts must be positive")
+        if problems:
+            raise ValueError("inconsistent settings: " + "; ".join(problems))
+        return self
+
+    @model_validator(mode="after")
+    def _accounts_consistent(self) -> Self:
+        """
+        Refuse contradictory API key and report settings.
+
+        :return: The settings.
+        :raises ValueError: Listing every contradiction found.
+        """
+        problems = []
+        if not 0 < self.key_pow_bits <= 32:
+            problems.append("key_pow_bits must be 1-32")
+        if not 0 <= self.report_training_gap <= self.report_reward_gap:
+            problems.append("need 0 <= report_training_gap <= report_reward_gap")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self

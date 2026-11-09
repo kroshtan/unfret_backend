@@ -228,3 +228,56 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   deprecated: extension versions up to 0.5.0 read them.
 - Extension 0.5.0 is published at `/extension` (CRX, `updates.xml` on unfret.kroshtan.com, and the Chrome Web Store zip
   `veridex-chrome-0.5.0.zip`).
+
+## Changes (accounts v2: API keys, fiat interface, reports; backwards-compatible)
+
+**API keys: an account without a wallet.** A key is `ufk_<id>_<secret>`; the `<id>` (10 lowercase base32 characters)
+is public and names the account, `key:<id>`, in the same ledger as wallets. Wherever a session token works
+(`/v1/analyze`, `/v1/analyze/stream`, `/v1/credits`, `/v1/reports`), `Authorization: Bearer ufk_…` works too. Keys
+get no trial (the one-time wallet trial is unchanged).
+
+- `GET /v1/keys/challenge` → `{"challenge": str, "bits": int, "expires_at": float}`: a proof of work, accepted once
+  within 10 minutes. Find a `solution` (≤ 32 characters, e.g. a decimal counter) with
+  `SHA-256(challenge + ":" + solution)` starting with `bits` zero bits (18 by default: a few seconds in a browser).
+- `POST /v1/keys` `{"challenge", "solution"}` → 201 `{"key_id", "key", "recovery_code", "account": "key:<id>",
+  "balance_usd_micros": 0}`. The key and the recovery code (`ufr_<id>_<secret>`) are shown this once and stored only
+  as SHA-256 hashes. 400 `BAD_CHALLENGE`; 429 after 5 new keys per visitor network (IPv6 /64) per day.
+- `POST /v1/keys/recover` `{"recovery_code"}` → the same shape: a new key and a new recovery code with the same id
+  and balance. The old key and code stop working at once. 401 `INVALID_RECOVERY_CODE`; 429 after 10 tries per network
+  per day.
+- 401 `INVALID_API_KEY` for a malformed, unknown or rotated key.
+- **Top up with crypto:** `POST /v1/credits/purchase-tx` and `GET /v1/credits/solana-pay.svg` take `key_id` (the id or
+  the whole key; only the id is used) instead of `beneficiary`. The memo is `veridex:credit:key:<id>`. A memo naming
+  an unknown key credits the paying wallet instead. 404 `UNKNOWN_KEY`.
+- **Fiat (interface only, shaped for Polar):** `POST /v1/credits/fiat-checkout` `{"key_id", "amount_usd_micros"}`
+  (USD, whole cents, at least $10) → `{"checkout_url", "provider"}`. Our account id goes into the checkout's
+  metadata and the server also keeps checkout id → account. `POST /v1/webhooks/fiat` takes Standard Webhooks
+  (`webhook-id`, `webhook-timestamp` within 5 minutes, `webhook-signature` HMAC with the `whsec_` secret): a paid order
+  is credited once (with the same bonus tiers as crypto); a refund debits credits pro rata to the refunded share
+  (cumulative, partial refunds add up); a dispute debits all of the order's credits. Debits may make a balance
+  negative, which blocks paid use (402) until a top-up. Per order the server keeps provider, order id, account, amount
+  in cents, credits granted, refunded cents, disputed and debited credits, for 180 days; never the buyer's email, name
+  or address. Off (503) until a Merchant of Record is wired in. `GET /v1/pricing` now says `"api_keys": bool`,
+  `"fiat": {"available": bool, "min_usd_micros"}` and `"reports": {"per_month", "reward_checks"}`.
+- `GET /v1/credits` returns `address: "key:<id>"` for a key; `checks_remaining` is never below 0.
+
+**Reports: "this is wrong".** Every `/v1/analyze` result with a score (and the stream's `result`) carries a
+`report_token`: an HMAC over the account, the score, a hash of exactly what was analysed and of the explanation,
+valid 7 days. Nothing is stored when a check runs.
+
+- `POST /v1/reports` (Bearer) `{"report_token", "reason": "real_brand"|"scam"|"junk"|"other", "consent": true,
+  "request": <the analysed request, exactly as sent>, "explanation": <as returned>, "verdict"?: <as returned>}` →
+  201 `{"status": "queued"|"already_reported"|"already_known", "reports_used", "reports_per_month"}`.
+  `consent` is the user agreeing that this one check's page facts, page text and result are shared for review.
+  Personal details are scrubbed on the server too (greetings, delivery lines, emails, phone numbers, IBANs, card
+  numbers; query strings off every URL; raw HTML reduced to facts and visible text; the checkout page dropped).
+- Before the queue: a page (domain + ASIN / bol.com id / GTIN, else the clean URL) already queued is
+  `already_reported` and counts as confirmation; a page labelled in the last 90 days is `already_known`.
+- Errors: 400 `BAD_REPORT_TOKEN` (someone else's check, changed data, or older than 7 days), 409
+  `ALREADY_REPORTED_BY_YOU`, 429 `REPORT_LIMIT` (5 per account per month, `metadata: {"used", "limit"}`), 503
+  `QUEUE_FULL` (about 200 open reports).
+- Reward: when the human label shows the score was at least 30 points outside the label's zone (legit ≥ 70, junk and
+  scam ≤ 40), the reporter gets 3 checks. The report is then deleted (its only link to the account); the scrubbed page
+  and its label stay as training data. Reports nobody handled are deleted after 30 days.
+- Operator: `GET /v1/admin/reports` (the queue, without accounts) and `POST /v1/admin/reports/{id}/label`
+  `{"label": "legit"|"junk"|"scam"|"reject"}`, used by `make reports`.

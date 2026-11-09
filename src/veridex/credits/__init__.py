@@ -1,10 +1,13 @@
 """
-The credits door: wallets sign in with SIWS and spend a balance of micro-dollars on analyses.
+The credits door: accounts spend a balance of micro-dollars on analyses.
 
-The only stored user state is ``pubkey → balance`` (:mod:`veridex.credits.ledger`). Credits are bought by sending SOL
-or USDC to the x402 hot wallet, which the scanners turn into balance (SOL at its dollar value at crediting time);
-failed paid x402 checks are refunded the same way. Sign-in is off until ``VERIDEX_SESSION_SECRET`` is set; purchases
-additionally need the hot wallet and running scanners.
+An account is a wallet that signs in with SIWS, or an API key (:mod:`veridex.credits.keys`) for callers without a
+wallet.
+
+The only stored user state is ``account → balance`` (:mod:`veridex.credits.ledger`), plus the hashes of API keys.
+Credits are bought by sending SOL or USDC to the x402 hot wallet, which the scanners turn into balance (SOL at its
+dollar value at crediting time); failed paid x402 checks are refunded the same way. Sign-in and API keys are off
+until ``VERIDEX_SESSION_SECRET`` is set; purchases additionally need the hot wallet and running scanners.
 """
 
 import asyncio
@@ -16,6 +19,7 @@ from solders.pubkey import Pubkey
 
 from veridex.config import Settings
 from veridex.credits import ledger, siws
+from veridex.credits.keys import KeyGuard
 from veridex.credits.pairing import PairingStore
 from veridex.credits.scanner import CreditScanner
 from veridex.credits.trial import TrialLimiter, has_history
@@ -42,6 +46,13 @@ class CreditsDoor:
         self.usdc_mint = usdc_mint(settings.solana_network, settings.usdc_mint)
         self.trials = TrialLimiter(settings.trial_per_ip_per_day, settings.trial_daily_cap)
         self.pairings = PairingStore(ttl_s=settings.pairing_ttl_s, per_ip=settings.pairing_per_ip)
+        self.key_guard = KeyGuard(
+            secret=self.secret,
+            bits=settings.key_pow_bits,
+            ttl_s=settings.key_pow_ttl_s,
+            creations=TrialLimiter(settings.key_create_per_ip_per_day, settings.key_create_daily_cap),
+            recoveries=TrialLimiter(settings.key_recover_per_ip_per_day, 10 * settings.key_create_daily_cap),
+        )
         self.scanner: CreditScanner | None = None
         self.usdc_scanner: CreditScanner | None = None
 

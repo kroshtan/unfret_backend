@@ -10,11 +10,11 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from tests.integration.conftest import bearer
+from tests.integration.conftest import DROP_ALL, bearer
 from tests.unit.x402_helpers import StaticOracle
 from veridex.auth import get_credits
 from veridex.config import settings
-from veridex.credits import CreditsDoor, ledger, siws
+from veridex.credits import CreditsDoor, keys, ledger, siws
 from veridex.credits.scanner import CreditScanner
 from veridex.main import app
 from veridex.migrations import MIGRATIONS, migrate
@@ -522,10 +522,7 @@ async def test_a_purchase_or_a_memo_doesnt_use_up_the_trial(pool: asyncpg.Pool) 
 
 
 async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Pool) -> None:
-    await pool.execute(
-        "DROP TABLE IF EXISTS wallets, scan_cursor, fact_cache, usage_counters, price_observations, shop_links, "
-        "shops, schema_migrations"
-    )
+    await pool.execute(DROP_ALL)
     await migrate(pool, MIGRATIONS[:4])
     await pool.execute("INSERT INTO wallets (pubkey, balance_lamports) VALUES ('a', 4500000), ('b', 1499999)")
 
@@ -533,3 +530,50 @@ async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Po
     assert await balance(pool, "a") == 450_000  # 3 checks before (1.5M lamports each), 3 checks now ($0.15 each)
     assert await balance(pool, "b") == 149_999
     assert await ledger.trial_used(pool, "a")  # existing rows had their trial
+
+
+# ── API keys as beneficiaries ─────────────────────────────────────────────────
+
+
+async def test_a_memo_naming_an_api_key_tops_up_the_key(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    issued = await keys.create(pool)
+    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), f"veridex:credit:key:{issued.key_id}"))
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, f"key:{issued.key_id}") == 2_000_000
+    assert await balance(pool, "payer") is None
+
+
+async def test_a_memo_naming_an_unknown_key_credits_the_payer(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), [], book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), "veridex:credit:key:aaaaaaaaaa"))
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, "payer") == 2_000_000  # never stranded on a key nobody holds
+    assert await balance(pool, "key:aaaaaaaaaa") is None
+
+
+async def test_purchase_transaction_can_top_up_an_api_key(
+    client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool
+) -> None:
+    issued = await keys.create(pool)
+    payer = Keypair().pubkey()
+    for named in (issued.key_id, issued.key):  # the id, or the whole key (only the id is used)
+        response = await client.post(
+            "/v1/credits/purchase-tx", json={"address": str(payer), "lamports": 15_000_000, "key_id": named}
+        )
+        assert response.status_code == 200
+        message = VersionedTransaction.from_bytes(base64.b64decode(response.json()["transaction"])).message
+        assert bytes(message.instructions[1].data) == f"veridex:credit:key:{issued.key_id}".encode()
+        assert issued.key.split("_")[2] not in response.text  # the secret never goes into a transaction
+    unknown = await client.post(
+        "/v1/credits/purchase-tx", json={"address": str(payer), "lamports": 15_000_000, "key_id": "bbbbbbbbbb"}
+    )
+    assert unknown.status_code == 404
+    qr = await client.get(f"/v1/credits/solana-pay.svg?lamports=15000000&key_id={issued.key_id}")
+    assert qr.status_code == 200

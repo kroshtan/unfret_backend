@@ -17,6 +17,12 @@ from veridex.main import app
 
 POSTGRES_URI = os.getenv("VERIDEX_TEST_POSTGRES_URI")
 SESSION_SECRET = "test-session-secret"
+# Every table any migration creates (plus the pre-migration ones), dropped before each test.
+DROP_ALL = (
+    "DROP TABLE IF EXISTS analyze_log, accounts, wallets, scan_cursor, fact_cache, usage_counters, "
+    "price_observations, shop_links, shops, api_keys, fiat_payments, fiat_checkouts, report_votes, "
+    "report_quota, reports, labelled_pages, schema_migrations CASCADE"
+)
 
 
 class FakeGraph:
@@ -50,10 +56,7 @@ async def pool() -> AsyncIterator[asyncpg.Pool]:
     if not POSTGRES_URI:
         pytest.skip("VERIDEX_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
-    await pool.execute(
-        "DROP TABLE IF EXISTS analyze_log, accounts, wallets, scan_cursor, fact_cache, usage_counters, "
-        "price_observations, shop_links, shops, schema_migrations"
-    )
+    await pool.execute(DROP_ALL)
     await init_db(pool)
     yield pool
     await pool.close()

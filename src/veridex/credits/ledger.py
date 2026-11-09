@@ -1,8 +1,13 @@
 """
-The credits ledger: ``pubkey → balance`` in micro-dollars plus a trial flag, and nothing else about anyone.
+The credits ledger: ``account → balance`` in micro-dollars plus a trial flag, and nothing else about anyone.
 
-No purchase history (the chain is the ledger), no analysis log, no URLs. Balances are micro-dollars (1 USD =
-1,000,000), so a check keeps its value whatever SOL does.
+An account is a wallet (its base58 address) or an API key (``key:<id>``, see :mod:`veridex.credits.keys`); both
+live in the ``wallets`` table, whose ``pubkey`` column holds either. Only wallets ever get the trial. No purchase
+history (the chain is the ledger), no analysis log, no URLs. Balances are micro-dollars (1 USD = 1,000,000), so a
+check keeps its value whatever SOL does. The ``pubkey`` parameters below take either kind of account.
+
+A balance can be negative only after a fiat refund or chargeback took back credits already spent
+(:func:`charge`); :func:`debit` never goes below zero, so a negative balance blocks paid use until a top-up.
 """
 
 import asyncpg
@@ -92,6 +97,28 @@ async def debit(db: Executor, pubkey: str, amount: int) -> int | None:
         amount,
     )
     return None if value is None else int(value)
+
+
+async def charge(db: Executor, pubkey: str, amount: int) -> int:
+    """
+    Take ``amount`` back from an account even if that makes its balance negative (a refund or chargeback).
+
+    :param db: A pool or connection.
+    :param pubkey: The account.
+    :param amount: The micro-dollars to take back (positive).
+    :return: The new balance.
+    :raises ValueError: If ``amount`` is not positive.
+    """
+    if amount <= 0:
+        raise ValueError("charge must be positive")
+    return int(
+        await db.fetchval(
+            "INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, -$2::bigint) ON CONFLICT (pubkey) "
+            "DO UPDATE SET balance_usd_micros = wallets.balance_usd_micros - $2::bigint RETURNING balance_usd_micros",
+            pubkey,
+            amount,
+        )
+    )
 
 
 async def get_cursor(db: Executor, name: str) -> str | None:

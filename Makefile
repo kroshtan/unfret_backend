@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label eval bump
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label reports eval bump
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -42,6 +42,9 @@ split:  ## Assign the fixed train/test split (rule-only labels never go to test)
 
 label:  ## Work through the review queue, one keypress per page
 	uv run python -m evals.label
+
+reports:  ## Label reported results from the live service into the corpus (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
+	uv run python -m evals.reports
 
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)

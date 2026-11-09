@@ -12,10 +12,11 @@ A purchase is credited at its dollar value at crediting time (:meth:`~veridex.pr
 SOL is converted with Pyth's SOL/USD price), then gets the bonus tier that value reaches. When SOL can't be valued
 (oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
-Who is credited: the beneficiary named by a ``veridex:credit:<pubkey>`` memo when the transaction carries exactly one
-well-formed such memo (``/v1/credits/purchase-tx`` and the Solana Pay link add it), so a smart-wallet vault can buy
-credits for the key that signs in; otherwise the transfer's source. Anyone may fund anyone, so a memo grants nothing
-the payer couldn't give anyway.
+Who is credited: the beneficiary named by a ``veridex:credit:<pubkey>`` memo (or ``veridex:credit:key:<id>`` for an
+API key) when the transaction carries exactly one well-formed such memo (``/v1/credits/purchase-tx`` and the Solana
+Pay link add it), so a smart-wallet vault can buy credits for the key that signs in; otherwise the transfer's source.
+A memo naming an API key that doesn't exist credits the source instead, so a typo never strands the money. Anyone may
+fund anyone, so a memo grants nothing the payer couldn't give anyway.
 
 Everything else touching the hot wallet is ignored: anything the hot wallet itself pays the fee for (x402
 settlements, swaps, sweeps, account creation), transfers whose source is the hot wallet, and failed transactions. Any
@@ -29,7 +30,7 @@ import asyncpg
 import structlog
 from solders.pubkey import Pubkey
 
-from veridex.credits import ledger
+from veridex.credits import keys, ledger
 from veridex.credits.pricing import with_bonus
 from veridex.prices import Currency, PriceBook, PriceUnavailableError
 from veridex.x402.solana import SolanaRpc, associated_token_address
@@ -52,10 +53,11 @@ def _instructions(tx: dict[str, Any]) -> list[dict[str, Any]]:
 
 def credit_beneficiary(tx: dict[str, Any]) -> str | None:
     """
-    The wallet a ``veridex:credit:<pubkey>`` memo names, if the transaction carries exactly one well-formed such memo.
+    The account a ``veridex:credit:<account>`` memo names, if the transaction carries exactly one such memo.
 
     :param tx: The transaction in ``jsonParsed`` encoding.
-    :return: The beneficiary (base58), or ``None`` (no memo, several, or a malformed one).
+    :return: The beneficiary (a wallet in base58, or ``key:<id>``), or ``None`` (no memo, several, or a malformed
+        one).
     """
     memos = [
         ix["parsed"]
@@ -66,10 +68,24 @@ def credit_beneficiary(tx: dict[str, Any]) -> str | None:
     ]
     if len(memos) != 1:
         return None
+    named = str(memos[0]).removeprefix(MEMO_PREFIX).strip()
+    if keys.is_key_account(named):
+        return named
     try:
-        return str(Pubkey.from_string(memos[0].removeprefix(MEMO_PREFIX).strip()))
+        return str(Pubkey.from_string(named))
     except ValueError:
         return None
+
+
+def _without_memos(tx: dict[str, Any]) -> dict[str, Any]:
+    message = tx["transaction"]["message"]
+    kept = [ix for ix in message["instructions"] if ix.get("program") != "spl-memo"]
+    inner = [
+        {**group, "instructions": [ix for ix in group.get("instructions", []) if ix.get("program") != "spl-memo"]}
+        for group in (tx.get("meta") or {}).get("innerInstructions") or []
+    ]
+    meta = {**(tx.get("meta") or {}), "innerInstructions": inner}
+    return {**tx, "transaction": {**tx["transaction"], "message": {**message, "instructions": kept}}, "meta": meta}
 
 
 def _paid_by(tx: dict[str, Any], hot: str) -> bool:
@@ -222,6 +238,15 @@ class CreditScanner:
                 return list(reversed(entries))  # oldest first
             before = page[-1]["signature"]
 
+    async def _credits_for(self, tx: dict[str, Any]) -> dict[str, int]:
+        mint = str(self.mint) if self.mint else None
+        paid = credits_for(tx, str(self.hot), mint)
+        for account in paid:
+            key_id = account.removeprefix(keys.ACCOUNT_PREFIX)
+            if keys.is_key_account(account) and not await keys.exists(self.pool, key_id):
+                return credits_for(_without_memos(tx), str(self.hot), mint)  # an unknown key: credit the senders
+        return paid
+
     async def _value(self, amount: int) -> int:
         return await self.book.value(amount, self.currency)
 
@@ -243,7 +268,7 @@ class CreditScanner:
                 tx = await self.rpc.parsed_transaction(signature, commitment="finalized")
                 if tx is None:
                     break  # not retrievable yet; never skip past it, try again next round
-                paid = credits_for(tx, str(self.hot), str(self.mint) if self.mint else None)
+                paid = await self._credits_for(tx)
                 try:
                     received = {wallet: await self._value(amount) for wallet, amount in paid.items()}
                 except PriceUnavailableError as exc:

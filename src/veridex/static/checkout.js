@@ -1,8 +1,9 @@
-// /checkout: buy a pack of credits with SOL or USDC (or, for API keys, by card). The wallet signs and sends a transfer
+// /checkout: buy a pack of checks with SOL or USDC (or, for API keys, by card). The wallet signs and sends a transfer
 // to Unfret's hot wallet; the server credits the pack once the transfer is final. Phone wallets can pay the same
-// request by QR code. Prices come from /v1/pricing, all derived from the price of one check: each pack has a price
+// request by QR code. Either way the purchase has a quote, and the page polls /v1/credits/quotes/<id> to show the
+// payment arriving (no sign-in needed for that). Prices come from /v1/pricing, all derived from the price of one check: each pack has a price
 // (by card) and a lower crypto price, plus VAT for the buyer's country (prefilled from where the request comes from).
-// Credits can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
+// Checks can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
 // one, or one recovered with its recovery code. The purchase's quote then names the key's public ID; the key itself
 // never leaves this page except to check its balance.
 import {
@@ -14,11 +15,13 @@ import {
   recall,
   recallAny,
   setStatus,
-  signIn,
   walletButton,
 } from "./wallet.js";
 
-const status = document.getElementById("status");
+const payPanel = document.getElementById("pay-panel");
+const payMessage = document.getElementById("pay-message");
+const payOptions = document.getElementById("pay-options");
+const paySetup = document.getElementById("pay-setup");
 const packs = document.getElementById("packs");
 const summary = document.getElementById("summary");
 const list = document.getElementById("wallets");
@@ -44,6 +47,11 @@ let currency = "SOL";
 const signedIn = recallAny();
 let forKey = new URLSearchParams(window.location.search).get("for") === "key";
 let fullKey = null; // the whole key, when typed or made here: lets the page show the balance
+let watch = null; // the purchase being waited for (see watchQuote)
+let qrUrl = null; // the QR code's object URL, revoked when replaced
+
+const POLL_MS = 3000;
+const POLL_ROUNDS = 60; // about three minutes of waiting while the page is visible
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
 const KEY_ID_RE = /^[a-z2-7]{10}$/;
@@ -80,7 +88,6 @@ function refreshTarget() {
   const ok = ready();
   list.querySelectorAll("button").forEach((button) => (button.disabled = !ok));
   qrShow.disabled = !ok;
-  qr.hidden = true;
   if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an API key or key ID.", "error");
   else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save both codes, then tick the box.");
   else setStatus(keyStatus, "");
@@ -178,7 +185,7 @@ document.getElementById("card-pay").addEventListener("click", async (event) => {
     });
     window.location.assign(started.checkout_url);
   } catch (error) {
-    setStatus(status, error.message || "Card payment isn't available right now.", "error");
+    showMessage("error", error.message || "Card payment isn't available right now.");
     event.currentTarget.disabled = false;
   }
 });
@@ -212,7 +219,7 @@ function formatPay(amount) {
 }
 
 function describe() {
-  if (!pricing || !pack) return;
+  if (!pricing || !pack || watch) return; // while a purchase is under way, the summary describes that one
   document.getElementById("card-price").textContent = formatUsd(pack.price_usd_micros);
   document.getElementById("card-tax").textContent = "plus sales tax/VAT where applicable, added at checkout";
   if (!countryField.value) {
@@ -287,85 +294,257 @@ function purchaseTarget() {
   return signedIn ? { beneficiary: signedIn.address } : {};
 }
 
-qrShow.addEventListener("click", () => {
-  if (!ready() || !pack) return refreshTarget();
-  const params = new URLSearchParams({ checks: String(pack.checks), country: countryField.value, currency });
-  for (const [name, value] of Object.entries(purchaseTarget())) params.set(name, value);
-  qr.src = `/v1/credits/solana-pay.svg?${params}`;
-  qr.hidden = false;
+// ── The payment's progress, in step 3 ───────────────────────────────────────────────────────────────────────────
+
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function button(text, onClick) {
+  const node = element("button", text);
+  node.type = "button";
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+// Show the panel in one of its states: "info", "waiting", "ok", "timeout", "thanks" or "error". While waiting or
+// done, the panel takes the place of the payment choices; a hint or an error shows above them, to try again.
+function showPanel(state, ...nodes) {
+  payPanel.dataset.state = state;
+  payMessage.replaceChildren(...nodes);
+  payPanel.hidden = false;
+  const busy = ["waiting", "ok", "timeout"].includes(state);
+  payOptions.hidden = busy;
+  paySetup.hidden = busy;
+}
+
+function showMessage(state, text) {
+  qr.hidden = true;
+  showPanel(state, element("p", text, "headline"));
+}
+
+function bringIntoView() {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  payPanel.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  payPanel.focus({ preventScroll: true });
+}
+
+function clearPanel() {
+  payPanel.hidden = true;
+  payMessage.replaceChildren();
+  qr.hidden = true;
+  payOptions.hidden = false;
+  paySetup.hidden = false;
+}
+
+function stopWatching() {
+  if (watch) clearTimeout(watch.timer);
+  watch = null;
+}
+
+// Back to choosing: stop waiting (the quote stays valid; paying it later still credits the checks).
+function reset() {
+  stopWatching();
+  clearPanel();
+  refreshTarget();
+}
+
+// Where the checks went, in words, for the success message.
+function destination(purchase) {
+  if (purchase.keyId) return ` to key ${purchase.keyId}`;
+  if (purchase.qr && !purchase.signedIn) return " to the wallet you paid with";
+  return " to your wallet";
+}
+
+function showWaiting(purchase) {
+  const headline = element("p", "", "headline");
+  headline.append(element("span", "", "spinner"), element("span", "Waiting for your payment…"));
+  const hint = purchase.qr
+    ? "Scan the code and approve the payment in your phone's wallet. It shows here once it is final, usually within 30 seconds."
+    : "Your payment is on its way. It shows here once it is final, usually within 30 seconds.";
+  showPanel("waiting", headline, element("p", hint, "muted"), button("Pay another way", reset));
+}
+
+function showTimeout(purchase) {
+  const text = purchase.qr
+    ? "No payment has arrived yet. If you've paid, it may still be settling: the checks will appear by themselves, so there's no need to pay again."
+    : "Your payment may still be settling. The checks will appear by themselves once it is final; there's no need to pay again.";
+  showPanel(
+    "timeout",
+    element("p", "Still waiting for the payment", "headline"),
+    element("p", text),
+    button("Check again", () => watchQuote(purchase)),
+    document.createTextNode(" "),
+    button("Pay another way", reset),
+  );
+}
+
+async function showPaid(purchase) {
+  qr.hidden = true;
+  const headline = `✓ Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
+  const nodes = [element("p", headline, "headline")];
+  if (purchase.keyId) {
+    if (purchase.newKey) {
+      const key = element("p", "Your API key");
+      key.append(document.createElement("br"), element("code", purchase.newKey));
+      nodes.push(
+        key,
+        element("p", "Keep your recovery code somewhere safe: it gets you a new key with the same balance if you lose this one."),
+      );
+    }
+    nodes.push(
+      element("p", "Paste the key in the extension's settings (or use it in scripts) and the extension shows your checks. You can close this page."),
+    );
+  } else {
+    nodes.push(element("p", "You can close this page; the extension shows your checks."));
+  }
+  const balance = element("p", "", "muted");
+  nodes.push(balance, button("Buy more", reset));
+  showPanel("ok", ...nodes);
+  bringIntoView();
+  if (!purchase.token) return;
+  try {
+    const credits = await api("/v1/credits", { headers: { Authorization: `Bearer ${purchase.token}` } });
+    balance.textContent = `Your balance is now ${checksWord(credits.checks_remaining)}.`;
+  } catch {
+    // the confirmation stands on its own; the balance is a nicety
+  }
+}
+
+function schedule(purchase, delay) {
+  clearTimeout(purchase.timer);
+  if (watch !== purchase || document.hidden) return; // resumes when the page is visible again
+  purchase.timer = setTimeout(() => poll(purchase), delay);
+}
+
+async function poll(purchase) {
+  if (watch !== purchase) return;
+  purchase.rounds += 1;
+  try {
+    const quote = await api(`/v1/credits/quotes/${encodeURIComponent(purchase.quoteId)}`, { cache: "no-store" });
+    if (watch !== purchase) return;
+    if (quote.paid) {
+      stopWatching();
+      showPaid(purchase);
+      return;
+    }
+  } catch {
+    // a network blip: keep trying
+  }
+  if (watch !== purchase) return;
+  if (purchase.rounds >= POLL_ROUNDS) {
+    purchase.timedOut = true;
+    showTimeout(purchase);
+    return;
+  }
+  schedule(purchase, POLL_MS);
+}
+
+// Wait for the purchase's quote to be paid: every 3 s for about three minutes, paused while the page is hidden.
+function watchQuote(purchase) {
+  stopWatching();
+  watch = purchase;
+  purchase.rounds = 0;
+  purchase.timedOut = false;
+  summary.textContent = purchase.summary;
+  showWaiting(purchase);
+  bringIntoView();
+  schedule(purchase, POLL_MS);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && watch && !watch.timedOut) schedule(watch, 0);
 });
 
-async function waitForCredits(token, before) {
-  for (let attempt = 0; attempt < 36; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-    try {
-      const credits = await api("/v1/credits", { headers: { Authorization: `Bearer ${token}` } });
-      if ((credits.balance_usd_micros ?? credits.balance_lamports) > before) return credits;
-    } catch {
-      // keep polling
-    }
-  }
-  return null;
+// What the messages need about the purchase, captured when it starts (before any choice can change).
+function purchaseInfo(extra) {
+  return {
+    checks: pack.checks,
+    keyId: forKey ? keyId() : null,
+    newKey: forKey && !keyReveal.hidden ? fullKey : null, // made or recovered on this page just now
+    summary: summary.textContent,
+    ...extra,
+  };
 }
 
-async function balanceOf(token) {
-  const credits = await api("/v1/credits", { headers: { Authorization: `Bearer ${token}` } });
-  return credits.balance_usd_micros ?? credits.balance_lamports;
-}
+qrShow.addEventListener("click", async () => {
+  if (!ready() || !pack) return refreshTarget();
+  stopWatching();
+  clearPanel();
+  const params = new URLSearchParams({ checks: String(pack.checks), country: countryField.value, currency });
+  for (const [name, value] of Object.entries(purchaseTarget())) params.set(name, value);
+  const info = purchaseInfo({
+    qr: true,
+    signedIn: Boolean(signedIn) && !forKey,
+    token: forKey ? fullKey : signedIn?.token,
+  });
+  qrShow.disabled = true;
+  try {
+    // Fetched rather than set as the <img> source, to read the quote's id from the response header.
+    const response = await fetch(`/v1/credits/solana-pay.svg?${params}`, { cache: "no-store" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail ?? `Request failed (${response.status})`);
+    }
+    const quoteId = response.headers.get("X-Unfret-Quote");
+    const image = await response.blob();
+    if (qrUrl) URL.revokeObjectURL(qrUrl);
+    qrUrl = URL.createObjectURL(new Blob([image], { type: "image/svg+xml" }));
+    qr.src = qrUrl;
+    qr.hidden = false;
+    if (quoteId) {
+      watchQuote({ ...info, quoteId });
+    } else {
+      showPanel("info", element("p", "Scan the code with your phone's wallet. Your checks arrive once the payment is final."));
+    }
+  } catch (error) {
+    showMessage("error", error.message || "Couldn't make the QR code; try again.");
+  } finally {
+    refreshTarget();
+  }
+});
 
 async function buy(wallet) {
   if (!pack || !ready()) return;
+  stopWatching();
+  clearPanel();
   const send = wallet.features["solana:signAndSendTransaction"];
   if (!send) {
-    setStatus(status, `${wallet.name} can't send transactions from this page; use the QR code instead.`, "error");
+    showMessage("error", `${wallet.name} can't send transactions from this page; use the QR code instead.`);
     return;
   }
+  const info = purchaseInfo({ qr: false, signedIn: true });
   list.querySelectorAll("button").forEach((button) => (button.disabled = true));
   try {
     const { accounts } = await wallet.features["standard:connect"].connect();
     const account = accounts[0];
     if (!account) throw new Error("No account was shared by the wallet.");
-    // Paying for a key needs no sign-in; its balance shows only when the whole key is on this page.
-    let token = forKey ? fullKey : null;
-    if (!forKey) {
-      let session = recall(account.address);
-      if (!session) {
-        setStatus(status, "Sign in first, so this page can show when your checks arrive (signing in gives us no spending rights).");
-        ({ session } = await signIn(wallet));
-      }
-      token = session.token;
-    }
-    const before = token ? await balanceOf(token) : 0;
-    const target = forKey ? { key_id: keyId() } : {};
+    // No sign-in needed: the quote shows when the payment arrives. A session or whole key also shows the balance.
+    info.token = forKey ? fullKey : recall(account.address)?.token;
+    const target = info.keyId ? { key_id: info.keyId } : {};
     const purchase = await api("/v1/credits/purchase-tx", {
       method: "POST",
       body: JSON.stringify({
         address: account.address,
         currency,
-        checks: pack.checks,
+        checks: info.checks,
         country: countryField.value,
         ...target,
       }),
     });
-    setStatus(status, `Approve the payment of ${formatPay(purchase.amount)} (${purchase.price.total_usd}) in ${wallet.name}.`);
+    showMessage("info", `Approve the payment of ${formatPay(purchase.amount)} (${purchase.price.total_usd}) in ${wallet.name}.`);
+    bringIntoView();
     await send.signAndSendTransaction({
       account,
       chain: chainOf(pricing.network),
       transaction: fromBase64(purchase.transaction),
     });
-    setStatus(status, "Payment sent. Your checks arrive once it is final, usually within 30 seconds…");
-    if (!token) {
-      setStatus(status, "Payment sent. The checks reach your key once it is final, usually within 30 seconds.", "ok");
-      return;
-    }
-    const credits = await waitForCredits(token, before);
-    if (credits) {
-      setStatus(status, `Done: you have ${checksWord(credits.checks_remaining)} (${formatUsd(credits.balance_usd_micros)}).`, "ok");
-    } else {
-      setStatus(status, "The payment is still settling. Your checks will appear in the extension shortly.", "info");
-    }
+    watchQuote({ ...info, quoteId: purchase.quote_id });
   } catch (error) {
-    setStatus(status, error.message || "The purchase didn't go through.", "error");
+    showMessage("error", error.message || "The purchase didn't go through.");
   } finally {
     refreshTarget();
   }
@@ -403,7 +582,10 @@ async function start() {
   }
   document.getElementById("beneficiary").querySelector(`input[value="${forKey ? "key" : "wallet"}"]`).checked = true;
   if (new URLSearchParams(window.location.search).get("paid")) {
-    setStatus(status, "Thanks! Your card payment is being confirmed; the checks reach your key within a minute.", "ok");
+    showPanel(
+      "thanks",
+      element("p", "Thanks! Your card payment is being confirmed; the checks reach your key within a minute.", "headline"),
+    );
   }
   renderCountries();
   renderPacks();

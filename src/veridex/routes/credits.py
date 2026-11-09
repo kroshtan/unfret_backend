@@ -8,6 +8,7 @@ in).
 
 import base64
 import io
+import re
 import time
 from typing import Any
 
@@ -98,6 +99,21 @@ class PurchaseResponse(BaseModel):
     solana_pay_url: str
     checks: int
     price: VatBreakdown
+    quote_id: str = Field(description="The purchase's quote: poll GET /v1/credits/quotes/{quote_id} to see it paid.")
+
+
+class UnknownQuoteError(NotFoundError):
+    """No such quote (never was, malformed, or purged a day after it expired)."""
+
+    error_code = "UNKNOWN_QUOTE"
+    headers = {"Cache-Control": "no-store"}
+
+
+class QuoteStatusResponse(BaseModel):
+    """Whether a purchase's payment has been credited."""
+
+    paid: bool = Field(description="True once a payment naming this quote has been credited.")
+    checks: int = Field(description="The pack size the quote is for.")
 
 
 @router.get("/v1/pricing")
@@ -148,7 +164,7 @@ def _hot_for_purchase(request: Request, currency: Currency = "SOL") -> Pubkey:
     door = get_credits(request)
     enabled = door.usdc_purchases_enabled if currency == "USDC" else door.purchases_enabled
     if not enabled or door.hot is None or request.app.db_pool is None:
-        raise ServiceUnavailableError("Buying credits is not available yet.")
+        raise ServiceUnavailableError("Buying checks is not available yet.")
     return door.hot
 
 
@@ -238,7 +254,10 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
     quote, amount = await _quote(request, body.checks, body.country, body.currency, beneficiary)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
-    raw = purchase_transaction(payer, hot, amount, await door.rpc.latest_blockhash(), quote.memo, mint=mint)
+    reference = Pubkey.from_string(quote.reference) if quote.reference else None
+    raw = purchase_transaction(
+        payer, hot, amount, await door.rpc.latest_blockhash(), quote.memo, mint=mint, reference=reference
+    )
     return PurchaseResponse(
         transaction=base64.b64encode(raw).decode(),
         currency=body.currency,
@@ -246,10 +265,39 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         lamports=amount if mint is None else None,
         mint=str(mint) if mint else None,
         hot_wallet=str(hot),
-        solana_pay_url=solana_pay_url(hot, amount, quote.memo, mint),
+        solana_pay_url=solana_pay_url(hot, amount, quote.memo, mint, reference=quote.reference),
         checks=quote.checks,
         price=_breakdown(quote),
+        quote_id=quote.id,
     )
+
+
+@router.get("/v1/credits/quotes/{quote_id}", response_model=QuoteStatusResponse)
+async def quote_status(request: Request, response: Response, quote_id: str) -> QuoteStatusResponse:
+    """
+    Whether a purchase has been paid: for the checkout to show when the checks have arrived.
+
+    No sign-in: the quote's id (from ``purchase-tx`` or the QR code's ``X-Unfret-Quote`` header) is random, so only
+    whoever started the purchase knows it until the payment's memo puts it on chain, which shows as much already.
+    Says nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then).
+
+    :param request: The incoming request.
+    :param response: The response (marked uncacheable: it changes once paid).
+    :param quote_id: The quote's id.
+    :return: Paid or not, and the pack size.
+    :raises ServiceUnavailableError: Without a database.
+    :raises UnknownQuoteError: For an unknown, expired or malformed id.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    if request.app.db_pool is None:
+        raise ServiceUnavailableError("Buying checks is not available yet.")
+    found = None
+    if re.fullmatch(vat.QUOTE_ID_PATTERN, quote_id):
+        found = await vat.quote_status(request.app.db_pool, quote_id)
+    if found is None:
+        raise UnknownQuoteError("Unknown quote.")
+    paid, checks = found
+    return QuoteStatusResponse(paid=paid, checks=checks)
 
 
 @router.get("/v1/credits/solana-pay.svg", response_class=Response)
@@ -266,7 +314,7 @@ async def solana_pay_qr(
     The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
 
     The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
-    headers.
+    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``.
 
     :param request: The incoming request.
     :param checks: The pack size.
@@ -285,7 +333,7 @@ async def solana_pay_qr(
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
     buffer = io.BytesIO()
-    segno.make(solana_pay_url(hot, amount, quote.memo, mint), error="m").save(
+    segno.make(solana_pay_url(hot, amount, quote.memo, mint, reference=quote.reference), error="m").save(
         buffer, kind="svg", scale=6, border=2, dark="#111", xmldecl=False
     )
     svg = buffer.getvalue()
@@ -293,6 +341,7 @@ async def solana_pay_qr(
         "Cache-Control": "no-store",
         "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),
         "X-Unfret-Vat-Rate": format(quote.vat_rate_bps / 100, "g"),
+        "X-Unfret-Quote": quote.id,
     }
     return Response(svg, media_type="image/svg+xml", headers=headers)
 

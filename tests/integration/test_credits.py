@@ -228,11 +228,16 @@ async def test_purchase_transaction_pays_the_pack_plus_vat(
     quote = await pool.fetchrow("SELECT * FROM vat_quotes")
     assert (quote["country"], quote["checks"], quote["beneficiary"]) == ("DE", 25, None)
     memo = f"veridex:quote:{quote['id']}"
+    assert reply["quote_id"] == quote["id"]  # what the checkout polls
+    reference = Pubkey.from_string(quote["reference"])  # the Solana Pay reference, in case the wallet drops the memo
+    assert f"&reference={reference}&" in reply["solana_pay_url"]
     assert reply["solana_pay_url"].endswith(f"&memo=veridex%3Aquote%3A{quote['id']}")
     tx = VersionedTransaction.from_bytes(base64.b64decode(reply["transaction"]))
     keys = tx.message.account_keys
     assert keys[0] == buyer.pubkey() and HOT.pubkey() in keys
     assert bytes(tx.message.instructions[-1].data) == memo.encode()
+    pay = tx.message.instructions[0]
+    assert [keys[i] for i in bytes(pay.accounts)] == [buyer.pubkey(), HOT.pubkey(), reference]
     assert (await client.get("/v1/pricing")).json()["hot_wallet"] == str(HOT.pubkey())
 
 
@@ -271,12 +276,14 @@ async def test_cloudflares_country_counts_only_from_cloudflare(
     assert [(r["country"], r["country_mismatch"]) for r in rows] == [("BE", True), ("FR", False), ("BE", False)]
 
 
-async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc) -> None:
+async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool) -> None:
     response = await client.get("/v1/credits/solana-pay.svg", params={"checks": 25, "country": "NL"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$6.05", "21")
     assert response.text.startswith("<svg")
+    quote_id = await pool.fetchval("SELECT id FROM vat_quotes")
+    assert response.headers["x-unfret-quote"] == quote_id  # the page reads it (same origin) to poll the quote
     # Loaded by the page as an <img>: a standalone SVG only renders there with the SVG namespace.
     assert 'xmlns="http://www.w3.org/2000/svg"' in response.text.split(">", 1)[0]
 
@@ -480,6 +487,132 @@ async def test_a_quoted_purchase_credits_the_net_and_records_the_sale(pool: asyn
         )
     }
     assert not columns & {"ip", "address", "wallet", "pubkey", "account", "beneficiary", "email"}
+
+
+async def test_the_scanner_marks_only_the_credited_quote_paid_once(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    hot = str(HOT.pubkey())
+    paid, unpaid, dust = [await quoted(pool, "NL") for _ in range(3)]
+    paid_id = paid.removeprefix(vat.QUOTE_MEMO_PREFIX)
+    rpc.add("first", with_memos(transfer("anna", hot, 6_050_000), paid))
+    rpc.add("zero", with_memos(transfer("bill", hot, 0), dust))  # credits nothing: not paid
+    assert await scanner.scan_once() == 1
+    rows = {r["id"]: r["paid_at"] for r in await pool.fetch("SELECT id, paid_at FROM vat_quotes")}
+    first = rows.pop(paid_id)
+    assert first is not None and set(rows.values()) == {None}
+    assert unpaid.removeprefix(vat.QUOTE_MEMO_PREFIX) in rows
+
+    rpc.add("again", with_memos(transfer("anna", hot, 6_050_000), paid))  # paying the same quote twice
+    assert await scanner.scan_once() == 1
+    assert await scanner.scan_once() == 0
+    assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", paid_id) == first  # set once
+    assert await balance(pool, "anna") == 10_000_000
+
+
+def with_accounts(tx: dict[str, Any], *accounts: str) -> dict[str, Any]:
+    """Name ``accounts`` among the transaction's account keys (as a wallet adds a Solana Pay reference)."""
+    named = [{"pubkey": a, "signer": False, "writable": False, "source": "transaction"} for a in accounts]
+    tx["transaction"]["message"]["accountKeys"] = named
+    return tx
+
+
+async def key_quote(pool: asyncpg.Pool) -> tuple[vat.Quote, str]:
+    issued = await keys.create(pool)
+    quote = vat.price_quote(settings, 25, 5_000_000, "NL", edge=None, beneficiary=f"key:{issued.key_id}")
+    await vat.save_quote(pool, quote)
+    assert quote.reference is not None
+    return quote, f"key:{issued.key_id}"
+
+
+async def test_a_reference_without_the_memo_credits_the_quotes_key(pool: asyncpg.Pool) -> None:
+    # What Phantom sent on devnet: compute-budget instructions and the transfer, the memo gone.
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    quote, account = await key_quote(pool)
+    hot = str(HOT.pubkey())
+    assert quote.reference is not None
+    rpc.add("phantom", with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference))
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, account) == 5_000_000  # 25 checks, VAT taken out at the quote's rate
+    assert await balance(pool, "payer") is None
+    assert await balance(pool, quote.reference) is None  # the reference is never credited
+    assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", quote.id) is not None
+    assert await pool.fetchval("SELECT country FROM crypto_sales") == "NL"
+
+
+async def test_a_reference_and_the_memo_credit_once(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    quote, account = await key_quote(pool)
+    hot = str(HOT.pubkey())
+    assert quote.reference is not None
+    both = with_memos(with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference), quote.memo)
+    rpc.add("both", both)
+
+    assert await scanner.scan_once() == 1
+    assert await scanner.scan_once() == 0
+    assert await balance(pool, account) == 5_000_000
+    assert await balance(pool, "payer") is None and await balance(pool, quote.reference) is None
+    assert await pool.fetchval("SELECT count(*) FROM crypto_sales") == 1
+
+
+async def test_an_unknown_reference_falls_back_to_the_memo_then_the_sender(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    quote, account = await key_quote(pool)
+    hot, stranger = str(HOT.pubkey()), str(Keypair().pubkey())
+    rpc.add("memo", with_memos(with_accounts(transfer("anna", hot, 6_050_000), "anna", hot, stranger), quote.memo))
+    rpc.add("bare", with_accounts(transfer("bill", hot, 6_050_000), "bill", hot, stranger))
+
+    assert await scanner.scan_once() == 2
+    assert await balance(pool, account) == 5_000_000  # the memo's quote
+    assert await balance(pool, "anna") is None
+    assert await balance(pool, "bill") == net(6_050_000)  # no quote at all: the sender, as before
+    assert await balance(pool, stranger) is None
+
+
+async def test_a_quote_shows_whether_it_is_paid_and_nothing_else(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    quote = vat.price_quote(settings, 50, 10_000_000, "DE", edge=None, beneficiary=str(Keypair().pubkey()))
+    await vat.save_quote(pool, quote)
+    response = await client.get(f"/v1/credits/quotes/{quote.id}")
+    assert response.status_code == 200
+    assert response.json() == {"paid": False, "checks": 50}  # no beneficiary, country or price
+    assert response.headers["cache-control"] == "no-store"
+
+    async with pool.acquire() as conn:
+        await vat.mark_paid(conn, quote.id)
+    assert (await client.get(f"/v1/credits/quotes/{quote.id}")).json() == {"paid": True, "checks": 50}
+
+    for unknown in ("a" * 20, "A" * 20, "short", "1" * 20, "a" * 41):
+        reply = await client.get(f"/v1/credits/quotes/{unknown}")
+        assert reply.status_code == 404, unknown
+        assert reply.headers["cache-control"] == "no-store"
+
+
+async def test_migration_14_adds_an_unset_reference_and_paid_at(pool: asyncpg.Pool) -> None:
+    await pool.execute(DROP_ALL)
+    await migrate(pool, MIGRATIONS[:13])
+    await pool.execute(
+        "INSERT INTO vat_quotes (id, checks, country, country_mismatch, vat_rate_bps, net_usd_micros, "
+        "vat_usd_micros) VALUES ('aaaaaaaaaaaaaaaaaaaa', 25, 'NL', false, 2100, 5000000, 1050000)"
+    )
+    assert 14 in await migrate(pool)
+    column = await pool.fetchrow(
+        "SELECT data_type, is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'vat_quotes' AND column_name = 'paid_at'"
+    )
+    assert (column["data_type"], column["is_nullable"]) == ("timestamp with time zone", "YES")
+    assert await pool.fetchval("SELECT paid_at FROM vat_quotes") is None
+    assert await pool.fetchval("SELECT reference FROM vat_quotes") is None  # older quotes go by their memo
+    assert (await vat.get_quote(pool, "aaaaaaaaaaaaaaaaaaaa")) is not None  # the quote still reads
 
 
 async def test_per_country_mode_charges_each_eu_countrys_own_rate(

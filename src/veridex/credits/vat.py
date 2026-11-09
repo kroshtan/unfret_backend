@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
+from solders.keypair import Keypair
 
 from veridex.config import Settings
 
@@ -46,6 +47,7 @@ UNKNOWN = "unknown"
 QUOTE_MEMO_PREFIX = "veridex:quote:"
 _DATA = Path(__file__).resolve().parent
 _QUOTE_ID_CHARS = "abcdefghijklmnopqrstuvwxyz234567"
+QUOTE_ID_PATTERN = r"^[a-z2-7]{20}$"
 
 
 @cache
@@ -175,6 +177,7 @@ class Quote:
     net_usd_micros: int
     vat_usd_micros: int
     beneficiary: str | None  # a wallet or key:<id>; None credits whoever pays
+    reference: str | None = None  # the Solana Pay reference (base58) the transaction carries; None for older quotes
 
     @property
     def gross_usd_micros(self) -> int:
@@ -211,6 +214,8 @@ def price_quote(
         net_usd_micros=net_usd_micros,
         vat_usd_micros=vat_on(net_usd_micros, bps),
         beneficiary=beneficiary,
+        # A fresh public key nobody holds the private key of: only this purchase's transaction will carry it.
+        reference=str(Keypair().pubkey()),
     )
 
 
@@ -223,7 +228,7 @@ async def save_quote(db: asyncpg.Pool, quote: Quote) -> None:
     """
     await db.execute(
         "INSERT INTO vat_quotes (id, checks, country, country_mismatch, vat_rate_bps, net_usd_micros, "
-        "vat_usd_micros, beneficiary) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        "vat_usd_micros, beneficiary, reference) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         quote.id,
         quote.checks,
         quote.country,
@@ -232,6 +237,7 @@ async def save_quote(db: asyncpg.Pool, quote: Quote) -> None:
         quote.net_usd_micros,
         quote.vat_usd_micros,
         quote.beneficiary,
+        quote.reference,
     )
 
 
@@ -248,6 +254,42 @@ async def get_quote(db: asyncpg.Pool | asyncpg.Connection, quote_id: str) -> Quo
         return None
     fields = {k: row[k] for k in Quote.__dataclass_fields__}
     return Quote(**fields)
+
+
+async def quote_by_reference(db: asyncpg.Pool | asyncpg.Connection, accounts: list[str]) -> Quote | None:
+    """
+    The stored quote whose reference is one of a transaction's accounts.
+
+    :param db: The database pool or connection.
+    :param accounts: Every account the transaction names (base58).
+    :return: The quote, or ``None`` if none (or more than one: ambiguous) matches.
+    """
+    rows = await db.fetch("SELECT * FROM vat_quotes WHERE reference = ANY($1::text[]) LIMIT 2", accounts)
+    if len(rows) != 1:
+        return None
+    return Quote(**{k: rows[0][k] for k in Quote.__dataclass_fields__})
+
+
+async def mark_paid(conn: asyncpg.Connection, quote_id: str) -> None:
+    """
+    Record that a payment naming the quote was credited (in the scanner's transaction; the first payment counts).
+
+    :param conn: The connection (inside the crediting transaction).
+    :param quote_id: The quote's id.
+    """
+    await conn.execute("UPDATE vat_quotes SET paid_at = NOW() WHERE id = $1 AND paid_at IS NULL", quote_id)
+
+
+async def quote_status(db: asyncpg.Pool, quote_id: str) -> tuple[bool, int] | None:
+    """
+    Whether a quote has been paid, and for how many checks.
+
+    :param db: The database pool.
+    :param quote_id: The quote's id.
+    :return: ``(paid, checks)``, or ``None`` if unknown or purged.
+    """
+    row = await db.fetchrow("SELECT paid_at IS NOT NULL AS paid, checks FROM vat_quotes WHERE id = $1", quote_id)
+    return None if row is None else (bool(row["paid"]), int(row["checks"]))
 
 
 @dataclass(frozen=True)

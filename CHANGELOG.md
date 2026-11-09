@@ -4,6 +4,7 @@
 
 ### Features
 
+* Extension 0.7.0 at `/extension` (same key and ID, permissions unchanged), now published as `unfret-0.7.0.crx`: the Unfret name and icon, the softer labels, "Check this page", and up to three photo thumbnails under a photo-reuse reason (loaded only from this server's image proxy)
 * `POST /v1/admin/keys/{key_id}/grant` (operator token): add up to $10 of credit to an existing API key per call, for support and for test checks for a store reviewer
 * **Renamed to Unfret** (user-facing only): page titles, the home page, the sign-in statement ("Sign in to Unfret"), the Solana Pay label, `llms.txt`, the x402 discovery document and payment requirements (`serviceName`/`service`: "Unfret"), the OpenAPI title ("Unfret API"), the README and the API contract. The MCP server is now the `unfret-mcp` package and server `unfret`, reads `UNFRET_*` settings (the `VERIDEX_*` names and the `veridex-mcp` command still work) and defaults to `https://unfret.kroshtan.com` (it still pointed at the retired veridex host). The Python package, `VERIDEX_*` settings, database names, payment memos (`veridex:credit:`) and key prefixes keep their names
 * **Softer verdict labels** for shoppers (en/nl): "Looks fine" / "Ziet er goed uit", "A few things to check" / "Een paar dingen om na te gaan", "Some warning signs" / "Een aantal waarschuwingssignalen", "Many warning signs" / "Veel waarschuwingssignalen". The machine fields (`action`, `risk_score`, the band keys) are unchanged

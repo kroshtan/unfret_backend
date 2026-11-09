@@ -63,34 +63,3 @@ class PostgresFactStore:
         )
         if random.random() < 0.01:  # noqa: S311 - housekeeping, not security
             await self.pool.execute("DELETE FROM fact_cache WHERE expires_at < NOW()")
-
-
-class PostgresBudget:
-    """A per-period usage counter (e.g. TinEye searches per month) in the ``usage_counters`` table."""
-
-    def __init__(self, pool: asyncpg.Pool, name: str) -> None:
-        """
-        Count usage under ``name``.
-
-        :param pool: The connection pool.
-        :param name: The counter name, e.g. ``"vision"``.
-        """
-        self.pool, self.name = pool, name
-
-    async def reserve(self, month: str, limit: int) -> bool:
-        """
-        Atomically count one use for ``month`` if that stays within ``limit``.
-
-        :param month: The period, e.g. ``"2026-11"``.
-        :param limit: The maximum per period.
-        :return: ``True`` if the use may go ahead.
-        """
-        row = await self.pool.fetchrow(
-            "INSERT INTO usage_counters (name, period, count) VALUES ($1, $2, 1) "
-            "ON CONFLICT (name, period) DO UPDATE SET count = usage_counters.count + 1 "
-            "WHERE usage_counters.count < $3 RETURNING count",
-            self.name,
-            month,
-            limit,
-        )
-        return row is not None and int(row["count"]) <= limit

@@ -113,10 +113,6 @@
       "title": "Supplier traces",
       "detail": "The page contains links or images from wholesale sites such as AliExpress or Temu."
     },
-    "supplier_photos": {
-      "title": "Same photos on wholesale sites",
-      "detail": "This photo also appears on {count} {sites} {listings}."
-    },
     "missing_trust_info": {
       "title": "Little shop information",
       "detail": "No clear return policy, contact details or company information."
@@ -204,7 +200,6 @@
   },
   "this_brand": "This brand",
   "an_urgency_tool": "an urgency tool",
-  "wholesale_sites": "wholesale sites",
   "features": {
     "content.scam_copy": "Pushy sales talk",
     "content.generic_product": "Generic product",
@@ -265,16 +260,9 @@
     "domain_age.under_6_months": "Brand-new web address",
     "domain_age.term_years": "Registration term",
     "domain_age.redacted": "Owner details hidden",
-    "domain_age.cert_age_years": "Age of the security certificate",
-    "reverse_image.searched": "Photo search done",
-    "reverse_image.supplier_hits": "Same photos on wholesale sites",
-    "reverse_image.log_matches": "Photo found elsewhere",
-    "reverse_image.supplier_full": "Identical photo on wholesale sites",
-    "reverse_image.log_full_matches": "Identical copies of the photo online"
+    "domain_age.cert_age_years": "Age of the security certificate"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "and",
-  "listing_one": "listing",
-  "listing_many": "listings"
+  "and": "and"
 }

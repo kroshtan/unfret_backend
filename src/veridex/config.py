@@ -53,11 +53,6 @@ class Settings(BaseSettings):
     price_observations: bool = True
     price_history_min_days: int = Field(default=30, ge=1)
 
-    # Google Cloud Vision web detection (where else the product photo appears; paid per image): off while the key
-    # is unset; at most this many images per calendar month, after which the photo lookup is skipped, not billed.
-    vision_api_key: SecretStr = SecretStr("")
-    vision_api_url: str = "https://vision.googleapis.com/v1/images:annotate"
-    vision_monthly_budget: int = Field(default=3_000, ge=0)
     # Expensive skill runs the triage may spend on one analysis.
     triage_max_expensive_runs: int = 2
 
@@ -206,7 +201,6 @@ class Settings(BaseSettings):
             "quote_tolerance_bps": self.quote_tolerance_bps,
             "pyth_account": self.pyth_sol_usd_account,
             "swaps": self.solana_network == "solana-mainnet",
-            "vision": bool(self.vision_api_key.get_secret_value()),
         }
 
     @property

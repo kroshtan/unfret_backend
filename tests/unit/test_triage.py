@@ -4,7 +4,6 @@ from typing import Any, ClassVar
 
 import pytest
 from langchain_core.runnables import RunnableLambda
-from pydantic import SecretStr
 
 from veridex.config import settings
 from veridex.facts import PageFacts
@@ -48,7 +47,6 @@ class _Photo(Skill):
 @pytest.fixture(autouse=True)
 def setup(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     _Photo.runs = []
-    monkeypatch.setattr(settings, "vision_api_key", SecretStr("key"))
     prompts: list[Any] = []
 
     def structured(schema: type) -> RunnableLambda:
@@ -124,12 +122,6 @@ async def test_budget_caps_expensive_runs(monkeypatch: pytest.MonkeyPatch) -> No
 async def test_flag_forces_the_check_even_on_a_clean_page() -> None:
     await run(CLEAN, flags=["reverse_image"])
     assert _Photo.runs == [["reverse_image"]]
-
-
-async def test_nothing_runs_without_a_vision_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "vision_api_key", SecretStr(""))
-    await run(SUSPICIOUS)
-    assert _Photo.runs == []
 
 
 async def test_no_photos_no_check() -> None:

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import asyncpg
 
 from veridex import fact_cache
-from veridex.db import PostgresBudget, PostgresFactStore
+from veridex.db import PostgresFactStore
 from veridex.migrations import MIGRATIONS, migrate
 from veridex.price_store import History, Observation, PostgresPriceStore
 
@@ -54,13 +54,6 @@ async def test_cached_fact_uses_postgres(pool: asyncpg.Pool) -> None:
     finally:
         fact_cache.use_store(fact_cache.MemoryStore())
     assert calls == ["loaded"]
-
-
-async def test_postgres_budget_caps_per_period(pool: asyncpg.Pool) -> None:
-    budget = PostgresBudget(pool, "vision")
-    assert [await budget.reserve("2026-11", 2) for _ in range(3)] == [True, True, False]
-    assert await budget.reserve("2026-12", 2) is True
-    assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'vision' AND period = '2026-11'") == 2
 
 
 async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncpg.Pool) -> None:

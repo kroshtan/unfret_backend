@@ -51,7 +51,6 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
 | `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
-| `reverse_image` | The product photo on Google Cloud Vision web detection: copies on AliExpress, Temu & co., exact or cropped; the second photo only if the first is inconclusive (paid per image, off unless configured, not in the quick tier) |
 
 ### Adding a skill
 
@@ -244,7 +243,6 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
 | `VERIDEX_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `VERIDEX_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
-| `VERIDEX_VISION_API_KEY` / `VERIDEX_VISION_MONTHLY_BUDGET` | — / `3000` | Photo lookup (Google Cloud Vision, images per month); off while the key is empty |
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
@@ -317,10 +315,6 @@ src/veridex/
 - Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
   delimited as untrusted data, and attempts to address the model are detected and count against the page.
 - Registration data (RDAP) is often redacted; the first-certificate date is a second, registry-independent age.
-- The photo lookup uses Google Cloud Vision web detection, paid per image ($3.50 per 1,000 after the first 1,000
-  a month), with a hard monthly budget in images (`VERIDEX_VISION_MONTHLY_BUDGET`). Only the bytes of the public
-  product photo are sent (we fetch it, so Google never contacts the shop), cached by perceptual hash; never the
-  page, its address or the shopper.
 
 ## License
 

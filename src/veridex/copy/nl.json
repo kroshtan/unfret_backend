@@ -113,10 +113,6 @@
       "title": "Sporen van leveranciers",
       "detail": "De pagina bevat links of afbeeldingen van groothandelsites zoals AliExpress of Temu."
     },
-    "supplier_photos": {
-      "title": "Zelfde foto's op groothandelsites",
-      "detail": "Deze foto staat ook op {count} {listings} van {sites}."
-    },
     "missing_trust_info": {
       "title": "Weinig winkelinformatie",
       "detail": "Geen duidelijk retourbeleid, contactgegevens of bedrijfsinformatie."
@@ -204,7 +200,6 @@
   },
   "this_brand": "Dit merk",
   "an_urgency_tool": "een urgentie-tool",
-  "wholesale_sites": "groothandelsites",
   "features": {
     "content.scam_copy": "Opdringerige verkooppraat",
     "content.generic_product": "Generiek product",
@@ -265,16 +260,9 @@
     "domain_age.under_6_months": "Gloednieuw webadres",
     "domain_age.term_years": "Registratieperiode",
     "domain_age.redacted": "Eigenaarsgegevens afgeschermd",
-    "domain_age.cert_age_years": "Leeftijd van het beveiligingscertificaat",
-    "reverse_image.searched": "Fotozoekopdracht gedaan",
-    "reverse_image.supplier_hits": "Zelfde foto's op groothandelsites",
-    "reverse_image.log_matches": "Foto elders gevonden",
-    "reverse_image.supplier_full": "Identieke foto op groothandelssites",
-    "reverse_image.log_full_matches": "Identieke kopieën van de foto online"
+    "domain_age.cert_age_years": "Leeftijd van het beveiligingscertificaat"
   },
   "no_check_used": "Er is geen check gebruikt.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "en",
-  "listing_one": "aanbieding",
-  "listing_many": "aanbiedingen"
+  "and": "en"
 }

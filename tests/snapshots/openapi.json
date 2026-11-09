@@ -2,7 +2,7 @@
  "components": {
   "schemas": {
    "AnalyzeRequest": {
-    "description": "Request body for the analyze endpoint.",
+    "description": "Request body for the analyze endpoint.\n\nUsually the page itself (``page_content`` and/or ``page_facts``). A request with only a ``url`` has the server\nfetch the page: one it can't read (an error, a bot check, a page that needs a browser) is refused before any\ncharge.",
     "properties": {
      "checkout_content": {
       "anyOf": [
@@ -52,7 +52,7 @@
      },
      "url": {
       "default": "",
-      "description": "URL of the product page.",
+      "description": "URL of the product page. Sent alone (no page_content or page_facts), the server fetches it.",
       "title": "Url",
       "type": "string"
      }
@@ -1654,7 +1654,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left and a\n    report token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent.\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left and a\n    report token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {
@@ -1696,7 +1696,7 @@
   },
   "/v1/analyze/stream": {
    "post": {
-    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\"}`` with the finding types, plus ``page_type``\nonce classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score\nof -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client\nthat lost the connection gets it again for free by repeating the request.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: A ``text/event-stream`` response.",
+    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\"}`` with the finding types, plus ``page_type``\nonce classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score\nof -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client\nthat lost the connection gets it again for free by repeating the request. A URL-only request fetches the page\nbefore the stream starts; a page that can't be checked is a free 422 (no stream), as for ``POST /v1/analyze``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: A ``text/event-stream`` response.",
     "operationId": "analyze_page_stream_v1_analyze_stream_post",
     "requestBody": {
      "content": {
@@ -2396,7 +2396,7 @@
   },
   "/v1/reports": {
    "post": {
-    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got. Personal details are scrubbed before anything is stored.\nA page already in the queue counts the report as confirmation; a page reviewed recently is ``already_known``.\nIf the review shows the score was far off (30+ points outside the label's zone), the first reporter gets free\nchecks. Limits: a few reports per account per month, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+\npoints outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per\nmonth, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
     "operationId": "report_v1_reports_post",
     "requestBody": {
      "content": {

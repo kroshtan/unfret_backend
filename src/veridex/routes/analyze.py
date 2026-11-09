@@ -11,14 +11,21 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from veridex import reports, result_cache, shopper
+from veridex import page_fetch, reports, result_cache, shopper
 from veridex.auth import require_account
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.graph.state import Finding
-from veridex.schemas.errors import GatewayTimeoutError, InsufficientCreditsError, InternalServerError
+from veridex.schemas.errors import (
+    GatewayTimeoutError,
+    InsufficientCreditsError,
+    InternalServerError,
+    TooManyRequestsError,
+    UnreadablePageError,
+)
 from veridex.schemas.requests import AnalyzeRequest
 from veridex.schemas.responses import AnalyzeResponse
+from veridex.visitors import RateLimit
 
 logger = structlog.get_logger("veridex")
 
@@ -26,6 +33,8 @@ router = APIRouter(prefix="/v1/analyze", tags=["Analyze"])
 
 _SKILL_TAG_RE = re.compile(r"\[([^\]]+)\]")
 _RESULT_KEYS = ("score", "explanation", "assessment", "verdict")
+# Pages fetched for URL-only requests, per account: a page we can't read is free, so this bounds the free fetches.
+_fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
 
 
 def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str, object]]:
@@ -53,6 +62,20 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
     return graph, state
 
 
+_NOT_ENOUGH = "Not enough credits for an analysis."
+
+
+def _shortfall(balance: int) -> dict[str, int]:
+    price = settings.analysis_price_usd_micros
+    return {
+        "balance_usd_micros": balance,
+        "analysis_usd_micros": price,
+        # Deprecated aliases (same values), kept for extension versions up to 0.5.0.
+        "balance_lamports": balance,
+        "analysis_lamports": price,
+    }
+
+
 async def _debit(request: Request, address: str) -> int:
     """
     Take the analysis price from the account's balance.
@@ -62,21 +85,42 @@ async def _debit(request: Request, address: str) -> int:
     :return: The balance left after the debit.
     :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
     """
-    price = settings.analysis_price_usd_micros
-    left = await ledger.debit(request.app.db_pool, address, price)
+    left = await ledger.debit(request.app.db_pool, address, settings.analysis_price_usd_micros)
     if left is None:
         balance = await ledger.balance(request.app.db_pool, address) or 0
-        raise InsufficientCreditsError(
-            "Not enough credits for an analysis.",
-            metadata={
-                "balance_usd_micros": balance,
-                "analysis_usd_micros": price,
-                # Deprecated aliases (same values), kept for extension versions up to 0.5.0.
-                "balance_lamports": balance,
-                "analysis_lamports": price,
-            },
-        )
+        raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
     return left
+
+
+async def _fetch_if_url_only(request: Request, body: AnalyzeRequest, address: str, state: dict[str, object]) -> None:
+    """
+    For a request with only a URL, fetch the page into the graph input, before anything is charged.
+
+    The balance is checked first (an empty account gets its 402 without a fetch), and a page that can't be read
+    (unreachable, refused, a bot check, an empty shell) is answered with a free 422. Nothing about the URL is logged.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param address: The account.
+    :param state: The graph input; its ``page_content`` is set to the fetched HTML.
+    :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
+    :raises TooManyRequestsError: If the account fetched too many pages in the last minute.
+    :raises UnreadablePageError: If the page can't be checked from a server-side fetch (``error_code`` says why).
+    """
+    if not body.url_only:
+        return
+    balance = await _balance(request, address)
+    if balance < settings.analysis_price_usd_micros:
+        raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
+    if (wait := _fetch_rate.retry_after(address)) is not None:
+        raise TooManyRequestsError(
+            "Too many links checked in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
+        )
+    try:
+        state["page_content"] = await page_fetch.fetch_page(body.url.strip())
+    except page_fetch.PageUnreadableError as exc:
+        logger.info("analysis_page_unreadable", reason=exc.reason)
+        raise UnreadablePageError(f"{exc.detail} No check was used.", error_code=exc.reason) from exc
 
 
 async def _refund(request: Request, address: str) -> int:
@@ -160,6 +204,11 @@ async def analyze_page(
     charge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong
     result later (``POST /v1/reports``), sharing the page only then and only with their consent.
 
+    A request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check
+    that way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop
+    refuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a
+    browser) or ``INVALID_URL``.
+
     The caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_…``).
 
     :param body: The request body containing the page content and flags.
@@ -179,6 +228,7 @@ async def analyze_page(
         token = _report_token(body, address, cached)
         return _response(cached, await _balance(request, address), charged=False, report_token=token)
 
+    await _fetch_if_url_only(request, body, address, state)
     left = await _debit(request, address)
     usage = UsageMetadataCallbackHandler()
     try:
@@ -248,7 +298,8 @@ async def analyze_page_stream(
     once classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.
     Charged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score
     of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client
-    that lost the connection gets it again for free by repeating the request.
+    that lost the connection gets it again for free by repeating the request. A URL-only request fetches the page
+    before the stream starts; a page that can't be checked is a free 422 (no stream), as for ``POST /v1/analyze``.
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
@@ -264,6 +315,7 @@ async def analyze_page_stream(
         hit = _response(cached, await _balance(request, address), charged=False, report_token=token)
         return _stream(_replay(hit))
 
+    await _fetch_if_url_only(request, body, address, state)
     left = await _debit(request, address)
     return _stream(_live_events(request, body, address, graph, state, key=key, left=left))
 

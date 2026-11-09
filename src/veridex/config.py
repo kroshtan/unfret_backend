@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     max_page_bytes: int = 2 * 1024 * 1024
     skill_timeout_s: float = 45.0
     analysis_timeout_s: float = 90.0
+    # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
+    # a page it can't read is free, so this bounds the free fetches.
+    analyze_fetch_per_minute: int = Field(default=10, ge=1)
 
     # Shopper verdict bands (0–100 reliability score): reliable ≥ this, concerns ≥, careful ≥, else junk_or_scam
     verdict_reliable_min: int = 80

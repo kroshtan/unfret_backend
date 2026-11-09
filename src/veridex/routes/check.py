@@ -21,6 +21,7 @@ from veridex import __version__, verdict_store
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.net import fetch_public
+from veridex.page_fetch import is_challenge_page
 from veridex.prices import format_usd
 from veridex.shopper import pick_language
 from veridex.visitors import RateLimit
@@ -43,17 +44,6 @@ _rate = RateLimit(settings.x402_check_per_minute)
 # Answers to paid checks by payment (the client's signature): a retry gets the same answer, never a second charge.
 _replays: dict[str, tuple[float, asyncio.Future[tuple[int, dict[str, Any], dict[str, str]]]]] = {}
 _background: set[asyncio.Task[None]] = set()
-# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon); markers, not generic captchas,
-# so a shop with a reCAPTCHA newsletter form still counts as a page.
-_CHALLENGE_MARKERS = (
-    "/cdn-cgi/challenge-platform/",
-    "<title>just a moment...</title>",
-    "<title>attention required! | cloudflare</title>",
-    "captcha-delivery.com",
-    "px-captcha",
-    "/errors/validatecaptcha",
-    "<title>robot check</title>",
-)
 
 
 class CheckRequest(BaseModel):
@@ -175,17 +165,6 @@ async def _readable_page(body: CheckRequest) -> str | Response:
             status_code=422,
         )
     return html
-
-
-def is_challenge_page(html: str) -> bool:
-    """
-    Whether this is a bot-check interstitial rather than the page (checked before any payment).
-
-    :param html: The page.
-    :return: ``True`` for Cloudflare, DataDome, PerimeterX and Amazon challenge pages.
-    """
-    head = html[:200_000].lower()
-    return any(marker in head for marker in _CHALLENGE_MARKERS)
 
 
 async def _credit_if_it_lands(x402: X402, pool: Any, signature: str, payer: str, usd_micros: int) -> None:

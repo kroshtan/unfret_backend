@@ -53,9 +53,13 @@ async def test_assets_are_served(client: httpx.AsyncClient, asset: str) -> None:
 WALLET_UNIVERSAL_LINKS = ("https://phantom.app/ul/browse/", "https://solflare.com/ul/v1/browse/")
 
 
+# The link checker completes a typed bare domain ("shop.example/item") to a link; it is checked, never fetched here.
+BARE_DOMAIN_PREFIX = "`https://${value}`"
+
+
 def test_scripts_make_no_third_party_requests() -> None:
     for script in STATIC_DIR.glob("*.js"):
-        text = script.read_text()
+        text = script.read_text().replace(BARE_DOMAIN_PREFIX, "")
         for link in WALLET_UNIVERSAL_LINKS:
             text = text.replace(f"`{link}", "`")
         assert "https://" not in text and "http://" not in text, script.name

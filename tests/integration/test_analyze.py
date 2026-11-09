@@ -180,7 +180,9 @@ async def test_slow_analysis_times_out_and_is_refunded(
 async def test_a_page_is_required(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(PRICE)
     assert (await client.post("/v1/analyze", json={"page_content": ""}, headers=headers)).status_code == 422
-    assert (await client.post("/v1/analyze", json={"url": "https://a.test"}, headers=headers)).status_code == 422
+    assert (await client.post("/v1/analyze", json={"url": " "}, headers=headers)).status_code == 422
+    assert (await client.post("/v1/analyze", json={}, headers=headers)).status_code == 422
+    # A URL alone is enough: the server fetches it (tests/integration/test_url_only.py).
 
 
 async def test_page_facts_alone_are_enough(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:

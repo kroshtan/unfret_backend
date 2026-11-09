@@ -5,7 +5,7 @@ from typing import Literal, NoReturn
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from veridex import reports
+from veridex import page_fetch, reports
 from veridex.auth import require_account
 from veridex.config import settings
 from veridex.schemas.errors import (
@@ -72,16 +72,36 @@ def _refused(exc: reports.ReportError) -> NoReturn:
     raise error from exc
 
 
+async def _with_page(analysed: AnalyzeRequest) -> AnalyzeRequest:
+    """
+    The analysed request with its page: a URL-only check (the web link checker) is fetched again for the report.
+
+    The token vouches for the URL and the result; the page is fetched only now, with the reporter's consent. If it
+    can't be fetched any more, the report keeps just the URL.
+
+    :param analysed: The analysed request, as sent back.
+    :return: The request to store the report from.
+    """
+    if not analysed.url_only:
+        return analysed
+    try:
+        html = await page_fetch.fetch_page(analysed.url.strip())
+    except page_fetch.PageUnreadableError:
+        return analysed
+    return analysed.model_copy(update={"page_content": html})
+
+
 @router.post("", response_model=ReportResponse, status_code=201)
 async def report(body: ReportRequest, request: Request, account: str = Depends(require_account)) -> ReportResponse:
     """
     Report that a result is wrong. With ``consent``, this one check's page data is shared for review.
 
     Send back the ``report_token`` from the result with the request and explanation exactly as they were, so the
-    report provably concerns a check this account got. Personal details are scrubbed before anything is stored.
-    A page already in the queue counts the report as confirmation; a page reviewed recently is ``already_known``.
-    If the review shows the score was far off (30+ points outside the label's zone), the first reporter gets free
-    checks. Limits: a few reports per account per month, one per page.
+    report provably concerns a check this account got (for a URL-only check, the page is fetched again now).
+    Personal details are scrubbed before anything is stored. A page already in the queue counts the report as
+    confirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+
+    points outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per
+    month, one per page.
 
     :param body: The report.
     :param request: The incoming request.
@@ -101,7 +121,7 @@ async def report(body: ReportRequest, request: Request, account: str = Depends(r
             settings,
             account=account,
             claim=claim,
-            body=body.request,
+            body=await _with_page(body.request),
             reason=body.reason,
             explanation=body.explanation,
             verdict=body.verdict.model_dump(mode="json") if body.verdict else None,

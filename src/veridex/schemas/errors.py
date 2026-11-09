@@ -103,6 +103,13 @@ class GoneError(CustomAPIError):
     error_code = "GONE"
 
 
+class UnreadablePageError(CustomAPIError):
+    """A page the server fetched can't be checked (``PAGE_UNAVAILABLE``, ``PAGE_BLOCKED``, …); never charged."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    error_code = "PAGE_UNAVAILABLE"
+
+
 class TooManyRequestsError(CustomAPIError):
     """Usage quota exhausted."""
 

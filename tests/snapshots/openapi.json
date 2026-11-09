@@ -85,8 +85,21 @@
         "type": "null"
        }
       ],
-      "description": "The wallet's balance after this analysis.",
+      "deprecated": true,
+      "description": "Deprecated alias of balance_usd_micros (same value; the name predates dollar prices). Kept for extension versions up to 0.5.0.",
       "title": "Balance Lamports"
+     },
+     "balance_usd_micros": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The wallet's balance after this analysis, in micro-dollars (1 USD = 1,000,000).",
+      "title": "Balance Usd Micros"
      },
      "charged": {
       "anyOf": [

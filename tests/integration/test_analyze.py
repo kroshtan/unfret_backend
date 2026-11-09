@@ -38,6 +38,7 @@ async def test_analysis_is_paid_from_the_balance(
     assert response.json() == {
         "score": 80,
         "explanation": "Looks legitimate.",
+        "balance_usd_micros": 2 * PRICE,
         "balance_lamports": 2 * PRICE,
         "charged": True,
     }
@@ -71,7 +72,12 @@ async def test_insufficient_credits(client: httpx.AsyncClient, graph: FakeGraph,
     assert response.status_code == 402
     body = response.json()
     assert body["error_code"] == "INSUFFICIENT_CREDITS"
-    assert body["metadata"] == {"balance_lamports": PRICE - 1, "analysis_lamports": PRICE}
+    assert body["metadata"] == {
+        "balance_usd_micros": PRICE - 1,
+        "analysis_usd_micros": PRICE,
+        "balance_lamports": PRICE - 1,  # deprecated aliases, for extensions up to 0.5.0
+        "analysis_lamports": PRICE,
+    }
     assert graph.calls == []
 
 
@@ -297,7 +303,8 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert '"type": "discount"' in events[1][1]
     assert "85% off" not in events[1][1]  # steps are progress only: the evidence comes with the charged result
     assert events[2][1] == (
-        'data: {"score": 80, "explanation": "Looks legitimate.", "balance_lamports": 0, "charged": true}'
+        'data: {"score": 80, "explanation": "Looks legitimate.", "balance_usd_micros": 0, "balance_lamports": 0, '
+        '"charged": true}'
     )
     assert await balance(pool, address) == 0
 

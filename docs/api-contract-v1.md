@@ -223,3 +223,8 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - **Fake discounts:** new reasons `implausible_discount`, `reference_anchor` (the "was" price is an RRP/"usually"
   price), `permanent_sale` and, once a product has a month of anonymous price observations, `was_never_charged`.
   New features under `pricing.*`; none are in the scorer yet. `GET /privacy` is the privacy statement.
+- **`balance_usd_micros`** in `/v1/analyze` responses (and `balance_usd_micros`/`analysis_usd_micros` in the 402
+  metadata) is the balance in micro-dollars. `balance_lamports` and `analysis_lamports` carry the same values and are
+  deprecated: extension versions up to 0.5.0 read them.
+- Extension 0.5.0 is published at `/extension` (CRX, `updates.xml` on unfret.kroshtan.com, and the Chrome Web Store zip
+  `veridex-chrome-0.5.0.zip`).

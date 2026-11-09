@@ -141,6 +141,26 @@ async def test_update_manifest_points_at_this_server(
     assert "unfret.kroshtan.com" not in response.text
 
 
+async def test_unfret_dev_has_its_own_manifest_and_package(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A separate extension (own ID) for testing against dev, so the production install never changes channel.
+    monkeypatch.setattr(settings, "public_base_url", "https://dev.example.test")
+    dev = current_release(manifest="updates-dev.xml")
+    prod = current_release()
+    assert dev is not None and prod is not None
+    assert dev.extension_id != prod.extension_id
+    assert dev.crx.startswith("unfret-dev-")
+    assert _verify_crx3((RELEASE_DIR / dev.crx).read_bytes()) == dev.extension_id
+
+    response = await client.get("/extension/updates-dev.xml")
+    assert response.status_code == 200
+    assert f"appid='{dev.extension_id}'" in response.text
+    assert f"codebase='https://dev.example.test/extension/{dev.crx}'" in response.text
+    crx = await client.get(f"/extension/{dev.crx}")
+    assert crx.headers["content-type"] == "application/x-chrome-extension"
+
+
 async def test_release_files_are_served_with_their_types(client: httpx.AsyncClient) -> None:
     release = current_release()
     assert release is not None and release.zip is not None
@@ -160,6 +180,8 @@ async def test_release_files_are_served_with_their_types(client: httpx.AsyncClie
     [
         "veridex-9.9.9.crx",
         "unfret-9.9.9.crx",
+        "unfret-dev-9.9.9.crx",
+        "unfret-staging-0.8.0.crx",
         "../extension.html",
         "..%2Fpages.py",
         "updates.xml.bak",

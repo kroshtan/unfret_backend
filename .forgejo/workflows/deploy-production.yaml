@@ -1,0 +1,90 @@
+name: Deploy production
+
+# Production (unfret.kroshtan.com, Solana MAINNET) is deployed only by hand: Actions → "Deploy production" → Run
+# workflow, with a release tag. Nothing deploys here automatically. The workflow refuses unless the tag's commit is
+# on main, its CI passed and the SAME commit was deployed to dev successfully, and then it deploys the exact image
+# dev ran (tagged with the commit SHA): it never rebuilds.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Release tag to deploy, e.g. v0.6.0 (must point at a commit on main that ran green on dev)"
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-veridex-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    runs-on: kroshtan-deploy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Check the release
+        id: release
+        env:
+          REF: ${{ inputs.ref }}
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
+            || { echo "::error::'$REF' is not a release tag like v0.6.0"; exit 1; }
+          git rev-parse -q --verify "refs/tags/$REF" > /dev/null \
+            || { echo "::error::tag $REF does not exist"; exit 1; }
+          sha="$(git rev-parse "$REF^{commit}")"
+          git fetch -q origin main
+          git merge-base --is-ancestor "$sha" origin/main \
+            || { echo "::error::$REF ($sha) is not on main"; exit 1; }
+          # The repository is public, so its commit statuses can be read without a token.
+          curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
+            statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
+            need = ["CI / check (push)", "CI / deploy-dev (push)"]
+            bad = need.reject { |c| statuses[c] == "success" }
+            abort("::error::not green on main/dev for this commit: " + bad.map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) unless bad.empty?
+            puts "check and deploy-dev succeeded for this commit"'
+          echo "sha=$sha" >> "$FORGEJO_OUTPUT"
+          echo "Deploying $REF ($sha) to production"
+      - name: Load the deploy credentials
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          install -m 600 /creds/ssh_key ~/.ssh/id_ed25519
+          install -m 644 /creds/known_hosts ~/.ssh/known_hosts
+          value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
+          [[ -n "$value" ]] && echo "::add-mask::$value"
+          printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
+      - name: Deploy to production
+        # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
+        # production never starts with a feature silently off or pointing at the wrong network.
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+          VERIDEX_LLM_API_KEY: ${{ secrets.VERIDEX_LLM_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
+          VERIDEX_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
+          VERIDEX_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
+          VERIDEX_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
+          VERIDEX_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
+          VERIDEX_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in VERIDEX_LLM_API_KEY POSTGRES_PASSWORD VERIDEX_SOLANA_RPC_URL VERIDEX_SESSION_SECRET \
+            VERIDEX_HOT_WALLET_KEY VERIDEX_COLD_ADDRESS VERIDEX_ADMIN_TOKEN; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
+          [[ "$VERIDEX_SOLANA_RPC_URL" != *devnet* && "$VERIDEX_SOLANA_RPC_URL" != *testnet* ]] \
+            || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
+          # `details` echoes its docker ps command (which names the container), so match a running row instead.
+          if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
+            kamal accessory boot db -d production
+          fi
+          # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
+          kamal deploy -d production --skip-push --version "$SHA"
+      - name: Discard the deploy key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

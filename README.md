@@ -294,6 +294,40 @@ src/veridex/
 └── net.py             # SSRF-safe HTTP fetching
 ```
 
+## Deploying
+
+Two environments, both deployed with [Kamal](https://kamal-deploy.org) to the same server (behind the forge's Caddy
+and kamal-proxy), each with its own service, database accessory, hot wallet and session secret:
+
+| | dev | production |
+| --- | --- | --- |
+| URL | https://dev.unfret.kroshtan.com | https://unfret.kroshtan.com |
+| Solana | devnet (test money) | **mainnet** |
+| Kamal destination | `config/deploy.dev.yml` (service `veridex-dev`, DB `veridex-dev-db`) | `config/deploy.production.yml` (`veridex-prod`, `veridex-prod-db`) |
+| Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
+| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
+
+`VERIDEX_LLM_API_KEY` is shared. The Kamal secrets files map these onto the app's `VERIDEX_*` settings
+(`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).
+
+**Releasing to production:**
+
+1. Merge to `main`, and let it deploy to dev. Test it there.
+2. Bump the version and changelog, then tag the commit that ran on dev: `git tag v0.6.0 <sha> && git push origin v0.6.0`.
+3. In Forgejo: **Actions → Deploy production → Run workflow**, with `ref` = the tag.
+
+The production workflow refuses unless:
+- the tag's commit is on `main`;
+- its `CI / check` and `CI / deploy-dev` statuses are green;
+- every production secret is set, and the RPC URL isn't a test network.
+
+It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
+rebuild. Deploys never run in parallel and are never cancelled half-way.
+
+**Rolling back production:** run the workflow again with the previous release tag. The one-time move of
+`unfret.kroshtan.com` from the pre-split devnet deployment to production is in
+[docs/production-cutover.md](docs/production-cutover.md).
+
 ## Design notes
 
 - **Untrusted input fetching.** Skills download URLs taken from user-submitted HTML. `net.fetch_public` only allows

@@ -1,0 +1,44 @@
+# dev: dev.unfret.kroshtan.com on Solana devnet (test money only). Deployed automatically by CI on every push to
+# main (.forgejo/workflows/ci.yaml, job deploy-dev). Secrets: .kamal/secrets-common + .kamal/secrets.dev, fed from
+# the DEV_* repo secrets.
+service: veridex-dev
+
+proxy:
+  hosts:
+    - dev.unfret.kroshtan.com
+
+env:
+  clear:
+    VERIDEX_LLM_BASE_URL: https://api.scaleway.ai/v1
+    VERIDEX_LLM_MODEL: mistral-small-3.2-24b-instruct-2506
+    VERIDEX_SOLANA_NETWORK: solana-devnet
+    VERIDEX_SOLANA_RPC_URL: https://api.devnet.solana.com
+    VERIDEX_X402_ALLOW_MAINNET: "false"
+    VERIDEX_SIWS_DOMAIN: dev.unfret.kroshtan.com
+    VERIDEX_PUBLIC_BASE_URL: https://dev.unfret.kroshtan.com
+  secret:
+    - VERIDEX_LLM_API_KEY
+    - VERIDEX_POSTGRES_URI
+    # Optional: each feature stays off (503 / skipped) while its secret is empty.
+    - VERIDEX_SESSION_SECRET  # sign-in and credits
+    - VERIDEX_HOT_WALLET_KEY  # x402 + credit purchases (fee payer and receiver); a devnet-only key
+    - VERIDEX_COLD_ADDRESS  # sweep destination
+    - VERIDEX_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+
+accessories:
+  # Reached by the app as veridex-dev-db on the `kamal` network; never published. forge-infra's nightly backup
+  # pg_dumps it (APP_PG in backup/forge-backup.sh).
+  db:
+    image: postgres:17-alpine
+    host: git.kroshtan.com
+    env:
+      clear:
+        POSTGRES_USER: veridex
+        POSTGRES_DB: veridex
+      secret:
+        - POSTGRES_PASSWORD
+    directories:
+      - data:/var/lib/postgresql/data
+    options:
+      memory: 512m
+      cpus: 1

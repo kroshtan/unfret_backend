@@ -6,7 +6,11 @@ Guidance for Claude Code working in this repository.
 
 Claude has standing permission to **commit, push, open pull requests and merge** without asking first, **as long as
 CI passes**. Never merge with failing or skipped checks; fix the cause instead. Work on a branch, never commit
-directly to `main`.
+directly to `main`. Merging to `main` deploys to **dev** (dev.unfret.kroshtan.com, devnet) automatically.
+
+**Production is different:** Claude must **never** trigger the `Deploy production` workflow, create a release tag
+meant for it, or run `kamal … -d production`, without the user's explicit go for **that specific release**. A
+general permission to merge or deploy does not cover production (README, "Deploying").
 
 Remotes: `origin` is the Forgejo forge at git.kroshtan.com (primary, CI runs there); `github` is the public mirror.
 

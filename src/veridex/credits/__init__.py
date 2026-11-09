@@ -83,11 +83,9 @@ class CreditsDoor:
         :param pool: The database pool.
         """
         if self.hot is not None and self.sign_in_enabled:
-            tiers = self.settings.credit_bonus_tiers
-            self.scanner = CreditScanner(self.rpc, pool, self.hot, tiers, book=self.book)
-            self.usdc_scanner = CreditScanner(
-                self.rpc, pool, self.hot, tiers, book=self.book, usdc_mint=self.usdc_mint
-            )
+            s = self.settings
+            self.scanner = CreditScanner(self.rpc, pool, self.hot, s, book=self.book)
+            self.usdc_scanner = CreditScanner(self.rpc, pool, self.hot, s, book=self.book, usdc_mint=self.usdc_mint)
 
     async def run_forever(self) -> None:
         """Scan for purchases every ``credits_scan_interval_s`` until cancelled; failures are logged and retried."""

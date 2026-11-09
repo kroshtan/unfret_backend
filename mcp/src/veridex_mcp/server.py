@@ -38,8 +38,8 @@ server = MCPServer(
     "unfret",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
-        "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.15; wSOL at the current SOL "
-        "price) within a dollar spend cap. "
+        "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.20; get_pricing has the live "
+        "prices; wSOL at the current SOL price) within a dollar spend cap. "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
     ),
 )
@@ -102,7 +102,7 @@ async def check_store(
     url: Annotated[str, Field(description="The store or product page URL (https).")],
     tier: Annotated[
         Literal["quick", "deep"],
-        Field(description="quick: page and domain checks, $0.01. deep: all checks, reverse image search too, $0.15."),
+        Field(description="quick: page and domain checks, $0.01. deep: all checks, reverse image search too, $0.20."),
     ] = "quick",
     policy: Annotated[
         Literal["strict", "balanced", "lenient"],
@@ -121,7 +121,7 @@ async def check_store(
     Pass page_content (the page's HTML) for marketplaces such as Amazon, which block server-side fetches.
 
     :param url: The store or product page URL.
-    :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.15).
+    :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.20).
     :param policy: How cautious the returned action is: strict, balanced or lenient.
     :param page_content: The page's HTML, if available.
     :return: ``status`` (ok, not_paid, pending, unknown, unavailable), ``ok``, the ``verdict`` (action, risk_score,

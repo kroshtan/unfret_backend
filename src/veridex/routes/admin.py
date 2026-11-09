@@ -2,8 +2,9 @@
 Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``.
 
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
-fingerprint store on request, the review queue of reported results (``make reports``), and a small grant of credit to
-an API key (support, and test credits for a store reviewer).
+fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
+an API key (support, and test credits for a store reviewer), and the quarterly export of crypto sales records for
+the bookkeeping.
 """
 
 import json
@@ -11,12 +12,13 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from veridex import reports, shop_store
 from veridex.auth import require_admin
 from veridex.config import settings
-from veridex.credits import keys, ledger
+from veridex.credits import keys, ledger, vat
 from veridex.fingerprint import contact_hash, normalise_email, normalise_phone
 from veridex.price_store import registrable_domain
 from veridex.routes.check import get_x402
@@ -157,3 +159,30 @@ async def grant_key(key_id: str, body: GrantRequest, request: Request) -> dict[s
     balance = await ledger.credit(pool, keys.account_of(key_id), body.usd_micros)
     logger.info("key_granted", usd_micros=body.usd_micros)
     return {"key_id": key_id, "balance_usd_micros": balance}
+
+
+@router.get("/sales/{quarter}", response_class=PlainTextResponse)
+async def sales_export(quarter: str, request: Request) -> PlainTextResponse:
+    """
+    A quarter's crypto credit sales as CSV, for the bookkeeping.
+
+    Date, country, net, VAT rate, VAT, asset, amount and
+    transaction signature per sale (card sales are the payment provider's).
+
+    :param quarter: ``YYYY-Qn``, e.g. ``2026-Q4``.
+    :param request: The incoming request.
+    :return: The CSV.
+    :raises HTTPException: For a malformed quarter (400) or without a database (503).
+    """
+    try:
+        vat.quarter_bounds(quarter)
+    except ValueError as exc:
+        raise HTTPException(400, "Give the quarter as YYYY-Qn.") from exc
+    if request.app.db_pool is None:
+        raise HTTPException(503, "Database not ready.")
+    name = f"unfret-crypto-sales-{quarter.upper()}.csv"
+    return PlainTextResponse(
+        await vat.sales_csv(request.app.db_pool, quarter),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

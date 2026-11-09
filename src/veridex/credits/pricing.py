@@ -1,4 +1,4 @@
-"""Credit prices and bonuses, the unsigned purchase transaction (SOL or USDC) and its Solana Pay link."""
+"""The public price list, the unsigned purchase transaction (SOL or USDC) and its Solana Pay link."""
 
 from decimal import Decimal
 from typing import Any
@@ -13,29 +13,12 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
-from veridex.prices import (
-    LAMPORTS_PER_SOL,
-    Currency,
-    PriceBook,
-    PriceUnavailableError,
-    format_usd,
-    usd_to_lamports,
-    usdc_to_lamports,
-)
+from veridex.credits import vat
+from veridex.credits.packs import Pack, packs
+from veridex.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
+from veridex.shopper import LANGUAGES, copy_for
 from veridex.x402.solana import MEMO_PROGRAM, associated_token_address, decimals, transfer_checked
 from veridex.x402.wallet import create_ata_idempotent
-
-
-def with_bonus(value: int, tiers: list[tuple[int, int]]) -> int:
-    """
-    The balance a purchase buys: its dollar value plus the best bonus tier that value reaches.
-
-    :param value: The purchase's value in micro-dollars (SOL converted at crediting time).
-    :param tiers: ``(minimum micro-dollars, bonus percent)`` pairs.
-    :return: The micro-dollars credited.
-    """
-    pct = max((bonus for minimum, bonus in tiers if value >= minimum), default=0)
-    return value + value * pct // 100
 
 
 def decimal_string(amount: int, places: int) -> str:
@@ -61,7 +44,7 @@ def sol_string(lamports: int) -> str:
 
 def credit_memo(beneficiary: Pubkey | str) -> str:
     """
-    The memo that names who gets the credits (the scanner reads it).
+    The older memo that names who gets the credits, still honoured by the scanner for transfers made by hand.
 
     :param beneficiary: The wallet to credit, or an API key's account (``key:<id>``).
     :return: ``veridex:credit:<pubkey>`` or ``veridex:credit:key:<id>``.
@@ -69,16 +52,13 @@ def credit_memo(beneficiary: Pubkey | str) -> str:
     return f"veridex:credit:{beneficiary}"
 
 
-def solana_pay_url(
-    hot: Pubkey, amount: int, beneficiary: Pubkey | str | None = None, mint: Pubkey | None = None
-) -> str:
+def solana_pay_url(hot: Pubkey, amount: int, memo: str | None = None, mint: Pubkey | None = None) -> str:
     """
     A Solana Pay transfer request for a phone wallet: pay ``amount`` to the hot wallet, in SOL or a token.
 
     :param hot: The receiving (hot) wallet.
     :param amount: The amount in base units (lamports, or the token's base units with ``mint``).
-    :param beneficiary: The account to credit (a wallet or ``key:<id>``), as a memo; without one the paying wallet
-        is credited.
+    :param memo: The memo naming the purchase (``veridex:quote:<id>``, see :mod:`veridex.credits.vat`).
     :param mint: The token to pay in (``spl-token``); ``None`` for SOL.
     :return: The ``solana:`` URL.
     """
@@ -87,7 +67,7 @@ def solana_pay_url(
     if mint is not None:
         url += f"&spl-token={mint}"
     url += f"&label=Unfret&message={quote('Unfret credits')}"
-    return f"{url}&memo={quote(credit_memo(beneficiary))}" if beneficiary else url
+    return f"{url}&memo={quote(memo)}" if memo else url
 
 
 def purchase_transaction(
@@ -95,7 +75,7 @@ def purchase_transaction(
     hot: Pubkey,
     amount: int,
     blockhash: str,
-    beneficiary: Pubkey | str,
+    memo: str,
     *,
     mint: Pubkey | None = None,
 ) -> bytes:
@@ -104,13 +84,13 @@ def purchase_transaction(
 
     SOL: a System transfer of ``amount`` lamports to the hot wallet. A token (USDC): create the hot wallet's token
     account if it's missing (the buyer pays the rent) and ``TransferChecked`` ``amount`` from the buyer's. Either way
-    with a memo naming the wallet to credit.
+    with a memo naming the purchase (its quote: who to credit, and the VAT).
 
     :param payer: The paying wallet (also the fee payer).
     :param hot: The receiving (hot) wallet.
     :param amount: The amount in base units.
     :param blockhash: A recent blockhash.
-    :param beneficiary: The account that gets the credits (often the payer itself, or an API key's ``key:<id>``).
+    :param memo: The memo (``veridex:quote:<id>``).
     :param mint: The token to pay in; ``None`` for SOL.
     :return: The serialised, unsigned versioned transaction.
     """
@@ -123,33 +103,39 @@ def purchase_transaction(
                 associated_token_address(payer, mint), mint, associated_token_address(hot, mint), payer, amount
             ),
         ]
-    memo = Instruction(MEMO_PROGRAM, credit_memo(beneficiary).encode(), [])
-    message = MessageV0.try_compile(payer, [*pay, memo], [], Hash.from_string(blockhash))
+    note = Instruction(MEMO_PROGRAM, memo.encode(), [])
+    message = MessageV0.try_compile(payer, [*pay, note], [], Hash.from_string(blockhash))
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))
 
 
-async def purchase_limits(settings: Settings, book: PriceBook, currency: Currency) -> tuple[int, int]:
+def pack_labels(pack: Pack) -> dict[str, str]:
     """
-    The smallest and largest purchase in ``currency`` (base units): the dollar limits, converted for SOL.
+    How a pack is offered, per language: the card price as *the* price, crypto as the lower price.
 
-    SOL that can't be priced right now raises :class:`~veridex.prices.PriceUnavailableError`.
+    Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
+    discount for paying another way is fine.
 
-    :param settings: The service settings.
-    :param book: The price book.
-    :param currency: ``SOL`` or ``USDC``.
-    :return: ``(minimum, maximum)``.
+    :param pack: The pack.
+    :return: Language → e.g. ``"25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable"``.
     """
-    if currency == "USDC":
-        return settings.purchase_min_usd_micros, settings.purchase_max_usd_micros
-    reading = await book.sol_usd()
-    low = usd_to_lamports(settings.purchase_min_usd_micros, reading.usd_per_sol)  # rounded up: at least one check
-    high = usdc_to_lamports(settings.purchase_max_usd_micros, reading.usd_per_sol)  # rounded down: at most the max
-    return low, high
+    labels = {}
+    for language in LANGUAGES:
+        text = copy_for(language)["pricing"]
+        price, crypto = format_usd(pack.card_usd_micros), format_usd(pack.value_usd_micros)
+        if language == "nl":
+            price, crypto = price.replace(".", ","), crypto.replace(".", ",")
+        offer = text["pack"].format(checks=pack.checks, price=price)
+        labels[language] = f"{offer} · {text['crypto'].format(crypto=crypto)}"
+    return labels
 
 
 async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc: Pubkey) -> dict[str, Any]:
     """
-    The public price list (``GET /v1/pricing``): canonical dollar prices, exact USDC amounts and a live SOL quote.
+    The public price list (``GET /v1/pricing``): the price of a check, the packs on both routes, and live amounts.
+
+    Every dollar figure derives from ``price_per_check_usd`` (:mod:`veridex.credits.packs`). Per pack, ``price_usd``
+    is the price (by card, before the provider's sales tax/VAT) and ``crypto_usd`` the lower price when paying with
+    SOL or USDC (before VAT where it applies: ``vat``).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -157,19 +143,31 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     :param usdc: The USDC mint.
     :return: The contract's pricing document.
     """
-    analysis = book.usd("analysis")
+    check = book.usd("analysis")
     quick, deep = book.usd("x402_quick"), book.usd("x402_deep")
+    on_sale = packs(settings)
     document: dict[str, Any] = {
         "currency": "USD",
-        "analysis_usd_micros": analysis,
-        "analysis_usd": format_usd(analysis),
+        "price_per_check_usd_micros": check,
+        "price_per_check_usd": format_usd(check),
+        "analysis_usd_micros": check,
+        "analysis_usd": format_usd(check),
         "x402": {"quick_usd_micros": quick, "deep_usd_micros": deep},
-        "bonuses": [{"min_usd_micros": m, "bonus_pct": pct} for m, pct in sorted(settings.credit_bonus_tiers)],
-        "suggested_packs": [{"checks": n, "usd_micros": n * analysis} for n in settings.suggested_packs],
-        "purchase": {
-            "min_usd_micros": settings.purchase_min_usd_micros,
-            "max_usd_micros": settings.purchase_max_usd_micros,
-        },
+        "packs": [
+            {
+                "checks": p.checks,
+                "price_usd_micros": p.card_usd_micros,
+                "price_usd": format_usd(p.card_usd_micros),
+                "crypto_usd_micros": p.value_usd_micros,
+                "crypto_usd": format_usd(p.value_usd_micros),
+                "credited_usd_micros": p.value_usd_micros,
+                "label": pack_labels(p),
+            }
+            for p in on_sale
+        ],
+        # Deprecated: the packs' crypto prices under their old name.
+        "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
+        "vat": vat.describe(settings),
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,
         "trial_checks": settings.trial_checks,
@@ -177,16 +175,14 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
         "usdc": {
             "mint": str(usdc),
             "decimals": 6,
-            "analysis_units": analysis,
+            "analysis_units": check,
             "x402": {"quick_units": quick, "deep_units": deep},
-            "purchase": {"min_units": settings.purchase_min_usd_micros, "max_units": settings.purchase_max_usd_micros},
         },
         "analysis_lamports": None,
     }
     try:
         reading = await book.sol_usd()
-        low, high = await purchase_limits(settings, book, "SOL")
-        per_check = usd_to_lamports(analysis, reading.usd_per_sol)
+        per_check = usd_to_lamports(check, reading.usd_per_sol)
         document["sol"] = {
             "usd_per_sol": str(reading.usd_per_sol),
             "quoted_at": reading.publish_time,
@@ -196,7 +192,6 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
                 "quick_lamports": usd_to_lamports(quick, reading.usd_per_sol),
                 "deep_lamports": usd_to_lamports(deep, reading.usd_per_sol),
             },
-            "purchase": {"min_lamports": low, "max_lamports": high},
         }
         document["analysis_lamports"] = per_check  # backward compatible: the current SOL price of a check
     except PriceUnavailableError as exc:
@@ -205,4 +200,4 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     return document
 
 
-__all__ = ["LAMPORTS_PER_SOL", "pricing", "purchase_limits", "purchase_transaction", "solana_pay_url", "with_bonus"]
+__all__ = ["LAMPORTS_PER_SOL", "credit_memo", "pricing", "purchase_transaction", "solana_pay_url"]

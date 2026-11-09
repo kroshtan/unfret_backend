@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
@@ -74,16 +75,24 @@ class Settings(BaseSettings):
     nonce_ttl_s: int = 300
     pairing_ttl_s: int = 300  # phone sign-in pairings (in memory)
     pairing_per_ip: int = 10  # pairings a visitor may start per 10 minutes
-    # Prices are canonical in US dollars, as integer micro-dollars (1 USD = 1_000_000 = USDC's base unit). USDC is
-    # charged exactly; SOL (wSOL) is converted at quote and payment time from Pyth's SOL/USD price, read on chain
-    # through our RPC, and refused while that price is stale or uncertain. Credit balances are micro-dollars too.
-    analysis_price_usd_micros: int = 150_000  # $0.15 per extension analysis
-    # (minimum purchase in micro-dollars, bonus percent): ≥$5 buys 10% more balance, ≥$25 20% more.
-    credit_bonus_tiers: list[tuple[int, int]] = [(5_000_000, 10), (25_000_000, 20)]
-    suggested_packs: list[int] = [10, 50, 200]  # checks
-    # Purchase limits by dollar value, whatever the currency: at least one check, at most $1,000.
-    purchase_min_usd_micros: int = 150_000
-    purchase_max_usd_micros: int = 1_000_000_000
+    # Prices are canonical in US dollars. ONE setting sets them all: the price of a check, which is what an
+    # analysis costs in credits, what an x402 deep check costs, and what each pack is made of (veridex.credits.packs).
+    # Balances and amounts are integer micro-dollars (1 USD = 1_000_000 = USDC's base unit). USDC is charged exactly;
+    # SOL (wSOL) is converted at quote and payment time from Pyth's SOL/USD price, read on chain through our RPC, and
+    # refused while that price is stale or uncertain.
+    price_per_check_usd: Decimal = Field(default=Decimal("0.20"), gt=0, decimal_places=6)
+    # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (plus VAT where it
+    # applies); by card (the Merchant of Record) it costs that plus the card costs, rounded up (packs.card_price).
+    packs: list[int] = [25, 50, 100]
+    card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
+    card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
+    card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
+    # VAT on crypto purchases (veridex.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
+    # cross-border sales, every EU buyer pays Dutch VAT and everyone else none; "per_country": each EU buyer pays
+    # their own country's rate (vendored from the EU's TEDB). Card purchases: the Merchant of Record handles VAT.
+    vat_mode: Literal["nl_under_threshold", "per_country"] = "nl_under_threshold"
+    vat_quote_ttl_s: int = 24 * 3600  # a priced purchase (country, VAT) stays payable this long
+    vat_records_retention_days: int = 3653  # sales records for the bookkeeping: ten years
     pyth_sol_usd_account: str = "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"  # sponsored push feed, shard 0
     # Where the oracle is read: empty means our own RPC on mainnet and mainnet's public RPC on devnet (Pyth's devnet
     # copy of the feed updates too rarely to pass the staleness check; the price is the same real SOL/USD price).
@@ -127,7 +136,6 @@ class Settings(BaseSettings):
     # webhooks are Standard Webhooks, signed with this whsec_ secret and refused outside the replay window.
     fiat_webhook_secret: SecretStr = SecretStr("")
     fiat_webhook_tolerance_s: int = 300
-    fiat_min_usd_micros: int = 10_000_000  # $10
     fiat_retention_days: int = 180
 
     # Reports of wrong results ("this is wrong", POST /v1/reports). A report can be made within report_window_s of
@@ -160,8 +168,7 @@ class Settings(BaseSettings):
     # Payments are refused (503) while the hot wallet's SOL (for fees) is below this. Kept under the reserve, and
     # a sweep refills it from received wSOL, so normal operation never trips it.
     x402_min_fee_lamports: int = 2_000_000
-    x402_price_quick_usd_micros: int = 10_000  # $0.01
-    x402_price_deep_usd_micros: int = 150_000  # $0.15
+    x402_price_quick_usd_micros: int = 10_000  # $0.01; the deep tier costs price_per_check_usd
     x402_max_compute_units: int = 400_000
     x402_max_compute_unit_price_microlamports: int = 50_000
     x402_confirm_timeout_s: float = 30.0
@@ -194,11 +201,8 @@ class Settings(BaseSettings):
         prices = (self.analysis_price_usd_micros, self.x402_price_quick_usd_micros, self.x402_price_deep_usd_micros)
         if min(prices) <= 0:
             problems.append("prices must be positive")
-        if not self.analysis_price_usd_micros <= self.purchase_min_usd_micros <= self.purchase_max_usd_micros:
-            problems.append("purchases need analysis price <= purchase_min_usd_micros <= purchase_max_usd_micros")
-        thresholds = [t for t, _ in self.credit_bonus_tiers]
-        if thresholds != sorted(thresholds) or any(not 0 < pct <= 100 for _, pct in self.credit_bonus_tiers):
-            problems.append("credit_bonus_tiers must ascend, with bonuses of 1-100%")
+        if not self.packs or self.packs != sorted(set(self.packs)) or self.packs[0] <= 0:
+            problems.append("packs must be distinct positive check counts, ascending")
         if not 0 <= self.quote_tolerance_bps <= 1_000:
             problems.append("quote_tolerance_bps must be 0-1000 (at most 10%)")
         if not 0 < self.x402_max_priority_fee_bps <= 5_000:
@@ -249,6 +253,24 @@ class Settings(BaseSettings):
             "pyth_account": self.pyth_sol_usd_account,
             "swaps": self.solana_network == "solana-mainnet",
         }
+
+    @property
+    def analysis_price_usd_micros(self) -> int:
+        """
+        The price of one check in micro-dollars: an analysis's cost in credits (from :attr:`price_per_check_usd`).
+
+        :return: Micro-dollars.
+        """
+        return int(self.price_per_check_usd * 1_000_000)
+
+    @property
+    def x402_price_deep_usd_micros(self) -> int:
+        """
+        The x402 deep tier's price: one check (from :attr:`price_per_check_usd`).
+
+        :return: Micro-dollars.
+        """
+        return self.analysis_price_usd_micros
 
     @property
     def analysis_price_lamports(self) -> int:

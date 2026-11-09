@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from solders.pubkey import Pubkey
 
-from tests.unit.x402_helpers import StaticOracle
+from tests.unit.x402_helpers import CHECK_USD, StaticOracle
 from veridex.config import Settings
 from veridex.prices import (
     PYTH_RECEIVER_PROGRAM,
@@ -82,7 +82,7 @@ def test_conversions_round_in_veridexs_disfavour_never_the_payers() -> None:
 
 
 async def test_dollar_prices_are_canonical_usdc_exact_and_sol_converted() -> None:
-    book = PriceBook(Settings(), StaticOracle("100"))
+    book = PriceBook(Settings(price_per_check_usd=CHECK_USD), StaticOracle("100"))
     assert book.usd("analysis") == 150_000 and book.usd("x402_quick") == 10_000 and book.usd("x402_deep") == 150_000
     assert await book.price("analysis", "USDC") == 150_000  # $0.15 exactly
     assert await book.price("analysis", "SOL") == 1_500_000  # $0.15 at $100/SOL
@@ -93,7 +93,7 @@ async def test_dollar_prices_are_canonical_usdc_exact_and_sol_converted() -> Non
 
 
 async def test_sol_conversions_round_in_veridexs_disfavour() -> None:
-    book = PriceBook(Settings(), StaticOracle("89.6073631"))
+    book = PriceBook(Settings(price_per_check_usd=CHECK_USD), StaticOracle("89.6073631"))
     # $0.15 / $89.6073631 = 1_673_969.4 lamports: charged as 1_673_970 (rounded up).
     assert await book.price("analysis", "SOL") == 1_673_970
     # 1_673_970 lamports = $0.15000005…: credited as 150_000 micro-dollars (rounded down).
@@ -103,7 +103,7 @@ async def test_sol_conversions_round_in_veridexs_disfavour() -> None:
 
 
 async def test_sol_is_refused_while_the_oracle_is_unavailable_and_usdc_still_works() -> None:
-    book = PriceBook(Settings(), StaticOracle(None))
+    book = PriceBook(Settings(price_per_check_usd=CHECK_USD), StaticOracle(None))
     assert await book.price("x402_deep", "USDC") == 150_000  # USDC never needs the oracle
     with pytest.raises(PriceUnavailableError):
         await book.price("x402_deep", "SOL")

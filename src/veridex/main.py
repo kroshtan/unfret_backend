@@ -3,6 +3,7 @@ import contextlib
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import asyncpg
 import structlog
@@ -14,7 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from veridex import __version__, fact_cache, log, price_store, reports, scoring, shop_store
 from veridex.api import VeridexAPI
 from veridex.config import settings
-from veridex.credits import CreditsDoor, fiat
+from veridex.credits import CreditsDoor, fiat, vat
 from veridex.db import PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
@@ -30,7 +31,9 @@ logger = structlog.get_logger("veridex")
 
 async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     """
-    Every hour until cancelled: expire unhandled reports (and their account links), delete old fiat order rows.
+    Every hour until cancelled: expire old reports, fiat order rows, VAT quotes and sales records.
+
+    Unhandled reports go with their account links; sales records only after their ten-year retention.
 
     :param pool: The database pool.
     :param interval_s: Seconds between rounds.
@@ -39,6 +42,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
         for name, job in (
             ("reports", reports.expire(pool, settings)),
             ("fiat", fiat.purge(pool, settings.fiat_retention_days)),
+            ("vat", vat.purge(pool, settings)),
         ):
             try:
                 await job
@@ -51,6 +55,9 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
 async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
     logger.info("Unfret backend service starting", version=__version__, config=settings.summary())
+    rates_age = (datetime.now(UTC).date() - vat.rates_checked_on()).days
+    if rates_age > 45:  # `make vat-rates-check` compares the vendored table with the EU's TEDB
+        logger.warning("vat_rates_stale", checked_days_ago=rates_age)
     api.graph = build_graph(SKILLS)
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
     api.db_pool = await create_pool()

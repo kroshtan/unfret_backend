@@ -268,5 +268,12 @@
   },
   "no_check_used": "Er is geen check gebruikt.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "en"
+  "and": "en",
+  "pricing": {
+    "pack": "{checks} checks — {price}",
+    "crypto": "betaal met crypto: {crypto} + btw waar van toepassing",
+    "card_tax": "plus btw/sales tax waar van toepassing, bij het afrekenen",
+    "vat_line": "{net} + {rate}% btw ({vat}) = {total}",
+    "no_vat_line": "{total} (geen btw buiten de EU)"
+  }
 }

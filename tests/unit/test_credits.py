@@ -8,7 +8,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from veridex.credits import siws
-from veridex.credits.pricing import purchase_transaction, sol_string, solana_pay_url, with_bonus
+from veridex.credits.pricing import purchase_transaction, sol_string, solana_pay_url
 from veridex.credits.scanner import credit_beneficiary, credits_for, incoming_transfers
 from veridex.credits.trial import TrialLimiter, has_history
 from veridex.x402.solana import MEMO_PROGRAM
@@ -135,16 +135,6 @@ def test_nonce_response_fields() -> None:
 
 # ── Pricing ───────────────────────────────────────────────────────────────────
 
-TIERS = [(50_000_000, 10), (250_000_000, 20)]
-
-
-@pytest.mark.parametrize(
-    ("paid", "credited"),
-    [(10_000_000, 10_000_000), (50_000_000, 55_000_000), (249_999_999, 274_999_998), (250_000_000, 300_000_000)],
-)
-def test_bonus_tiers(paid: int, credited: int) -> None:
-    assert with_bonus(paid, TIERS) == credited
-
 
 def test_sol_amounts_for_solana_pay() -> None:
     hot = Keypair().pubkey()
@@ -154,9 +144,9 @@ def test_sol_amounts_for_solana_pay() -> None:
     assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Unfret&message=Unfret%20credits"
 
 
-def test_purchase_transaction_is_an_unsigned_transfer_with_a_credit_memo() -> None:
-    payer, hot, member = Keypair().pubkey(), Keypair().pubkey(), Keypair().pubkey()
-    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", member)
+def test_purchase_transaction_is_an_unsigned_transfer_with_the_quote_memo() -> None:
+    payer, hot = Keypair().pubkey(), Keypair().pubkey()
+    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", "veridex:quote:abcdefghijklmnopqrst")
     message = VersionedTransaction.from_bytes(raw).message
     assert message.account_keys[0] == payer  # fee payer and the only signer
     assert message.header.num_required_signatures == 1
@@ -164,13 +154,14 @@ def test_purchase_transaction_is_an_unsigned_transfer_with_a_credit_memo() -> No
     assert message.account_keys[pay.program_id_index] == Pubkey.from_string("11111111111111111111111111111111")
     assert int.from_bytes(bytes(pay.data)[4:12], "little") == 7
     assert message.account_keys[memo.program_id_index] == MEMO_PROGRAM
-    assert bytes(memo.data) == f"veridex:credit:{member}".encode()
+    assert bytes(memo.data) == b"veridex:quote:abcdefghijklmnopqrst"
     assert list(memo.accounts) == []
 
 
-def test_solana_pay_url_carries_the_beneficiary_memo() -> None:
-    hot, member = Keypair().pubkey(), Keypair().pubkey()
-    assert solana_pay_url(hot, 1_000_000, member).endswith(f"&memo=veridex%3Acredit%3A{member}")
+def test_solana_pay_url_carries_the_quote_memo() -> None:
+    hot = Keypair().pubkey()
+    url = solana_pay_url(hot, 1_000_000, "veridex:quote:abcdefghijklmnopqrst")
+    assert url.endswith("&memo=veridex%3Aquote%3Aabcdefghijklmnopqrst")
 
 
 # ── Trial ─────────────────────────────────────────────────────────────────────

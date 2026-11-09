@@ -307,12 +307,12 @@
     "type": "object"
    },
    "FiatCheckoutRequest": {
-    "description": "Which key to top up with how much.",
+    "description": "Which key to top up with which pack.",
     "properties": {
-     "amount_usd_micros": {
-      "description": "The amount in micro-dollars, whole cents, at least fiat.min_usd_micros from /v1/pricing.",
+     "checks": {
+      "description": "The pack: one of the pack sizes in /v1/pricing (charged its price_usd).",
       "exclusiveMinimum": 0.0,
-      "title": "Amount Usd Micros",
+      "title": "Checks",
       "type": "integer"
      },
      "key_id": {
@@ -324,7 +324,7 @@
     },
     "required": [
      "key_id",
-     "amount_usd_micros"
+     "checks"
     ],
     "title": "FiatCheckoutRequest",
     "type": "object"
@@ -905,26 +905,13 @@
     "type": "object"
    },
    "PurchaseRequest": {
-    "description": "Who buys how much, in which currency.",
+    "description": "Which pack, for whom, paid how, from where.",
     "properties": {
      "address": {
       "description": "The paying wallet (base58), which signs and sends the transfer.",
       "maxLength": 64,
       "title": "Address",
       "type": "string"
-     },
-     "amount": {
-      "anyOf": [
-       {
-        "exclusiveMinimum": 0.0,
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Amount in the currency's base units.",
-      "title": "Amount"
      },
      "beneficiary": {
       "anyOf": [
@@ -936,8 +923,21 @@
         "type": "null"
        }
       ],
-      "description": "The wallet that gets the credits (defaults to address), e.g. a member key when a smart-wallet vault pays. Recorded in a memo the scanner reads.",
+      "description": "The wallet that gets the credits (defaults to address), e.g. a member key when a smart-wallet vault pays.",
       "title": "Beneficiary"
+     },
+     "checks": {
+      "description": "The pack: one of the pack sizes in /v1/pricing.",
+      "exclusiveMinimum": 0.0,
+      "title": "Checks",
+      "type": "integer"
+     },
+     "country": {
+      "description": "The buyer's country (ISO 3166 alpha-2), for VAT. The checkout prefills it from where the request comes from; the buyer can change it.",
+      "maxLength": 2,
+      "minLength": 2,
+      "title": "Country",
+      "type": "string"
      },
      "currency": {
       "default": "SOL",
@@ -959,25 +959,14 @@
         "type": "null"
        }
       ],
-      "description": "Top up this API key instead (its id, or the key itself: only the id is used). Recorded in the memo as key:<id>.",
+      "description": "Top up this API key instead (its id, or the key itself: only the id is used).",
       "title": "Key Id"
-     },
-     "lamports": {
-      "anyOf": [
-       {
-        "exclusiveMinimum": 0.0,
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Amount of SOL in lamports (same as amount for SOL).",
-      "title": "Lamports"
      }
     },
     "required": [
-     "address"
+     "address",
+     "checks",
+     "country"
     ],
     "title": "PurchaseRequest",
     "type": "object"
@@ -986,7 +975,12 @@
     "description": "The unsigned transfer for the buyer's wallet, and the same request as a Solana Pay link.",
     "properties": {
      "amount": {
+      "description": "The amount in the currency's base units (VAT included).",
       "title": "Amount",
+      "type": "integer"
+     },
+     "checks": {
+      "title": "Checks",
       "type": "integer"
      },
      "currency": {
@@ -1025,6 +1019,9 @@
       "description": "The token mint for USDC purchases.",
       "title": "Mint"
      },
+     "price": {
+      "$ref": "#/components/schemas/VatBreakdown"
+     },
      "solana_pay_url": {
       "title": "Solana Pay Url",
       "type": "string"
@@ -1039,7 +1036,9 @@
      "currency",
      "amount",
      "hot_wallet",
-     "solana_pay_url"
+     "solana_pay_url",
+     "checks",
+     "price"
     ],
     "title": "PurchaseResponse",
     "type": "object"
@@ -1299,6 +1298,47 @@
      "type"
     ],
     "title": "ValidationError",
+    "type": "object"
+   },
+   "VatBreakdown": {
+    "description": "What the buyer pays, in dollars, and why.",
+    "properties": {
+     "country": {
+      "title": "Country",
+      "type": "string"
+     },
+     "net_usd_micros": {
+      "description": "The pack's price, credited to the account.",
+      "title": "Net Usd Micros",
+      "type": "integer"
+     },
+     "total_usd": {
+      "title": "Total Usd",
+      "type": "string"
+     },
+     "total_usd_micros": {
+      "description": "What is charged: net plus VAT.",
+      "title": "Total Usd Micros",
+      "type": "integer"
+     },
+     "vat_rate_pct": {
+      "title": "Vat Rate Pct",
+      "type": "string"
+     },
+     "vat_usd_micros": {
+      "title": "Vat Usd Micros",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "country",
+     "vat_rate_pct",
+     "net_usd_micros",
+     "vat_usd_micros",
+     "total_usd_micros",
+     "total_usd"
+    ],
+    "title": "VatBreakdown",
     "type": "object"
    },
    "Verdict-Input": {
@@ -1942,7 +1982,7 @@
   },
   "/v1/credits/fiat-checkout": {
    "post": {
-    "description": "Start a card (or other fiat) payment that tops up an API key, at the provider's hosted checkout.\n\nThe provider handles the buyer's details, invoice and tax; this service only learns that the key was paid for.\nCredited when the provider's webhook confirms the payment, with the same bonus tiers as crypto.\n\n:param body: The key and the amount.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured.\n:raises BadRequestError: If the amount is out of range.",
+    "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\n:param body: The key and the pack.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured.",
     "operationId": "fiat_checkout_v1_credits_fiat_checkout_post",
     "requestBody": {
      "content": {
@@ -1984,7 +2024,7 @@
   },
   "/v1/credits/purchase-tx": {
    "post": {
-    "description": "Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.\n\nCredits arrive once the transfer is finalized (about 15\u201330 seconds): its dollar value (SOL converted at crediting\ntime, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's\nmemo (the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise). No sign-in needed: anyone may fund\nany wallet or API key.\n\n:param body: Who buys how much, in which currency.\n:param request: The incoming request.\n:return: The transaction (base64) and a Solana Pay link for phone wallets.",
+    "description": "Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.\n\nThe pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the\ntransaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15\u201330 seconds):\nwhat arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.\nNo sign-in needed: anyone may fund any wallet or API key.\n\n:param body: Which pack, for whom, paid how, from where.\n:param request: The incoming request.\n:return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.",
     "operationId": "purchase_tx_v1_credits_purchase_tx_post",
     "requestBody": {
      "content": {
@@ -2026,41 +2066,28 @@
   },
   "/v1/credits/solana-pay.svg": {
    "get": {
-    "description": "The Solana Pay request as a QR code, for paying from a phone wallet.\n\n:param request: The incoming request.\n:param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).\n:param amount: The amount in the currency's base units.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.\n:param key_id: The API key to credit instead (a memo).\n:return: An SVG image.\n:raises BadRequestError: If no amount is given.",
+    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
     "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
     "parameters": [
      {
       "in": "query",
-      "name": "lamports",
-      "required": false,
+      "name": "checks",
+      "required": true,
       "schema": {
-       "anyOf": [
-        {
-         "exclusiveMinimum": 0,
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Lamports"
+       "exclusiveMinimum": 0,
+       "title": "Checks",
+       "type": "integer"
       }
      },
      {
       "in": "query",
-      "name": "amount",
-      "required": false,
+      "name": "country",
+      "required": true,
       "schema": {
-       "anyOf": [
-        {
-         "exclusiveMinimum": 0,
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "title": "Amount"
+       "maxLength": 2,
+       "minLength": 2,
+       "title": "Country",
+       "type": "string"
       }
      },
      {
@@ -2285,7 +2312,7 @@
   },
   "/v1/pricing": {
    "get": {
-    "description": "The dollar prices (analysis, x402 tiers), bonuses, packs and limits, with exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:return: The price list.",
+    "description": "The price of a check and everything derived from it.\n\nThe x402 tiers, the packs (by card, and the lower crypto\nprice), the VAT rules for crypto, exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it carries the visitor's likely country).\n:return: The price list.",
     "operationId": "get_pricing_v1_pricing_get",
     "responses": {
      "200": {

@@ -7,9 +7,8 @@ are shown once, at creation or recovery, and only their SHA-256 hashes are store
 good as any slow hash: there is nothing to brute-force). Recovery rotates both secrets and keeps the id, so the
 balance stays and the old key and code stop working at once.
 
-Nothing else is stored about a key: no email, no IP, no purchase history. A new key starts empty (no trial: that
-stays with wallets, whose on-chain history bounds farming) and is topped up like a wallet, by a purchase whose memo
-names it, or later through a fiat provider.
+Nothing else is stored about a key: no email, no IP, no purchase history. A new key starts empty, like a new
+wallet, and is topped up like one: by a purchase whose memo names it, or through a fiat provider.
 """
 
 import base64
@@ -24,7 +23,7 @@ from dataclasses import dataclass, field
 import asyncpg
 
 from veridex.credits import ledger
-from veridex.credits.trial import TrialLimiter
+from veridex.visitors import DailyLimit
 
 type Executor = asyncpg.Pool | asyncpg.Connection
 
@@ -240,8 +239,8 @@ class KeyGuard:
     secret: str
     bits: int
     ttl_s: int
-    creations: TrialLimiter
-    recoveries: TrialLimiter
+    creations: DailyLimit
+    recoveries: DailyLimit
     clock: Callable[[], float] = time.time
     _used: dict[str, float] = field(default_factory=dict)
 

@@ -1,7 +1,7 @@
 """
 API keys: ``GET /v1/keys/challenge``, ``POST /v1/keys`` (create) and ``POST /v1/keys/recover`` (rotate).
 
-A key is an account without a wallet: create it (empty, no trial), then top it up with ``/v1/credits/purchase-tx``
+A key is an account without a wallet: create it (empty), then top it up with ``/v1/credits/purchase-tx``
 (``key_id``) or, once a provider is wired in, ``/v1/credits/fiat-checkout``. Use it as ``Authorization: Bearer
 ufk_…`` wherever a session token works. The key and its recovery code are shown once and stored only as hashes.
 """
@@ -79,7 +79,7 @@ def challenge(request: Request) -> ChallengeResponse:
 @router.post("", response_model=KeyResponse, status_code=201)
 async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     """
-    Create an empty API key (no trial) with a solved challenge; a few per visitor network per day.
+    Create an empty API key with a solved challenge; a few per visitor network per day.
 
     :param body: The solved challenge.
     :param request: The incoming request.

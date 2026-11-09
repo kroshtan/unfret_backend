@@ -7,7 +7,9 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
+_DAY = 24 * 3600
 _SALT = secrets.token_bytes(16)  # per process: keys can't be linked across restarts
 
 
@@ -65,3 +67,36 @@ class RateLimit:
             return hits[0] + self.window_s - now
         hits.append(now)
         return None
+
+
+@dataclass
+class DailyLimit:
+    """At most ``per_ip_per_day`` events per visitor network (sliding 24 hours) and ``daily_cap`` per UTC day."""
+
+    per_ip_per_day: int
+    daily_cap: int
+    clock: Callable[[], float] = time.time
+    _hits: dict[str, deque[float]] = field(default_factory=dict)
+    _day: str = ""
+    _day_count: int = 0
+
+    def allow(self, ip: str) -> bool:
+        """
+        Decide whether ``ip`` may do it now, and count it if so.
+
+        :param ip: The visitor's address.
+        :return: ``True`` if allowed (and counted).
+        """
+        now = self.clock()
+        today = datetime.fromtimestamp(now, UTC).strftime("%Y-%m-%d")
+        if today != self._day:
+            self._day, self._day_count = today, 0
+            self._hits = {k: v for k, v in self._hits.items() if v and v[-1] > now - _DAY}
+        hits = self._hits.setdefault(visitor_key(ip), deque())
+        while hits and hits[0] <= now - _DAY:
+            hits.popleft()
+        if self._day_count >= self.daily_cap or len(hits) >= self.per_ip_per_day:
+            return False
+        hits.append(now)
+        self._day_count += 1
+        return True

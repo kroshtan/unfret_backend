@@ -19,13 +19,13 @@ Credits belong to a wallet public key. The user proves control by signing a plai
   → `{"token": str, "address": base58, "expires_at": ISO-8601}`
   The server checks the ed25519 signature, the domain, the nonce's HMAC and expiry, and that the message's address
   equals `address`. The token is stateless (HMAC over address + expiry, 30 days), sent as `Authorization: Bearer <token>`.
-  The first successful sign-in of a wallet creates its balance row (trial rules below).
+  Signing in grants nothing: a wallet's balance row is created by its first purchase.
 
 ## Credits
 The balance is held in **lamports** (`pubkey → balance_lamports`); the UI shows checks remaining.
 - `GET /v1/pricing` → `{"analysis_lamports": int, "x402": {"quick_lamports": int, "deep_lamports": int},
   "bonuses": [{"min_lamports": int, "bonus_pct": int}], "suggested_packs": [{"checks": int, "lamports": int}],
-  "hot_wallet": base58, "network": "solana-mainnet"|"solana-devnet", "trial_checks": int}`
+  "hot_wallet": base58, "network": "solana-mainnet"|"solana-devnet"}`
 - `GET /v1/credits` (Bearer) → `{"address": base58, "balance_lamports": int, "checks_remaining": int}`
 - `POST /v1/credits/purchase-tx` `{"address": base58, "lamports": int}` → `{"transaction": base64 (unsigned
   VersionedTransaction: a System transfer address → hot wallet, payer = address), "lamports": int, "hot_wallet": base58,
@@ -175,8 +175,8 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   release).
 - `GET /v1/pricing` → `{"currency": "USD", "analysis_usd_micros", "analysis_usd": "$0.15", "x402": {"quick_usd_micros",
   "deep_usd_micros"}, "bonuses": [{"min_usd_micros", "bonus_pct"}], "suggested_packs": [{"checks", "usd_micros"}],
-  "purchase": {"min_usd_micros", "max_usd_micros"}, "hot_wallet", "network", "trial_checks", "usdc": {"mint",
-  "decimals", "analysis_units", "x402": {"quick_units", "deep_units"}, ...}, "sol": {"usd_per_sol", "quoted_at",
+  "purchase": {"min_usd_micros", "max_usd_micros"}, "hot_wallet", "network", "usdc": {"mint", "decimals",
+  "analysis_units", "x402": {"quick_units", "deep_units"}, ...}, "sol": {"usd_per_sol", "quoted_at",
   "source": "pyth", "analysis_lamports", "x402": {"quick_lamports", "deep_lamports"}, "purchase": {"min_lamports",
   "max_lamports"}} | null, "sol_unavailable"?: str, "analysis_lamports": int | null}`. `usdc` is always present now;
   `sol` is null while the oracle is stale. Removed: `price_mode`, the old `usdc.sol_usd`/`usdc.source`, lamport bonus
@@ -188,7 +188,6 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   `refunded_lamports` is kept as a deprecated alias of the same value.
 - `/.well-known/x402` adds `"pricing": "canonical in USD"` and per-tier `price_usd` / `price_usd_micros`; `/llms.txt`
   quotes dollar prices.
-- A credit purchase (or a memo naming a wallet) no longer uses up that wallet's free trial.
 - MCP: spend caps are in dollars (`VERIDEX_MCP_MAX_PRICE_USD`, `VERIDEX_MCP_SESSION_CAP_USD`); a wSOL charge is valued
   with the agent's own Pyth reading. `check_store`'s `paid` adds `usd_micros`.
 
@@ -235,7 +234,7 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 **API keys: an account without a wallet.** A key is `ufk_<id>_<secret>`; the `<id>` (10 lowercase base32 characters)
 is public and names the account, `key:<id>`, in the same ledger as wallets. Wherever a session token works
 (`/v1/analyze`, `/v1/analyze/stream`, `/v1/credits`, `/v1/reports`), `Authorization: Bearer ufk_…` works too. Keys
-get no trial (the one-time wallet trial is unchanged).
+start empty.
 
 - `GET /v1/keys/challenge` → `{"challenge": str, "bits": int, "expires_at": float}`: a proof of work, accepted once
   within 10 minutes. Find a `solution` (≤ 32 characters, e.g. a decimal counter) with
@@ -362,3 +361,10 @@ valid 7 days. Nothing is stored when a check runs.
   The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back
   `{"url": …}` and the server fetches the page again for the review queue.
 - Requests that send the page (the extension) are unchanged.
+
+## Changes (no free trial)
+
+- There is no free trial any more: a wallet's first sign-in grants nothing, and every new account (wallet or API key)
+  starts at zero checks and buys a pack. Balances already granted stay.
+- `GET /v1/pricing` no longer has `trial_checks`. Clients that read it should treat it as absent (0).
+- The `VERIDEX_TRIAL_*` settings are gone.

@@ -15,7 +15,7 @@ from tests.integration.conftest import DROP_ALL, bearer
 from tests.unit.x402_helpers import StaticOracle
 from veridex.auth import get_credits
 from veridex.config import settings
-from veridex.credits import CreditsDoor, keys, ledger, siws, vat
+from veridex.credits import CreditsDoor, keys, siws, vat
 from veridex.credits.scanner import CreditScanner
 from veridex.main import app
 from veridex.migrations import MIGRATIONS, migrate
@@ -157,52 +157,18 @@ async def test_sign_in_off_without_a_secret(client: httpx.AsyncClient, monkeypat
     assert (await client.post("/v1/analyze", json={"page_content": "x"}, headers=bearer("x"))).status_code == 503
 
 
-# ── Free trial ────────────────────────────────────────────────────────────────
+# ── No trial ──────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def chain(client: httpx.AsyncClient) -> ChainRpc:
+async def test_a_new_wallet_starts_at_zero(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
+    rpc.history = [{"signature": f"s{i}", "blockTime": 1} for i in range(12)]  # a well-used wallet gets nothing either
     app.credits = CreditsDoor(settings, rpc, None)  # type: ignore[arg-type]
-    return rpc
-
-
-async def test_trial_for_a_wallet_with_history(client: httpx.AsyncClient, pool: asyncpg.Pool, chain: ChainRpc) -> None:
-    chain.history = [{"signature": f"s{i}", "blockTime": 1} for i in range(12)]
-    keypair = Keypair()
-
-    await sign_in(client, keypair)
-    await sign_in(client, keypair)  # the second sign-in grants nothing more
-
-    assert await balance(pool, str(keypair.pubkey())) == settings.trial_checks * PRICE
-
-
-async def test_no_trial_for_a_fresh_wallet(client: httpx.AsyncClient, pool: asyncpg.Pool, chain: ChainRpc) -> None:
-    chain.history = [{"signature": "s1", "blockTime": 2_000_000_000}]
     keypair = Keypair()
 
     assert (await sign_in(client, keypair)).status_code == 200
-    assert await balance(pool, str(keypair.pubkey())) is None  # no row: it may still qualify later
-
-
-async def test_trial_limited_per_visitor(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, chain: ChainRpc, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    chain.history = [{"signature": f"s{i}", "blockTime": 1} for i in range(12)]
-    door = get_credits_from_app()
-    door.trials.per_ip_per_day = 1
-    first, second = Keypair(), Keypair()
-
-    await sign_in(client, first)
-    await sign_in(client, second)
-
-    assert await balance(pool, str(first.pubkey())) == settings.trial_checks * PRICE
-    assert await balance(pool, str(second.pubkey())) is None
-
-
-def get_credits_from_app() -> CreditsDoor:
-    door: CreditsDoor = app.credits
-    return door
+    assert await balance(pool, str(keypair.pubkey())) is None
+    assert "trial_checks" not in (await client.get("/v1/pricing")).json()
 
 
 # ── Pricing and purchases ─────────────────────────────────────────────────────
@@ -635,17 +601,7 @@ async def test_sol_purchases_wait_for_a_fresh_price_rather_than_guess(pool: asyn
     assert await balance(pool, "alice") == net(1_500_000)  # 0.01 SOL at $150/SOL = $1.50
 
 
-# ── Dollar balances and the trial flag (migration 5) ─────────────────────────
-
-
-async def test_a_purchase_or_a_memo_doesnt_use_up_the_trial(pool: asyncpg.Pool) -> None:
-    # Regression: a row used to mean "trial spent", so 1 lamport with a memo naming someone cancelled their trial.
-    await ledger.credit(pool, "wallet", 100)
-    assert not await ledger.trial_used(pool, "wallet")
-    assert await ledger.grant_trial(pool, "wallet", 750_000)
-    assert await ledger.trial_used(pool, "wallet")
-    assert not await ledger.grant_trial(pool, "wallet", 750_000)  # at most once
-    assert await balance(pool, "wallet") == 750_100
+# ── Dollar balances (migration 5) ────────────────────────────────────────────
 
 
 async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Pool) -> None:
@@ -656,7 +612,6 @@ async def test_migration_5_keeps_every_wallets_number_of_checks(pool: asyncpg.Po
     assert await migrate(pool) == [v for v, _, _ in MIGRATIONS[4:]]
     assert await balance(pool, "a") == 450_000  # 3 checks before (1.5M lamports each), 3 checks now ($0.15 each)
     assert await balance(pool, "b") == 149_999
-    assert await ledger.trial_used(pool, "a")  # existing rows had their trial
 
 
 # ── API keys as beneficiaries ─────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""SIWS messages, nonces and sessions; purchase pricing; the trial rules; reading transfers for the scanner."""
+"""SIWS messages, nonces and sessions; purchase pricing; reading transfers for the scanner."""
 
 from typing import Any
 
@@ -10,7 +10,6 @@ from solders.transaction import VersionedTransaction
 from veridex.credits import siws
 from veridex.credits.pricing import purchase_transaction, sol_string, solana_pay_url
 from veridex.credits.scanner import credit_beneficiary, credits_for, incoming_transfers
-from veridex.credits.trial import TrialLimiter, has_history
 from veridex.x402.solana import MEMO_PROGRAM
 
 SECRET = "unit-secret"
@@ -162,45 +161,6 @@ def test_solana_pay_url_carries_the_quote_memo() -> None:
     hot = Keypair().pubkey()
     url = solana_pay_url(hot, 1_000_000, "veridex:quote:abcdefghijklmnopqrst")
     assert url.endswith("&memo=veridex%3Aquote%3Aabcdefghijklmnopqrst")
-
-
-# ── Trial ─────────────────────────────────────────────────────────────────────
-
-
-def test_trial_limiter_per_ip_and_daily_cap() -> None:
-    now = [NOW]
-    limiter = TrialLimiter(per_ip_per_day=2, daily_cap=3, clock=lambda: now[0])
-    assert limiter.allow("1.1.1.1") and limiter.allow("1.1.1.1")
-    assert not limiter.allow("1.1.1.1")
-    assert limiter.allow("2.2.2.2")
-    assert not limiter.allow("3.3.3.3")  # daily cap
-    now[0] += 86_400 + 1
-    assert limiter.allow("1.1.1.1") and limiter.allow("3.3.3.3")
-    assert all(len(k) == 32 for k in limiter._hits)  # salted hashes, never the addresses
-
-
-class HistoryRpc:
-    def __init__(self, entries: list[dict[str, Any]]) -> None:
-        self.entries = entries
-
-    async def signature_page(self, address: Pubkey, **_: Any) -> list[dict[str, Any]]:
-        return self.entries
-
-
-@pytest.mark.parametrize(
-    ("entries", "eligible"),
-    [
-        ([], False),
-        ([{"blockTime": int(NOW) - 86_400}], False),  # one day old, one transaction
-        ([{"blockTime": int(NOW) - 31 * 86_400}], True),  # old enough
-        ([{"blockTime": int(NOW)}] * 10, True),  # busy enough
-        ([{"blockTime": None}], False),
-    ],
-)
-async def test_history_check(entries: list[dict[str, Any]], eligible: bool) -> None:
-    rpc: Any = HistoryRpc(entries)
-    address = str(Keypair().pubkey())
-    assert await has_history(rpc, address, min_age_days=30, min_signatures=10, now=NOW) is eligible
 
 
 # ── Reading transfers ────────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 """
-The credits ledger: ``account → balance`` in micro-dollars plus a trial flag, and nothing else about anyone.
+The credits ledger: ``account → balance`` in micro-dollars, and nothing else about anyone.
 
 An account is a wallet (its base58 address) or an API key (``key:<id>``, see :mod:`veridex.credits.keys`); both
-live in the ``wallets`` table, whose ``pubkey`` column holds either. Only wallets ever get the trial. No purchase
+live in the ``wallets`` table, whose ``pubkey`` column holds either. Every account starts at zero. No purchase
 history (the chain is the ledger), no analysis log, no URLs. Balances are micro-dollars (1 USD = 1,000,000), so a
 check keeps its value whatever SOL does. The ``pubkey`` parameters below take either kind of account.
 
@@ -25,37 +25,6 @@ async def balance(db: Executor, pubkey: str) -> int | None:
     """
     value = await db.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", pubkey)
     return None if value is None else int(value)
-
-
-async def trial_used(db: Executor, pubkey: str) -> bool:
-    """
-    Whether a wallet has already had its free trial.
-
-    :param db: A pool or connection.
-    :param pubkey: The wallet (base58).
-    :return: ``True`` once the trial was granted.
-    """
-    return bool(await db.fetchval("SELECT trial_granted FROM wallets WHERE pubkey = $1", pubkey))
-
-
-async def grant_trial(db: Executor, pubkey: str, amount: int) -> bool:
-    """
-    Add the free trial to a wallet's balance, at most once per wallet (a wallet that bought first still gets it).
-
-    :param db: A pool or connection.
-    :param pubkey: The wallet (base58).
-    :param amount: The trial's value in micro-dollars.
-    :return: ``True`` if the trial was granted now.
-    """
-    granted = await db.fetchval(
-        "INSERT INTO wallets (pubkey, balance_usd_micros, trial_granted) VALUES ($1, $2, TRUE) "
-        "ON CONFLICT (pubkey) DO UPDATE SET trial_granted = TRUE, "
-        "balance_usd_micros = wallets.balance_usd_micros + EXCLUDED.balance_usd_micros "
-        "WHERE NOT wallets.trial_granted RETURNING TRUE",
-        pubkey,
-        amount,
-    )
-    return bool(granted)
 
 
 async def credit(db: Executor, pubkey: str, amount: int) -> int:

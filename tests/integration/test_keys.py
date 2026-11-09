@@ -52,7 +52,7 @@ async def test_a_new_key_is_empty_and_works_like_a_session(
     assert issued["key"].startswith(f"ufk_{issued['key_id']}_")
     assert issued["recovery_code"].startswith(f"ufr_{issued['key_id']}_")
     assert issued["account"] == f"key:{issued['key_id']}"
-    assert issued["balance_usd_micros"] == 0  # no trial for keys
+    assert issued["balance_usd_micros"] == 0  # keys start empty
     credits = await client.get("/v1/credits", headers=bearer(issued["key"]))
     assert credits.json()["address"] == issued["account"]
     assert credits.json()["balance_usd_micros"] == 0

@@ -321,6 +321,35 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        13,
+        "showcase cases",
+        """
+        -- "Spotted recently" (veridex.showcase): checks the operator ran on public product pages, shown on the site
+        -- only once the owner published them. Never a user's check: no account, payer, report or caller column; the
+        -- product URL is the operator's own input. A screenshot is kept in the row (the container's files go with
+        -- every deploy), capped.
+        CREATE TABLE showcase_cases (
+            id               BIGSERIAL PRIMARY KEY,
+            origin           TEXT NOT NULL CHECK (origin IN ('operator', 'report')),
+            title            TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 300),
+            host             TEXT NOT NULL CHECK (length(host) BETWEEN 1 AND 253),
+            product_url      TEXT NOT NULL CHECK (product_url ~ '^https?://' AND length(product_url) <= 2000),
+            checked_at       TIMESTAMPTZ NOT NULL,
+            response         JSONB NOT NULL,
+            screenshot       BYTEA CHECK (octet_length(screenshot) <= 800000),
+            screenshot_type  TEXT CHECK (screenshot_type IN ('image/png', 'image/jpeg', 'image/webp')),
+            status           TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'removed')),
+            published_at     TIMESTAMPTZ,
+            removed_at       TIMESTAMPTZ,
+            removed_reason   TEXT CHECK (length(removed_reason) BETWEEN 1 AND 500),
+            CHECK ((screenshot IS NULL) = (screenshot_type IS NULL)),
+            CHECK (status <> 'published' OR published_at IS NOT NULL),
+            CHECK (status <> 'removed' OR (removed_at IS NOT NULL AND removed_reason IS NOT NULL))
+        );
+        CREATE INDEX showcase_cases_published_idx ON showcase_cases (published_at DESC) WHERE status = 'published';
+        """,
+    ),
 ]
 
 

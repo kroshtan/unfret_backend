@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/check.js"></script>
+  <script type="module" src="/static/showcase-list.js"></script>
 </head>
 <body class="app">
   <main>
@@ -128,6 +129,13 @@
     </section>
 
     <p id="again-row" hidden><button id="again" type="button" class="primary">Check another link</button></p>
+
+    <section id="spotted" class="spotted" aria-labelledby="spotted-heading" hidden>
+      <h2 id="spotted-heading">Spotted recently</h2>
+      <p class="muted small">Real product pages Unfret checked itself, each reviewed before it was published; never
+        a shopper's own check.</p>
+      <ul class="cards spotted-list"></ul>
+    </section>
 
     <footer><a href="/">About Unfret</a> · <a href="/extension">Browser extension</a> · <a href="/privacy">Privacy</a>
       <br><span class="small">No history: this page keeps no list of the links you check, and Unfret's server

@@ -112,4 +112,7 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert "<h1>Unfret</h1>" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
-    assert "<script" not in response.text
+    # Its only script fills in "Spotted recently" from this server's /v1/showcase.
+    assert response.text.count("<script") == 1
+    assert '<script type="module" src="/static/showcase-list.js"></script>' in response.text
+    assert 'id="spotted"' in response.text

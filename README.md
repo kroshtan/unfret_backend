@@ -88,6 +88,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
+| `GET` | `/v1/showcase` \| `/v1/showcase/{id}` | "Spotted recently": published operator-run checks, see below |
 | `GET` | `/v1/health` | Liveness probe |
 | `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
 | `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
@@ -141,6 +142,38 @@ share target; the sign-in or API key is kept in the browser until sign-out, and 
 
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant credits by hand with
 `uv run scripts/grant_credits.py <pubkey> --checks <n>`.
+
+### "Spotted recently": the showcase
+
+No demo data: the site shows **real checks of real product pages**, run by the operator and each
+reviewed by the owner before it is published (`veridex.showcase`, migration 13). Never a user's check: a case is
+always a fresh server-side check of a public page (the same `fetch_page` + full graph path as a URL-only check,
+without any account or charge), and the `showcase_cases` table has no column that could hold an account, payer or
+report. A case stores the product title, the shop's host, the product URL, when it was checked, the analysis
+response as a paying user gets it (without balance or report token) and optionally a screenshot (in the row, at most
+800 kB, since the container's files go with each deploy). It is a `draft` until published; `removed` takes it down
+for good, keeps the reason and drops the screenshot.
+
+```bash
+make showcase ARGS="add https://shop.example/product"   # the server fetches and checks it: a draft
+make showcase ARGS="list --status draft"
+make showcase ARGS="show 3"                              # incl. exactly what the public would see
+make showcase ARGS="screenshot 3 shot.png"               # optional: PNG, JPEG or WebP
+make showcase ARGS="publish 3"
+make showcase ARGS="remove 3 --reason 'shop owner asked'"
+```
+
+The CLI talks to the running service's admin API (`/v1/admin/showcase…`, `UNFRET_URL` and the admin token as for
+`make reports`). In `make reports`, when a label agrees with the model, `p` promotes the page: only its address is
+sent, and the server checks it again as the operator; nothing from the report goes into the case.
+
+The public sees published cases only: `GET /v1/showcase` (newest first, `Cache-Control: public, max-age=300`), a
+"Spotted recently" section on `/` and `/check`, and a page per case, `/showcase/{id}`, in the link checker's
+presentation (the same renderer, `static/check-render.js`). Each case shows the day it was checked ("the page may
+have changed since"), the shop, a `rel="nofollow noopener"` link to the product page, the screenshot if any, and a
+route for shop owners to object. The wording is factual: the bands are phrased as what Unfret would tell a shopper
+about the listing ("Unfret would warn you about this listing"), there is no score, and the words "scam" and "fraud"
+never appear (a headline or quote containing one is left out; `show` lists what was).
 
 ### Pay-per-check for agents (x402)
 
@@ -313,6 +346,7 @@ src/veridex/
 │   ├── state.py       # shared LangGraph state
 │   └── skills/        # one module per skill
 ├── credits/           # SIWS, the dollar ledger, pricing, purchase scanner
+├── showcase/          # "Spotted recently": operator-run cases, public wording, review CLI
 ├── x402/              # pay-per-check: verification, hot wallet, sweeps
 ├── auth.py            # bearer sessions
 ├── db.py, migrations.py  # versioned schema + queries (asyncpg)

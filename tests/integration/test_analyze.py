@@ -74,10 +74,12 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "crypto_sales",
         "image_prints",
         "listing_verdicts",
+        "showcase_cases",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales"):  # only a crypto purchase fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
+    assert await pool.fetchval("SELECT COUNT(*) FROM showcase_cases") == 0  # only the operator adds cases
     for table in ("reports", "report_votes", "report_quota", "labelled_pages"):  # only a consented report fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0

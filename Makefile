@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label reports eval bump vat-rates-check
+.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label reports showcase eval bump vat-rates-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = veridex-test-postgres
@@ -49,6 +49,9 @@ label:  ## Work through the review queue, one keypress per page
 
 reports:  ## Label reported results from the live service into the corpus (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
 	uv run python -m evals.reports
+
+showcase:  ## Review the "Spotted recently" showcase: ARGS="add URL | list | show ID | publish ID | remove ID --reason TEXT | screenshot ID FILE"
+	uv run python -m veridex.showcase $(ARGS)
 
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)

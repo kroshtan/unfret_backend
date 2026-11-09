@@ -362,6 +362,20 @@ valid 7 days. Nothing is stored when a check runs.
   `{"url": …}` and the server fetches the page again for the review queue.
 - Requests that send the page (the extension) are unchanged.
 
+## Changes (the "Spotted recently" showcase, backwards-compatible)
+
+- `GET /v1/showcase?limit=<1-24, default 6>` (no auth) → `{"items": [{"id", "title", "host", "product_url",
+  "checked_at", "checked_on", "published_at", "band", "label", "symbol", "headline", "page_url",
+  "screenshot_url"}]}`: checks Unfret ran itself on public product pages, published after review, newest first.
+  `Cache-Control: public, max-age=300`. Never a user's check.
+- `GET /v1/showcase/{id}` → the same fields plus `result` (`verdict: {band, label, symbol, headline, reasons,
+  positives}` and, when there are flags, `assessment: {flags: [{label, evidence, kind}], confidence, model_version}`);
+  404 `NOT_FOUND` for drafts and removed cases.
+- `band` is `reliable` | `concerns` | `careful` | `warning` (the analysis' worst band), and `label` describes the
+  listing ("Unfret would warn you about this listing"). The showcase has no score, and no text containing "scam" or
+  "fraud": such a headline is replaced by the band's catalogue headline, such a quote is left out.
+- Pages: `/showcase/{id}` (the case in the link checker's presentation) and `/showcase/{id}/screenshot`.
+
 ## Changes (no free trial)
 
 - There is no free trial any more: a wallet's first sign-in grants nothing, and every new account (wallet or API key)

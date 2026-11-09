@@ -54,11 +54,18 @@
       <li><strong>Recent answers for agents</strong>: the answer of a paid check of a page this server fetched itself,
         under a one-way hash of the listing, for one day, so the same listing can be answered again quickly while the
         shop is unchanged. No address, caller or payment details.</li>
+      <li><strong>"Spotted recently" examples</strong>: checks Unfret ran itself on public product pages, to show what
+        a check finds. For each: the product's title, the shop, the page's address, the day it was checked, the result
+        and sometimes a screenshot of the page. Only pages we chose and checked ourselves, never a shopper's own check,
+        and nothing about who checks what. Each one is reviewed before it is published and can be taken down (see
+        below, for shop owners).</li>
     </ul>
     <p><strong>For shop owners:</strong> contact e-mail addresses and phone numbers shown on a shop's pages are
       stored only as a keyed one-way hash, never shown to anyone, used only to tell whether two shops share them
       (our legitimate interest in warning shoppers about networks of fake shops), and deleted 180 days after they were
-      last seen. To object or have a shop or contact detail removed, use the contact details at kroshtan.com.</p>
+      last seen. To object or have a shop or contact detail removed, use the contact details at kroshtan.com. The same
+      goes for a "Spotted recently" example of your shop's page: tell us and we'll look at it again or take it
+      down.</p>
 
     <h2>When you report a wrong result</h2>
     <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that one check's page
@@ -68,7 +75,8 @@
       it is linked to your wallet or key, only so a good report can be rewarded with free checks; we also count your
       reports per month (as a keyed hash). After review the report is deleted and the page, with its label, stays as
       an example for improving the checks, without any link to you. Reports nobody got to are deleted after 30
-      days.</p>
+      days. If the result was right, we may check the same public page again ourselves and, after review, show that
+      new check as a "Spotted recently" example; it carries nothing from your report and no link to you.</p>
 
     <h2>Who else sees what</h2>
     <ul>
@@ -114,6 +122,12 @@
       <p>Van een betaalde controle van een pagina die deze server zelf ophaalde, bewaren we het antwoord één dag onder
         een eenrichtingshash van de aanbieding, zodat dezelfde aanbieding snel opnieuw beantwoord kan worden zolang de
         winkel niet veranderd is. Geen adres, aanvrager of betaalgegevens.</p>
+      <p><strong>"Spotted recently"-voorbeelden:</strong> controles die Unfret zelf uitvoerde op openbare
+        productpagina's, om te laten zien wat een controle vindt. Per voorbeeld de titel van het product, de winkel, het
+        adres van de pagina, de dag van de controle, de uitslag en soms een schermafbeelding van de pagina. Alleen
+        pagina's die we zelf kozen en controleerden, nooit de controle van een koper, en niets over wie wat controleert.
+        Elk voorbeeld wordt beoordeeld voor het verschijnt. Winkeliers die een voorbeeld van hun pagina onjuist vinden,
+        kunnen dat via de contactgegevens op kroshtan.com laten weten; we bekijken het opnieuw of halen het weg.</p>
       <p><strong>Voor winkeliers:</strong> e-mailadressen en telefoonnummers op de pagina's van een winkel bewaren we
         alleen als eenrichtingshash met een geheime sleutel. Ze worden nooit getoond, alleen gebruikt om te zien of twee winkels
         ze delen (ons gerechtvaardigd belang: kopers waarschuwen voor netwerken van nepwinkels) en 180 dagen na de
@@ -132,7 +146,9 @@
         gekoppeld, alleen om een goede melding te kunnen belonen met gratis controles; we tellen je meldingen per
         maand (als hash). Na beoordeling wordt de melding verwijderd; de pagina en het label blijven als voorbeeld om
         de controles te verbeteren, zonder koppeling aan jou. Meldingen waar niemand aan toekwam verdwijnen na 30
-        dagen.</p>
+        dagen. Klopte de uitslag, dan kunnen we dezelfde openbare pagina zelf opnieuw controleren en die nieuwe
+        controle na beoordeling als "Spotted recently"-voorbeeld tonen; daarin zit niets uit je melding en geen
+        koppeling aan jou.</p>
       <p>Koop je credits met SOL of USDC, dan kies je je land, voor de btw. Dat kan alvast ingevuld zijn op basis van
         het land waar Cloudflare je verbinding vandaan ziet komen; je IP-adres wordt nooit bewaard. Voor onze
         belastingadministratie bewaren we per aankoop de dag, dat land, het bedrag, de btw en de handtekening van de

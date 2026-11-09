@@ -25,3 +25,6 @@ htmlcov/
 # Secrets
 .env
 .secrets.toml
+
+# Image model and seed (downloaded, pinned by hash)
+models/

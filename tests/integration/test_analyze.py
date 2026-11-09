@@ -72,6 +72,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "labelled_pages",
         "vat_quotes",
         "crypto_sales",
+        "image_prints",
+        "listing_verdicts",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales"):  # only a crypto purchase fills them

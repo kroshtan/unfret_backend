@@ -22,3 +22,4 @@ htmlcov/
 # Secrets are passed via VERIDEX_* environment variables at runtime
 .env
 **/.secrets.toml
+models/

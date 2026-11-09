@@ -33,6 +33,8 @@ dependencies = [
     "uvicorn>=0.54",
     "solders>=0.29",
     "segno>=1.6",
+    "onnxruntime>=1.31 ; python_full_version < '3.15'",
+    "numpy>=2.5",
 ]
 
 [project.urls]

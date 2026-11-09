@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from veridex import __version__
+from veridex import __version__, verdict_store
 from veridex.config import settings
 from veridex.credits import ledger
 from veridex.net import fetch_public
@@ -145,6 +145,36 @@ async def _page_html(body: CheckRequest) -> str:
         return body.page_content
     raw = await fetch_public(body.url, max_bytes=settings.max_page_bytes)
     return raw.decode("utf-8", errors="replace")
+
+
+async def _readable_page(body: CheckRequest) -> str | Response:
+    """
+    The page to analyse, or the (free) error response when it can't be read.
+
+    :param body: The request body.
+    :return: The HTML, or a 422 response.
+    """
+    try:
+        html = await _page_html(body)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("check_page_fetch_failed", error=type(exc).__name__)
+        return JSONResponse(
+            {
+                "detail": "Could not fetch the page; send page_content instead. You were not charged.",
+                "error_code": "PAGE_UNAVAILABLE",
+            },
+            status_code=422,
+        )
+    if is_challenge_page(html):
+        return JSONResponse(
+            {
+                "detail": "The page is a bot check, not the store; send the real page as page_content. "
+                "You were not charged.",
+                "error_code": "PAGE_BLOCKED",
+            },
+            status_code=422,
+        )
+    return html
 
 
 def is_challenge_page(html: str) -> bool:
@@ -341,31 +371,20 @@ async def _paid_check(  # noqa: PLR0911
             headers={"Retry-After": str(max(1, int(wait)))},
         )
 
-    # Get the page before any money moves, so a page we can't read costs the caller nothing.
-    try:
-        html = await _page_html(body)
-    except Exception as exc:  # noqa: BLE001
-        logger.info("check_page_fetch_failed", error=type(exc).__name__)
-        return JSONResponse(
-            {
-                "detail": "Could not fetch the page; send page_content instead. You were not charged.",
-                "error_code": "PAGE_UNAVAILABLE",
-            },
-            status_code=422,
-        )
-    if is_challenge_page(html):
-        return JSONResponse(
-            {
-                "detail": "The page is a bot check, not the store; send the real page as page_content. "
-                "You were not charged.",
-                "error_code": "PAGE_BLOCKED",
-            },
-            status_code=422,
-        )
-
-    graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
-    if graph is None:
-        return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
+    # A listing analysed from its own page in the last day, at an unchanged shop, is answered again (only when the
+    # caller doesn't send the page: an answer is never kept from, or served instead of, caller-supplied content).
+    fast = None if body.page_content else await verdict_store.recall(body.url, body.tier, body.policy)
+    html: str = ""
+    graph: Any = None
+    if fast is None:
+        # Get the page before any money moves, so a page we can't read costs the caller nothing.
+        page = await _readable_page(body)
+        if isinstance(page, Response):
+            return page
+        html = page
+        graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
+        if graph is None:
+            return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
     price = x402.usd_price(body.tier)  # the tier's dollar price, whichever currency paid it
     settlement = await _settle(x402, pre, accepts, payer, ip, pool=request.app.db_pool, usd_micros=price)
@@ -376,6 +395,9 @@ async def _paid_check(  # noqa: PLR0911
         return settlement
     signature = settlement.signature
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
+    if fast is not None:
+        logger.info("check_fast_path", tier=body.tier)
+        return 200, fast.model_dump(mode="json"), paid
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
             language = pick_language(request.headers.get("accept-language"))
@@ -395,9 +417,12 @@ async def _paid_check(  # noqa: PLR0911
         _add_refund(content, await _refund_as_credits(request, payer, price), payer)
         return 504 if timed_out else 500, content, paid
 
-    verdict = to_verdict(result, policy=body.policy, tier=body.tier).model_dump(mode="json")
+    answer = to_verdict(result, policy=body.policy, tier=body.tier)
+    verdict = answer.model_dump(mode="json")
     if result.get("score") == -1:  # the page couldn't be assessed: the caller isn't charged for it
         _add_refund(verdict, await _refund_as_credits(request, payer, price), payer)
+    else:
+        await verdict_store.remember(body.url, result, answer, fetched_by_us=not body.page_content)
     return 200, verdict, paid
 
 

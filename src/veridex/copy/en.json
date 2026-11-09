@@ -176,6 +176,14 @@
     "no_return_policy": {
       "title": "No return policy found",
       "detail": "No return policy found on the page."
+    },
+    "photo_reused": {
+      "title": "Same photo on other shops",
+      "detail": "The main product photo is the same photo as on {count} other {shops} ({names}). With the other signals, that points to a resold supplier product."
+    },
+    "linked_new_shops": {
+      "title": "Linked to new shops",
+      "detail": "This shop shares accounts (such as an advertising pixel or payment account) with {count} {shops} registered in the last six months: {names}."
     }
   },
   "positives": {
@@ -305,7 +313,10 @@
     "us_identity.us_address": "US business address",
     "us_identity.mailbox_only": "Mailbox address only",
     "us_identity.business_entity": "Company named",
-    "us_identity.us_phone": "Phone number"
+    "us_identity.us_phone": "Phone number",
+    "reverse_image.searched": "Photo looked up",
+    "reverse_image.other_shops": "Same photo on other shops",
+    "reverse_image.catalogue_matches": "Same photo in a product catalogue"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
@@ -316,5 +327,7 @@
     "card_tax": "plus sales tax/VAT where applicable, added at checkout",
     "vat_line": "{net} + {rate}% VAT ({vat}) = {total}",
     "no_vat_line": "{total} (no VAT outside the EU)"
-  }
+  },
+  "shop_one": "shop",
+  "shop_many": "shops"
 }

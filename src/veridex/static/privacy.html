@@ -42,6 +42,14 @@
         template, and the account IDs on its pages (analytics, advertising pixels, payment accounts), so shops run by
         the same operator can be recognized. Never who checked the shop, which page, or our verdict. Kept 400 days
         after the shop was last seen.</li>
+      <li><strong>Product photo fingerprints</strong>: of the main photo of a checked product, its fingerprints
+        (computed on this server; the photo goes to no one else), the photo's own address on the shop, the shop and a
+        one-way hash of the listing, so the same photo on another shop can be recognised. Kept 400 days after last
+        seen. Matching photos are shown as small thumbnails served by this server, so your browser never contacts the
+        other shop.</li>
+      <li><strong>Recent answers for agents</strong>: the answer of a paid check of a page this server fetched itself,
+        under a one-way hash of the listing, for one day, so the same listing can be answered again quickly while the
+        shop is unchanged. No address, caller or payment details.</li>
     </ul>
     <p><strong>For shop owners:</strong> contact e-mail addresses and phone numbers shown on a shop's pages are
       stored only as a keyed one-way hash, never shown to anyone, used only to tell whether two shops share them
@@ -91,6 +99,14 @@
         account-ID's op de pagina's (statistieken, advertentiepixels, betaalaccounts), zodat winkels van dezelfde
         uitbater herkenbaar zijn. Nooit wie de winkel controleerde, welke pagina of ons oordeel. Dit blijft 400 dagen
         na de laatste keer dat de winkel gezien is.</p>
+      <p>Van de hoofdfoto van een gecontroleerd product bewaren we vingerafdrukken (berekend op deze server; de foto
+        gaat naar niemand anders), het adres van de foto bij de winkel, de winkel en een eenrichtingshash van de
+        aanbieding, zodat dezelfde foto bij een andere winkel herkenbaar is. Dit blijft 400 dagen na de laatste keer
+        gezien. Overeenkomende foto's tonen we als kleine miniaturen via deze server, zodat je browser de andere winkel
+        niet benadert.</p>
+      <p>Van een betaalde controle van een pagina die deze server zelf ophaalde, bewaren we het antwoord één dag onder
+        een eenrichtingshash van de aanbieding, zodat dezelfde aanbieding snel opnieuw beantwoord kan worden zolang de
+        winkel niet veranderd is. Geen adres, aanvrager of betaalgegevens.</p>
       <p><strong>Voor winkeliers:</strong> e-mailadressen en telefoonnummers op de pagina's van een winkel bewaren we
         alleen als eenrichtingshash met een geheime sleutel. Ze worden nooit getoond, alleen gebruikt om te zien of twee winkels
         ze delen (ons gerechtvaardigd belang: kopers waarschuwen voor netwerken van nepwinkels) en 180 dagen na de

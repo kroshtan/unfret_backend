@@ -1060,6 +1060,15 @@
       "title": "Severity",
       "type": "string"
      },
+     "thumbnails": {
+      "description": "Up to three thumbnail URLs of the matching photos.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Thumbnails",
+      "type": "array"
+     },
      "title": {
       "title": "Title",
       "type": "string"
@@ -1591,6 +1600,16 @@
       ],
       "description": "0 = no concerns, 1 = clear risk; null if not assessed.",
       "title": "Risk Score"
+     },
+     "source": {
+      "default": "analysis",
+      "description": "\"fingerprint\": the answer of a full analysis of this listing in the last day, served again because the shop hasn't changed since.",
+      "enum": [
+       "analysis",
+       "fingerprint"
+      ],
+      "title": "Source",
+      "type": "string"
      },
      "summary": {
       "anyOf": [
@@ -2202,6 +2221,46 @@
     "summary": "Ready",
     "tags": [
      "Health"
+    ]
+   }
+  },
+  "/v1/images/{print_id}/thumbnail.jpg": {
+   "get": {
+    "description": "A small JPEG of a photo in the image index (the thumbnails in photo findings point here).\n\n:param print_id: The index row, from a finding's thumbnail URL.\n:return: The JPEG, cacheable for a day.\n:raises HTTPException: 404 for an unknown row or a photo that is gone.",
+    "operationId": "thumbnail_v1_images__print_id__thumbnail_jpg_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "print_id",
+      "required": true,
+      "schema": {
+       "minimum": 1,
+       "title": "Print Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "image/jpeg": {}
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Thumbnail",
+    "tags": [
+     "Images"
     ]
    }
   },

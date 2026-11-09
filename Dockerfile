@@ -17,6 +17,11 @@ COPY README.md LICENSE ./
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
+# The image index's embedding model, pinned by SHA-256 (veridex.image_index), downloaded at build time so the service
+# never fetches code. The catalogue seed is never in the image: an operator imports it (docs/image-index.md).
+ENV VERIDEX_IMAGE_MODEL_PATH=/app/models/dinov2-small-int8.onnx
+RUN python -m veridex.image_index "$VERIDEX_IMAGE_MODEL_PATH"
+
 RUN useradd --create-home --uid 1000 veridex
 USER veridex
 

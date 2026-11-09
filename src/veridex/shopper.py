@@ -56,6 +56,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "ships_from_far": "low",
     "dropshipping_tools": "medium",
     "supplier_links": "medium",
+    "photo_reused": "medium",
+    "linked_new_shops": "medium",
     "missing_trust_info": "medium",
     "no_withdrawal": "medium",
     "no_return_policy": "medium",
@@ -110,6 +112,7 @@ CONTEXT_FEATURES = frozenset(
         "domain_age.term_years",
         "domain_age.redacted",
         "domain_age.cert_age_years",
+        "reverse_image.searched",
     }
 )
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
@@ -133,6 +136,9 @@ class Reason(BaseModel):
     title: str
     detail: str
     severity: Severity
+    thumbnails: list[str] = Field(
+        default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
+    )
 
 
 class Positive(BaseModel):
@@ -431,6 +437,46 @@ def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["dropshipping_tools"] = {}
     if e.f("html_source_signals.supplier_trace") >= 1:
         fired["supplier_links"] = {}
+    # The same photo on other shops is normal for brands and their resellers: a warning only for an unknown brand
+    # with other signs of a resold supplier product.
+    photo = e.first("photo_on_other_shops")
+    if photo and e.f("reverse_image.other_shops") >= 1 and e.f("content.brand_recognized") < 1 and _resale_context(e):
+        count = int(e.f("reverse_image.other_shops"))
+        fired["photo_reused"] = {
+            "count": e.number(count),
+            "shops": e.phrase("shop_one" if count == 1 else "shop_many"),
+            "names": _listed(photo.evidence),
+            "thumbnails": " ".join(photo.thumbnails),
+        }
+
+
+def _resale_context(e: _Evidence) -> bool:
+    """Signs that a product is a resold supplier item rather than a brand's own."""
+    return (
+        e.f("domain_age.under_6_months") >= 1
+        or e.f("content.generic_product") >= 0.5
+        or e.f("content.title_word_soup") >= 0.5
+        or e.f("listing.generated_brand") >= 0.5
+        or e.f("html_source_signals.dropship_app") >= 1
+        or e.f("html_source_signals.supplier_trace") >= 1
+        or e.f("shop_links.linked_young_shops") >= 1
+    )
+
+
+def _listed(evidence: str) -> str:
+    """The names after the colon of a "…: a, b and others." finding."""
+    return evidence.partition(": ")[2].rstrip(".")[:160]
+
+
+def _network(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Other shops run with the same accounts that are themselves young (storefronts only)."""
+    young = e.first("linked_young_shops")
+    if e.storefront and young and (count := int(e.f("shop_links.linked_young_shops"))) >= 1:
+        fired["linked_new_shops"] = {
+            "count": e.number(count),
+            "shops": e.phrase("shop_one" if count == 1 else "shop_many"),
+            "names": _listed(young.evidence),
+        }
 
 
 def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
@@ -511,7 +557,14 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
 
 def _reason(key: str, params: dict[str, str], language: str) -> Reason:
     copy = copy_for(language)["reasons"][key]
-    return Reason(type=key, title=copy["title"], detail=copy["detail"].format(**params), severity=REASON_SEVERITY[key])
+    thumbnails = params.get("thumbnails", "").split()
+    return Reason(
+        type=key,
+        title=copy["title"],
+        detail=copy["detail"].format(**params),
+        severity=REASON_SEVERITY[key],
+        thumbnails=thumbnails,
+    )
 
 
 def _positive(key: str, params: dict[str, str], language: str) -> Positive:
@@ -555,7 +608,7 @@ def build(
     band = band_for(score)
 
     fired: dict[str, dict[str, str]] = {}
-    for rules in (_pressure, _reviews, _product, _supply, _shop, _manipulation):
+    for rules in (_pressure, _reviews, _product, _supply, _network, _shop, _manipulation):
         rules(evidence, fired)
     for group in _GROUPS:
         for key in [k for k in group if k in fired][1:]:

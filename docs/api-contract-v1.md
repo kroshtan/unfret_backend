@@ -331,3 +331,21 @@ valid 7 days. Nothing is stored when a check runs.
   reason keys should fall back to the `title`/`detail` text they already get.
 - A skill whose rules don't apply to a page reports the feature `<skill>.not_applicable` (e.g.
   `us_identity.not_applicable` on an EU shop); the scorer treats its features as neutral.
+
+## Changes (fingerprints and own image index)
+
+- The Google Cloud Vision photo lookup is gone. `reverse_image` now looks the main photo up in Unfret's own index
+  (features `reverse_image.searched`, `reverse_image.other_shops`, `reverse_image.catalogue_matches`; findings
+  `photo_on_other_shops` and `catalogue_photo`). It runs in the quick tier too: no outside service is asked.
+- New skill `shop_links` (quick and deep): `shop_links.linked_shops`, `.linked_young_shops`, `.shared_payment`,
+  `.shared_contact`; findings `shared_identifier` and `linked_young_shops`.
+- New reasons `photo_reused` (only for an unknown brand with other resale signs) and `linked_new_shops`.
+- Verdict reasons may carry `thumbnails`: up to three URLs of matched photos, served by
+  `GET /v1/images/{print_id}/thumbnail.jpg` (a small JPEG fetched by the server, so the shopper's browser never
+  contacts the other shop). The field is optional and empty for every other reason.
+- Operator routes (token required): `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget` remove a
+  shop or a contact detail from the fingerprint store.
+- `POST /v1/check` answers carry `source`: `"analysis"`, or `"fingerprint"` when a full analysis of the same listing
+  from a page Unfret fetched itself in the last day is served again (the shop's fingerprint unchanged). It is paid as
+  usual, `cached` is `true`, and `action`/`policy_applied` follow the caller's policy. Requests with `page_content`
+  are always analysed.

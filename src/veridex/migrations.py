@@ -278,6 +278,49 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX crypto_sales_sold_on_idx ON crypto_sales (sold_on);
         """,
     ),
+    (
+        11,
+        "image index",
+        """
+        -- Unfret's own image index (veridex.image_store): one main photo per listing, as fingerprints plus the
+        -- photo's own address for thumbnails. The listing is a hash (shop + public product ID or page path), never
+        -- the page address; days not times. Photos seen in analyses are deleted 400 days after last seen.
+        CREATE TABLE image_prints (
+            id           BIGSERIAL PRIMARY KEY,
+            source       TEXT NOT NULL CHECK (source IN ('seen', 'abo')),
+            domain       TEXT NOT NULL CHECK (length(domain) <= 253),
+            listing_key  BYTEA NOT NULL CHECK (octet_length(listing_key) = 32),
+            phash        BIGINT NOT NULL,
+            dhash        BIGINT NOT NULL,
+            embedding    BYTEA NOT NULL CHECK (octet_length(embedding) = 384),
+            colour       BYTEA NOT NULL CHECK (octet_length(colour) = 48),
+            image_url    TEXT NOT NULL CHECK (length(image_url) <= 1000),
+            label        TEXT CHECK (length(label) <= 120),
+            first_seen   DATE NOT NULL,
+            last_seen    DATE NOT NULL,
+            UNIQUE (domain, listing_key)
+        );
+        CREATE INDEX image_prints_seen_idx ON image_prints (last_seen) WHERE source = 'seen';
+        """,
+    ),
+    (
+        12,
+        "known-listing fast path",
+        """
+        -- The digest of each shop's latest fingerprint, to tell when a kept answer is out of date.
+        ALTER TABLE shops ADD COLUMN fingerprint BYTEA CHECK (octet_length(fingerprint) = 32);
+        -- Answers of full /v1/check analyses of pages Unfret fetched itself (veridex.verdict_store), served again for
+        -- a day while the shop is unchanged. Keyed by a listing hash; no URL, caller or payer. Never read by a skill.
+        CREATE TABLE listing_verdicts (
+            listing_key       BYTEA NOT NULL CHECK (octet_length(listing_key) = 32),
+            tier              TEXT NOT NULL CHECK (tier IN ('quick', 'deep')),
+            day               DATE NOT NULL,
+            shop_fingerprint  BYTEA CHECK (octet_length(shop_fingerprint) = 32),
+            verdict           JSONB NOT NULL,
+            PRIMARY KEY (listing_key, tier)
+        );
+        """,
+    ),
 ]
 
 

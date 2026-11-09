@@ -13,14 +13,16 @@ converted with Pyth's SOL/USD price), VAT included: the account is credited the 
 with its country and VAT (:mod:`veridex.credits.vat`) in the same database transaction. When SOL can't be valued
 (oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
-Who is credited, and at which VAT rate: a ``veridex:quote:<id>`` memo (``/v1/credits/purchase-tx`` and the Solana
-Pay link add it) names a stored quote, which says who gets the credits (or nobody in particular: the payer) and the
-buyer's country and rate. Without a known quote, the older ``veridex:credit:<pubkey>`` memo (or
-``veridex:credit:key:<id>`` for an API key) names the beneficiary when the transaction carries exactly one
-well-formed such memo, so a smart-wallet vault can buy credits for the key that signs in; otherwise the transfer's
-source is credited, as a sale to an unknown country at the Dutch rate. A memo naming an API key that doesn't exist
-credits the source instead, so a typo never strands the money. Anyone may fund anyone, so a memo grants nothing the
-payer couldn't give anyway.
+Who is credited, and at which VAT rate: the quote's Solana Pay reference (a random public key that
+``/v1/credits/purchase-tx`` adds to the transfer as a read-only account, and that wallets add for the Solana Pay
+link), or else a ``veridex:quote:<id>`` memo (both add it too, but some wallets drop memo instructions), names a
+stored quote, which says who gets the credits (or nobody in particular: the payer) and the buyer's country and rate.
+The reference is never a transfer's source, so it is never credited. Without a known quote, the older
+``veridex:credit:<pubkey>`` memo (or ``veridex:credit:key:<id>`` for an API key) names the beneficiary when the
+transaction carries exactly one well-formed such memo, so a smart-wallet vault can buy credits for the key that
+signs in; otherwise the transfer's source is credited, as a sale to an unknown country at the Dutch rate. A memo
+naming an API key that doesn't exist credits the source instead, so a typo never strands the money. Anyone may fund
+anyone, so a memo grants nothing the payer couldn't give anyway.
 
 Everything else touching the hot wallet is ignored: anything the hot wallet itself pays the fee for (x402
 settlements, swaps, sweeps, account creation), transfers whose source is the hot wallet, and failed transactions. Any
@@ -98,6 +100,21 @@ def quote_id(tx: dict[str, Any]) -> str | None:
     if len(memos) != 1 or len(memos[0]) != 20 or not memos[0].isalnum():
         return None
     return str(memos[0])
+
+
+def account_keys(tx: dict[str, Any]) -> list[str]:
+    """
+    Every account a transaction names, including those loaded from lookup tables.
+
+    :param tx: The transaction in ``jsonParsed`` encoding.
+    :return: The accounts (base58).
+    """
+    keys = [
+        k.get("pubkey") if isinstance(k, dict) else k for k in tx["transaction"]["message"].get("accountKeys") or []
+    ]
+    loaded = (tx.get("meta") or {}).get("loadedAddresses") or {}
+    keys += [*(loaded.get("writable") or []), *(loaded.get("readonly") or [])]
+    return [str(k) for k in keys if k]
 
 
 def _without_memos(tx: dict[str, Any]) -> dict[str, Any]:
@@ -263,8 +280,10 @@ class CreditScanner:
 
     async def _credits_for(self, tx: dict[str, Any]) -> tuple[dict[str, int], vat.Quote | None]:
         mint = str(self.mint) if self.mint else None
-        named = quote_id(tx)
-        quote = await vat.get_quote(self.pool, named) if named else None
+        # The quote: by its reference among the accounts (a wallet can't drop that), else by the memo.
+        quote = await vat.quote_by_reference(self.pool, account_keys(tx))
+        if quote is None and (named := quote_id(tx)):
+            quote = await vat.get_quote(self.pool, named)
         if quote is not None:
             paid = credits_for(_without_memos(tx), str(self.hot), mint)
             if paid and quote.beneficiary:
@@ -295,6 +314,7 @@ class CreditScanner:
             signature = entry["signature"]
             # account → (amount in base units, its split into net credits and VAT)
             sales: dict[str, tuple[int, vat.Sale]] = {}
+            quote: vat.Quote | None = None
             if entry.get("err") is None:
                 tx = await self.rpc.parsed_transaction(signature, commitment="finalized")
                 if tx is None:
@@ -322,6 +342,8 @@ class CreditScanner:
                 for account, (amount, sale) in sales.items():
                     await ledger.credit(conn, account, sale.net_usd_micros)
                     await vat.record_sale(conn, sale, self.currency, amount, signature=signature)
+                if quote is not None and sales:
+                    await vat.mark_paid(conn, quote.id)  # the checkout polls this
                 await ledger.set_cursor(conn, self.name, signature)
             for _, sale in sales.values():
                 # Amounts only: which wallet bought is on chain already and needn't be in our logs.

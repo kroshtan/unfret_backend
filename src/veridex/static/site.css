@@ -102,6 +102,39 @@ button.wallet img { border-radius: 0.35rem; }
 #status[data-kind="ok"] { border-color: var(--ok); }
 #status[data-kind="error"] { border-color: var(--error); }
 
+/* The checkout's payment progress: waiting, received, still settling, or an error, in place of the choices. */
+.pay-panel {
+  margin: 1rem 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 0.6rem;
+  background: var(--card);
+  scroll-margin-top: 1rem;
+}
+.pay-panel:focus { outline: none; }
+.pay-panel[data-state="ok"], .pay-panel[data-state="thanks"] { border-left-color: var(--ok); }
+.pay-panel[data-state="error"] { border-left-color: var(--error); }
+.pay-panel p { margin: 0 0 0.6rem; }
+.pay-panel .headline { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; font-size: 1.15rem; font-weight: 600; }
+.pay-panel[data-state="ok"] .headline, .pay-panel[data-state="thanks"] .headline { color: var(--ok); }
+.pay-panel[data-state="error"] .headline, .pay-panel[data-state="info"] .headline { font-size: 1rem; font-weight: 400; }
+.pay-panel[data-state="error"] .headline { color: var(--error); }
+.pay-panel code, #key-reveal code { word-break: break-all; }
+.pay-panel button { margin-top: 0.2rem; font: inherit; padding: 0.35rem 0.8rem; }
+.pay-panel #qr:not([hidden]) { margin: 0 auto 1rem; max-width: 100%; height: auto; }
+.spinner {
+  flex: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.5s; } }
+
 footer { margin-top: 3rem; color: var(--muted); font-size: 0.9rem; }
 h3 { font-size: 1rem; margin: 1.25rem 0 0.4rem; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }

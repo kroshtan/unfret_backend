@@ -382,3 +382,20 @@ valid 7 days. Nothing is stored when a check runs.
   starts at zero checks and buys a pack. Balances already granted stay.
 - `GET /v1/pricing` no longer has `trial_checks`. Clients that read it should treat it as absent (0).
 - The `VERIDEX_TRIAL_*` settings are gone.
+
+## Changes (purchase confirmation and Solana Pay references, backwards-compatible)
+
+- `GET /v1/credits/quotes/{quote_id}` (no auth: the random quote id is the capability) → `{"paid": bool, "checks":
+  int}`, `Cache-Control: no-store`. `paid` turns true when the scanner credits a payment for that quote (in the same
+  database transaction as the credit). 404 `UNKNOWN_QUOTE` for an unknown, malformed or purged id (quotes are
+  deleted a day after they expire). Nothing else about the quote (who pays, who gets the checks, the country) is
+  returned. Clients poll it every few seconds after sending the payment.
+- `POST /v1/credits/purchase-tx` → also `quote_id`. `GET /v1/credits/solana-pay.svg` → also the
+  `X-Unfret-Quote: <quote_id>` header (not CORS-exposed; the checkout fetches it from the same origin).
+- Each quote has a Solana Pay **reference** (a random public key). The purchase transaction carries it as an extra
+  read-only, non-signer account on the transfer instruction (System transfer or `TransferChecked`; both programs
+  ignore it), and the Solana Pay link has `&reference=<pubkey>`. The memo `veridex:quote:<id>` stays. The scanner
+  finds the quote by the reference among the transaction's accounts first (some wallets, e.g. Phantom, drop memo
+  instructions), then by the quote memo, then the older `veridex:credit:` memo, then credits the sender. The
+  reference is never credited.
+- The Solana Pay link's `message` is now `Unfret checks`.

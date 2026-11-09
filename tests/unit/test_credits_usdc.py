@@ -112,3 +112,29 @@ def test_a_usdc_purchase_memo_names_the_beneficiary() -> None:
     memo = {"program": "spl-memo", "parsed": f"veridex:credit:{member}"}
     vault = str(Keypair().pubkey())
     assert credits_for(token_tx(checked(1_500_000, authority=vault), memo), str(HOT), str(USDC)) == {member: 1_500_000}
+
+
+def test_the_reference_rides_on_the_usdc_transfer_and_the_link() -> None:
+    reference = Keypair().pubkey()
+    raw = purchase_transaction(
+        BUYER, HOT, 1_500_000, "11111111111111111111111111111111", MEMO, mint=USDC, reference=reference
+    )
+    message = VersionedTransaction.from_bytes(raw).message
+    keys = message.account_keys
+    transfer = message.instructions[1]
+    accounts = [keys[i] for i in bytes(transfer.accounts)]
+    # A trailing read-only, non-signing account: the Token program ignores it (as in Solana Pay).
+    assert accounts == [
+        associated_token_address(BUYER, USDC),
+        USDC,
+        associated_token_address(HOT, USDC),
+        BUYER,
+        reference,
+    ]
+    index = keys.index(reference)
+    assert index >= len(keys) - message.header.num_readonly_unsigned_accounts  # read-only, not a signer
+    assert bytes(message.instructions[2].data) == MEMO.encode()  # the memo stays, for wallets that keep it
+    url = solana_pay_url(HOT, 1_500_000, MEMO, USDC, reference=str(reference))
+    assert f"&spl-token={USDC}&reference={reference}&label=Unfret" in url and url.endswith(
+        "memo=veridex%3Aquote%3Aabcdefghijklmnopqrst"
+    )

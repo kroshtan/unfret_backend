@@ -140,7 +140,7 @@ def test_sol_amounts_for_solana_pay() -> None:
     assert sol_string(15_000_000) == "0.015"
     assert sol_string(1_000_000_000) == "1"
     assert sol_string(1) == "0.000000001"
-    assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Unfret&message=Unfret%20credits"
+    assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Unfret&message=Unfret%20checks"
 
 
 def test_purchase_transaction_is_an_unsigned_transfer_with_the_quote_memo() -> None:
@@ -155,6 +155,26 @@ def test_purchase_transaction_is_an_unsigned_transfer_with_the_quote_memo() -> N
     assert message.account_keys[memo.program_id_index] == MEMO_PROGRAM
     assert bytes(memo.data) == b"veridex:quote:abcdefghijklmnopqrst"
     assert list(memo.accounts) == []
+
+
+def test_the_reference_rides_on_the_sol_transfer_and_the_link() -> None:
+    payer, hot, reference = Keypair().pubkey(), Keypair().pubkey(), Keypair().pubkey()
+    memo = "veridex:quote:abcdefghijklmnopqrst"
+    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", memo, reference=reference)
+    message = VersionedTransaction.from_bytes(raw).message
+    pay, note = message.instructions
+    keys = message.account_keys
+    # A trailing read-only, non-signing account: the System program ignores it (as in Solana Pay).
+    assert [keys[i] for i in bytes(pay.accounts)] == [payer, hot, reference]
+    index = keys.index(reference)
+    assert index >= len(keys) - message.header.num_readonly_unsigned_accounts  # read-only, not a signer
+    assert message.header.num_required_signatures == 1
+    assert bytes(note.data) == memo.encode()
+    url = solana_pay_url(hot, 1_000_000, memo, reference=str(reference))
+    assert url == (
+        f"solana:{hot}?amount=0.001&reference={reference}&label=Unfret&message=Unfret%20checks"
+        "&memo=veridex%3Aquote%3Aabcdefghijklmnopqrst"
+    )
 
 
 def test_solana_pay_url_carries_the_quote_memo() -> None:

@@ -350,6 +350,19 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX showcase_cases_published_idx ON showcase_cases (published_at DESC) WHERE status = 'published';
         """,
     ),
+    (
+        14,
+        "quote payment reference and paid flag",
+        """
+        -- A Solana Pay reference per quote: a random public key the purchase transaction carries as an extra
+        -- read-only account, which identifies the quote even when a wallet drops the memo. NULL for older quotes.
+        ALTER TABLE vat_quotes ADD COLUMN reference TEXT CHECK (length(reference) BETWEEN 32 AND 44);
+        CREATE UNIQUE INDEX vat_quotes_reference_idx ON vat_quotes (reference);
+        -- When the scanner credited a payment for the quote (in the same transaction as the credit), so the
+        -- checkout can show that the purchase arrived. Goes with the quote, a day after it expires.
+        ALTER TABLE vat_quotes ADD COLUMN paid_at TIMESTAMPTZ;
+        """,
+    ),
 ]
 
 

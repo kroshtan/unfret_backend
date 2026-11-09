@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import quote
 
 from solders.hash import Hash
-from solders.instruction import Instruction
+from solders.instruction import AccountMeta, Instruction
 from solders.message import MessageV0
 from solders.pubkey import Pubkey
 from solders.signature import Signature
@@ -52,7 +52,9 @@ def credit_memo(beneficiary: Pubkey | str) -> str:
     return f"veridex:credit:{beneficiary}"
 
 
-def solana_pay_url(hot: Pubkey, amount: int, memo: str | None = None, mint: Pubkey | None = None) -> str:
+def solana_pay_url(
+    hot: Pubkey, amount: int, memo: str | None = None, mint: Pubkey | None = None, *, reference: str | None = None
+) -> str:
     """
     A Solana Pay transfer request for a phone wallet: pay ``amount`` to the hot wallet, in SOL or a token.
 
@@ -60,13 +62,16 @@ def solana_pay_url(hot: Pubkey, amount: int, memo: str | None = None, mint: Pubk
     :param amount: The amount in base units (lamports, or the token's base units with ``mint``).
     :param memo: The memo naming the purchase (``veridex:quote:<id>``, see :mod:`veridex.credits.vat`).
     :param mint: The token to pay in (``spl-token``); ``None`` for SOL.
+    :param reference: The quote's Solana Pay reference; wallets add it to the transfer as a read-only account.
     :return: The ``solana:`` URL.
     """
     places = 9 if mint is None else decimals(mint)
     url = f"solana:{hot}?amount={decimal_string(amount, places)}"
     if mint is not None:
         url += f"&spl-token={mint}"
-    url += f"&label=Unfret&message={quote('Unfret credits')}"
+    if reference is not None:
+        url += f"&reference={reference}"
+    url += f"&label=Unfret&message={quote('Unfret checks')}"
     return f"{url}&memo={quote(memo)}" if memo else url
 
 
@@ -78,13 +83,16 @@ def purchase_transaction(
     memo: str,
     *,
     mint: Pubkey | None = None,
+    reference: Pubkey | None = None,
 ) -> bytes:
     """
     Build the unsigned transfer the buyer's wallet signs and sends.
 
     SOL: a System transfer of ``amount`` lamports to the hot wallet. A token (USDC): create the hot wallet's token
     account if it's missing (the buyer pays the rent) and ``TransferChecked`` ``amount`` from the buyer's. Either way
-    with a memo naming the purchase (its quote: who to credit, and the VAT).
+    with a memo naming the purchase (its quote: who to credit, and the VAT), and the quote's Solana Pay reference as
+    an extra read-only account on the transfer (ignored by the System and Token programs), since some wallets drop the
+    memo instruction.
 
     :param payer: The paying wallet (also the fee payer).
     :param hot: The receiving (hot) wallet.
@@ -92,6 +100,7 @@ def purchase_transaction(
     :param blockhash: A recent blockhash.
     :param memo: The memo (``veridex:quote:<id>``).
     :param mint: The token to pay in; ``None`` for SOL.
+    :param reference: The quote's reference, added to the transfer instruction's accounts.
     :return: The serialised, unsigned versioned transaction.
     """
     if mint is None:
@@ -103,6 +112,10 @@ def purchase_transaction(
                 associated_token_address(payer, mint), mint, associated_token_address(hot, mint), payer, amount
             ),
         ]
+    if reference is not None:
+        moved = pay[-1]
+        extra = AccountMeta(reference, is_signer=False, is_writable=False)
+        pay[-1] = Instruction(moved.program_id, moved.data, [*moved.accounts, extra])
     note = Instruction(MEMO_PROGRAM, memo.encode(), [])
     message = MessageV0.try_compile(payer, [*pay, note], [], Hash.from_string(blockhash))
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))

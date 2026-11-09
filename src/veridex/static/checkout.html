@@ -61,35 +61,42 @@
 
       <section aria-labelledby="pay-heading">
         <h2 id="pay-heading">3. Pay</h2>
-        <fieldset class="currency" id="currency">
-          <legend>Pay with</legend>
-          <label><input type="radio" name="currency" value="SOL" checked> SOL</label>
-          <label><input type="radio" name="currency" value="USDC"> USDC</label>
-        </fieldset>
-        <p id="usdc-note" class="muted"></p>
-        <label class="custom">Your country (sets the VAT)
-          <select id="country" autocomplete="country"></select>
-        </label>
+        <div id="pay-setup">
+          <fieldset class="currency" id="currency">
+            <legend>Pay with</legend>
+            <label><input type="radio" name="currency" value="SOL" checked> SOL</label>
+            <label><input type="radio" name="currency" value="USDC"> USDC</label>
+          </fieldset>
+          <p id="usdc-note" class="muted"></p>
+          <label class="custom">Your country (sets the VAT)
+            <select id="country" autocomplete="country"></select>
+          </label>
+        </div>
         <p id="summary"></p>
 
-        <h3>With a wallet in this browser</h3>
-        <div id="wallets" class="wallets"></div>
-        <p id="no-wallets" class="muted">No Solana wallet found in this browser. Use your phone instead.</p>
+        <!-- The payment's progress: waiting (with the QR code for a phone), received, still settling, or an error. -->
+        <div id="pay-panel" class="pay-panel" tabindex="-1" hidden>
+          <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
+          <div id="pay-message" role="status" aria-live="polite"></div>
+        </div>
 
-        <h3>With a wallet on your phone</h3>
-        <p>Scan with Phantom, Solflare or any wallet that supports Solana Pay.</p>
-        <button id="qr-show" type="button">Show the QR code</button>
-        <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
+        <div id="pay-options">
+          <h3>With a wallet in this browser</h3>
+          <div id="wallets" class="wallets"></div>
+          <p id="no-wallets" class="muted">No Solana wallet found in this browser. Use your phone instead.</p>
 
-        <div id="card" hidden>
-          <h3>By card</h3>
-          <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
-            <span id="card-tax"></span>.</p>
-          <button id="card-pay" type="button">Pay by card</button>
+          <h3>With a wallet on your phone</h3>
+          <p>Scan with Phantom, Solflare or any wallet that supports Solana Pay.</p>
+          <button id="qr-show" type="button">Show the QR code</button>
+
+          <div id="card" hidden>
+            <h3>By card</h3>
+            <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
+              <span id="card-tax"></span>.</p>
+            <button id="card-pay" type="button">Pay by card</button>
+          </div>
         </div>
       </section>
-
-      <p id="status" role="status" aria-live="polite"></p>
     </div>
 
     <footer><a href="/connect">Sign in</a> · <a href="/llms.txt">For AI agents</a></footer>

@@ -123,6 +123,8 @@ def _params(key: str, language: str) -> dict[str, str]:
         "seller": "“HUAXINGDA”",
         "place": "China",
         "sites": "aliexpress.com",
+        "shops": "shops",
+        "names": "a.shop, b.shop",
         "low": "€19.95",
         "was": "€79.95",
         "anchor": "“adviesprijs”",

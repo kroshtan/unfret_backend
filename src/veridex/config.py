@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # Contacts are stored as keyed hashes with this key (derived from the session secret when empty; without
     # either, contacts aren't stored).
     fingerprints: bool = True
+    # Unfret's own image index (veridex.image_index): the embedding model file and its CPU threads; the photo
+    # check is off while the file is missing (`python -m veridex.image_index <path>` downloads it).
+    image_model_path: str = "models/dinov2-small-int8.onnx"
+    image_threads: int = Field(default=1, ge=1, le=8)
     contact_hash_key: SecretStr = SecretStr("")
 
     # Expensive skill runs the triage may spend on one analysis.

@@ -128,10 +128,11 @@ def test_unassessable_page_asks_the_human() -> None:
     assert verdict.flags[0].type == "not_assessable"
 
 
-def test_quick_tier_runs_no_fetching_skills() -> None:
+def test_quick_tier_runs_no_shop_lookups() -> None:
     names = {s.name for s in skills_for("quick", SKILLS)}
     assert names == QUICK_SKILLS
-    assert not names & {"reverse_image", "domain_age"}  # eu_registry runs, without VIES (next test)
+    assert "domain_age" not in names  # eu_registry runs, without VIES (next test)
+    assert {"reverse_image", "shop_links"} <= names  # our own index and store: local lookups
     assert skills_for("deep", SKILLS) == SKILLS
 
 
@@ -141,7 +142,7 @@ def test_quick_tier_keeps_eu_registry_local() -> None:
 
     assert isinstance(quick["eu_registry"], EuRegistrySkill) and quick["eu_registry"].vies is False
     assert isinstance(deep["eu_registry"], EuRegistrySkill) and deep["eu_registry"].vies is True
-    assert {"domain_age", "reverse_image"}.isdisjoint(quick)
+    assert "domain_age" not in quick
 
 
 def test_quick_tier_computes_every_feature_of_the_full_model_or_ships_its_own() -> None:

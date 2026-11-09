@@ -56,6 +56,7 @@ class ShopRecord:
     registrar: str | None = None
     first_cert: date | None = None
     links: dict[str, set[str]] = field(default_factory=dict)  # kind → values; contact values are hex HMACs
+    fingerprint: bytes | None = None  # digest of this observation's identifiers, apps and template
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,14 @@ class ShopStore(Protocol):
         Delete what is past its retention.
 
         :param today: Today.
+        """
+
+    async def fingerprint(self, domain: str) -> bytes | None:
+        """
+        The digest of the shop's latest observation (see :func:`fingerprint_digest`).
+
+        :param domain: A registrable domain.
+        :return: 32 bytes, or ``None`` for an unknown shop.
         """
 
     async def forget_shop(self, domain: str) -> bool:
@@ -186,6 +195,16 @@ class MemoryShopStore:
         self.shops = {d: s for d, s in self.shops.items() if s.last_seen >= _cutoff(today, contact=False)}
         self.links = {key: seen for key, seen in self.links.items() if key[2] in self.shops}
 
+    async def fingerprint(self, domain: str) -> bytes | None:
+        """
+        The latest digest.
+
+        :param domain: The shop.
+        :return: The digest.
+        """
+        shop = self.shops.get(domain)
+        return shop.rec.fingerprint if shop else None
+
     async def forget_shop(self, domain: str) -> bool:
         """
         Delete a shop.
@@ -231,13 +250,13 @@ class PostgresShopStore:
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
-                " first_cert) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8) "
+                " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
                 "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
                 " platform = EXCLUDED.platform, apps = EXCLUDED.apps,"
                 " skeleton = COALESCE(EXCLUDED.skeleton, shops.skeleton),"
                 " registered = COALESCE(EXCLUDED.registered, shops.registered),"
                 " registrar = COALESCE(EXCLUDED.registrar, shops.registrar),"
-                " first_cert = COALESCE(EXCLUDED.first_cert, shops.first_cert)",
+                " first_cert = COALESCE(EXCLUDED.first_cert, shops.first_cert), fingerprint = EXCLUDED.fingerprint",
                 rec.domain,
                 rec.day,
                 rec.platform,
@@ -246,6 +265,7 @@ class PostgresShopStore:
                 rec.registered,
                 rec.registrar,
                 rec.first_cert,
+                rec.fingerprint,
             )
             if rows:
                 await conn.executemany(
@@ -311,6 +331,16 @@ class PostgresShopStore:
         )
         await self.pool.execute("DELETE FROM shops WHERE last_seen < $1", _cutoff(today, contact=False))
 
+    async def fingerprint(self, domain: str) -> bytes | None:
+        """
+        The latest digest.
+
+        :param domain: The shop.
+        :return: The digest.
+        """
+        value = await self.pool.fetchval("SELECT fingerprint FROM shops WHERE domain = $1", domain)
+        return bytes(value) if value is not None else None
+
     async def forget_shop(self, domain: str) -> bool:
         """
         Delete a shop (its identifiers go with it).
@@ -345,6 +375,7 @@ def _merged(old: ShopRecord, new: ShopRecord) -> ShopRecord:
         new.registrar or old.registrar,
         new.first_cert or old.first_cert,
         new.links,
+        new.fingerprint,
     )
 
 
@@ -456,6 +487,18 @@ async def page_links(state: dict[str, Any]) -> PageLinks | None:
     return PageLinks(domain, links, fp.skeleton, apps)
 
 
+def fingerprint_digest(page: PageLinks) -> bytes:
+    """
+    A digest of what a page shows about its shop: any change in identifiers, apps or template changes it.
+
+    :param page: The page's identifiers.
+    :return: 32 bytes.
+    """
+    parts = [f"{k}={','.join(sorted(v))}" for k, v in sorted(page.links.items())]
+    parts += [f"apps={','.join(page.apps)}", f"skeleton={page.skeleton}"]
+    return hashlib.sha256("\n".join(parts).encode()).digest()
+
+
 async def observation(state: dict[str, Any]) -> ShopRecord | None:
     """
     What a finished analysis saw of the shop, from the page and the lookups it already made (none are added).
@@ -479,6 +522,7 @@ async def observation(state: dict[str, Any]) -> ShopRecord | None:
         registrar=(str(rdap["registrar"])[:200] if rdap.get("registrar") else None),
         first_cert=_date(cert),
         links=page.links,
+        fingerprint=fingerprint_digest(page),
     )
 
 

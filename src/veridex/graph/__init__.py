@@ -21,6 +21,7 @@ from veridex.graph.skills.html_source_signals import HtmlSourceSignalsSkill
 from veridex.graph.skills.injection import InjectionSkill
 from veridex.graph.skills.listing import ListingSkill
 from veridex.graph.skills.pricing import PricingSkill
+from veridex.graph.skills.reverse_image import ReverseImageSkill
 from veridex.graph.skills.reviews import ReviewsSkill
 from veridex.graph.skills.shop_links import ShopLinksSkill
 from veridex.graph.skills.shop_policies import ShopPoliciesSkill
@@ -44,6 +45,7 @@ SKILLS: list[Skill] = [
     ShopPoliciesSkill(),
     DomainAgeSkill(),
     ShopLinksSkill(),
+    ReverseImageSkill(),
 ]
 
 

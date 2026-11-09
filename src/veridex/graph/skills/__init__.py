@@ -30,6 +30,9 @@ class Observation(BaseModel):
 
     type: str
     evidence: str = Field(max_length=500)
+    thumbnails: list[str] = Field(
+        default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
+    )
 
 
 class Skill(ABC):
@@ -79,7 +82,10 @@ class Skill(ABC):
         :return: Prefixed features, attributed findings and a summary line block.
         """
         values = {f"{self.name}.{k}": float(v) for k, v in features.items() if v is not None}
-        findings = [Finding(skill=self.name, type=o.type, evidence=o.evidence) for o in observations or []]
+        findings = [
+            Finding(skill=self.name, type=o.type, evidence=o.evidence, thumbnails=o.thumbnails)
+            for o in observations or []
+        ]
         lines = [f"[{self.name}]"]
         lines += [f"- {f.type}: {f.evidence}" for f in findings]
         if note:

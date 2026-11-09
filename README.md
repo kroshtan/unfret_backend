@@ -56,6 +56,7 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
 | `shop_links` | Storefronts: other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
+| `reverse_image` | The main product photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Also in the quick tier; not in the scorer yet |
 
 ### Adding a skill
 
@@ -264,6 +265,7 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `VERIDEX_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
 | `VERIDEX_FINGERPRINTS` / `VERIDEX_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop fingerprint store; the key for contact hashes (no key and no session secret: contacts aren't stored) |
+| `VERIDEX_IMAGE_MODEL_PATH` / `VERIDEX_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
 | `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
@@ -371,6 +373,11 @@ rebuild. Deploys never run in parallel and are never cancelled half-way.
 - Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
   delimited as untrusted data, and attempts to address the model are detected and count against the page.
 - Registration data (RDAP) is often redacted; the first-certificate date is a second, registry-independent age.
+
+## Data and models
+
+- The image index is seeded with photo fingerprints from [Amazon Berkeley Objects](https://amazon-berkeley-objects.s3.amazonaws.com/index.html) © Amazon.com, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); only derived fingerprints, ASINs and brands are kept.
+- Photo embeddings come from [DINOv2-small](https://huggingface.co/facebook/dinov2-small) (Apache-2.0), run locally through ONNX Runtime.
 
 ## License
 

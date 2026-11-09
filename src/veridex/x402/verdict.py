@@ -13,10 +13,10 @@ Tier = Literal["quick", "deep"]
 Policy = Literal["strict", "balanced", "lenient"]
 Action = Literal["allow", "warn", "block"]
 
-# The quick tier runs only skills that need no outbound fetches about the shop (no RDAP/CT, VIES or reverse image
-# search); the deep tier runs every skill. eu_registry runs in both, without its VIES lookup in quick, so the quick
-# tier computes the same features the shipped scorer was trained on (offline, without network lookups). Change
-# tiers here and nowhere else.
+# The quick tier runs only skills that need no outbound lookups about the shop (no RDAP/CT or VIES; the photo is
+# looked up in our own index, the fingerprint store is local); the deep tier runs every skill. eu_registry runs in
+# both, without its VIES lookup in quick, so the quick tier computes the same features the shipped scorer was
+# trained on (offline, without network lookups). Change tiers here and nowhere else.
 QUICK_SKILLS: frozenset[str] = frozenset(
     {
         "content",
@@ -30,6 +30,7 @@ QUICK_SKILLS: frozenset[str] = frozenset(
         "us_identity",
         "shop_policies",
         "shop_links",
+        "reverse_image",
     }
 )
 
@@ -84,6 +85,11 @@ class Verdict(BaseModel):
     policy_applied: Policy
     tier: Tier
     cached: bool = False
+    source: Literal["analysis", "fingerprint"] = Field(
+        default="analysis",
+        description='"fingerprint": the answer of a full analysis of this listing in the last day, served again '
+        "because the shop hasn't changed since.",
+    )
     checked_at: datetime
     model_version: str | None = Field(default=None, description="The scorer model that set risk_score, if any.")
     band: str | None = Field(

@@ -12,12 +12,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from veridex import __version__, fact_cache, log, price_store, reports, scoring, shop_store
+from veridex import (
+    __version__,
+    fact_cache,
+    image_store,
+    log,
+    price_store,
+    reports,
+    scoring,
+    shop_store,
+    verdict_store,
+)
 from veridex.api import VeridexAPI
 from veridex.config import settings
 from veridex.credits import CreditsDoor, fiat, vat
 from veridex.db import PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
+from veridex.graph.skills import reverse_image
 from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
 from veridex.routes.pages import STATIC_DIR
@@ -66,6 +77,8 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     fact_cache.use_store(PostgresFactStore(api.db_pool))
     price_store.use_store(price_store.PostgresPriceStore(api.db_pool))
     shop_store.use_store(shop_store.PostgresShopStore(api.db_pool))
+    reverse_image.use_store(image_store.PostgresImageStore(api.db_pool))
+    verdict_store.use_store(verdict_store.PostgresVerdictStore(api.db_pool))
     api.x402 = X402(settings)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
@@ -85,6 +98,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
         with contextlib.suppress(TimeoutError):  # fingerprint writes still in flight
             async with asyncio.timeout(5):
                 await shop_store.drain()
+                await reverse_image.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
     logger.info("Unfret backend service shutting down")

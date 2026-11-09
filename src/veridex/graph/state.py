@@ -14,6 +14,9 @@ class Finding(BaseModel):
     skill: str
     type: str
     evidence: str = Field(max_length=500)
+    thumbnails: list[str] = Field(
+        default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
+    )
 
 
 def _append_results(left: list[str] | None, right: list[str]) -> list[str]:

@@ -21,7 +21,8 @@ SESSION_SECRET = "test-session-secret"
 DROP_ALL = (
     "DROP TABLE IF EXISTS analyze_log, accounts, wallets, scan_cursor, fact_cache, usage_counters, "
     "price_observations, shop_links, shops, api_keys, fiat_payments, fiat_checkouts, report_votes, "
-    "report_quota, reports, labelled_pages, vat_quotes, crypto_sales, schema_migrations CASCADE"
+    "report_quota, reports, labelled_pages, vat_quotes, crypto_sales, image_prints, listing_verdicts, "
+    "schema_migrations CASCADE"
 )
 
 

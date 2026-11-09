@@ -26,6 +26,14 @@ _ANCHOR_RE = re.compile(
     rf"|retail value|elsewhere|usually|typical price|list price|prix conseillé)\b\s*:?\s*(?:{_PRICE})",
     re.IGNORECASE,
 )
+# Marketplaces print their own reference-price label on every discounted listing (Amazon's "List Price" and
+# "Typical price", bol.com's "Adviesprijs"), whatever the seller does, so on their pages it says nothing by itself.
+# A made-up reference price there is caught by the price history (part 2) instead.
+_OWN_LABELS: dict[str, frozenset[str]] = {
+    "amazon": frozenset({"list price", "typical price"}),
+    "bol.com": frozenset({"adviesprijs", "adviesverkoopprijs"}),
+    "walmart": frozenset({"list price", "typical price"}),
+}
 _PERMANENT_SALE_RE = re.compile(
     r"\b(opheffingsuitverkoop|totale uitverkoop|alles moet weg|wegens opheffing|laatste kans|closing down sale"
     r"|everything must go|store closing|liquidation sale|going out of business|räumungsverkauf|alles muss raus"
@@ -60,7 +68,9 @@ class PricingSkill(Skill):
             observations.append(
                 Observation(type="implausible_discount", evidence=f"{discount:.0%} off {facts.list_price:g}.")
             )
-        if discount > 0 and (anchor := _ANCHOR_RE.search(text)):
+        own = _OWN_LABELS.get(facts.platform, frozenset())
+        anchors = (m for m in _ANCHOR_RE.finditer(text) if m.group(1).lower() not in own)
+        if discount > 0 and (anchor := next(anchors, None)):
             features["reference_anchor"] = True
             observations.append(Observation(type="reference_anchor", evidence=f'"{anchor.group(1)}"'))
         if state.get("page_type") == "storefront" and (sale := _PERMANENT_SALE_RE.search(text)):

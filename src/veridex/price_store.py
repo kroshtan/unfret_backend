@@ -39,6 +39,7 @@ _TWO_LABEL_SUFFIXES = frozenset(
 )  # fmt: skip
 _ASIN_RE = re.compile(r"/(?:dp|gp/product|gp/aw/d|exec/obidos/asin)/([A-Z0-9]{10})(?:[/?]|$)", re.IGNORECASE)
 _BOL_RE = re.compile(r"/p/[^/]+/(\d{10,20})(?:/|$)")
+_WALMART_RE = re.compile(r"/ip/(?:[^/]+/)?(\d{6,15})(?:[/?]|$)")
 _GTIN_KEYS = ("gtin14", "gtin13", "gtin", "gtin12", "gtin8", "ean")
 
 
@@ -84,17 +85,19 @@ def _gtins(node: object) -> list[str]:
 
 def product_id(url: str, facts: PageFacts) -> str | None:
     """
-    The product's public identifier: the ASIN on Amazon, the product ID on bol.com, else a GTIN/EAN.
+    The product's public identifier: the ASIN on Amazon, the product ID on bol.com or Walmart, else a GTIN/EAN.
 
     :param url: The page URL.
     :param facts: The page facts (their Product JSON-LD carries the GTIN).
-    :return: ``asin:…``, ``bol:…`` or ``gtin:<14 digits>``, or ``None`` when the page shows none.
+    :return: ``asin:…``, ``bol:…``, ``walmart:…`` or ``gtin:<14 digits>``, or ``None`` when the page shows none.
     """
     path = urlsplit(url).path
     if facts.platform == "amazon" and (m := _ASIN_RE.search(path)):
         return f"asin:{m.group(1).upper()}"
     if facts.platform == "bol.com" and (m := _BOL_RE.search(path)):
         return f"bol:{m.group(1)}"
+    if facts.platform == "walmart" and (m := _WALMART_RE.search(path)):
+        return f"walmart:{m.group(1)}"
     gtins = _gtins(facts.json_ld)
     return f"gtin:{gtins[0]}" if gtins else None
 

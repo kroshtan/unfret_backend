@@ -13,6 +13,7 @@ from veridex.facts import PageFacts, parse_page
 from veridex.graph.skills import injection
 from veridex.graph.state import AnalysisState, PageType
 from veridex.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
+from veridex.market import shop_market
 
 
 def _facts_text(facts: PageFacts) -> str:
@@ -95,7 +96,7 @@ Return the most specific match. When the platform is a known marketplace, includ
 {UNTRUSTED_NOTICE}\
 """
 
-_MARKETPLACE_NAMES = {"amazon": "Amazon", "bol.com": "bol.com"}
+_MARKETPLACE_NAMES = {"amazon": "Amazon", "bol.com": "bol.com", "walmart": "Walmart"}
 
 
 _EARLY_EXIT_TYPES = frozenset({"article", "non_product", "other"})
@@ -133,7 +134,7 @@ async def classify_node(state: AnalysisState) -> dict:
 
     Determines whether the page is a marketplace listing, a storefront,
     an article about a product, or unrelated to products entirely. Product
-    pages on marketplaces the extractor recognises (Amazon, bol.com) are
+    pages on marketplaces the extractor recognises (Amazon, bol.com, Walmart) are
     classified without an LLM call.
 
     :param state: Current graph state; uses ``cleaned_content`` and ``facts``.
@@ -296,6 +297,7 @@ async def _verdict(state: AnalysisState, score: int, headline: str | None = None
         page_type=state.get("page_type", "storefront"),
         language=language,
         headline=headline,
+        market=shop_market(state.get("facts") or PageFacts(), state.get("url", ""), state.get("cleaned_content", "")),
     )
     if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict

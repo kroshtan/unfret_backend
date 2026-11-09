@@ -2,8 +2,9 @@
 EU merchant identity: a VAT ID checked against the official EU VIES register, and the legally required info.
 
 EU law requires web shops to identify the trader (imprint) and to state the 14-day right of withdrawal; a VAT ID
-that VIES knows, under a name matching the shop, is strong evidence of a real business. Results are cached per
-VAT number, never per caller.
+that VIES knows, under a name matching the shop, is strong evidence of a real business. A US shop has no imprint
+by law: there, a named company (LLC, Inc.) or a US business address counts as its trader identity. Results are
+cached per VAT number, never per caller.
 """
 
 import json
@@ -15,7 +16,9 @@ import httpx
 from veridex.config import settings
 from veridex.fact_cache import cached_fact
 from veridex.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from veridex.graph.skills.us_identity import find_identity
 from veridex.graph.state import AnalysisState
+from veridex.market import shop_market
 from veridex.net import hostname
 
 _WITHDRAWAL_RE = re.compile(
@@ -98,6 +101,10 @@ class EuRegistrySkill(Skill):
         legal = " ".join(facts.legal_mentions)
         withdrawal = bool(_WITHDRAWAL_RE.search(legal)) or "refund" in facts.policy_links
         imprint = bool(_IMPRINT_RE.search(legal)) or "imprint" in facts.policy_links
+        if not imprint and shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "us":
+            # A US shop has no imprint by law; its equivalent is a named company or a US business address.
+            found = find_identity(" ".join([state.get("cleaned_content", ""), legal]))
+            imprint = bool(found.entity or found.street_addresses)
         features: dict[str, float | bool] = {
             "vat_present": bool(facts.vat_ids),
             "withdrawal_right": withdrawal,

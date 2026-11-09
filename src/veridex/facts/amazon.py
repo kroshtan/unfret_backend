@@ -32,6 +32,8 @@ _ARIA_HISTOGRAM_RE = re.compile(
     r"(\d{1,3})\s*(?:percent|prozent|pour cent|procent|por ciento|per cento).*?([1-5])", re.IGNORECASE
 )
 _WS_RE = re.compile(r"\s+")
+# Media bylines carry the format after the artist ("Etta James (Artist) Format: Audio CD").
+_FORMAT_SUFFIX_RE = re.compile(r"\s+(?:format|formaat|formato)\s*:.*$", re.IGNORECASE)
 # Amazon wraps detail-table cells in left-to-right / right-to-left marks.
 _MARKS = " :" + chr(0x200E) + chr(0x200F)
 
@@ -68,7 +70,7 @@ def extract(soup: BeautifulSoup, facts: PageFacts) -> None:
 
 def _title_and_brand(soup: BeautifulSoup, facts: PageFacts) -> None:
     facts.title = _text(soup.find(id="productTitle")) or facts.title
-    byline = _text(soup.find(id="bylineInfo"))
+    byline = _FORMAT_SUFFIX_RE.sub("", _text(soup.find(id="bylineInfo")))
     if byline:
         m = _BYLINE_RE.match(byline)
         facts.brand = ((m.group(1) or m.group(2) or "") if m else byline).strip()[:300]
@@ -118,7 +120,7 @@ def _reviews(soup: BeautifulSoup, facts: PageFacts) -> None:
             posted=parse_date(_text(node.select_one('[data-hook="review-date"]'))),
             title=_text(node.select_one('[data-hook="review-title"]'))[:300],
             body=_text(node.select_one('[data-hook="review-body"]'))[:2000],
-            verified=node.select_one('[data-hook="avp-badge"]') is not None,
+            verified=node.select_one('[data-hook^="avp-badge"]') is not None,
         )
         for node in soup.select('[data-hook="review"]')[:100]
     ]
@@ -168,15 +170,38 @@ def _buybox_rows(soup: BeautifulSoup) -> dict[str, str]:
         cells = [_text(c) for c in row.select("td, .tabular-buybox-text")]
         if len(cells) >= 2:
             rows[cells[0]] = cells[1]
-    for block in soup.select(_OFFER_BLOCK_SELECTORS):
-        label = _text(block.select_one(".offer-display-feature-label"))
-        value = _text(block.select_one(".offer-display-feature-text"))
-        if label and value:
-            rows[label] = value
+    for label, value in _offer_display_rows(soup).items():
+        rows.setdefault(label, value)
     merchant = _text(soup.find(id="merchant-info"))
     if merchant and (m := re.search(r"ships from (.+?) and sold by (.+?)\.", merchant, re.IGNORECASE)):
         rows.setdefault("Ships from", m.group(1))
         rows.setdefault("Sold by", m.group(2))
+    elif merchant and (m := re.search(r"ships from and sold by (.+?)\.", merchant, re.IGNORECASE)):
+        rows.setdefault("Ships from", m.group(1))
+        rows.setdefault("Sold by", m.group(1))
+    return rows
+
+
+def _offer_display_rows(soup: BeautifulSoup) -> dict[str, str]:
+    # The offer display shows each feature as a label element and a text element, either nested in one block or
+    # as two siblings that share the feature name (the current amazon.com layout).
+    rows: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    values: dict[str, str] = {}
+    for block in soup.select(_OFFER_BLOCK_SELECTORS):
+        feature = str(block.get("offer-display-feature-name", ""))
+        classes: list[str] = list(block.get("class") or [])
+        label = _text(block.select_one(".offer-display-feature-label"))
+        value = _text(block.select_one(".offer-display-feature-text-message, .offer-display-feature-text"))
+        if label and value:
+            rows[label] = value
+        elif "offer-display-feature-label" in classes:
+            labels.setdefault(feature, _text(block))
+        elif "offer-display-feature-text" in classes:
+            values.setdefault(feature, _text(block.select_one(".offer-display-feature-text-message") or block))
+    for feature, label in labels.items():
+        if label and values.get(feature):
+            rows.setdefault(label, values[feature])
     return rows
 
 

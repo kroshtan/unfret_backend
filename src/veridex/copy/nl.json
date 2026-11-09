@@ -148,6 +148,34 @@
     "overall": {
       "title": "Meerdere kleine signalen",
       "detail": "Geen enkel groot probleem, maar meerdere kleinere signalen samen verlaagden de score."
+    },
+    "returns_abroad": {
+      "title": "Retour naar het buitenland",
+      "detail": "Retourneren moet naar {place}: traag, duur en vaak de moeite niet waard."
+    },
+    "return_address_withheld": {
+      "title": "Geen retouradres",
+      "detail": "De winkel geeft pas een retouradres als je erom vraagt: gebruikelijk bij winkels zonder eigen voorraad."
+    },
+    "restocking_fee": {
+      "title": "Dure retouren",
+      "detail": "Een artikel terugsturen kost {pct} aan retourkosten."
+    },
+    "origin_doubt": {
+      "title": "'Made in USA' twijfelachtig",
+      "detail": "De pagina zegt 'Made in USA', maar de spullen worden uit het buitenland verstuurd."
+    },
+    "long_delivery": {
+      "title": "Lange levertijd",
+      "detail": "Levering kan tot {days} dagen duren: typisch voor spullen die rechtstreeks bij een buitenlandse leverancier vandaan komen."
+    },
+    "mailbox_address": {
+      "title": "Alleen een postbusadres",
+      "detail": "Het enige adres op de pagina is een postbus, geen bedrijfsadres."
+    },
+    "no_return_policy": {
+      "title": "Geen retourbeleid gevonden",
+      "detail": "Geen retourbeleid gevonden op de pagina."
     }
   },
   "positives": {
@@ -178,6 +206,10 @@
     "nothing_found": {
       "title": "Geen waarschuwingssignalen",
       "detail": "Niets verdachts gevonden in het aanbod, de reviews of de pagina."
+    },
+    "us_business": {
+      "title": "Bedrijfsgegevens vermeld",
+      "detail": "De winkel noemt zijn bedrijf ({company}) en een bedrijfsadres in de VS."
     }
   },
   "age_units": {
@@ -264,7 +296,16 @@
     "shop_links.linked_shops": "Andere winkels met dezelfde accounts",
     "shop_links.linked_young_shops": "Jonge winkels met dezelfde accounts",
     "shop_links.shared_payment": "Betaalaccount gedeeld met andere winkels",
-    "shop_links.shared_contact": "Contactgegevens gedeeld met andere winkels"
+    "shop_links.shared_contact": "Contactgegevens gedeeld met andere winkels",
+    "shop_policies.long_delivery": "Lange levertijd",
+    "shop_policies.returns_abroad": "Retour naar het buitenland",
+    "shop_policies.return_address_withheld": "Geen retouradres",
+    "shop_policies.restocking_fee_high": "Dure retouren",
+    "shop_policies.origin_doubt": "'Made in USA' twijfelachtig",
+    "us_identity.us_address": "Bedrijfsadres in de VS",
+    "us_identity.mailbox_only": "Alleen een postbusadres",
+    "us_identity.business_entity": "Bedrijfsnaam vermeld",
+    "us_identity.us_phone": "Telefoonnummer"
   },
   "no_check_used": "Er is geen check gebruikt.",
   "headline_reasons": "{label}: {reasons}.",

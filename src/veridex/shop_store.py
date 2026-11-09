@@ -40,7 +40,7 @@ CONTACT_RETENTION_DAYS = 180
 MAX_SHARE = 25  # an identifier on more shops than this is shared infrastructure, not one operator
 CONTACT_KINDS = frozenset({"email", "phone"})
 # Shops are web shops: marketplaces are one domain for millions of sellers, so their pages say nothing about a shop.
-_MARKETPLACES = frozenset({"amazon", "bol.com"})
+_MARKETPLACES = frozenset({"amazon", "bol.com", "walmart"})
 
 
 @dataclass(frozen=True)

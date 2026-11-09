@@ -89,14 +89,15 @@ class Model:
         A skill that ran but had nothing to report leaves its features out, and training read those as 0, so
         missing ones count as 0. A skill that *failed* (it reports ``<skill>.unavailable``) never measured
         anything: its features are scored at the training mean, a contribution of 0, so a failure (an LLM outage,
-        a timeout) can't make a page look safer than its evidence says.
+        a timeout) can't make a page look safer than its evidence says. A skill whose rules don't apply to the page
+        (``<skill>.not_applicable``, e.g. EU requirements on a US shop) is scored the same way.
 
         :param features: Skill features.
         :return: One contribution per model feature.
         """
-        failed = unavailable_skills(features)
+        neutral = unavailable_skills(features) | not_applicable_skills(features)
         return [
-            0.0 if name.split(".", 1)[0] in failed else c * (features.get(name, 0.0) - m) / s
+            0.0 if name.split(".", 1)[0] in neutral else c * (features.get(name, 0.0) - m) / s
             for name, m, s, c in zip(self.features, self.means, self.scales, self.coefficients, strict=True)
         ]
 
@@ -126,6 +127,23 @@ def unavailable_skills(features: dict[str, float]) -> set[str]:
     """
     return {
         name.removesuffix(_UNAVAILABLE_SUFFIX) for name, v in features.items() if v and name.endswith(".unavailable")
+    }
+
+
+_NOT_APPLICABLE_SUFFIX = ".not_applicable"  # = f".{veridex.graph.skills.NOT_APPLICABLE}"
+
+
+def not_applicable_skills(features: dict[str, float]) -> set[str]:
+    """
+    The skills whose rules don't apply to this page (they report ``<skill>.not_applicable``).
+
+    :param features: Skill features.
+    :return: Their names.
+    """
+    return {
+        name.removesuffix(_NOT_APPLICABLE_SUFFIX)
+        for name, v in features.items()
+        if v and name.endswith(_NOT_APPLICABLE_SUFFIX)
     }
 
 
@@ -182,9 +200,13 @@ def score(
         return None
     risk = model.probability(features)
     failed = unavailable_skills(features)
-    measured = sum(1 for name in model.features if name in features and name.split(".", 1)[0] not in failed) / len(
-        model.features
-    )
+    # A feature counts as measured when its skill measured it, or when its skill doesn't apply to the page.
+    settled = not_applicable_skills(features)
+    measured = sum(
+        1
+        for name in model.features
+        if (name in features and name.split(".", 1)[0] not in failed) or name.split(".", 1)[0] in settled
+    ) / len(model.features)
     confidence = abs(2 * risk - 1) * (0.5 + 0.5 * measured)
     degraded = bool(failed & KEY_SKILLS)
     if degraded:

@@ -58,10 +58,17 @@ REASON_SEVERITY: dict[str, Severity] = {
     "supplier_links": "medium",
     "missing_trust_info": "medium",
     "no_withdrawal": "medium",
+    "no_return_policy": "medium",
     "no_imprint": "medium",
     "invalid_vat": "high",
     "new_domain": "high",
     "short_registration": "low",
+    "returns_abroad": "medium",
+    "return_address_withheld": "medium",
+    "restocking_fee": "medium",
+    "origin_doubt": "medium",
+    "long_delivery": "low",
+    "mailbox_address": "low",
     "hidden_ai_text": "high",
     "ai_text": "medium",
     "overall": "low",
@@ -70,6 +77,7 @@ POSITIVE_KEYS = (
     "known_brand",
     "sold_by_brand",
     "vat_registered",
+    "us_business",
     "established_domain",
     "trust_info_present",
     "natural_reviews",
@@ -108,9 +116,10 @@ CONTEXT_FEATURES = frozenset(
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
     ("generic_brand", "generic_product"),
-    ("no_withdrawal", "no_imprint", "missing_trust_info"),
+    ("no_withdrawal", "no_return_policy", "no_imprint", "missing_trust_info"),
     ("hidden_ai_text", "ai_text"),
     ("was_never_charged", "implausible_discount", "big_discount"),
+    ("returns_abroad", "return_address_withheld"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 _NUMBERS_RE = re.compile(r"\d+(?:\.\d+)?")
@@ -283,6 +292,7 @@ class _Evidence:
     facts: PageFacts
     page_type: str
     language: str
+    market: str = "eu"
 
     def f(self, name: str) -> float:
         return float(self.features.get(name, 0.0))
@@ -428,7 +438,8 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if not e.storefront:
         return
     if e.has("eu_registry.withdrawal_right") and e.f("eu_registry.withdrawal_right") < 1:
-        fired["no_withdrawal"] = {}
+        # Only EU law requires a withdrawal right; elsewhere a missing return policy is still worth knowing.
+        fired["no_withdrawal" if e.market == "eu" else "no_return_policy"] = {}
     if e.has("eu_registry.imprint") and e.f("eu_registry.imprint") < 1:
         fired["no_imprint"] = {}
     if e.f("content.missing_trust_info") >= 0.6:
@@ -439,6 +450,23 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["new_domain"] = {"age": e.age(max(round(e.f("domain_age.age_years") * 365), 1))}
     if e.f("domain_age.known") >= 1 and e.has("domain_age.term_years") and e.f("domain_age.term_years") <= 1.1:
         fired["short_registration"] = {}
+    _policies(e, fired)
+
+
+def _policies(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Shipping and return terms of a dropshipper, and a US shop whose only address is a mailbox."""
+    if e.f("shop_policies.returns_abroad") >= 1 and (abroad := e.first("returns_abroad")):
+        fired["returns_abroad"] = {"place": abroad.evidence.removeprefix("Returns go to ").rstrip(".")[:60]}
+    if e.f("shop_policies.return_address_withheld") >= 1:
+        fired["return_address_withheld"] = {}
+    if e.f("shop_policies.restocking_fee_high") >= 1 and (fee := e.first("restocking_fee")):
+        fired["restocking_fee"] = {"pct": (_NUMBERS_RE.findall(fee.evidence) or ["?"])[0] + "%"}
+    if e.f("shop_policies.origin_doubt") >= 1:
+        fired["origin_doubt"] = {}
+    if e.f("shop_policies.long_delivery") >= 1 and (slow := e.first("long_delivery")):
+        fired["long_delivery"] = {"days": (_NUMBERS_RE.findall(slow.evidence) or ["?"])[0]}
+    if e.f("us_identity.mailbox_only") >= 1:
+        fired["mailbox_address"] = {}
 
 
 def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
@@ -460,6 +488,9 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
         fired["sold_by_brand"] = {}
     if e.f("eu_registry.vat_valid") >= 1:
         fired["vat_registered"] = {}
+    company = e.first("business_entity")
+    if e.storefront and e.f("us_identity.us_address") >= 1 and company:
+        fired["us_business"] = {"company": _quote(company.evidence.removeprefix("Company: "))}
     if e.storefront and e.f("domain_age.age_years") >= 3:
         fired["established_domain"] = {"years": str(int(e.f("domain_age.age_years")))}
     if e.storefront and e.f("eu_registry.withdrawal_right") >= 1 and e.f("eu_registry.imprint") >= 1:
@@ -497,6 +528,7 @@ def build(
     page_type: str,
     language: str = DEFAULT_LANGUAGE,
     headline: str | None = None,
+    market: str = "eu",
 ) -> Verdict:
     """
     Build the shopper verdict for an analysed page.
@@ -512,13 +544,14 @@ def build(
     :param page_type: The classified page type.
     :param language: The shopper's language (see :func:`pick_language`).
     :param headline: The headline sentence; the catalogue's template for the band when not given.
+    :param market: The shop's market (:func:`veridex.market.shop_market`), for reasons that depend on its law.
     :return: The verdict.
     """
     language = language if language in LANGUAGES else DEFAULT_LANGUAGE
     by_type: dict[str, list[Finding]] = {}
     for finding in findings:
         by_type.setdefault(finding.type, []).append(finding)
-    evidence = _Evidence(features, by_type, facts, page_type, language)
+    evidence = _Evidence(features, by_type, facts, page_type, language, market)
     band = band_for(score)
 
     fired: dict[str, dict[str, str]] = {}

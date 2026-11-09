@@ -3,7 +3,8 @@ Manipulative interface patterns: fake countdown timers, pre-ticked paid add-ons 
 
 Pre-ticked boxes for extra payments are prohibited in the EU (Consumer Rights Directive, art. 22), so that one is
 reported as a plain fact. Drip pricing is fully visible only at checkout; when the caller supplies the checkout
-page (an agent can), its total is compared with the listed price.
+page (an agent can), its total is compared with the listed price. On a US shop the sales tax line is left out of
+that comparison: US prices are shown before tax by law, so tax at checkout is not a hidden cost.
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from bs4 import BeautifulSoup
 from veridex.facts._parse import parse_price
 from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
+from veridex.market import shop_market
 
 _ADDON_RE = re.compile(
     r"insurance|protect|warrant|guarantee|priority|express|donat|gift ?wrap|tip\b|verzeker|bescherm|garantie"
@@ -61,6 +63,29 @@ _TOTAL_RE = re.compile(
     re.IGNORECASE,
 )
 _WS_RE = re.compile(r"\s+")
+
+
+_TAX_RE = re.compile(
+    r"\b(?:estimated |sales |state )?tax(?:es)?\b(?!\s*(?:included|incl|calculated))\s*:?\s*"
+    r"((?:[A-Z]{3}|[$€£])?\s*\d[\d., ]*\s*(?:[A-Z]{3}|[$€£])?)",
+    re.IGNORECASE,
+)
+
+
+def checkout_tax(html: str) -> float | None:
+    """
+    The sales tax line on a checkout page: the last amount labelled as tax.
+
+    US prices are shown before sales tax, which is added at checkout by law, so on a US shop that line is not
+    a hidden cost.
+
+    :param html: The checkout page HTML.
+    :return: The tax, or ``None`` when none is labelled.
+    """
+    text = _WS_RE.sub(" ", BeautifulSoup(html, "html.parser").get_text(" "))
+    taxes = [parse_price(m.group(1))[0] for m in _TAX_RE.finditer(text)]
+    found = [t for t in taxes if t is not None]
+    return found[-1] if found else None
 
 
 def checkout_total(html: str) -> float | None:
@@ -119,6 +144,12 @@ class DarkPatternsSkill(Skill):
         markup = 0.0
         if (checkout := state.get("checkout_content")) and facts.price:
             total = await asyncio.to_thread(checkout_total, checkout)  # a big page takes a while to parse
+            if (
+                total is not None
+                and shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "us"
+            ):
+                tax = await asyncio.to_thread(checkout_tax, checkout)
+                total -= tax or 0.0
             if total is not None and total > facts.price:
                 markup = (total - facts.price) / facts.price
                 if markup >= 0.1:

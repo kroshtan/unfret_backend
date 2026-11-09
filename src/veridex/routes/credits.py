@@ -22,7 +22,7 @@ from solders.pubkey import Pubkey
 from veridex.auth import get_credits, require_account
 from veridex.config import settings
 from veridex.credits import fiat, keys, ledger, vat
-from veridex.credits.fiat import FiatProvider, FiatWebhookError
+from veridex.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from veridex.credits.packs import Pack, pack, packs
 from veridex.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from veridex.facts import PageFacts
@@ -377,7 +377,7 @@ class FiatCheckoutResponse(BaseModel):
 
 def get_fiat(request: Request) -> FiatProvider | None:
     """
-    The fiat provider, if one is wired in (none is yet: the Merchant of Record is still to be chosen).
+    The fiat provider (Polar), if it is configured.
 
     :param request: The incoming request.
     :return: The provider, or ``None`` while fiat is off.
@@ -397,16 +397,19 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     :param body: The key and the pack.
     :param request: The incoming request.
     :return: The checkout URL.
-    :raises ServiceUnavailableError: While no fiat provider is configured.
+    :raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.
     """
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
     chosen = _pack(body.checks)
     account = await _key_account(request, body.key_id)
-    checkout = await provider.create_checkout(
-        account, chosen.card_usd_micros // fiat.USD_MICROS_PER_CENT, f"{settings.public_base_url}/checkout?paid=1"
-    )
+    try:
+        checkout = await provider.create_checkout(account, chosen, f"{settings.public_base_url}/checkout?paid=1")
+    except FiatProviderError as exc:
+        raise ServiceUnavailableError(
+            "Card payments are unavailable right now; try again later or pay with SOL or USDC."
+        ) from exc
     await fiat.remember_checkout(request.app.db_pool, provider.name, checkout, account)
     return FiatCheckoutResponse(checkout_url=checkout.url, provider=provider.name)
 

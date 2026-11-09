@@ -428,3 +428,13 @@ valid 7 days. Nothing is stored when a check runs.
   (scheme, network, asset, payTo, amount), so clients that ignore the new fields are unaffected.
 - Under the `balanced` and `lenient` policies, `action` is `allow` whenever `band` is `reliable` or `concerns`;
   `/.well-known/x402` lists this per policy as `never_warns_on_bands`.
+
+## Changes (card payments through Polar, backwards-compatible)
+
+- `POST /v1/credits/fiat-checkout` is live once Polar is configured (`/v1/pricing` → `fiat.available: true`):
+  `{"key_id", "checks"}` → `{"checkout_url", "provider": "polar"}`; send the buyer to `checkout_url` (Polar's hosted
+  checkout, in USD). Afterwards Polar returns them to `/checkout?paid=1`; the key is credited when Polar's
+  `order.paid` webhook arrives, usually within seconds. Still 503 while card payments are off, and now also when
+  Polar can't start the checkout (unreachable, or the product's price doesn't match the pack).
+- `GET /v1/health/ready` adds `fiat`: `"off"`, or the provider and its environment (`"polar:production"`,
+  `"polar:sandbox"`).

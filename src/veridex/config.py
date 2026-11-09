@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Any, Literal, Self
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -132,9 +132,15 @@ class Settings(BaseSettings):
     key_create_per_ip_per_day: int = 5
     key_create_daily_cap: int = 500
     key_recover_per_ip_per_day: int = 10
-    # Fiat top-ups for API keys through a Merchant of Record (off until a provider is wired in). Prices in USD;
-    # webhooks are Standard Webhooks, signed with this whsec_ secret and refused outside the replay window.
+    # Fiat top-ups for API keys through a Merchant of Record (Polar). Prices in USD; webhooks are Standard Webhooks,
+    # signed with this whsec_ secret and refused outside the replay window.
     fiat_webhook_secret: SecretStr = SecretStr("")
+    # Polar (veridex.credits.polar): on only when the access token, a product for every pack and the webhook secret
+    # are all set. polar_products maps pack sizes to Polar product ids: "25=<uuid>,50=<uuid>,100=<uuid>".
+    polar_access_token: SecretStr = SecretStr("")
+    polar_environment: Literal["sandbox", "production"] = "sandbox"
+    polar_products: str = ""
+    polar_timeout_s: float = 15.0
     fiat_webhook_tolerance_s: int = 300
     fiat_retention_days: int = 180
 
@@ -189,6 +195,17 @@ class Settings(BaseSettings):
 
     log_json: bool = True  # one JSON object per line (False: human-readable, for local development)
 
+    @field_validator("polar_environment", mode="before")
+    @classmethod
+    def _polar_environment(cls, value: Any) -> Any:
+        """
+        Read an empty ``VERIDEX_POLAR_ENVIRONMENT`` (an unset deploy secret) as the default, sandbox.
+
+        :param value: The raw value.
+        :return: The value, or ``"sandbox"`` if empty.
+        """
+        return value or "sandbox"
+
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         """
@@ -228,6 +245,13 @@ class Settings(BaseSettings):
             problems.append("key_pow_bits must be 1-32")
         if not 0 <= self.report_training_gap <= self.report_reward_gap:
             problems.append("need 0 <= report_training_gap <= report_reward_gap")
+        try:
+            unknown = sorted(set(self.polar_product_ids) - set(self.packs))
+        except ValueError as exc:
+            problems.append(str(exc))
+        else:
+            if unknown:
+                problems.append(f"polar_products names packs that aren't on sale: {unknown}")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
@@ -244,6 +268,7 @@ class Settings(BaseSettings):
             "mainnet_allowed": self.x402_allow_mainnet,
             "sign_in": bool(self.session_secret.get_secret_value()),
             "admin_token": bool(self.admin_token.get_secret_value()),
+            "fiat": self.polar_environment if self.polar_configured else "off",
             "prices_usd_micros": {
                 "analysis": self.analysis_price_usd_micros,
                 "quick": self.x402_price_quick_usd_micros,
@@ -252,6 +277,35 @@ class Settings(BaseSettings):
             "quote_tolerance_bps": self.quote_tolerance_bps,
             "pyth_account": self.pyth_sol_usd_account,
         }
+
+    @property
+    def polar_product_ids(self) -> dict[int, str]:
+        """
+        The Polar product of each pack, from :attr:`polar_products` (``"25=<uuid>,50=<uuid>"``).
+
+        :return: Pack size → product id.
+        :raises ValueError: If the setting is malformed.
+        """
+        products: dict[int, str] = {}
+        for item in filter(None, (part.strip() for part in self.polar_products.split(","))):
+            size, sep, product = (piece.strip() for piece in item.partition("="))
+            if not sep or not size.isdigit() or not product or int(size) in products:
+                raise ValueError("polar_products must read like 25=<product id>,50=<product id>")
+            products[int(size)] = product
+        return products
+
+    @property
+    def polar_configured(self) -> bool:
+        """
+        Whether card payments through Polar are on: the token, the webhook secret and a product for every pack.
+
+        :return: True when all are set.
+        """
+        return bool(
+            self.polar_access_token.get_secret_value()
+            and self.fiat_webhook_secret.get_secret_value()
+            and set(self.packs) <= set(self.polar_product_ids)
+        )
 
     @property
     def analysis_price_usd_micros(self) -> int:

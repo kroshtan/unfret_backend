@@ -74,6 +74,10 @@ jobs:
           VERIDEX_HOT_WALLET_KEY: ${{ secrets.DEV_HOT_WALLET_KEY }}
           VERIDEX_COLD_ADDRESS: ${{ secrets.DEV_COLD_ADDRESS }}
           VERIDEX_ADMIN_TOKEN: ${{ secrets.DEV_ADMIN_TOKEN }}
+          VERIDEX_POLAR_ACCESS_TOKEN: ${{ secrets.DEV_POLAR_ACCESS_TOKEN }}
+          VERIDEX_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
+          VERIDEX_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
+          VERIDEX_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           [[ -n "$POSTGRES_PASSWORD" ]] || { echo "::error::repo secret DEV_POSTGRES_PASSWORD is not set"; exit 1; }

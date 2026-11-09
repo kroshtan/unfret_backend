@@ -24,6 +24,12 @@ env:
     - VERIDEX_HOT_WALLET_KEY  # x402 + credit purchases (fee payer and receiver); a devnet-only key
     - VERIDEX_COLD_ADDRESS  # sweep destination
     - VERIDEX_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+    # Optional: card top-ups for API keys through Polar, off unless the token, products and webhook secret are all
+    # set. The environment (sandbox | production) is a secret too, so it's chosen with the token, not here.
+    - VERIDEX_POLAR_ACCESS_TOKEN
+    - VERIDEX_POLAR_ENVIRONMENT
+    - VERIDEX_POLAR_PRODUCTS
+    - VERIDEX_FIAT_WEBHOOK_SECRET
 
 accessories:
   # Reached by the app as veridex-dev-db on the `kamal` network; never published. forge-infra's nightly backup

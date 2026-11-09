@@ -1,4 +1,5 @@
 import base64
+import json
 import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -9,9 +10,11 @@ import httpx
 import pytest
 
 from tests.integration.conftest import FakeGraph
+from tests.unit import test_polar  # Polar's sample payloads
 from veridex.config import settings
-from veridex.credits import fiat, keys
+from veridex.credits import fiat, keys, polar
 from veridex.credits.fiat import FakeFiatProvider, FiatEvent
+from veridex.credits.polar import PolarProvider
 from veridex.main import app
 
 SECRET = "whsec_" + base64.b64encode(b"fake-webhook-secret-32-bytes!!!!").decode()
@@ -164,3 +167,82 @@ async def test_order_rows_are_deleted_after_retention(pool: asyncpg.Pool) -> Non
     assert await pool.fetchval("SELECT COUNT(*) FROM fiat_payments") == 1
     await fiat.purge(pool, 180, now=datetime.now(UTC) + timedelta(days=181))
     assert await pool.fetchval("SELECT COUNT(*) FROM fiat_payments") == 0
+
+
+# ── Polar, end to end through the routes (its API mocked) ─────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def polar_provider(client: httpx.AsyncClient) -> AsyncIterator[PolarProvider]:
+    def api(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)
+        price = {test_polar.PRODUCTS[25]: 600, test_polar.PRODUCTS[100]: 2200}[sent["products"][0]]
+        body = {"id": test_polar.CHECKOUT_ID, "url": "https://buy.polar.sh/c", "currency": "usd", "amount": price}
+        return httpx.Response(201, json=body)
+
+    built = polar.from_settings(test_polar.settings(), transport=httpx.MockTransport(api))
+    assert built is not None
+    app.fiat = built
+    yield built
+    app.fiat = None
+    await built.aclose()
+
+
+async def polar_send(client: httpx.AsyncClient, event_type: str, data: dict[str, Any]) -> httpx.Response:
+    body, headers = test_polar.signed(event_type, data, time.time())
+    return await client.post("/v1/webhooks/fiat", content=body, headers=headers)
+
+
+async def test_polar_checkout_then_paid_order_credits_the_key(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, polar_provider: PolarProvider
+) -> None:
+    issued = await keys.create(pool)
+    started = await checkout(client, issued.key_id, 25)
+    assert started.json() == {"checkout_url": "https://buy.polar.sh/c", "provider": "polar"}
+    # Polar's order without our metadata: the checkout mapping names the key.
+    paid = test_polar.order(metadata={})
+
+    assert (await polar_send(client, "order.paid", paid)).json() == {"status": "credited"}
+    assert (await polar_send(client, "order.paid", paid)).json() == {"status": "duplicate"}
+    assert await balance(pool, issued.account) == 5_000_000
+    assert "Kerkstraat" not in str([dict(r) for r in await pool.fetch("SELECT * FROM fiat_payments")])
+
+    refunded = test_polar.order(status="partially_refunded", refunded_amount=300, refunded_tax_amount=63)
+    assert (await polar_send(client, "order.refunded", refunded)).json() == {"status": "debited"}
+    assert await balance(pool, issued.account) == 2_500_000
+    assert (await polar_send(client, "refund.created", test_polar.REFUND)).json() == {"status": "debited"}
+    assert await balance(pool, issued.account) == 0
+    assert (await client.get("/v1/health/ready")).json()["fiat"] == "polar:sandbox"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"currency": "eur"}, {"subtotal_amount": 0, "net_amount": 0, "tax_amount": 0, "total_amount": 0}],
+)
+async def test_polar_non_usd_or_zero_orders_credit_nothing(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, polar_provider: PolarProvider, changes: dict[str, Any]
+) -> None:
+    issued = await keys.create(pool)
+    await checkout(client, issued.key_id, 25)
+    response = await polar_send(client, "order.paid", test_polar.order(**changes))
+    assert response.status_code == 200 and response.json() == {"status": "ignored"}
+    assert await balance(pool, issued.account) is None
+    assert await pool.fetchval("SELECT COUNT(*) FROM fiat_payments") == 0
+
+
+async def test_polar_checkout_failure_is_a_503(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid_token"})
+
+    app.fiat = polar.from_settings(test_polar.settings(), transport=httpx.MockTransport(refuse))
+    try:
+        issued = await keys.create(pool)
+        response = await checkout(client, issued.key_id, 25)
+    finally:
+        app.fiat = None
+    assert response.status_code == 503
+    assert await pool.fetchval("SELECT COUNT(*) FROM fiat_checkouts") == 0
+
+
+async def test_ready_says_fiat_is_off_without_polar(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/v1/health/ready")).json()["fiat"] == "off"

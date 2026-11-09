@@ -3,10 +3,10 @@ import pytest
 from veridex import reports
 from veridex.credits import keys
 from veridex.credits.keys import KeyGuard
-from veridex.credits.trial import TrialLimiter
 from veridex.facts import PageFacts
 from veridex.reports.scrub import clean_url, page_identity, page_of, scrub_text
 from veridex.schemas.requests import AnalyzeRequest
+from veridex.visitors import DailyLimit
 
 # ── Scrubbing ─────────────────────────────────────────────────────────────────
 
@@ -131,8 +131,8 @@ def guard(now: list[float]) -> KeyGuard:
         secret="s",
         bits=6,
         ttl_s=60,
-        creations=TrialLimiter(5, 100),
-        recoveries=TrialLimiter(5, 100),
+        creations=DailyLimit(5, 100),
+        recoveries=DailyLimit(5, 100),
         clock=lambda: now[0],
     )
 

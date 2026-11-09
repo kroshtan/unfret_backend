@@ -8,7 +8,7 @@ the session exactly once. No relay, no on-chain transaction, no third party.
 
 Everything is in process memory: pairings live five minutes, are bounded in number, and are keyed by a hash of their
 id so a lookup's timing reveals nothing about other ids. Creation is rate-limited per visitor address, kept as salted
-hashes like the trial limiter. Nothing is written anywhere.
+hashes like the other visitor limits. Nothing is written anywhere.
 """
 
 import hashlib

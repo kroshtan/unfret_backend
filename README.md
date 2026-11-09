@@ -97,7 +97,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in micro-dollars`** (and whether its trial was granted): no emails, no purchase history (the chain is the ledger), no
+user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
 **Pricing.** One setting, `VERIDEX_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
@@ -139,8 +139,7 @@ and a page it can't read (an error, a shop that refuses automatic visitors, a bo
 browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
 share target; the sign-in or API key is kept in the browser until sign-out, and there is no history.
 
-A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a
-first one ≥30 days ago), within a per-visitor limit and a daily cap kept in memory only. Grant credits by hand with
+There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant credits by hand with
 `uv run scripts/grant_credits.py <pubkey> --checks <n>`.
 
 ### Pay-per-check for agents (x402)
@@ -284,8 +283,6 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_CARD_FEE_PCT` / `VERIDEX_CARD_FEE_FLAT_USD` / `VERIDEX_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
 | `VERIDEX_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `VERIDEX_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
-| `VERIDEX_TRIAL_CHECKS` | `5` | Free analyses on a first sign-in (wallets with history only) |
-| `VERIDEX_TRIAL_PER_IP_PER_DAY` / `VERIDEX_TRIAL_DAILY_CAP` | `2` / `50` | Trial limits, kept in memory |
 | `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 | `VERIDEX_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 
@@ -315,7 +312,7 @@ src/veridex/
 │   ├── nodes.py       # preprocess, classify, early_exit, judge
 │   ├── state.py       # shared LangGraph state
 │   └── skills/        # one module per skill
-├── credits/           # SIWS, the dollar ledger, pricing, trial rules, purchase scanner
+├── credits/           # SIWS, the dollar ledger, pricing, purchase scanner
 ├── x402/              # pay-per-check: verification, hot wallet, sweeps
 ├── auth.py            # bearer sessions
 ├── db.py, migrations.py  # versioned schema + queries (asyncpg)

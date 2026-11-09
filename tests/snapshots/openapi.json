@@ -1893,7 +1893,7 @@
   },
   "/v1/auth/verify": {
    "post": {
-    "description": "Finish a sign-in: check the signed message and return a session token.\n\nThe signature only proves control of the wallet; it grants no spending rights. A wallet's first sign-in may\ncome with the free trial (only for wallets with on-chain history).\n\n:param body: The signed message.\n:param request: The incoming request.\n:return: The session.\n:raises UnauthorizedError: If the message or signature is not acceptable.",
+    "description": "Finish a sign-in: check the signed message and return a session token.\n\nThe signature only proves control of the wallet; it grants no spending rights. A new wallet starts at\nzero checks.\n\n:param body: The signed message.\n:param request: The incoming request.\n:return: The session.\n:raises UnauthorizedError: If the message or signature is not acceptable.",
     "operationId": "verify_v1_auth_verify_post",
     "requestBody": {
      "content": {
@@ -2266,7 +2266,7 @@
   },
   "/v1/keys": {
    "post": {
-    "description": "Create an empty API key (no trial) with a solved challenge; a few per visitor network per day.\n\n:param body: The solved challenge.\n:param request: The incoming request.\n:return: The key and recovery code, shown this once.\n:raises BadRequestError: If the challenge is invalid, expired, used or unsolved.\n:raises TooManyRequestsError: If this network created too many keys today.",
+    "description": "Create an empty API key with a solved challenge; a few per visitor network per day.\n\n:param body: The solved challenge.\n:param request: The incoming request.\n:return: The key and recovery code, shown this once.\n:raises BadRequestError: If the challenge is invalid, expired, used or unsolved.\n:raises TooManyRequestsError: If this network created too many keys today.",
     "operationId": "create_key_v1_keys_post",
     "requestBody": {
      "content": {

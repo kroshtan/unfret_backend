@@ -22,8 +22,8 @@ from veridex.credits import ledger, siws
 from veridex.credits.keys import KeyGuard
 from veridex.credits.pairing import PairingStore
 from veridex.credits.scanner import CreditScanner
-from veridex.credits.trial import TrialLimiter, has_history
 from veridex.prices import PriceBook
+from veridex.visitors import DailyLimit
 from veridex.x402.solana import SolanaRpc, usdc_mint
 
 logger = structlog.get_logger("veridex")
@@ -44,14 +44,13 @@ class CreditsDoor:
         self.settings, self.rpc, self.hot = settings, rpc, hot
         self.book = book or PriceBook(settings, None)
         self.usdc_mint = usdc_mint(settings.solana_network, settings.usdc_mint)
-        self.trials = TrialLimiter(settings.trial_per_ip_per_day, settings.trial_daily_cap)
         self.pairings = PairingStore(ttl_s=settings.pairing_ttl_s, per_ip=settings.pairing_per_ip)
         self.key_guard = KeyGuard(
             secret=self.secret,
             bits=settings.key_pow_bits,
             ttl_s=settings.key_pow_ttl_s,
-            creations=TrialLimiter(settings.key_create_per_ip_per_day, settings.key_create_daily_cap),
-            recoveries=TrialLimiter(settings.key_recover_per_ip_per_day, 10 * settings.key_create_daily_cap),
+            creations=DailyLimit(settings.key_create_per_ip_per_day, settings.key_create_daily_cap),
+            recoveries=DailyLimit(settings.key_recover_per_ip_per_day, 10 * settings.key_create_daily_cap),
         )
         self.scanner: CreditScanner | None = None
         self.usdc_scanner: CreditScanner | None = None
@@ -103,39 +102,6 @@ class CreditsDoor:
                         detail=str(exc)[:200],
                     )
             await asyncio.sleep(self.settings.credits_scan_interval_s)
-
-    async def first_sign_in(self, pool: asyncpg.Pool, address: str, ip: str) -> bool:
-        """
-        Grant the free trial on a wallet's first sign-in, when it qualifies.
-
-        The trial is recorded on the wallet's row (``trial_granted``), so a wallet without history yet (or turned away
-        by the limits) can still get it later, also after buying credits first; each wallet gets it at most once.
-
-        :param pool: The database pool.
-        :param address: The verified wallet (base58).
-        :param ip: The visitor's address, for the per-IP limit.
-        :return: ``True`` if a trial was granted now.
-        """
-        s = self.settings
-        if s.trial_checks <= 0 or await ledger.trial_used(pool, address):
-            return False
-        try:
-            eligible = await has_history(
-                self.rpc,
-                address,
-                min_age_days=s.trial_min_wallet_age_days,
-                min_signatures=s.trial_min_signatures,
-                now=time.time(),
-            )
-        except Exception as exc:  # noqa: BLE001 - the trial waits for the next sign-in
-            logger.warning("trial_history_check_failed", error=type(exc).__name__)
-            return False
-        if not eligible or not self.trials.allow(ip):
-            return False
-        granted = await ledger.grant_trial(pool, address, s.trial_checks * s.analysis_price_usd_micros)
-        if granted:
-            logger.info("trial_granted", checks=s.trial_checks)
-        return granted
 
     def check_token(self, token: str) -> str:
         """

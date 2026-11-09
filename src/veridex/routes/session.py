@@ -145,8 +145,8 @@ async def verify(body: VerifyRequest, request: Request) -> SessionResponse:
     """
     Finish a sign-in: check the signed message and return a session token.
 
-    The signature only proves control of the wallet; it grants no spending rights. A wallet's first sign-in may
-    come with the free trial (only for wallets with on-chain history).
+    The signature only proves control of the wallet; it grants no spending rights. A new wallet starts at
+    zero checks.
 
     :param body: The signed message.
     :param request: The incoming request.
@@ -171,9 +171,6 @@ async def verify(body: VerifyRequest, request: Request) -> SessionResponse:
         )
     except siws.SignInError as exc:
         raise UnauthorizedError(str(exc)) from exc
-    pool = request.app.db_pool
-    if pool is not None:
-        await door.first_sign_in(pool, address, request.client.host if request.client else "unknown")
     token, expires = siws.issue_token(door.secret, address, settings.session_ttl_s)
     if body.pair_id is not None and pairing is not None:
         try:

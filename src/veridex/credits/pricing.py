@@ -170,7 +170,6 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
         "vat": vat.describe(settings),
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,
-        "trial_checks": settings.trial_checks,
         # USDC base units are micro-dollars: USDC amounts equal the dollar prices.
         "usdc": {
             "mint": str(usdc),

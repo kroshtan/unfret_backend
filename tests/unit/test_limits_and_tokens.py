@@ -4,7 +4,7 @@ import pytest
 
 from veridex.credits import siws
 from veridex.credits.pairing import PairingStore
-from veridex.credits.trial import TrialLimiter
+from veridex.visitors import DailyLimit
 
 SECRET = "s" * 32
 
@@ -45,8 +45,20 @@ def test_expired_pairings_dont_fill_the_store() -> None:
     assert store.create("1.1.1.4")
 
 
-def test_trials_per_visitor_count_an_ipv6_64_once() -> None:
-    limiter = TrialLimiter(per_ip_per_day=1, daily_cap=10, clock=Clock())
+def test_daily_limits_count_an_ipv6_64_once() -> None:
+    limiter = DailyLimit(per_ip_per_day=1, daily_cap=10, clock=Clock())
     assert limiter.allow("2001:db8::1")
     assert not limiter.allow("2001:db8::2")
     assert limiter.allow("2001:db9::1")
+
+
+def test_daily_limit_per_visitor_and_daily_cap() -> None:
+    now = [1_800_000_000.0]
+    limiter = DailyLimit(per_ip_per_day=2, daily_cap=3, clock=lambda: now[0])
+    assert limiter.allow("1.1.1.1") and limiter.allow("1.1.1.1")
+    assert not limiter.allow("1.1.1.1")
+    assert limiter.allow("2.2.2.2")
+    assert not limiter.allow("3.3.3.3")  # daily cap
+    now[0] += 86_400 + 1
+    assert limiter.allow("1.1.1.1") and limiter.allow("3.3.3.3")
+    assert all(len(k) == 24 for k in limiter._hits)  # salted hashes, never the addresses

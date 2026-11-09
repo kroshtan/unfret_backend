@@ -8,6 +8,7 @@ import pytest
 from veridex import price_store
 from veridex.config import settings
 from veridex.facts import PageFacts
+from veridex.facts.schema import Platform
 from veridex.graph.skills.pricing import PricingSkill
 from veridex.price_store import MemoryPriceStore, Observation
 
@@ -76,6 +77,35 @@ async def test_fake_discount_wording() -> None:
     f = out["features"]
     assert (f["pricing.implausible_discount"], f["pricing.reference_anchor"], f["pricing.permanent_sale"]) == (1, 1, 1)
     assert {o.type for o in out["findings"]} == {"implausible_discount", "reference_anchor", "permanent_sale"}
+
+
+@pytest.mark.parametrize(
+    ("platform", "text"),
+    [
+        # Wording from archived amazon.com and Walmart listings (US-market fixtures), and bol.com's own label.
+        ("amazon", "Paperback $10.90 Print List Price: $14.39 $14.39"),
+        ("amazon", "-25% $10.90 Typical price: $14.39"),
+        ("walmart", "Current price is USD Now $89.00 You save $40.99 was $129.99 $129.99"),
+        ("bol.com", "Adviesprijs € 14,39 € 10,90"),
+    ],
+)
+async def test_a_marketplaces_own_reference_price_is_not_an_anchor(platform: Platform, text: str) -> None:
+    facts = PageFacts(platform=platform, price=10.9, list_price=14.39)
+    out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
+    assert out["features"] == {}
+
+
+async def test_a_sellers_own_anchor_still_counts_on_a_marketplace() -> None:
+    facts = PageFacts(platform="amazon", price=10.9, list_price=14.39)
+    text = "List Price: $14.39. Retail value: $49.99, yours for $10.90!"
+    out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+    assert [o.evidence for o in out["findings"]] == ['"Retail value"']
+
+
+async def test_a_list_price_label_still_counts_on_a_shop() -> None:
+    out = await PricingSkill().run(state(PageFacts(price=10.9, list_price=14.39), text="List price: $14.39"))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
 
 
 async def test_an_honest_was_price_is_not_an_anchor() -> None:

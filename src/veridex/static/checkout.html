@@ -4,30 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Buy credits · Unfret</title>
+  <title>Buy checks · Unfret</title>
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/checkout.js"></script>
 </head>
 <body>
   <main>
-    <h1>Buy Unfret credits</h1>
-    <p>Checks are sold in packs, priced in US dollars. Paying with SOL or USDC costs less than the listed price. Credits
-      belong to the wallet that pays (use them in the browser extension after signing in with the same wallet), or to
-      an API key, which works without a wallet in the extension and in scripts.</p>
+    <h1>Buy checks</h1>
+    <p>One check is one page analysed. Pick a pack, choose where the checks go, then pay.</p>
     <p id="network" class="muted"></p>
 
-    <p id="unavailable" hidden>Buying credits isn't available yet. Please try again later.</p>
+    <p id="unavailable" hidden>Buying checks isn't available yet. Please try again later.</p>
 
     <div id="shop" hidden>
+      <section aria-labelledby="amount-heading">
+        <h2 id="amount-heading">1. Choose a pack</h2>
+        <fieldset class="packs">
+          <legend class="visually-hidden">Packs</legend>
+          <div id="packs" class="packs"></div>
+        </fieldset>
+      </section>
+
       <section aria-labelledby="for-heading">
-        <h2 id="for-heading">Credits for</h2>
-        <fieldset class="currency" id="beneficiary">
-          <legend class="visually-hidden">Credits for</legend>
-          <label><input type="radio" name="for" value="wallet" checked> The wallet that pays</label>
-          <label><input type="radio" name="for" value="key"> An API key</label>
+        <h2 id="for-heading">2. Where should the checks go?</h2>
+        <fieldset class="choices" id="beneficiary">
+          <legend class="visually-hidden">Where the checks go</legend>
+          <label><input type="radio" name="for" value="wallet" checked> To my wallet
+            <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
+          <label><input type="radio" name="for" value="key"> To an API key
+            <span class="muted">No wallet needed: paste the key in the extension's settings, or use it in scripts.</span></label>
         </fieldset>
         <div id="key-panel" hidden>
-          <label class="custom">Your API key or its ID
+          <label class="custom">Top up a key you have: paste the key or its ID
             <input id="key-input" autocomplete="off" spellcheck="false" placeholder="ufk_… or the 10-letter ID">
           </label>
           <p>
@@ -35,13 +43,13 @@
             <button id="recover-open" type="button">Lost your key?</button>
           </p>
           <div id="recover-panel" hidden>
-            <label class="custom">Recovery code
+            <label class="custom">Your recovery code
               <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="ufr_…">
             </label>
             <button id="recover" type="button">Get a new key</button>
           </div>
           <div id="key-reveal" hidden>
-            <p><strong>Save both now.</strong> They are shown once: we store only a hash and can't show them again.</p>
+            <p><strong>Save both now.</strong> They're shown only once; we keep just a fingerprint of each.</p>
             <p>API key<br><code id="key-value"></code> <button type="button" data-copy="key-value">Copy</button></p>
             <p>Recovery code (gets you a new key with the same balance if you lose this one)<br>
               <code id="recovery-value"></code> <button type="button" data-copy="recovery-value">Copy</button></p>
@@ -51,43 +59,34 @@
         </div>
       </section>
 
-      <section aria-labelledby="amount-heading">
+      <section aria-labelledby="pay-heading">
+        <h2 id="pay-heading">3. Pay</h2>
         <fieldset class="currency" id="currency">
           <legend>Pay with</legend>
           <label><input type="radio" name="currency" value="SOL" checked> SOL</label>
           <label><input type="radio" name="currency" value="USDC"> USDC</label>
-          <span id="usdc-note" class="muted"></span>
         </fieldset>
-        <h2 id="amount-heading">How many checks?</h2>
-        <fieldset class="packs">
-          <legend class="visually-hidden">Packs</legend>
-          <div id="packs" class="packs"></div>
-        </fieldset>
-        <label class="custom">Your country (for VAT on crypto payments)
+        <p id="usdc-note" class="muted"></p>
+        <label class="custom">Your country (sets the VAT)
           <select id="country" autocomplete="country"></select>
         </label>
         <p id="summary"></p>
-      </section>
 
-      <section aria-labelledby="pay-heading">
-        <h2 id="pay-heading">Pay from a wallet in this browser</h2>
+        <h3>With a wallet in this browser</h3>
         <div id="wallets" class="wallets"></div>
-        <p id="no-wallets" class="muted">No Solana wallet found in this browser; pay from your phone instead.</p>
-      </section>
+        <p id="no-wallets" class="muted">No Solana wallet found in this browser. Use your phone instead.</p>
 
-      <section aria-labelledby="phone-heading">
-        <h2 id="phone-heading">Or pay from your phone</h2>
-        <p>Scan with a wallet app that supports Solana Pay. Credits go to the wallet you signed in with on this site, or
-          else to the wallet you pay from.</p>
+        <h3>With a wallet on your phone</h3>
+        <p>Scan with Phantom, Solflare or any wallet that supports Solana Pay.</p>
         <button id="qr-show" type="button">Show the QR code</button>
         <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
-      </section>
 
-      <section id="card" aria-labelledby="card-heading" hidden>
-        <h2 id="card-heading">Or pay by card</h2>
-        <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
-          <span id="card-tax"></span>.</p>
-        <button id="card-pay" type="button">Pay by card</button>
+        <div id="card" hidden>
+          <h3>By card</h3>
+          <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
+            <span id="card-tax"></span>.</p>
+          <button id="card-pay" type="button">Pay by card</button>
+        </div>
       </section>
 
       <p id="status" role="status" aria-live="polite"></p>

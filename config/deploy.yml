@@ -1,6 +1,6 @@
 # Kamal: the parts both environments share. Deploy with a destination, never without one:
-#   dev         config/deploy.dev.yml         dev.veridex.kroshtan.com, Solana devnet, auto-deployed on every push to main
-#   production  config/deploy.production.yml  veridex.kroshtan.com, Solana mainnet, deployed by hand (deploy-production)
+#   dev         config/deploy.dev.yml         dev.unfret.kroshtan.com, Solana devnet, auto-deployed on every push to main
+#   production  config/deploy.production.yml  unfret.kroshtan.com, Solana mainnet, deployed by hand (deploy-production)
 # Kamal deep-merges the destination file over this one (arrays are replaced, not merged), so each destination
 # declares its own service, proxy host, env and database accessory. Both run on the same box and behind the same
 # Caddy + kamal-proxy as kroshtan-web (forge-infra README, "Adding an app"); kamal-proxy only switches traffic over

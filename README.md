@@ -301,7 +301,7 @@ and kamal-proxy), each with its own service, database accessory, hot wallet and 
 
 | | dev | production |
 | --- | --- | --- |
-| URL | https://dev.veridex.kroshtan.com | https://veridex.kroshtan.com |
+| URL | https://dev.unfret.kroshtan.com | https://unfret.kroshtan.com |
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (service `veridex-dev`, DB `veridex-dev-db`) | `config/deploy.production.yml` (`veridex-prod`, `veridex-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
@@ -325,7 +325,7 @@ It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-
 rebuild. Deploys never run in parallel and are never cancelled half-way.
 
 **Rolling back production:** run the workflow again with the previous release tag. The one-time move of
-`veridex.kroshtan.com` from the pre-split devnet deployment to production is in
+`unfret.kroshtan.com` from the pre-split devnet deployment to production is in
 [docs/production-cutover.md](docs/production-cutover.md).
 
 ## Design notes

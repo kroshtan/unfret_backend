@@ -1,6 +1,6 @@
 name: Deploy production
 
-# Production (veridex.kroshtan.com, Solana MAINNET) is deployed only by hand: Actions → "Deploy production" → Run
+# Production (unfret.kroshtan.com, Solana MAINNET) is deployed only by hand: Actions → "Deploy production" → Run
 # workflow, with a release tag. Nothing deploys here automatically. The workflow refuses unless the tag's commit is
 # on main, its CI passed and the SAME commit was deployed to dev successfully, and then it deploys the exact image
 # dev ran (tagged with the commit SHA): it never rebuilds.

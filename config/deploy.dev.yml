@@ -1,11 +1,11 @@
-# dev: dev.veridex.kroshtan.com on Solana devnet (test money only). Deployed automatically by CI on every push to
+# dev: dev.unfret.kroshtan.com on Solana devnet (test money only). Deployed automatically by CI on every push to
 # main (.forgejo/workflows/ci.yaml, job deploy-dev). Secrets: .kamal/secrets-common + .kamal/secrets.dev, fed from
 # the DEV_* repo secrets.
 service: veridex-dev
 
 proxy:
   hosts:
-    - dev.veridex.kroshtan.com
+    - dev.unfret.kroshtan.com
 
 env:
   clear:
@@ -14,8 +14,8 @@ env:
     VERIDEX_SOLANA_NETWORK: solana-devnet
     VERIDEX_SOLANA_RPC_URL: https://api.devnet.solana.com
     VERIDEX_X402_ALLOW_MAINNET: "false"
-    VERIDEX_SIWS_DOMAIN: dev.veridex.kroshtan.com
-    VERIDEX_PUBLIC_BASE_URL: https://dev.veridex.kroshtan.com
+    VERIDEX_SIWS_DOMAIN: dev.unfret.kroshtan.com
+    VERIDEX_PUBLIC_BASE_URL: https://dev.unfret.kroshtan.com
   secret:
     - VERIDEX_LLM_API_KEY
     - VERIDEX_POSTGRES_URI

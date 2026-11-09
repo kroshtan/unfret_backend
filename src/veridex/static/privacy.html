@@ -32,7 +32,16 @@
         whether a "was" price was ever really charged.</li>
       <li><strong>Facts about shops</strong>: a shop domain's registration date, first certificate and VAT check, for a
         week, so they aren't looked up again for every shopper.</li>
+      <li><strong>Shop fingerprints</strong>: for web shops (not marketplaces), what their pages show about the
+        business behind them: the first and last day a check saw the shop, its platform and apps, the shape of its
+        template, and the account IDs on its pages (analytics, advertising pixels, payment accounts), so shops run by
+        the same operator can be recognised. Never who checked the shop, which page, or our verdict. Kept 400 days
+        after the shop was last seen.</li>
     </ul>
+    <p><strong>For shop owners:</strong> contact e-mail addresses and phone numbers shown on a shop's pages are
+      stored only as a keyed one-way hash, never shown to anyone, used only to tell whether two shops share them
+      (our legitimate interest in warning shoppers about networks of fake shops), and deleted 180 days after they were
+      last seen. To object or have a shop or contact detail removed, use the contact details at kroshtan.com.</p>
 
     <h2>Who else sees what</h2>
     <ul>
@@ -58,6 +67,16 @@
         Van productpagina's met een openbaar productnummer (ASIN, bol.com-ID of barcode) bewaren we anoniem de dag, de
         prijs en de genoemde 'van'-prijs, onder een eenrichtingshash van het domein en dat nummer, 90 dagen lang: zo
         zien we of een 'van'-prijs ooit echt gevraagd is. Geen adres, wallet, IP-adres of tijdstip.</p>
+      <p>Van webwinkels (niet van marktplaatsen) bewaren we wat hun pagina's over het bedrijf erachter laten zien: de
+        eerste en laatste dag dat een controle de winkel zag, het platform en de apps, de vorm van het sjabloon en de
+        account-ID's op de pagina's (statistieken, advertentiepixels, betaalaccounts), zodat winkels van dezelfde
+        uitbater herkenbaar zijn. Nooit wie de winkel controleerde, welke pagina of ons oordeel. Dit blijft 400 dagen
+        na de laatste keer dat de winkel gezien is.</p>
+      <p><strong>Voor winkeliers:</strong> e-mailadressen en telefoonnummers op de pagina's van een winkel bewaren we
+        alleen als eenrichtingshash met een geheime sleutel. Ze worden nooit getoond, alleen gebruikt om te zien of twee winkels
+        ze delen (ons gerechtvaardigd belang: kopers waarschuwen voor netwerken van nepwinkels) en 180 dagen na de
+        laatste keer gezien verwijderd. Bezwaar maken of een winkel of contactgegeven laten verwijderen kan via de
+        contactgegevens op kroshtan.com.</p>
       <p>De paginatekst wordt gelezen door een taalmodel van Scaleway in de EU; Veridex stuurt daarbij niets mee dat
         jou identificeert. Er wordt niets verkocht; er zijn geen affiliate-links, trackers of advertenties.</p>
     </div>

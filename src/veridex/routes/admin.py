@@ -1,11 +1,20 @@
-"""Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``: clearing the sticky x402 alerts after investigating them."""
+"""
+Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``.
 
-from typing import Any
+Clearing the sticky x402 alerts after investigating them, and removing shops or contact details from the
+fingerprint store on request.
+"""
+
+from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
+from veridex import shop_store
 from veridex.auth import require_admin
+from veridex.fingerprint import contact_hash, normalise_email, normalise_phone
+from veridex.price_store import registrable_domain
 from veridex.routes.check import get_x402
 
 logger = structlog.get_logger("veridex")
@@ -27,3 +36,44 @@ async def clear_alerts(request: Request) -> dict[str, Any]:
     x402 = get_x402(request)
     cleared = x402.clear_alerts()
     return {"cleared": cleared, "x402": (await x402.health()).status}
+
+
+class ForgetContact(BaseModel):
+    """A merchant's contact detail to remove from the fingerprint store (sent in plaintext, never stored)."""
+
+    kind: Literal["email", "phone"]
+    value: str = Field(min_length=3, max_length=254)
+
+
+@router.delete("/shops/{domain}")
+async def forget_shop(domain: str) -> dict[str, Any]:
+    """
+    Remove a shop and its identifiers from the fingerprint store (an objection or removal request).
+
+    :param domain: The shop's domain; its registrable domain is removed.
+    :return: Whether it was stored.
+    """
+    target = registrable_domain(domain)
+    removed = await shop_store.store().forget_shop(target)
+    logger.info("shop_forgotten", removed=removed)
+    return {"domain": target, "removed": removed}
+
+
+@router.post("/contacts/forget")
+async def forget_contact(body: ForgetContact) -> dict[str, Any]:
+    """
+    Remove a contact detail wherever it is linked (a merchant's objection or erasure request).
+
+    :param body: The contact, normalised and hashed here exactly as when it was stored.
+    :return: How many shop links were removed.
+    :raises HTTPException: 422 if it isn't a valid address or number, 503 without a contact key.
+    """
+    value = normalise_email(body.value) if body.kind == "email" else normalise_phone(body.value)
+    if value is None:
+        raise HTTPException(422, "Not a valid contact.")
+    key = shop_store.contact_key()
+    if key is None:
+        raise HTTPException(503, "No contact hash key configured, so no contacts are stored.")
+    removed = await shop_store.store().forget_contact(body.kind, contact_hash(body.kind, value, key).hex())
+    logger.info("contact_forgotten", removed=removed)
+    return {"removed": removed}

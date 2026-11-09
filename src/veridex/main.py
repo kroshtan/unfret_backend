@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from veridex import __version__, fact_cache, log, price_store, scoring
+from veridex import __version__, fact_cache, log, price_store, scoring, shop_store
 from veridex.api import VeridexAPI
 from veridex.config import settings
 from veridex.credits import CreditsDoor
@@ -39,6 +39,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     # Store-level facts persist in Postgres, shared across restarts and workers.
     fact_cache.use_store(PostgresFactStore(api.db_pool))
     price_store.use_store(price_store.PostgresPriceStore(api.db_pool))
+    shop_store.use_store(shop_store.PostgresShopStore(api.db_pool))
     api.x402 = X402(settings)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
@@ -54,6 +55,9 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        with contextlib.suppress(TimeoutError):  # fingerprint writes still in flight
+            async with asyncio.timeout(5):
+                await shop_store.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
     logger.info("Veridex backend service shutting down")

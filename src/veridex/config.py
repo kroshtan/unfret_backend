@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # public product ID, kept 90 days. The "was price never charged" check needs this many days of observations.
     price_observations: bool = True
     price_history_min_days: int = Field(default=30, ge=1)
+    # Shop fingerprints (veridex.shop_store): facts about web shops seen by analyses, to link shops of one operator.
+    # Contacts are stored as keyed hashes with this key (derived from the session secret when empty; without
+    # either, contacts aren't stored).
+    fingerprints: bool = True
+    contact_hash_key: SecretStr = SecretStr("")
 
     # Expensive skill runs the triage may spend on one analysis.
     triage_max_expensive_runs: int = 2

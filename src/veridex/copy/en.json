@@ -260,7 +260,11 @@
     "domain_age.under_6_months": "Brand-new web address",
     "domain_age.term_years": "Registration term",
     "domain_age.redacted": "Owner details hidden",
-    "domain_age.cert_age_years": "Age of the security certificate"
+    "domain_age.cert_age_years": "Age of the security certificate",
+    "shop_links.linked_shops": "Other shops with the same accounts",
+    "shop_links.linked_young_shops": "Young shops with the same accounts",
+    "shop_links.shared_payment": "Payment account shared with other shops",
+    "shop_links.shared_contact": "Contact details shared with other shops"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",

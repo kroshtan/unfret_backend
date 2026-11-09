@@ -1,13 +1,14 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 import structlog
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
 
-from veridex import scoring
+from veridex import scoring, shop_store
 from veridex.config import settings
 from veridex.graph import triage
 from veridex.graph.nodes import classify_node, early_exit_node, make_judge_node, preprocess_node
@@ -21,6 +22,7 @@ from veridex.graph.skills.injection import InjectionSkill
 from veridex.graph.skills.listing import ListingSkill
 from veridex.graph.skills.pricing import PricingSkill
 from veridex.graph.skills.reviews import ReviewsSkill
+from veridex.graph.skills.shop_links import ShopLinksSkill
 from veridex.graph.state import AnalysisState
 
 logger = structlog.get_logger("veridex")
@@ -37,6 +39,7 @@ SKILLS: list[Skill] = [
     InjectionSkill(),
     EuRegistrySkill(),
     DomainAgeSkill(),
+    ShopLinksSkill(),
 ]
 
 
@@ -113,6 +116,24 @@ def _triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, objec
     return triage_node
 
 
+def _recording(
+    judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]],
+) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """
+    Wrap the judge so that, once it has answered, the shop is recorded in the fingerprint store in the background.
+
+    :param judge: The judge node.
+    :return: The wrapped node.
+    """
+
+    async def node(state: AnalysisState) -> dict[str, Any]:
+        update = await judge(state)
+        shop_store.observe_later(dict(state))
+        return update
+
+    return node
+
+
 # Triage runs after the cheap skills and once more after the first expensive round (the bounded re-triage).
 MAX_TRIAGE_ROUNDS = 2
 
@@ -151,7 +172,7 @@ def build_graph(skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_P
     for skill in skills:
         builder.add_node(skill.name, _isolated(skill))
     builder.add_node("triage", _triage_node(skills))
-    builder.add_node("judge", make_judge_node(model_path))
+    builder.add_node("judge", _recording(make_judge_node(model_path)))
 
     # Edges
     builder.set_entry_point("preprocess")

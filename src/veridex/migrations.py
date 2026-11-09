@@ -119,6 +119,39 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX price_observations_day_idx ON price_observations (day);
         """,
     ),
+    (
+        7,
+        "shop fingerprints",
+        """
+        -- Web shops seen by analyses (veridex.shop_store): facts about the shop only, days not times; no URL,
+        -- caller, score or verdict. Deleted 400 days after last seen.
+        CREATE TABLE shops (
+            domain      TEXT PRIMARY KEY CHECK (domain = LOWER(domain) AND length(domain) <= 253),
+            first_seen  DATE NOT NULL,
+            last_seen   DATE NOT NULL,
+            platform    TEXT NOT NULL CHECK (length(platform) <= 20),
+            apps        TEXT[] NOT NULL DEFAULT '{}',
+            skeleton    BIGINT,
+            registered  DATE,
+            registrar   TEXT CHECK (length(registrar) <= 200),
+            first_cert  DATE
+        );
+        CREATE INDEX shops_last_seen_idx ON shops (last_seen);
+        -- Account identifiers per shop. Contacts are personal data: only a keyed hash (64 hex characters) may be
+        -- stored, enforced here; they are deleted 180 days after last seen.
+        CREATE TABLE shop_links (
+            kind        TEXT NOT NULL CHECK (length(kind) <= 20),
+            value       TEXT NOT NULL CHECK (length(value) <= 120),
+            domain      TEXT NOT NULL REFERENCES shops (domain) ON DELETE CASCADE,
+            first_seen  DATE NOT NULL,
+            last_seen   DATE NOT NULL,
+            PRIMARY KEY (kind, value, domain),
+            CHECK (kind NOT IN ('email', 'phone') OR value ~ '^[0-9a-f]{64}$')
+        );
+        CREATE INDEX shop_links_domain_idx ON shop_links (domain);
+        CREATE INDEX shop_links_last_seen_idx ON shop_links (last_seen);
+        """,
+    ),
 ]
 
 

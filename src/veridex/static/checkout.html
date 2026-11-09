@@ -11,9 +11,9 @@
 <body>
   <main>
     <h1>Buy Unfret credits</h1>
-    <p>Checks are priced in US dollars and paid in SOL or USDC. They belong to the wallet that pays (use them in the
-      browser extension after signing in with the same wallet), or to an API key, which works without a wallet in the
-      extension and in scripts.</p>
+    <p>Checks are sold in packs, priced in US dollars. Paying with SOL or USDC costs less than the listed price. Credits
+      belong to the wallet that pays (use them in the browser extension after signing in with the same wallet), or to
+      an API key, which works without a wallet in the extension and in scripts.</p>
     <p id="network" class="muted"></p>
 
     <p id="unavailable" hidden>Buying credits isn't available yet. Please try again later.</p>
@@ -63,9 +63,8 @@
           <legend class="visually-hidden">Packs</legend>
           <div id="packs" class="packs"></div>
         </fieldset>
-        <label class="custom">Or another amount
-          <input id="custom-sol" type="number" min="0.15" step="0.01" inputmode="decimal">
-          <span id="custom-unit">USD</span>
+        <label class="custom">Your country (for VAT on crypto payments)
+          <select id="country" autocomplete="country"></select>
         </label>
         <p id="summary"></p>
       </section>
@@ -80,12 +79,14 @@
         <h2 id="phone-heading">Or pay from your phone</h2>
         <p>Scan with a wallet app that supports Solana Pay. Credits go to the wallet you signed in with on this site, or
           else to the wallet you pay from.</p>
-        <a id="qr-link" href="#"><img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden></a>
+        <button id="qr-show" type="button">Show the QR code</button>
+        <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
       </section>
 
       <section id="card" aria-labelledby="card-heading" hidden>
         <h2 id="card-heading">Or pay by card</h2>
-        <p class="muted">Through our payment provider, for API keys, from <span id="card-min"></span>.</p>
+        <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
+          <span id="card-tax"></span>.</p>
         <button id="card-pay" type="button">Pay by card</button>
       </section>
 

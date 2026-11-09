@@ -284,3 +284,37 @@ valid 7 days. Nothing is stored when a check runs.
 - Extension 0.6.0 replaces 0.5.0 at `/extension` (`veridex-0.6.0.crx`, `veridex-chrome-0.6.0.zip`): an API key in the
   settings as an alternative to a wallet sign-in, and "This is wrong" under a result. Same key and ID, same
   permissions.
+
+## Changes (pricing v2: one price per check, packs, VAT on crypto; breaking for credit purchases)
+
+- **One price per check**, `VERIDEX_PRICE_PER_CHECK_USD` ($0.20): an analysis costs one check in credits and the x402
+  deep tier costs one check (`deep_usd_micros` 200_000). The quick tier stays $0.01. Changing the setting moves every
+  price below.
+- **Packs only:** 25, 50 and 100 checks. Bonuses and arbitrary purchase amounts are gone (`bonuses` and `purchase` are
+  removed from `/v1/pricing`). Per pack, `price_usd` is the price (by card, before the provider's sales tax/VAT:
+  $6.00 / $11.50 / $22.00) and `crypto_usd` the lower price with SOL or USDC ($5.00 / $10.00 / $20.00, before VAT).
+  Show the card price as the price and crypto as the discount, never as a card surcharge (EU rules). Either way the
+  account is credited `credited_usd_micros` (the pack's value).
+- `GET /v1/pricing` adds `price_per_check_usd_micros`, `price_per_check_usd`, `packs: [{"checks", "price_usd_micros",
+  "price_usd", "crypto_usd_micros", "crypto_usd", "credited_usd_micros", "label": {"en", "nl"}}]` (`label` is the
+  ready-made wording, e.g. "25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable"), and `vat: {"mode",
+  "home_country": "NL", "eu_rates_pct": {ISO code: percent}, "applies_to", "country_hint": ISO code | null}`
+  (`country_hint` is Cloudflare's guess for this visitor, so the response is `Cache-Control: private, no-store`).
+  `suggested_packs` stays as a deprecated alias (`{"checks", "usd_micros"}` = the crypto price).
+  `fiat.min_usd_micros` is the smallest pack's card price.
+- **`POST /v1/credits/purchase-tx`** now takes `{"address", "currency", "checks", "country", "beneficiary"? |
+  "key_id"?}` (`amount`/`lamports` are gone: 422). `country` is ISO 3166 alpha-2 (`EL` is read as `GR`; `XX`/`T1`
+  refused). The response adds `checks` and `price: {"country", "vat_rate_pct", "net_usd_micros", "vat_usd_micros",
+  "total_usd_micros", "total_usd"}`; `amount` is the total in the currency's base units, VAT included. Under
+  `vat_mode=nl_under_threshold` (default) every EU country pays 21% and others 0%; `per_country` uses each member
+  state's standard rate. The memo is `veridex:quote:<20-char id>`; the stored quote names who to credit and the VAT.
+- **`GET /v1/credits/solana-pay.svg`** takes `checks`, `country`, `currency` and `beneficiary`/`key_id` (not
+  `amount`); headers `X-Unfret-Total-Usd` and `X-Unfret-Vat-Rate` carry the price.
+- **Crediting:** what arrives, minus the VAT at the quote's rate, is credited. A transfer without a known quote (sent
+  by hand) counts as a sale to an unknown country at the Dutch rate (credited `received / 1.21`); the older
+  `veridex:credit:<account>` memo still names the beneficiary. Each credit leaves a sales record (day, country,
+  country mismatch with Cloudflare's guess, net, rate, VAT, asset, amount, transaction signature), kept ten years;
+  no IP address, no wallet column. `GET /v1/admin/sales/{YYYY-Qn}` (admin) exports a quarter as CSV.
+- **`POST /v1/credits/fiat-checkout`** takes `{"key_id", "checks"}` (not `amount_usd_micros`) and charges the pack's
+  card price. A paid order is credited the value of the pack whose card price it matches; another amount buys the
+  whole checks it covers after the provider's cut (webhook outcome `too_small` if none).

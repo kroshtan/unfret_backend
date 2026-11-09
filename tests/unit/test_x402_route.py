@@ -263,10 +263,10 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     discovery = (await client.get("/.well-known/x402")).json()
     assert discovery["pricing"] == "canonical in USD"
     assert discovery["tiers"]["quick"]["price_usd_micros"] == 10_000
-    assert discovery["tiers"]["deep"]["price_usd"] == "$0.15"
+    assert discovery["tiers"]["deep"]["price_usd"] == "$0.20"
     text = (await client.get("/llms.txt")).text
     assert "quick = $0.01" in text
-    assert "deep = $0.15" in text
+    assert "deep = $0.20" in text
     assert "| `SETTLEMENT_PENDING` | 402 | maybe |" in text
 
 

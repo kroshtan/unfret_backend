@@ -1,8 +1,9 @@
 """
 Prices, balances and buying credits.
 
-``/v1/pricing``, ``/v1/credits``, ``/v1/credits/purchase-tx``, and fiat top-ups for API keys
-(``/v1/credits/fiat-checkout`` and the provider's webhook, off until a provider is wired in).
+``/v1/pricing``, ``/v1/credits``, ``/v1/credits/purchase-tx`` (a pack with SOL or USDC, VAT where it applies), and
+card top-ups for API keys (``/v1/credits/fiat-checkout`` and the provider's webhook, off until a provider is wired
+in).
 """
 
 import base64
@@ -18,11 +19,12 @@ from solders.pubkey import Pubkey
 
 from veridex.auth import get_credits, require_account
 from veridex.config import settings
-from veridex.credits import fiat, keys, ledger
+from veridex.credits import fiat, keys, ledger, vat
 from veridex.credits.fiat import FiatProvider, FiatWebhookError
-from veridex.credits.pricing import pricing, purchase_limits, purchase_transaction, solana_pay_url
+from veridex.credits.packs import Pack, pack, packs
+from veridex.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from veridex.facts import PageFacts
-from veridex.prices import Currency, PriceUnavailableError
+from veridex.prices import Currency, PriceUnavailableError, format_usd
 from veridex.schemas.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 
 logger = structlog.get_logger("veridex")
@@ -42,34 +44,45 @@ class CreditsResponse(BaseModel):
 
 
 class PurchaseRequest(BaseModel):
-    """Who buys how much, in which currency."""
+    """Which pack, for whom, paid how, from where."""
 
     address: str = Field(max_length=64, description="The paying wallet (base58), which signs and sends the transfer.")
     currency: Currency = Field(default="SOL", description="Pay in SOL or USDC.")
-    amount: int | None = Field(default=None, gt=0, description="Amount in the currency's base units.")
-    lamports: int | None = Field(default=None, gt=0, description="Amount of SOL in lamports (same as amount for SOL).")
+    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing.")
+    country: str = Field(
+        min_length=2,
+        max_length=2,
+        description="The buyer's country (ISO 3166 alpha-2), for VAT. The checkout prefills it from where the "
+        "request comes from; the buyer can change it.",
+    )
     beneficiary: str | None = Field(
         default=None,
         max_length=64,
         description="The wallet that gets the credits (defaults to address), e.g. a member key when a smart-wallet "
-        "vault pays. Recorded in a memo the scanner reads.",
+        "vault pays.",
     )
     key_id: str | None = Field(
         default=None,
         max_length=120,
-        description="Top up this API key instead (its id, or the key itself: only the id is used). Recorded in the "
-        "memo as key:<id>.",
+        description="Top up this API key instead (its id, or the key itself: only the id is used).",
     )
 
     @model_validator(mode="after")
-    def _one_amount(self) -> PurchaseRequest:
+    def _one_target(self) -> PurchaseRequest:
         if self.beneficiary and self.key_id:
             raise ValueError("give beneficiary or key_id, not both")
-        if self.amount is None:
-            if self.lamports is None or self.currency != "SOL":
-                raise ValueError("give amount (base units of the currency)")
-            self.amount = self.lamports
         return self
+
+
+class VatBreakdown(BaseModel):
+    """What the buyer pays, in dollars, and why."""
+
+    country: str
+    vat_rate_pct: str
+    net_usd_micros: int = Field(description="The pack's price, credited to the account.")
+    vat_usd_micros: int
+    total_usd_micros: int = Field(description="What is charged: net plus VAT.")
+    total_usd: str
 
 
 class PurchaseResponse(BaseModel):
@@ -77,29 +90,38 @@ class PurchaseResponse(BaseModel):
 
     transaction: str
     currency: Currency
-    amount: int
+    amount: int = Field(description="The amount in the currency's base units (VAT included).")
     lamports: int | None = Field(default=None, description="The amount for SOL purchases (backward compatible).")
     mint: str | None = Field(default=None, description="The token mint for USDC purchases.")
     hot_wallet: str
     solana_pay_url: str
+    checks: int
+    price: VatBreakdown
 
 
 @router.get("/v1/pricing")
-async def get_pricing(request: Request) -> dict[str, Any]:
+async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     """
-    The dollar prices (analysis, x402 tiers), bonuses, packs and limits, with exact USDC amounts and a live SOL quote.
+    The price of a check and everything derived from it.
+
+    The x402 tiers, the packs (by card, and the lower crypto
+    price), the VAT rules for crypto, exact USDC amounts and a live SOL quote.
 
     :param request: The incoming request.
+    :param response: The response (marked uncacheable: it carries the visitor's likely country).
     :return: The price list.
     """
     door = get_credits(request)
     document = await pricing(settings, door.hot if door.purchases_enabled else None, door.book, door.usdc_mint)
+    document["vat"]["country_hint"] = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
     document["api_keys"] = door.sign_in_enabled
-    document["fiat"] = {"available": get_fiat(request) is not None, "min_usd_micros": settings.fiat_min_usd_micros}
+    smallest = packs(settings)[0].card_usd_micros
+    document["fiat"] = {"available": get_fiat(request) is not None, "min_usd_micros": smallest}
     document["reports"] = {
         "per_month": settings.reports_per_month,
         "reward_checks": settings.report_reward_checks,
     }
+    response.headers["Cache-Control"] = "private, no-store"
     return document
 
 
@@ -121,18 +143,26 @@ async def get_balance(request: Request, address: str = Depends(require_account))
     )
 
 
-async def _hot_for_purchase(request: Request, amount: int, currency: Currency = "SOL") -> Pubkey:
+def _hot_for_purchase(request: Request, currency: Currency = "SOL") -> Pubkey:
     door = get_credits(request)
     enabled = door.usdc_purchases_enabled if currency == "USDC" else door.purchases_enabled
-    if not enabled or door.hot is None:
+    if not enabled or door.hot is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Buying credits is not available yet.")
-    try:
-        low, high = await purchase_limits(settings, door.book, currency)
-    except PriceUnavailableError as exc:
-        raise ServiceUnavailableError("SOL can't be priced right now; pay in USDC or try again shortly.") from exc
-    if not low <= amount <= high:
-        raise BadRequestError("Amount out of range.", metadata={"currency": currency, "min": low, "max": high})
     return door.hot
+
+
+def _pack(checks: int) -> Pack:
+    chosen = pack(settings, checks)
+    if chosen is None:
+        raise BadRequestError("Not a pack size.", metadata={"packs": settings.packs})
+    return chosen
+
+
+def _country(value: str) -> str:
+    country = vat.normalise_country(value)
+    if country is None:
+        raise BadRequestError("Not a country code (ISO 3166 alpha-2).")
+    return country
 
 
 async def _key_account(request: Request, value: str) -> str:
@@ -155,39 +185,69 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
     return wallet
 
 
+async def _quote(
+    request: Request, checks: int, country: str, currency: Currency, beneficiary: str | None
+) -> tuple[vat.Quote, int]:
+    """Price and store a pack for ``country``, and convert its total into ``currency``'s base units."""
+    chosen = _pack(checks)
+    edge = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+    quote = vat.price_quote(
+        settings, chosen.checks, chosen.value_usd_micros, _country(country), edge=edge, beneficiary=beneficiary
+    )
+    try:
+        amount = await get_credits(request).book.amount(quote.gross_usd_micros, currency)
+    except PriceUnavailableError as exc:
+        raise ServiceUnavailableError("SOL can't be priced right now; pay in USDC or try again shortly.") from exc
+    await vat.save_quote(request.app.db_pool, quote)
+    return quote, amount
+
+
+def _breakdown(quote: vat.Quote) -> VatBreakdown:
+    return VatBreakdown(
+        country=quote.country,
+        vat_rate_pct=format(quote.vat_rate_bps / 100, "g"),
+        net_usd_micros=quote.net_usd_micros,
+        vat_usd_micros=quote.vat_usd_micros,
+        total_usd_micros=quote.gross_usd_micros,
+        total_usd=format_usd(quote.gross_usd_micros),
+    )
+
+
 @router.post("/v1/credits/purchase-tx", response_model=PurchaseResponse)
 async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseResponse:
     """
-    Build the unsigned SOL or USDC transfer that buys credits; the buyer's wallet signs and sends it.
+    Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.
 
-    Credits arrive once the transfer is finalized (about 15–30 seconds): its dollar value (SOL converted at crediting
-    time, USDC exact) plus any bonus tier that value reaches, credited to the beneficiary named in the transaction's
-    memo (the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise). No sign-in needed: anyone may fund
-    any wallet or API key.
+    The pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the
+    transaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15–30 seconds):
+    what arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.
+    No sign-in needed: anyone may fund any wallet or API key.
 
-    :param body: Who buys how much, in which currency.
+    :param body: Which pack, for whom, paid how, from where.
     :param request: The incoming request.
-    :return: The transaction (base64) and a Solana Pay link for phone wallets.
+    :return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.
     """
-    assert body.amount is not None  # noqa: S101 - set by the model validator
-    hot = await _hot_for_purchase(request, body.amount, body.currency)
+    hot = _hot_for_purchase(request, body.currency)
     payer = _wallet(body.address, hot)
-    beneficiary: Pubkey | str = payer
+    beneficiary: str | None = None
     if body.key_id:
         beneficiary = await _key_account(request, body.key_id)
     elif body.beneficiary:
-        beneficiary = _wallet(body.beneficiary, hot)
+        beneficiary = str(_wallet(body.beneficiary, hot))
+    quote, amount = await _quote(request, body.checks, body.country, body.currency, beneficiary)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
-    raw = purchase_transaction(payer, hot, body.amount, await door.rpc.latest_blockhash(), beneficiary, mint=mint)
+    raw = purchase_transaction(payer, hot, amount, await door.rpc.latest_blockhash(), quote.memo, mint=mint)
     return PurchaseResponse(
         transaction=base64.b64encode(raw).decode(),
         currency=body.currency,
-        amount=body.amount,
-        lamports=body.amount if mint is None else None,
+        amount=amount,
+        lamports=amount if mint is None else None,
         mint=str(mint) if mint else None,
         hot_wallet=str(hot),
-        solana_pay_url=solana_pay_url(hot, body.amount, beneficiary, mint),
+        solana_pay_url=solana_pay_url(hot, amount, quote.memo, mint),
+        checks=quote.checks,
+        price=_breakdown(quote),
     )
 
 
@@ -195,34 +255,41 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
 async def solana_pay_qr(
     request: Request,
     *,
-    lamports: int | None = Query(default=None, gt=0),
-    amount: int | None = Query(default=None, gt=0),
+    checks: int = Query(gt=0),
+    country: str = Query(min_length=2, max_length=2),
     currency: Currency = Query(default="SOL"),
     beneficiary: str | None = Query(default=None, max_length=64),
     key_id: str | None = Query(default=None, max_length=120),
 ) -> Response:
     """
-    The Solana Pay request as a QR code, for paying from a phone wallet.
+    The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
+
+    The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
+    headers.
 
     :param request: The incoming request.
-    :param lamports: The SOL amount (backward compatible; same as ``amount`` for SOL).
-    :param amount: The amount in the currency's base units.
+    :param checks: The pack size.
+    :param country: The buyer's country (ISO 3166 alpha-2), for VAT.
     :param currency: ``SOL`` or ``USDC``.
-    :param beneficiary: The wallet to credit (a memo); without it the paying wallet is credited.
-    :param key_id: The API key to credit instead (a memo).
+    :param beneficiary: The wallet to credit; without it the paying wallet is credited.
+    :param key_id: The API key to credit instead.
     :return: An SVG image.
-    :raises BadRequestError: If no amount is given.
     """
-    value = amount if amount is not None else (lamports if currency == "SOL" else None)
-    if value is None:
-        raise BadRequestError("Give amount (base units of the currency).")
-    hot = await _hot_for_purchase(request, value, currency)
-    target: Pubkey | str | None = _wallet(beneficiary, hot) if beneficiary else None
+    hot = _hot_for_purchase(request, currency)
+    target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:
         target = await _key_account(request, key_id)
+    quote, amount = await _quote(request, checks, country, currency, target)
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
-    svg = segno.make(solana_pay_url(hot, value, target, mint), error="m").svg_inline(scale=6, border=2, dark="#111")
-    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
+    svg = segno.make(solana_pay_url(hot, amount, quote.memo, mint), error="m").svg_inline(
+        scale=6, border=2, dark="#111"
+    )
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),
+        "X-Unfret-Vat-Rate": format(quote.vat_rate_bps / 100, "g"),
+    }
+    return Response(svg, media_type="image/svg+xml", headers=headers)
 
 
 @router.get("/v1/schema/page-facts")
@@ -239,12 +306,10 @@ def page_facts_schema() -> dict[str, Any]:
 
 
 class FiatCheckoutRequest(BaseModel):
-    """Which key to top up with how much."""
+    """Which key to top up with which pack."""
 
     key_id: str = Field(max_length=120, description="The API key's id (or the key itself: only the id is used).")
-    amount_usd_micros: int = Field(
-        gt=0, description="The amount in micro-dollars, whole cents, at least fiat.min_usd_micros from /v1/pricing."
-    )
+    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing (charged its price_usd).")
 
 
 class FiatCheckoutResponse(BaseModel):
@@ -268,30 +333,23 @@ def get_fiat(request: Request) -> FiatProvider | None:
 @router.post("/v1/credits/fiat-checkout", response_model=FiatCheckoutResponse)
 async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatCheckoutResponse:
     """
-    Start a card (or other fiat) payment that tops up an API key, at the provider's hosted checkout.
+    Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.
 
-    The provider handles the buyer's details, invoice and tax; this service only learns that the key was paid for.
-    Credited when the provider's webhook confirms the payment, with the same bonus tiers as crypto.
+    The provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns
+    that the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.
 
-    :param body: The key and the amount.
+    :param body: The key and the pack.
     :param request: The incoming request.
     :return: The checkout URL.
     :raises ServiceUnavailableError: While no fiat provider is configured.
-    :raises BadRequestError: If the amount is out of range.
     """
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
-    amount = body.amount_usd_micros
-    in_range = settings.fiat_min_usd_micros <= amount <= settings.purchase_max_usd_micros
-    if not in_range or amount % fiat.USD_MICROS_PER_CENT:
-        raise BadRequestError(
-            "Amount out of range.",
-            metadata={"min": settings.fiat_min_usd_micros, "max": settings.purchase_max_usd_micros},
-        )
+    chosen = _pack(body.checks)
     account = await _key_account(request, body.key_id)
     checkout = await provider.create_checkout(
-        account, amount // fiat.USD_MICROS_PER_CENT, f"{settings.public_base_url}/checkout?paid=1"
+        account, chosen.card_usd_micros // fiat.USD_MICROS_PER_CENT, f"{settings.public_base_url}/checkout?paid=1"
     )
     await fiat.remember_checkout(request.app.db_pool, provider.name, checkout, account)
     return FiatCheckoutResponse(checkout_url=checkout.url, provider=provider.name)
@@ -321,8 +379,8 @@ async def fiat_webhook(request: Request) -> dict[str, Any]:
         raise BadRequestError("Webhook rejected.") from exc
     if event is None:
         return {"status": "ignored"}
-    outcome = await fiat.apply_event(request.app.db_pool, event, settings.credit_bonus_tiers)
+    outcome = await fiat.apply_event(request.app.db_pool, event, settings)
     # Acknowledged either way (a retry wouldn't change it); an order we can't place needs a person.
-    log = logger.error if outcome in {"unknown_account", "unknown_order"} else logger.info
+    log = logger.error if outcome in {"unknown_account", "unknown_order", "too_small"} else logger.info
     log("fiat_webhook", kind=event.kind, outcome=outcome, provider=event.provider, order_id=event.order_id)
     return {"status": outcome}

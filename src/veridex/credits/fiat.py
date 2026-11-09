@@ -10,6 +10,10 @@ Which key an order is for: our account id goes into the checkout's metadata, and
 account mapping ourselves (``fiat_checkouts``), since a provider may not echo checkout metadata on the order. The
 mapping wins when both are present.
 
+What a payment buys: the value of the pack whose card price it paid (:func:`veridex.credits.packs.card_credits`;
+the amount is the order's amount before the provider's sales tax/VAT). The provider is the seller of record and
+handles the tax, so no VAT record is kept here.
+
 ``fiat_payments`` keeps one row per order: the account, the amount, the credits granted and how much was taken back.
 It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right account, and
 answers support questions. Rows are deleted after ``fiat_retention_days``.
@@ -38,8 +42,9 @@ from urllib.parse import urlencode
 
 import asyncpg
 
+from veridex.config import Settings
 from veridex.credits import keys, ledger
-from veridex.credits.pricing import with_bonus
+from veridex.credits.packs import card_credits
 
 USD_MICROS_PER_CENT = 10_000
 
@@ -215,7 +220,7 @@ class FakeFiatProvider:
 
 # ── The ledger side ───────────────────────────────────────────────────────────────────────────────────────────────
 
-Outcome = Literal["credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account"]
+Outcome = Literal["credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account", "too_small"]
 
 
 async def remember_checkout(db: asyncpg.Pool, provider: str, checkout: FiatCheckout, account: str) -> None:
@@ -247,11 +252,13 @@ async def _account_for(conn: asyncpg.Connection, event: FiatEvent) -> str | None
     return event.account if event.account and keys.is_key_account(event.account) else None
 
 
-async def _paid(conn: asyncpg.Connection, event: FiatEvent, bonus_tiers: list[tuple[int, int]]) -> Outcome:
+async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) -> Outcome:
     account = await _account_for(conn, event)
     if account is None or event.amount_cents <= 0:
         return "unknown_account"
-    credits = with_bonus(event.amount_cents * USD_MICROS_PER_CENT, bonus_tiers)
+    credits = card_credits(settings, event.amount_cents)
+    if credits <= 0:
+        return "too_small"
     fresh = await conn.fetchval(
         "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros) "
         "VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING TRUE",
@@ -295,23 +302,23 @@ async def _taken_back(conn: asyncpg.Connection, event: FiatEvent) -> Outcome:
     return "debited"
 
 
-async def apply_event(db: asyncpg.Pool, event: FiatEvent, bonus_tiers: list[tuple[int, int]]) -> Outcome:
+async def apply_event(db: asyncpg.Pool, event: FiatEvent, settings: Settings) -> Outcome:
     """
     Apply a webhook event to the ledger, idempotently.
 
-    ``paid`` credits the order's dollar value plus the bonus tier it reaches, once per order. ``refunded`` debits the
+    ``paid`` credits the value of the pack the order paid for, once per order. ``refunded`` debits the
     refunded share of those credits (``refunded_cents`` is the order's total refunded so far, so retries and
     successive partial refunds add up correctly). ``disputed`` debits all of them. Debits may make the balance
     negative.
 
     :param db: The database pool.
     :param event: The event.
-    :param bonus_tiers: ``(minimum micro-dollars, bonus percent)`` pairs.
+    :param settings: The service settings (the packs and their card prices).
     :return: What happened.
     """
     async with db.acquire() as conn, conn.transaction():
         if event.kind == "paid":
-            return await _paid(conn, event, bonus_tiers)
+            return await _paid(conn, event, settings)
         return await _taken_back(conn, event)
 
 

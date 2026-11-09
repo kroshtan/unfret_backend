@@ -22,6 +22,7 @@ from veridex.x402.solana import CAIP2, MEMO_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, S
 
 NETWORK = CAIP2["solana-devnet"]
 BLOCKHASH = str(Hash.default())
+CHECK_USD = Decimal("0.15")  # the price these tests are written for (the default is $0.20)
 
 
 def transfer_checked(source: Pubkey, mint: Pubkey, destination: Pubkey, authority: Pubkey, amount: int) -> Instruction:
@@ -90,6 +91,8 @@ def expected(hot: Pubkey, amount: int = 100_000) -> dict[str, Any]:
 
 
 def configured(hot: Keypair, cold: Pubkey, **overrides: Any) -> Settings:
+    # The x402 tests' arithmetic is written for $0.15 a deep check; test_prices pins the real default.
+    overrides.setdefault("price_per_check_usd", CHECK_USD)
     return Settings(hot_wallet_key=SecretStr(str(hot)), cold_address=str(cold), **overrides)
 
 

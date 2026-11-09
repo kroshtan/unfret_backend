@@ -268,5 +268,12 @@
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "and"
+  "and": "and",
+  "pricing": {
+    "pack": "{checks} checks — {price}",
+    "crypto": "pay with crypto: {crypto} + VAT where applicable",
+    "card_tax": "plus sales tax/VAT where applicable, added at checkout",
+    "vat_line": "{net} + {rate}% VAT ({vat}) = {total}",
+    "no_vat_line": "{total} (no VAT outside the EU)"
+  }
 }

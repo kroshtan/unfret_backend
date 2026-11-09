@@ -243,6 +243,41 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX labelled_pages_page_key_idx ON labelled_pages (page_key, labelled_at);
         """,
     ),
+    (
+        10,
+        "crypto vat quotes and sales records",
+        """
+        -- Priced crypto purchases (veridex.credits.vat): the pack, the buyer's stated country and the VAT, and who
+        -- to credit. The purchase transaction's memo names the id. Deleted a day after they expire.
+        CREATE TABLE vat_quotes (
+            id                TEXT PRIMARY KEY CHECK (id ~ '^[a-z2-7]{20}$'),
+            checks            INTEGER NOT NULL CHECK (checks > 0),
+            country           TEXT NOT NULL CHECK (country ~ '^[A-Z]{2}$'),
+            country_mismatch  BOOLEAN NOT NULL,
+            vat_rate_bps      INTEGER NOT NULL CHECK (vat_rate_bps BETWEEN 0 AND 10000),
+            net_usd_micros    BIGINT NOT NULL CHECK (net_usd_micros > 0),
+            vat_usd_micros    BIGINT NOT NULL CHECK (vat_usd_micros >= 0),
+            beneficiary       TEXT CHECK (length(beneficiary) <= 64),
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX vat_quotes_created_at_idx ON vat_quotes (created_at);
+        -- One row per crypto credit purchase, for the bookkeeping: kept ten years. No IP address and no wallet
+        -- (the transaction on chain shows who paid); country 'unknown' for a transfer without a quote.
+        CREATE TABLE crypto_sales (
+            id                BIGSERIAL PRIMARY KEY,
+            sold_on           DATE NOT NULL,
+            country           TEXT NOT NULL CHECK (country ~ '^[A-Z]{2}$' OR country = 'unknown'),
+            country_mismatch  BOOLEAN NOT NULL,
+            net_usd_micros    BIGINT NOT NULL CHECK (net_usd_micros >= 0),
+            vat_rate_bps      INTEGER NOT NULL CHECK (vat_rate_bps BETWEEN 0 AND 10000),
+            vat_usd_micros    BIGINT NOT NULL CHECK (vat_usd_micros >= 0),
+            asset             TEXT NOT NULL CHECK (asset IN ('SOL', 'USDC')),
+            amount            BIGINT NOT NULL CHECK (amount > 0),
+            signature         TEXT NOT NULL CHECK (length(signature) <= 100)
+        );
+        CREATE INDEX crypto_sales_sold_on_idx ON crypto_sales (sold_on);
+        """,
+    ),
 ]
 
 

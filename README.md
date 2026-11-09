@@ -81,9 +81,9 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/analyze` | Analyse a page, paid from credits: `{ "url", "page_content"?, "page_facts"?, "checkout_content"? }` |
 | `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
 | `GET` | `/v1/credits` | The signed-in wallet's balance |
-| `GET` | `/v1/pricing` | Analysis price, x402 prices, purchase bonuses, suggested packs, hot wallet |
-| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys credits, plus a Solana Pay link |
-| `GET` | `/v1/credits/solana-pay.svg` | The Solana Pay request as a QR code |
+| `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
+| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
+| `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `GET` | `/v1/health` | Liveness probe |
 | `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
@@ -97,21 +97,37 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in micro-dollars`** (and whether its trial was granted): no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
-Credits are dollars and are bought by sending SOL or USDC to the hot wallet (at least one check's worth, $0.15). USDC
-is credited at face value; SOL at its dollar value at crediting time (Pyth SOL/USD, rounded down), and the SOL scanner
-waits rather than guesses while the price is stale. A second scanner watches the hot wallet's USDC account. For SOL:
-`/v1/credits/purchase-tx` builds the transfer with a
-`veridex:credit:<beneficiary>` memo (any wallet may fund any wallet, so a smart-wallet vault can buy for the key that
-signs in), and [`/checkout`](https://unfret.kroshtan.com/checkout) does it from a browser wallet or a phone (Solana
-Pay QR). A background scanner walks the hot wallet's finalized transactions and credits every incoming System
-transfer, top-level or inside a program call, to the memo's beneficiary (exactly one well-formed memo) or else the
-sender, with the purchase bonus (≥$5 +10%, ≥$25 +20%). It moves its cursor in the same database
-transaction by compare-and-swap, so each transfer is credited exactly once. Sweeps, fees and x402 settlements are
-ignored; any other SOL sent to the hot wallet, a manual top-up included, counts as a purchase.
+**Pricing.** One setting, `VERIDEX_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
+credits, an x402 deep check costs one check, and credits are sold in packs of 25, 50 and 100 checks
+(`src/veridex/credits/packs.py`). A pack's price is its card price ($6, $11.50, $22: the pack's value plus the card
+provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50, before the provider's sales tax/VAT); paying with SOL
+or USDC costs less, just the pack's value ($5, $10, $20) plus VAT where it applies. The card price is shown as *the*
+price and crypto as the discount, never as a card surcharge (EU rules forbid surcharging consumer card payments).
+Either way the account is credited the pack's value, so a check costs the same in credits however it was bought.
+
+**VAT on crypto purchases** (`src/veridex/credits/vat.py`). The buyer states their country; the checkout prefills it
+from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come from Cloudflare's edge (it forwards
+that peer as `X-Edge-Peer`, checked against the vendored ranges). The IP address is never stored or logged. With
+`VERIDEX_VAT_MODE=nl_under_threshold` (default, while EU cross-border sales stay under €10,000 a year) every EU buyer
+pays Dutch VAT (21%) and everyone else none; `per_country` uses each member state's standard rate, vendored from the
+EU's TEDB (`make vat-rates-check` compares it monthly; the service logs `vat_rates_stale` after 45 days). Card
+purchases are sold by the payment provider, which handles their tax.
+
+**Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a pack for the buyer's country and stores that as
+a quote; the transaction's memo is `veridex:quote:<id>`, so the scanner credits the right account (the payer, another
+wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.kroshtan.com/checkout) does it from a
+browser wallet or a phone. A background scanner walks the hot wallet's finalized transactions (a second one its USDC
+account) and credits every incoming transfer, top-level or inside a program call: what arrived (USDC at face value,
+SOL at its dollar value at crediting time, Pyth SOL/USD, rounded down; it waits rather than guesses while the price is
+stale) minus its VAT. Each credit leaves a sales record (day, country, net, rate, VAT, asset, amount, signature; no
+IP, no wallet column) in the same database transaction, kept ten years; `GET /v1/admin/sales/<YYYY-Qn>` exports a
+quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an unknown country at the Dutch rate;
+the older `veridex:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each
+transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored.
 
 [`/connect`](https://unfret.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
 (`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
-strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs `VERIDEX_ANALYSIS_PRICE_USD_MICROS` ($0.15),
+strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs one check ($0.20),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
 A wallet's first sign-in grants a free trial (5 analyses) only if it has real on-chain history (≥10 transactions or a
@@ -125,7 +141,7 @@ over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL) or **U
 `PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header listing wSOL first, then USDC. The client
 signs a transaction that pays the price into the **hot wallet**'s token account for that mint: a plain `TransferChecked` from a standard
 wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Unfret co-signs as **fee
-payer** with the same hot wallet (agents pay only the price: quick $0.01, deep $0.15), submits it and waits
+payer** with the same hot wallet (agents pay only the price: quick $0.01, deep one check, $0.20), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
 confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
 human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
@@ -252,10 +268,11 @@ Settings are defined and validated in [`src/veridex/config.py`](src/veridex/conf
 | `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
 | `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
 | `VERIDEX_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |
-| `VERIDEX_ANALYSIS_PRICE_USD_MICROS` | `150000` | One analysis ($0.15) |
-| `VERIDEX_X402_PRICE_QUICK_USD_MICROS` / `VERIDEX_X402_PRICE_DEEP_USD_MICROS` | `10000` / `150000` | x402 tiers ($0.01 / $0.15) |
-| `VERIDEX_CREDIT_BONUS_TIERS` / `VERIDEX_SUGGESTED_PACKS` | `[[5000000,10],[25000000,20]]` / `[10,50,200]` | Purchase bonuses (min micro-dollars, %); packs in checks |
-| `VERIDEX_PURCHASE_MIN_USD_MICROS` / `VERIDEX_PURCHASE_MAX_USD_MICROS` | `150000` / `1000000000` | Credit purchase limits ($0.15 … $1,000) |
+| `VERIDEX_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
+| `VERIDEX_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
+| `VERIDEX_PACKS` | `[25,50,100]` | Pack sizes in checks |
+| `VERIDEX_CARD_FEE_PCT` / `VERIDEX_CARD_FEE_FLAT_USD` / `VERIDEX_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
+| `VERIDEX_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `VERIDEX_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `VERIDEX_TRIAL_CHECKS` | `5` | Free analyses on a first sign-in (wallets with history only) |
 | `VERIDEX_TRIAL_PER_IP_PER_DAY` / `VERIDEX_TRIAL_DAILY_CAP` | `2` / `50` | Trial limits, kept in memory |

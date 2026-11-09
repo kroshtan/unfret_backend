@@ -8,15 +8,19 @@ credits the incoming transfers (top-level and inner instructions, so smart walle
 and moves the cursor, in one database transaction. The cursor moves by compare-and-swap, so a transfer is credited
 exactly once even if two scanners run or one restarts mid-way.
 
-A purchase is credited at its dollar value at crediting time (:meth:`~veridex.prices.PriceBook.value`; USDC is exact,
-SOL is converted with Pyth's SOL/USD price), then gets the bonus tier that value reaches. When SOL can't be valued
+A purchase is valued in dollars at crediting time (:meth:`~veridex.prices.PriceBook.value`; USDC is exact, SOL is
+converted with Pyth's SOL/USD price), VAT included: the account is credited the net amount, and the sale is recorded
+with its country and VAT (:mod:`veridex.credits.vat`) in the same database transaction. When SOL can't be valued
 (oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
-Who is credited: the beneficiary named by a ``veridex:credit:<pubkey>`` memo (or ``veridex:credit:key:<id>`` for an
-API key) when the transaction carries exactly one well-formed such memo (``/v1/credits/purchase-tx`` and the Solana
-Pay link add it), so a smart-wallet vault can buy credits for the key that signs in; otherwise the transfer's source.
-A memo naming an API key that doesn't exist credits the source instead, so a typo never strands the money. Anyone may
-fund anyone, so a memo grants nothing the payer couldn't give anyway.
+Who is credited, and at which VAT rate: a ``veridex:quote:<id>`` memo (``/v1/credits/purchase-tx`` and the Solana
+Pay link add it) names a stored quote, which says who gets the credits (or nobody in particular: the payer) and the
+buyer's country and rate. Without a known quote, the older ``veridex:credit:<pubkey>`` memo (or
+``veridex:credit:key:<id>`` for an API key) names the beneficiary when the transaction carries exactly one
+well-formed such memo, so a smart-wallet vault can buy credits for the key that signs in; otherwise the transfer's
+source is credited, as a sale to an unknown country at the Dutch rate. A memo naming an API key that doesn't exist
+credits the source instead, so a typo never strands the money. Anyone may fund anyone, so a memo grants nothing the
+payer couldn't give anyway.
 
 Everything else touching the hot wallet is ignored: anything the hot wallet itself pays the fee for (x402
 settlements, swaps, sweeps, account creation), transfers whose source is the hot wallet, and failed transactions. Any
@@ -30,8 +34,8 @@ import asyncpg
 import structlog
 from solders.pubkey import Pubkey
 
-from veridex.credits import keys, ledger
-from veridex.credits.pricing import with_bonus
+from veridex.config import Settings
+from veridex.credits import keys, ledger, vat
 from veridex.prices import Currency, PriceBook, PriceUnavailableError
 from veridex.x402.solana import SolanaRpc, associated_token_address
 
@@ -75,6 +79,25 @@ def credit_beneficiary(tx: dict[str, Any]) -> str | None:
         return str(Pubkey.from_string(named))
     except ValueError:
         return None
+
+
+def quote_id(tx: dict[str, Any]) -> str | None:
+    """
+    The quote a ``veridex:quote:<id>`` memo names, if the transaction carries exactly one such memo.
+
+    :param tx: The transaction in ``jsonParsed`` encoding.
+    :return: The quote id, or ``None``.
+    """
+    memos = [
+        ix["parsed"].removeprefix(vat.QUOTE_MEMO_PREFIX).strip()
+        for ix in _instructions(tx)
+        if ix.get("program") == "spl-memo"
+        and isinstance(ix.get("parsed"), str)
+        and ix["parsed"].startswith(vat.QUOTE_MEMO_PREFIX)
+    ]
+    if len(memos) != 1 or len(memos[0]) != 20 or not memos[0].isalnum():
+        return None
+    return str(memos[0])
 
 
 def _without_memos(tx: dict[str, Any]) -> dict[str, Any]:
@@ -172,7 +195,7 @@ class CreditScanner:
         rpc: SolanaRpc,
         pool: asyncpg.Pool,
         hot: Pubkey,
-        bonus_tiers: list[tuple[int, int]],
+        settings: Settings,
         *,
         book: PriceBook,
         usdc_mint: Pubkey | None = None,
@@ -183,11 +206,11 @@ class CreditScanner:
         :param rpc: The Solana RPC client.
         :param pool: The database pool.
         :param hot: The hot wallet.
-        :param bonus_tiers: ``(minimum micro-dollars, bonus percent)`` pairs applied per purchase (by dollar value).
+        :param settings: The service settings (the VAT rules).
         :param book: The price book (values purchases in dollars).
         :param usdc_mint: Scan USDC transfers into the hot wallet's account for this mint instead of SOL.
         """
-        self.rpc, self.pool, self.hot, self.bonus_tiers = rpc, pool, hot, bonus_tiers
+        self.rpc, self.pool, self.hot, self.settings = rpc, pool, hot, settings
         self.book, self.mint = book, usdc_mint
         self.currency: Currency = "USDC" if usdc_mint else "SOL"
         # The scanned address: the wallet for SOL, its USDC token account for USDC.
@@ -238,14 +261,21 @@ class CreditScanner:
                 return list(reversed(entries))  # oldest first
             before = page[-1]["signature"]
 
-    async def _credits_for(self, tx: dict[str, Any]) -> dict[str, int]:
+    async def _credits_for(self, tx: dict[str, Any]) -> tuple[dict[str, int], vat.Quote | None]:
         mint = str(self.mint) if self.mint else None
+        named = quote_id(tx)
+        quote = await vat.get_quote(self.pool, named) if named else None
+        if quote is not None:
+            paid = credits_for(_without_memos(tx), str(self.hot), mint)
+            if paid and quote.beneficiary:
+                paid = {quote.beneficiary: sum(paid.values())}
+            return paid, quote
         paid = credits_for(tx, str(self.hot), mint)
         for account in paid:
             key_id = account.removeprefix(keys.ACCOUNT_PREFIX)
             if keys.is_key_account(account) and not await keys.exists(self.pool, key_id):
-                return credits_for(_without_memos(tx), str(self.hot), mint)  # an unknown key: credit the senders
-        return paid
+                return credits_for(_without_memos(tx), str(self.hot), mint), None  # unknown key: credit the senders
+        return paid, None
 
     async def _value(self, amount: int) -> int:
         return await self.book.value(amount, self.currency)
@@ -263,20 +293,25 @@ class CreditScanner:
         made = 0
         for entry in await self._pending(cursor):
             signature = entry["signature"]
-            received: dict[str, int] = {}
+            # account → (amount in base units, its split into net credits and VAT)
+            sales: dict[str, tuple[int, vat.Sale]] = {}
             if entry.get("err") is None:
                 tx = await self.rpc.parsed_transaction(signature, commitment="finalized")
                 if tx is None:
                     break  # not retrievable yet; never skip past it, try again next round
-                paid = await self._credits_for(tx)
+                paid, quote = await self._credits_for(tx)
                 try:
-                    received = {wallet: await self._value(amount) for wallet, amount in paid.items()}
+                    valued = {account: (amount, await self._value(amount)) for account, amount in paid.items()}
                 except PriceUnavailableError as exc:
                     logger.warning("credits_scan_waiting_for_price", reason=str(exc)[:120])
                     break  # can't value SOL right now; never skip past it, try again next round
-                # Zero-value transfers (anyone can send one) and dust that values to 0 credit nothing; the
+                sales = {
+                    account: (amount, vat.sale_for(self.settings, value, quote))
+                    for account, (amount, value) in valued.items()
+                }
+                # Zero-value transfers (anyone can send one) and dust worth no net credit credit nothing; the
                 # cursor still moves past them. Crediting 0 would raise and stall the scanner on that transaction.
-                received = {wallet: value for wallet, value in received.items() if value > 0}
+                sales = {account: sale for account, sale in sales.items() if sale[1].net_usd_micros > 0}
             async with self.pool.acquire() as conn, conn.transaction():
                 current = await conn.fetchval(
                     "SELECT signature FROM scan_cursor WHERE name = $1 FOR UPDATE", self.name
@@ -284,16 +319,17 @@ class CreditScanner:
                 if current != cursor:
                     logger.warning("credits_scanner_raced", expected=cursor, found=current)
                     return made  # another scanner moved on; it credits from here
-                for sender, value in received.items():
-                    await ledger.credit(conn, sender, with_bonus(value, self.bonus_tiers))
+                for account, (amount, sale) in sales.items():
+                    await ledger.credit(conn, account, sale.net_usd_micros)
+                    await vat.record_sale(conn, sale, self.currency, amount, signature=signature)
                 await ledger.set_cursor(conn, self.name, signature)
-            for value in received.values():
+            for _, sale in sales.values():
                 # Amounts only: which wallet bought is on chain already and needn't be in our logs.
                 logger.info(
                     "credits_purchased",
                     currency=self.currency,
-                    usd_micros=value,
-                    credited_usd_micros=with_bonus(value, self.bonus_tiers),
+                    credited_usd_micros=sale.net_usd_micros,
+                    vat_usd_micros=sale.vat_usd_micros,
                 )
                 made += 1
             cursor = signature

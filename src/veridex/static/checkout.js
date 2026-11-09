@@ -1,9 +1,10 @@
-// /checkout: buy credits with SOL or USDC. The wallet signs and sends a transfer to Unfret's hot wallet; the server
-// credits the sending wallet once the transfer is final (SOL at its dollar value then). Phone wallets can pay the same
-// request by QR code. Prices are in US dollars: USDC pays them exactly, SOL at the live quote in /v1/pricing.
+// /checkout: buy a pack of credits with SOL or USDC (or, for API keys, by card). The wallet signs and sends a transfer
+// to Unfret's hot wallet; the server credits the pack once the transfer is final. Phone wallets can pay the same
+// request by QR code. Prices come from /v1/pricing, all derived from the price of one check: each pack has a price
+// (by card) and a lower crypto price, plus VAT for the buyer's country (prefilled from where the request comes from).
 // Credits can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
-// one, or one recovered with its recovery code. The memo then names the key's public ID; the key itself never leaves
-// this page except to check its balance.
+// one, or one recovered with its recovery code. The purchase's quote then names the key's public ID; the key itself
+// never leaves this page except to check its balance.
 import {
   api,
   chainOf,
@@ -19,15 +20,15 @@ import {
 
 const status = document.getElementById("status");
 const packs = document.getElementById("packs");
-const custom = document.getElementById("custom-sol");
 const summary = document.getElementById("summary");
 const list = document.getElementById("wallets");
 const empty = document.getElementById("no-wallets");
 const qr = document.getElementById("qr");
-const qrLink = document.getElementById("qr-link");
+const qrShow = document.getElementById("qr-show");
 const shop = document.getElementById("shop");
 const unavailable = document.getElementById("unavailable");
 const currencyField = document.getElementById("currency");
+const countryField = document.getElementById("country");
 const usdcNote = document.getElementById("usdc-note");
 const keyPanel = document.getElementById("key-panel");
 const keyInput = document.getElementById("key-input");
@@ -37,15 +38,25 @@ const saved = document.getElementById("saved");
 const card = document.getElementById("card");
 
 let pricing = null;
-let usd = 0; // what is being bought, in micro-dollars (1 USD = 1,000,000)
+let pack = null; // the chosen pack from /v1/pricing
 let currency = "SOL";
-// Signed in on /connect in this tab: phone payments credit that wallet (a memo), whoever pays.
+// Signed in on /connect in this tab: phone payments credit that wallet, whoever pays.
 const signedIn = recallAny();
 let forKey = new URLSearchParams(window.location.search).get("for") === "key";
 let fullKey = null; // the whole key, when typed or made here: lets the page show the balance
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
 const KEY_ID_RE = /^[a-z2-7]{10}$/;
+// ISO 3166 alpha-2 codes, named in the visitor's language by Intl.DisplayNames.
+const COUNTRIES = (
+  "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA " +
+  "CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA " +
+  "GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP " +
+  "KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS " +
+  "MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS " +
+  "RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW " +
+  "TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW"
+).split(" ");
 
 // The key ID to credit, or null. A whole key is reduced to its ID before anything is sent for a purchase.
 function keyId() {
@@ -56,8 +67,9 @@ function keyId() {
   return KEY_ID_RE.test(value) ? value : null;
 }
 
-// Paying needs a target: the paying wallet, or a valid key (and a new key's codes saved first).
+// Paying needs a target (the paying wallet, or a valid key whose new codes are saved first) and a country.
 function ready() {
+  if (!countryField.value) return false;
   if (!forKey) return true;
   return Boolean(keyId()) && (keyReveal.hidden || saved.checked);
 }
@@ -67,11 +79,12 @@ function refreshTarget() {
   card.hidden = !(forKey && pricing?.fiat?.available);
   const ok = ready();
   list.querySelectorAll("button").forEach((button) => (button.disabled = !ok));
-  qrLink.hidden = !ok;
+  qrShow.disabled = !ok;
+  qr.hidden = true;
   if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an API key or key ID.", "error");
   else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save both codes, then tick the box.");
   else setStatus(keyStatus, "");
-  if (usd) choose(usd);
+  describe();
 }
 
 function zeroBits(digest) {
@@ -156,13 +169,12 @@ document.getElementById("beneficiary").addEventListener("change", (event) => {
 
 document.getElementById("card-pay").addEventListener("click", async (event) => {
   const id = keyId();
-  if (!id || !ready()) return refreshTarget();
+  if (!id || !pack || !forKey || (!keyReveal.hidden && !saved.checked)) return refreshTarget();
   event.currentTarget.disabled = true;
   try {
-    const amount = Math.max(usd, pricing.fiat.min_usd_micros);
     const started = await api("/v1/credits/fiat-checkout", {
       method: "POST",
-      body: JSON.stringify({ key_id: id, amount_usd_micros: Math.round(amount / 10000) * 10000 }),
+      body: JSON.stringify({ key_id: id, checks: pack.checks }),
     });
     window.location.assign(started.checkout_url);
   } catch (error) {
@@ -171,13 +183,21 @@ document.getElementById("card-pay").addEventListener("click", async (event) => {
   }
 });
 
-function bonusFor(value) {
-  const pct = Math.max(0, ...pricing.bonuses.filter((b) => value >= b.min_usd_micros).map((b) => b.bonus_pct));
-  return { pct, credited: value + Math.floor((value * pct) / 100) };
-}
-
 function formatUsd(micros) {
   return `$${(micros / 1e6).toFixed(2)}`;
+}
+
+function checksWord(n) {
+  return `${n} ${n === 1 ? "check" : "checks"}`;
+}
+
+// The VAT this page expects for the chosen country (the server's quote is what counts): EU countries per
+// /v1/pricing's vat.eu_rates_pct, others none.
+function vatFor(country) {
+  const pct = Number(pricing.vat.eu_rates_pct[country] ?? 0);
+  const net = pack.crypto_usd_micros;
+  const vat = Math.floor((net * pct * 100 + 5000) / 10000);
+  return { pct, net, vat, total: net + vat };
 }
 
 // The amount to pay in the chosen currency's base units for a dollar value: USDC exactly, SOL at the live quote
@@ -191,80 +211,79 @@ function formatPay(amount) {
   return currency === "SOL" ? formatSol(amount) : `${(amount / 1e6).toFixed(2)} USDC`;
 }
 
-function checksWord(n) {
-  return `${n} ${n === 1 ? "check" : "checks"}`;
-}
-
-function choose(value) {
-  usd = value;
-  const amount = payAmount(value);
-  const { pct, credited } = bonusFor(value);
-  const checks = Math.floor(credited / pricing.analysis_usd_micros);
-  const paid = currency === "SOL" ? `${formatUsd(value)} (${formatPay(amount)})` : formatPay(amount);
-  summary.textContent = `${paid} buys ${checksWord(checks)}` + (pct ? ` (includes a ${pct}% bonus).` : ".");
-  let url;
-  let src = `/v1/credits/solana-pay.svg?currency=${currency}&amount=${amount}`;
-  if (currency === "SOL") {
-    const sol = (amount / 1e9).toFixed(9).replace(/\.?0+$/, "");
-    url = `solana:${pricing.hot_wallet}?amount=${sol}&label=Unfret&message=Unfret%20credits`;
-  } else {
-    const usdc = (amount / 1e6).toFixed(6).replace(/\.?0+$/, "");
-    url = `solana:${pricing.hot_wallet}?amount=${usdc}&spl-token=${pricing.usdc.mint}&label=Unfret&message=Unfret%20credits`;
-  }
-  const id = forKey ? keyId() : null;
-  if (id) {
-    url += `&memo=${encodeURIComponent(`veridex:credit:key:${id}`)}`;
-    src += `&key_id=${id}`;
-  } else if (signedIn && !forKey) {
-    url += `&memo=${encodeURIComponent(`veridex:credit:${signedIn.address}`)}`;
-    src += `&beneficiary=${encodeURIComponent(signedIn.address)}`;
-  }
-  if (forKey && !id) {
-    qr.hidden = true;
+function describe() {
+  if (!pricing || !pack) return;
+  document.getElementById("card-price").textContent = formatUsd(pack.price_usd_micros);
+  document.getElementById("card-tax").textContent = "plus sales tax/VAT where applicable, added at checkout";
+  if (!countryField.value) {
+    summary.textContent = `${checksWord(pack.checks)}: choose your country to see the crypto price with VAT.`;
     return;
   }
-  qr.src = src;
-  qr.hidden = false;
-  qrLink.href = url;
+  const { pct, net, vat, total } = vatFor(countryField.value);
+  const sol = currency === "SOL" ? ` ≈ ${formatPay(payAmount(total))}` : "";
+  const price = pct
+    ? `${formatUsd(net)} + ${pct}% VAT (${formatUsd(vat)}) = ${formatUsd(total)}`
+    : `${formatUsd(total)} (no VAT outside the EU)`;
+  summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
 
 function renderPacks() {
-  // ?checks=<n> preselects a pack, or asks for exactly n analyses when no pack matches.
+  // ?checks=<n> preselects a pack.
   const preset = Number(new URLSearchParams(window.location.search).get("checks")) || 0;
-  const match = pricing.suggested_packs.find((pack) => pack.checks === preset);
-  const selected = match ?? (preset ? null : pricing.suggested_packs[0]);
+  pack = pricing.packs.find((p) => p.checks === preset) ?? pack ?? pricing.packs[0];
   packs.replaceChildren(
-    ...pricing.suggested_packs.map((pack) => {
+    ...pricing.packs.map((option) => {
       const label = document.createElement("label");
       label.className = "pack";
       const input = document.createElement("input");
       input.type = "radio";
       input.name = "pack";
-      input.value = String(pack.usd_micros);
-      input.checked = pack === selected;
-      input.addEventListener("change", () => choose(pack.usd_micros));
-      const sol = currency === "SOL" ? ` ≈ ${formatPay(payAmount(pack.usd_micros))}` : "";
-      label.append(input, ` ${checksWord(pack.checks)} · ${formatUsd(pack.usd_micros)}${sol}`);
+      input.value = String(option.checks);
+      input.checked = option.checks === pack.checks;
+      input.addEventListener("change", () => {
+        pack = option;
+        refreshTarget();
+      });
+      label.append(input, ` ${option.label.en}`);
       return label;
     }),
   );
-  if (selected) choose(selected.usd_micros);
-  else if (preset) choose(preset * pricing.analysis_usd_micros);
+  refreshTarget();
 }
 
-custom.addEventListener("input", () => {
-  const value = Number(custom.value);
-  if (value > 0) {
-    packs.querySelectorAll("input").forEach((input) => (input.checked = false));
-    // Typed in dollars, whatever the currency.
-    choose(Math.round(value * 1e6));
+function renderCountries() {
+  let names = null;
+  try {
+    names = new Intl.DisplayNames([navigator.language, "en"], { type: "region" });
+  } catch {
+    // older browsers: codes only
   }
-});
+  const options = COUNTRIES.map((code) => ({ code, name: names?.of(code) ?? code })).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+  const blank = new Option("Choose…", "");
+  countryField.replaceChildren(blank, ...options.map(({ code, name }) => new Option(name, code)));
+  const hint = pricing.vat.country_hint;
+  if (hint && COUNTRIES.includes(hint)) countryField.value = hint;
+}
 
+countryField.addEventListener("change", refreshTarget);
 currencyField.addEventListener("change", (event) => {
   currency = event.target.value === "SOL" && pricing.sol ? "SOL" : "USDC";
-  custom.value = "";
-  renderPacks();
+  refreshTarget();
+});
+
+function purchaseTarget() {
+  if (forKey) return { key_id: keyId() };
+  return signedIn ? { beneficiary: signedIn.address } : {};
+}
+
+qrShow.addEventListener("click", () => {
+  if (!ready() || !pack) return refreshTarget();
+  const params = new URLSearchParams({ checks: String(pack.checks), country: countryField.value, currency });
+  for (const [name, value] of Object.entries(purchaseTarget())) params.set(name, value);
+  qr.src = `/v1/credits/solana-pay.svg?${params}`;
+  qr.hidden = false;
 });
 
 async function waitForCredits(token, before) {
@@ -286,7 +305,7 @@ async function balanceOf(token) {
 }
 
 async function buy(wallet) {
-  if (!usd || !ready()) return;
+  if (!pack || !ready()) return;
   const send = wallet.features["solana:signAndSendTransaction"];
   if (!send) {
     setStatus(status, `${wallet.name} can't send transactions from this page; use the QR code instead.`, "error");
@@ -308,13 +327,18 @@ async function buy(wallet) {
       token = session.token;
     }
     const before = token ? await balanceOf(token) : 0;
-    const amount = payAmount(usd);
     const target = forKey ? { key_id: keyId() } : {};
     const purchase = await api("/v1/credits/purchase-tx", {
       method: "POST",
-      body: JSON.stringify({ address: account.address, currency, amount, ...target }),
+      body: JSON.stringify({
+        address: account.address,
+        currency,
+        checks: pack.checks,
+        country: countryField.value,
+        ...target,
+      }),
     });
-    setStatus(status, `Approve the payment of ${formatPay(amount)} in ${wallet.name}.`);
+    setStatus(status, `Approve the payment of ${formatPay(purchase.amount)} (${purchase.price.total_usd}) in ${wallet.name}.`);
     await send.signAndSendTransaction({
       account,
       chain: chainOf(pricing.network),
@@ -368,12 +392,11 @@ async function start() {
     currency = "USDC";
     usdcNote.textContent = "SOL is unavailable right now (no fresh price); pay in USDC.";
   }
-  custom.min = String(pricing.purchase.min_usd_micros / 1e6);
   document.getElementById("beneficiary").querySelector(`input[value="${forKey ? "key" : "wallet"}"]`).checked = true;
-  if (pricing.fiat?.available) document.getElementById("card-min").textContent = formatUsd(pricing.fiat.min_usd_micros);
   if (new URLSearchParams(window.location.search).get("paid")) {
     setStatus(status, "Thanks! Your card payment is being confirmed; the credits reach your key in a minute.", "ok");
   }
+  renderCountries();
   renderPacks();
   renderWallets([]);
   discoverWallets(renderWallets);

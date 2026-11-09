@@ -43,7 +43,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from veridex.graph import SKILLS
-from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, unavailable_skills
+from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, not_applicable_skills, unavailable_skills
 from veridex.x402.verdict import QUICK_SKILLS
 
 UNRELIABLE = {"junk", "scam"}
@@ -94,7 +94,9 @@ def load_features(path: Path) -> dict[str, dict[str, float]]:
 
 
 def _value(row: dict[str, float], name: str) -> float:
-    return math.nan if name.split(".", 1)[0] in unavailable_skills(row) else row.get(name, 0.0)
+    # A failed skill, or one whose rules don't apply to the page, was never measured: NaN, the neutral column mean.
+    neutral = unavailable_skills(row) | not_applicable_skills(row)
+    return math.nan if name.split(".", 1)[0] in neutral else row.get(name, 0.0)
 
 
 def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]], names: list[str]) -> Dataset:
@@ -102,7 +104,8 @@ def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]],
     Turn records with features into a matrix.
 
     A missing feature is 0 (the skill ran and found nothing), as in production. The columns of a skill that failed
-    on a page (it reported ``<skill>.unavailable``) are NaN: :func:`fit` fills them with the column mean, which is
+    on a page (it reported ``<skill>.unavailable``), or whose rules don't apply to it (``<skill>.not_applicable``),
+    are NaN: :func:`fit` fills them with the column mean, which is
     what :meth:`veridex.scoring.Model.contributions` scores a failed skill as.
 
     :param records: Labelled records.

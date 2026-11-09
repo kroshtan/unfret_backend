@@ -1,5 +1,8 @@
 """
-The two pages the credits door needs: ``/connect`` (sign in, hand the session to the extension) and ``/checkout``.
+The site's pages: home, sign-in, checkout and privacy.
+
+``/`` introduces Unfret, ``/connect`` signs in and hands the session to the extension, then ``/checkout`` and
+``/privacy``.
 
 Static HTML and vanilla JS from ``veridex/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -25,6 +28,16 @@ PAGE_HEADERS = {
 }
 
 router = APIRouter(include_in_schema=False)
+
+
+@router.get("/", response_class=HTMLResponse)
+def home() -> HTMLResponse:
+    """
+    The home page: what Unfret is, for shoppers and for agents (also the homepage of the store listing).
+
+    :return: The page.
+    """
+    return _page("index.html")
 
 
 def _page(name: str) -> HTMLResponse:

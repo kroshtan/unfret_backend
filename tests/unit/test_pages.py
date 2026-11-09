@@ -100,3 +100,12 @@ def test_sign_in_never_asks_the_wallet_for_a_chain_id() -> None:
     assert "Chain ID" not in script
     fields = siws.nonce_response("s", domain="d.test", uri="https://d.test", ttl_s=300)
     assert "Chain ID" not in siws.message_text(siws.SignInFields(address="x", **fields))
+
+
+async def test_home_page_introduces_unfret_without_third_party_requests(client: httpx.AsyncClient) -> None:
+    response = await client.get("/")
+    assert response.status_code == 200
+    assert "<h1>Unfret</h1>" in response.text
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
+    assert "<script" not in response.text

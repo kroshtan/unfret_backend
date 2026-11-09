@@ -8,7 +8,6 @@ import asyncpg
 import structlog
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -51,7 +50,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
 @asynccontextmanager
 async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
-    logger.info("Veridex backend service starting", version=__version__, config=settings.summary())
+    logger.info("Unfret backend service starting", version=__version__, config=settings.summary())
     api.graph = build_graph(SKILLS)
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
     api.db_pool = await create_pool()
@@ -81,11 +80,11 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
                 await shop_store.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
-    logger.info("Veridex backend service shutting down")
+    logger.info("Unfret backend service shutting down")
 
 
 app = VeridexAPI(
-    title="Veridex Backend Service",
+    title="Unfret API",
     version=__version__,
     lifespan=lifespan,
 )
@@ -103,13 +102,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE"],  # Authorization: sessions and API keys
     expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
-
-
-# Redirect root to always see the API docs
-@app.get("/", include_in_schema=False)
-async def docs_redirect() -> RedirectResponse:
-    """Redirect to the API documentation."""
-    return RedirectResponse(url="/docs")
 
 
 # Include API routes, and the scripts and styles of the /connect and /checkout pages

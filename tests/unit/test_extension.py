@@ -144,7 +144,16 @@ async def test_release_files_are_served_with_their_types(client: httpx.AsyncClie
 
 @pytest.mark.parametrize(
     "name",
-    ["veridex-9.9.9.crx", "../extension.html", "..%2Fpages.py", "updates.xml.bak", "veridex-0.1.0.crx.pem", "x.crx"],
+    [
+        "veridex-9.9.9.crx",
+        "unfret-9.9.9.crx",
+        "../extension.html",
+        "..%2Fpages.py",
+        "updates.xml.bak",
+        "veridex-0.1.0.crx.pem",
+        "x.crx",
+        "other-1.0.crx",
+    ],
 )
 async def test_other_names_are_not_found(client: httpx.AsyncClient, name: str) -> None:
     assert (await client.get(f"/extension/{name}")).status_code == 404
@@ -162,17 +171,17 @@ async def test_install_page_shows_the_release_and_policy_commands(client: httpx.
     assert "{{" not in response.text
     assert release.extension_id in response.text
     assert f'href="/extension/{release.crx}"' in response.text
-    assert "/etc/brave/policies/managed/veridex.json" in response.text
+    assert "/etc/brave/policies/managed/unfret.json" in response.text
     assert "http://" not in response.text.replace("http://test", "")
 
 
 def test_linux_policy_command_force_installs_from_this_server() -> None:
     command = linux_policy_command("abcdefghijklmnopabcdefghijklmnop")
     assert command == (
-        "sudo mkdir -p /etc/brave/policies/managed && echo "
+        "sudo mkdir -p /etc/brave/policies/managed && sudo rm -f /etc/brave/policies/managed/veridex.json && echo "
         '\'{"ExtensionInstallForcelist":["abcdefghijklmnopabcdefghijklmnop;'
         "https://unfret.kroshtan.com/extension/updates.xml\"]}' "
-        "| sudo tee /etc/brave/policies/managed/veridex.json > /dev/null"
+        "| sudo tee /etc/brave/policies/managed/unfret.json > /dev/null"
     )
 
 
@@ -206,3 +215,21 @@ def test_a_broken_manifest_is_no_release(tmp_path: Path) -> None:
     (tmp_path / "updates.xml").write_text("<gupdate")
     (tmp_path / "SHA256SUMS").write_text("")
     assert current_release(tmp_path) is None
+
+
+def test_releases_named_after_either_brand_are_found(tmp_path: Path) -> None:
+    for name in ("unfret", "veridex"):
+        release_dir = tmp_path / name
+        release_dir.mkdir()
+        (release_dir / "updates.xml").write_text(
+            "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>"
+            "<app appid='abcdefghijklmnopabcdefghijklmnop'><updatecheck "
+            f"codebase='https://unfret.kroshtan.com/extension/{name}-1.2.3.crx' version='1.2.3'/></app></gupdate>"
+        )
+        (release_dir / "SHA256SUMS").write_text("")
+        (release_dir / f"{name}-1.2.3.crx").write_bytes(b"crx")
+        (release_dir / f"{name}-chrome-1.2.3.zip").write_bytes(b"zip")
+        release = current_release(release_dir)
+        assert release is not None
+        assert release.crx == f"{name}-1.2.3.crx"
+        assert release.zip == f"{name}-chrome-1.2.3.zip"

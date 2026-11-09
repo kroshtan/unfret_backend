@@ -1,7 +1,7 @@
 """
 The agent's own SOL/USD price, read on chain from Pyth, so the spend guard can cap SOL payments in dollars.
 
-Veridex quotes SOL at its own Pyth price; the guard doesn't take Veridex's word for what a wSOL charge is worth, it
+Unfret quotes SOL at its own Pyth price; the guard doesn't take Unfret's word for what a wSOL charge is worth, it
 values it independently. Without a fresh, fully verified, tight price, SOL payments are refused (USDC still works).
 """
 

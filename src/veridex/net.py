@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-_USER_AGENT = "Mozilla/5.0 (compatible; Veridex/1.0)"
+_USER_AGENT = "Mozilla/5.0 (compatible; Unfret/1.0)"
 _DEFAULT_TIMEOUT = 10.0  # seconds
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 _MAX_REDIRECTS = 5

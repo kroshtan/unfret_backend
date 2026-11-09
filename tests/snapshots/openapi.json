@@ -1587,7 +1587,7 @@
   }
  },
  "info": {
-  "title": "Veridex Backend Service",
+  "title": "Unfret API",
   "version": "<version>"
  },
  "openapi": "3.1.0",

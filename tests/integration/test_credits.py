@@ -240,7 +240,7 @@ async def test_purchase_transaction_pays_the_hot_wallet(client: httpx.AsyncClien
     assert response.status_code == 200
     body = response.json()
     assert body["hot_wallet"] == str(HOT.pubkey())
-    expected = f"solana:{HOT.pubkey()}?amount=0.015&label=Veridex&message=Veridex%20credits"
+    expected = f"solana:{HOT.pubkey()}?amount=0.015&label=Unfret&message=Unfret%20credits"
     assert body["solana_pay_url"] == f"{expected}&memo=veridex%3Acredit%3A{buyer.pubkey()}"
     tx = VersionedTransaction.from_bytes(base64.b64decode(body["transaction"]))
     keys = tx.message.account_keys

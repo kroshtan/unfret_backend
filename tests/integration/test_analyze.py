@@ -16,7 +16,7 @@ PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", 
 PRICE = settings.analysis_price_lamports
 DUTCH_VERDICT = {
     "band": "reliable",
-    "label": "Ziet er betrouwbaar uit",
+    "label": "Ziet er goed uit",
     "headline": "Er viel niets zorgwekkends op aan deze pagina.",
     "reasons": [],
     "positives": [{"type": "nothing_found", "title": "Geen waarschuwingssignalen", "detail": "Niets verdachts."}],

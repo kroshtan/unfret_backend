@@ -1,11 +1,11 @@
 """
-Pay Veridex's x402 ``402 Payment Required`` from the agent's own wallet, within a spend guard.
+Pay Unfret's x402 ``402 Payment Required`` from the agent's own wallet, within a spend guard.
 
-Veridex prices checks in US dollars and offers wSOL (converted at its quote) and USDC (exact). The spend guard caps
+Unfret prices checks in US dollars and offers wSOL (converted at its quote) and USDC (exact). The spend guard caps
 dollars: USDC at face value, wSOL valued at the agent's own Pyth SOL/USD reading. The agent pays in USDC when it
-prefers to and holds enough, otherwise in wSOL: it signs a token transfer to Veridex's hot wallet; Veridex adds its
+prefers to and holds enough, otherwise in wSOL: it signs a token transfer to Unfret's hot wallet; Unfret adds its
 fee-payer signature and submits it, so the agent pays only the price. If the agent's wSOL balance is short, plain SOL
-is wrapped first in a separate transaction (native token program, no third party). Nothing here holds Veridex funds.
+is wrapped first in a separate transaction (native token program, no third party). Nothing here holds Unfret funds.
 """
 
 import base64
@@ -42,9 +42,9 @@ from veridex_mcp.solana import (
 Currency = Literal["SOL", "USDC"]
 
 _COMPUTE_UNITS = 50_000
-_COMPUTE_UNIT_PRICE = 1  # micro-lamports; Veridex pays the fee, so keep its cost minimal
+_COMPUTE_UNIT_PRICE = 1  # micro-lamports; Unfret pays the fee, so keep its cost minimal
 _WRAP_FEE_RESERVE = 10_000  # lamports kept back for the wrap transaction's own fee
-# Veridex answers a paid check within about 90 s (settlement plus a 60 s analysis cap).
+# Unfret answers a paid check within about 90 s (settlement plus a 60 s analysis cap).
 _TIMEOUT = httpx.Timeout(100, connect=10)
 
 
@@ -57,14 +57,14 @@ class PaymentFailedError(RuntimeError):
 
 
 class UnavailableError(PaymentFailedError):
-    """Veridex can't take a payment right now (503 or 429); nothing was paid."""
+    """Unfret can't take a payment right now (503 or 429); nothing was paid."""
 
     def __init__(self, detail: str, retry_after: int | None) -> None:
         """
         Record the answer.
 
-        :param detail: Veridex's ``error_code`` and ``detail``.
-        :param retry_after: Seconds to wait, if Veridex said.
+        :param detail: Unfret's ``error_code`` and ``detail``.
+        :param retry_after: Seconds to wait, if Unfret said.
         """
         super().__init__(detail)
         self.retry_after = retry_after
@@ -220,7 +220,7 @@ def build_wrap(agent: Keypair, lamports: int, blockhash: str) -> VersionedTransa
 
 
 class Payer:
-    """Calls Veridex's ``/v1/check``, paying the 402 from the agent's wallet."""
+    """Calls Unfret's ``/v1/check``, paying the 402 from the agent's wallet."""
 
     def __init__(
         self,
@@ -237,14 +237,14 @@ class Payer:
         """
         Configure the payer.
 
-        :param api_url: Veridex's base URL.
+        :param api_url: Unfret's base URL.
         :param agent: The agent's keypair.
         :param rpc: Solana RPC for the agent's network.
         :param network: ``solana-devnet`` or ``solana-mainnet``.
         :param guard: The session spend guard (dollars).
         :param sol_usd: The agent's own SOL/USD price, to value wSOL charges; without it SOL payments are refused.
         :param prefer: Pay in USDC when offered, held and within the guard; otherwise SOL. ``SOL``: always SOL.
-        :param transport: Optional httpx transport for the Veridex API (tests).
+        :param transport: Optional httpx transport for the Unfret API (tests).
         """
         self.api_url = api_url.rstrip("/")
         self.agent = agent
@@ -313,7 +313,7 @@ class Payer:
         """
         Run one check: request, pay the 402 within the guard, send the payment (retried once, the same payment).
 
-        The guard gives the reservation back only when Veridex clearly refused before taking the money (a renewed
+        The guard gives the reservation back only when Unfret clearly refused before taking the money (a renewed
         402, a 4xx without a receipt, or a receipt saying nothing was submitted). When the outcome is unknown (a
         timeout, a 5xx or an unreadable answer) the money may have moved, so it stays counted.
 
@@ -343,7 +343,7 @@ class Payer:
                 "payload": {"transaction": base64.b64encode(bytes(tx)).decode()},
             }
             second: httpx.Response | None = None
-            for _ in range(2):  # Veridex answers a retry of the same payment with the same result, charging once
+            for _ in range(2):  # Unfret answers a retry of the same payment with the same result, charging once
                 try:
                     second = await client.post(
                         f"{self.api_url}/v1/check", json=body, headers={"PAYMENT-SIGNATURE": _b64json(payload)}
@@ -395,8 +395,8 @@ class Payer:
         if status in {"pending", "unknown"}:
             result["next_step"] = (
                 "The payment may have been taken; don't pay again for this page now. Check the transaction on chain; "
-                "if it landed without a verdict, Veridex credits its price to the paying wallet."
+                "if it landed without a verdict, Unfret credits its price to the paying wallet."
             )
         elif not result["ok"] and charged:
-            result["next_step"] = "Paid, but no verdict: the price was refunded as Veridex credits (see error)."
+            result["next_step"] = "Paid, but no verdict: the price was refunded as Unfret credits (see error)."
         return result

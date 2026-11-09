@@ -1,15 +1,15 @@
 """
-MCP server exposing Veridex's pay-per-check store risk API as tools for AI shopping agents.
+MCP server exposing Unfret's pay-per-check store risk API as tools for AI shopping agents.
 
-Configuration (environment):
-    VERIDEX_API_URL                   default https://veridex.kroshtan.com
-    VERIDEX_MCP_KEYPAIR               path to the agent's Solana CLI keypair JSON (or VERIDEX_MCP_SECRET_KEY, base58)
-    VERIDEX_MCP_NETWORK               solana-devnet (default) or solana-mainnet
-    VERIDEX_MCP_RPC_URL               defaults to the public RPC of that network
-    VERIDEX_MCP_PAY_WITH              USDC (default: USDC when offered and held, else SOL) or SOL (always SOL)
-    VERIDEX_MCP_MAX_PRICE_USD         refuse any single check worth more than this many dollars (default 0.25)
-    VERIDEX_MCP_SESSION_CAP_USD       refuse once a session has spent this many dollars (default 2.50)
-    VERIDEX_MCP_PRICE_RPC_URL         mainnet RPC for the agent's own Pyth SOL/USD reading, which values wSOL
+Configuration (environment; the older VERIDEX_* names still work):
+    UNFRET_API_URL                    default https://unfret.kroshtan.com
+    UNFRET_MCP_KEYPAIR                path to the agent's Solana CLI keypair JSON (or UNFRET_MCP_SECRET_KEY, base58)
+    UNFRET_MCP_NETWORK                solana-devnet (default) or solana-mainnet
+    UNFRET_MCP_RPC_URL                defaults to the public RPC of that network
+    UNFRET_MCP_PAY_WITH               USDC (default: USDC when offered and held, else SOL) or SOL (always SOL)
+    UNFRET_MCP_MAX_PRICE_USD          refuse any single check worth more than this many dollars (default 0.25)
+    UNFRET_MCP_SESSION_CAP_USD        refuse once a session has spent this many dollars (default 2.50)
+    UNFRET_MCP_PRICE_RPC_URL          mainnet RPC for the agent's own Pyth SOL/USD reading, which values wSOL
                                       payments (default: mainnet's public RPC)
 """
 
@@ -35,7 +35,7 @@ _DEFAULT_RPC = {
 }
 
 server = MCPServer(
-    "veridex",
+    "unfret",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
         "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.15; wSOL at the current SOL "
@@ -46,16 +46,27 @@ server = MCPServer(
 _payer: Payer | None = None
 
 
+def _env(name: str, default: str | None = None) -> str | None:
+    """
+    Read a setting by its ``UNFRET_`` name, falling back to the name from before the rename (``VERIDEX_``).
+
+    :param name: The name without its prefix, e.g. ``MCP_NETWORK``.
+    :param default: The value when neither is set.
+    :return: The value.
+    """
+    return os.environ.get(f"UNFRET_{name}") or os.environ.get(f"VERIDEX_{name}") or default
+
+
 def _load_agent() -> Keypair:
-    if path := os.environ.get("VERIDEX_MCP_KEYPAIR"):
+    if path := _env("MCP_KEYPAIR"):
         return Keypair.from_bytes(bytes(json.loads(Path(path).expanduser().read_text())))
-    if secret := os.environ.get("VERIDEX_MCP_SECRET_KEY"):
+    if secret := _env("MCP_SECRET_KEY"):
         return Keypair.from_base58_string(secret)
-    raise RuntimeError("set VERIDEX_MCP_KEYPAIR (keypair file) or VERIDEX_MCP_SECRET_KEY")
+    raise RuntimeError("set UNFRET_MCP_KEYPAIR (keypair file) or UNFRET_MCP_SECRET_KEY")
 
 
 def _usd_micros(name: str, default: str) -> int:
-    return int(Decimal(os.environ.get(name, default)) * 1_000_000)
+    return int(Decimal(_env(name, default) or default) * 1_000_000)
 
 
 def payer() -> Payer:
@@ -66,24 +77,24 @@ def payer() -> Payer:
     """
     global _payer  # noqa: PLW0603
     if _payer is None:
-        network = os.environ.get("VERIDEX_MCP_NETWORK", "solana-devnet")
+        network = _env("MCP_NETWORK", "solana-devnet") or "solana-devnet"
         _payer = Payer(
             api_url=_api_url(),
             agent=_load_agent(),
-            rpc=Rpc(os.environ.get("VERIDEX_MCP_RPC_URL", _DEFAULT_RPC[network])),
+            rpc=Rpc(_env("MCP_RPC_URL") or _DEFAULT_RPC[network]),
             network=network,
             guard=SpendGuard(
-                max_per_call=_usd_micros("VERIDEX_MCP_MAX_PRICE_USD", "0.25"),
-                session_cap=_usd_micros("VERIDEX_MCP_SESSION_CAP_USD", "2.50"),
+                max_per_call=_usd_micros("MCP_MAX_PRICE_USD", "0.25"),
+                session_cap=_usd_micros("MCP_SESSION_CAP_USD", "2.50"),
             ),
-            sol_usd=SolUsd(Rpc(os.environ.get("VERIDEX_MCP_PRICE_RPC_URL", _DEFAULT_RPC["solana-mainnet"]))),
-            prefer="SOL" if os.environ.get("VERIDEX_MCP_PAY_WITH", "USDC").upper() == "SOL" else "USDC",
+            sol_usd=SolUsd(Rpc(_env("MCP_PRICE_RPC_URL") or _DEFAULT_RPC["solana-mainnet"])),
+            prefer="SOL" if (_env("MCP_PAY_WITH") or "USDC").upper() == "SOL" else "USDC",
         )
     return _payer
 
 
 def _api_url() -> str:
-    return os.environ.get("VERIDEX_API_URL", "https://veridex.kroshtan.com").rstrip("/")
+    return (_env("API_URL") or "https://unfret.kroshtan.com").rstrip("/")
 
 
 @server.tool()
@@ -143,7 +154,7 @@ async def check_store(
 @server.tool()
 async def get_pricing() -> dict[str, Any]:
     """
-    Veridex's current prices (free, no payment): the check tiers in dollars, and the live USDC and SOL amounts.
+    Unfret's current prices (free, no payment): the check tiers in dollars, and the live USDC and SOL amounts.
 
     :return: ``status``, ``ok`` and the price list (``x402``: ``quick_usd_micros``, ``deep_usd_micros``; ``usdc``;
         ``sol``), or ``error``.
@@ -161,7 +172,7 @@ async def get_pricing() -> dict[str, Any]:
 @server.tool()
 def explain_flag(flag_type: Annotated[str, Field(description="A flag's `type` from a verdict.")]) -> str:
     """
-    Explain what a flag in a Veridex verdict means, in one paragraph for the end user.
+    Explain what a flag in an Unfret verdict means, in one paragraph for the end user.
 
     :param flag_type: The flag's ``type``.
     :return: The explanation.

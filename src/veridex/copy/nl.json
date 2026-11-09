@@ -1,16 +1,16 @@
 {
   "language": "nl",
   "labels": {
-    "reliable": "Ziet er betrouwbaar uit",
-    "concerns": "Een paar aandachtspunten",
-    "careful": "Wees voorzichtig",
-    "junk_or_scam": "Waarschijnlijk rommel of oplichting"
+    "reliable": "Ziet er goed uit",
+    "concerns": "Een paar dingen om na te gaan",
+    "careful": "Een aantal waarschuwingssignalen",
+    "junk_or_scam": "Veel waarschuwingssignalen"
   },
   "headlines": {
     "reliable": "Er viel niets zorgwekkends op aan deze pagina.",
     "concerns": "Grotendeels in orde, maar een paar dingen verdienen een tweede blik voor je koopt.",
-    "careful": "Meerdere waarschuwingssignalen: controleer verkoper en reviews goed voor je koopt.",
-    "junk_or_scam": "Sterke aanwijzingen voor generieke fabrieksspullen of een oneerlijk aanbod."
+    "careful": "Een aantal waarschuwingssignalen: kijk goed naar de verkoper en de reviews voor je koopt.",
+    "junk_or_scam": "Veel waarschuwingssignalen: dit lijkt op generieke fabrieksspullen, of een aanbod dat niet is wat het lijkt."
   },
   "reasons": {
     "timer_resets": {

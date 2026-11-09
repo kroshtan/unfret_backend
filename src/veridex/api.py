@@ -6,10 +6,10 @@ from langgraph.graph.state import CompiledStateGraph
 
 
 class VeridexAPI(FastAPI):
-    """Custom FastAPI application for the Veridex API."""
+    """Custom FastAPI application for the Unfret API."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Initialize the Veridex API application."""
+        """Initialize the Unfret API application."""
         super().__init__(*args, **kwargs)
         self.graph: CompiledStateGraph | None = None  # set during lifespan; every skill (the deep tier)
         self.quick_graph: CompiledStateGraph | None = None  # set during lifespan; the x402 quick tier

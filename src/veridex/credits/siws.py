@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from solders.pubkey import Pubkey
 from solders.signature import Signature
 
-STATEMENT = "Sign in to Veridex. This signature costs nothing and grants no spending rights."
+STATEMENT = "Sign in to Unfret. This signature costs nothing and grants no spending rights."
 _HEADER = " wants you to sign in with your Solana account:"
 _EXP_DIGITS = 10
 _RANDOM_HEX = 16

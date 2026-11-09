@@ -206,7 +206,7 @@ def test_users_amazon_result_is_coherent() -> None:
     }
     findings = [Finding(skill="content", type="implausible_claim", evidence="99% Minder bacterien")]
     verdict = build(95, features, "aggregate_listing", findings=findings, language="nl")
-    assert verdict.band == "reliable" and verdict.label == "Ziet er betrouwbaar uit"
+    assert verdict.band == "reliable" and verdict.label == "Ziet er goed uit"
     assert [r.type for r in verdict.reasons] == ["implausible_claims"]  # one note, no trust or timer reason
     assert verdict.positives
 
@@ -285,8 +285,8 @@ def test_written_headlines_are_capped() -> None:
 
 def test_labels_and_headline_follow_the_language() -> None:
     nl = build(10, {"dark_patterns.timer_resets": 1.0}, language="nl")
-    assert (nl.label, nl.reasons[0].title) == ("Waarschijnlijk rommel of oplichting", "Neppe afteltimer")
-    assert nl.headline == "Waarschijnlijk rommel of oplichting: neppe afteltimer."
+    assert (nl.label, nl.reasons[0].title) == ("Veel waarschuwingssignalen", "Neppe afteltimer")
+    assert nl.headline == "Veel waarschuwingssignalen: neppe afteltimer."
     assert build(10, {}, language="xx").language == "en"
 
 

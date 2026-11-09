@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Unfret checks a product page before you buy: fake discounts, made-up brands, generic factory goods, pushy tricks and brand-new shops.">
+  <title>Unfret · shop without the worry</title>
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  <main>
+    <header class="brand">
+      <svg class="logo" viewBox="0 0 128 128" width="56" height="56" aria-hidden="true">
+        <rect x="4" y="4" width="120" height="120" rx="30" fill="#1f8a70"/>
+        <circle cx="45" cy="44" r="7.5" fill="#fff"/>
+        <circle cx="79" cy="44" r="7.5" fill="#fff"/>
+        <path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h1>Unfret</h1>
+    </header>
+    <p class="lead">Check a product page before you buy. Unfret looks for fake discounts, made-up brands, generic
+      factory goods sold as something special, pushy tricks such as fake countdowns, and brand-new shops, and tells you
+      in plain words what it found.</p>
+
+    <h2>For shoppers</h2>
+    <p>A browser extension: open a product page, click <strong>Check this page</strong>, and read the result. It reads
+      a page only when you click. A wallet new to Unfret gets a few free checks to try it; after that a check costs
+      cents.</p>
+    <p><a href="/extension">Install the extension</a> · <a href="/checkout">Buy checks</a> · <a href="/connect">Sign
+      in</a></p>
+
+    <h2>For AI shopping agents</h2>
+    <p>One paid HTTP call per check over x402 on Solana, in USDC or SOL, with no account: the answer is an action
+      (allow, warn or block) with the evidence behind it. See <a href="/llms.txt">llms.txt</a>, the
+      <a href="/.well-known/x402">x402 discovery document</a> and the <a href="/docs">API reference</a>, or use the
+      <code>unfret-mcp</code> MCP server.</p>
+
+    <h2>Privacy</h2>
+    <p>No account, no tracking, no affiliate links. The pages you check are not stored and never linked to you.
+      <a href="/privacy">Read the privacy statement</a>.</p>
+
+    <footer>Made by <a href="https://kroshtan.com">Kroshtan</a> in the Netherlands.</footer>
+  </main>
+</body>
+</html>

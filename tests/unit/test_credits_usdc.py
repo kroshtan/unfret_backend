@@ -35,7 +35,7 @@ def test_usdc_purchase_creates_the_account_if_needed_and_transfers_checked() -> 
 
 def test_solana_pay_link_names_the_token() -> None:
     url = solana_pay_url(HOT, 1_500_000, BUYER, USDC)
-    assert url.startswith(f"solana:{HOT}?amount=1.5&spl-token={USDC}&label=Veridex")
+    assert url.startswith(f"solana:{HOT}?amount=1.5&spl-token={USDC}&label=Unfret")
     assert url.endswith(f"memo=veridex%3Acredit%3A{BUYER}")
     assert solana_pay_url(HOT, 15_000_000).startswith(f"solana:{HOT}?amount=0.015&label=")
 

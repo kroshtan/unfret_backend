@@ -130,7 +130,7 @@ async def test_judge_uses_the_scorer_and_only_asks_the_llm_to_explain(monkeypatc
     [(schema, messages)] = prompts
     assert schema is nodes._Explanation
     # The headline is written from the verdict's own plain-language points, never raw feature names or scores.
-    assert "Likely junk or a scam" in messages[0].content
+    assert "Many warning signs" in messages[0].content
     assert "Too-good discount" in messages[1].content
     assert "listing.discount_pct" not in messages[1].content
     assert f"{expected}/100" not in messages[0].content
@@ -197,7 +197,7 @@ async def test_agents_get_the_template_headline_without_an_llm_call(monkeypatch:
 
     result = await nodes.judge_node(state)
 
-    assert result["explanation"].startswith("Likely junk or a scam: ")
+    assert result["explanation"].startswith("Many warning signs: ")
     assert "too-good discount" in result["explanation"]
 
 

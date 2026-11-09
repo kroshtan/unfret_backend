@@ -8,31 +8,51 @@ from pydantic import BaseModel, Field
 
 from veridex.graph.skills import Skill
 from veridex.graph.skills.eu_registry import EuRegistrySkill
+from veridex.graph.skills.pricing import PricingSkill
 
 Tier = Literal["quick", "deep"]
 Policy = Literal["strict", "balanced", "lenient"]
 Action = Literal["allow", "warn", "block"]
 
-# The quick tier runs only skills that need no outbound lookups about the shop (no RDAP/CT or VIES; the photo is
-# looked up in our own index, the fingerprint store is local); the deep tier runs every skill. eu_registry runs in
-# both, without its VIES lookup in quick, so the quick tier computes the same features the shipped scorer was
-# trained on (offline, without network lookups). Change tiers here and nowhere else.
+# The quick tier ($0.01) reads only the page itself, by rules: no LLM, no lookups about the shop elsewhere (RDAP/CT,
+# VIES), no photo index, no reviews read and no price history; only the local shop fingerprint store (shared
+# accounts). It is a first-pass filter. The deep tier runs every skill: exactly what an analysis
+# (/v1/analyze, the extension) gets. The quick tier has its own scorer (model-quick.json), trained on the features it
+# computes. Change tiers here and nowhere else.
 QUICK_SKILLS: frozenset[str] = frozenset(
     {
-        "content",
         "listing",
-        "pricing",
-        "reviews",
+        "pricing",  # the on-page discount checks only, without the price history (see skills_for)
         "html_source_signals",
         "dark_patterns",
         "injection",
-        "eu_registry",
+        "eu_registry",  # without VIES
         "us_identity",
         "shop_policies",
         "shop_links",
-        "reverse_image",
     }
 )
+
+
+def tier_description(tier: Tier) -> str:
+    """
+    What a tier checks, in one sentence, for the payment requirements, /llms.txt and the discovery document.
+
+    :param tier: ``quick`` or ``deep``.
+    :return: The sentence.
+    """
+    if tier == "quick":
+        return (
+            "Quick first-pass filter: rule-based checks of the page itself (discount tricks, dropshipping and "
+            "review-import apps, countdown timers and pre-ticked add-ons, hidden text aimed at AI, missing legal "
+            "information, shipping and return terms, shops sharing accounts). No AI read of the page, no reviews, "
+            "photo, domain age or registry lookups."
+        )
+    return (
+        "Full check: everything in quick, plus an AI read of the listing, the reviews, the product photo in our "
+        "image index, the price history, domain age and the EU VAT register. The same check a shopper gets."
+    )
+
 
 # risk_score thresholds per caller policy: at or above `block` → block; at or above `warn` → warn ("ask your
 # human"); below → allow. The caller chooses the policy; the flags stay factual either way. Except under `strict`,
@@ -58,7 +78,8 @@ def skills_for(tier: Tier, skills: list[Skill]) -> list[Skill]:
     """
     if tier == "deep":
         return skills
-    return [EuRegistrySkill(vies=False) if s.name == "eu_registry" else s for s in skills if s.name in QUICK_SKILLS]
+    local = {"eu_registry": EuRegistrySkill(vies=False), "pricing": PricingSkill(history=False)}
+    return [local.get(s.name, s) for s in skills if s.name in QUICK_SKILLS]
 
 
 class Flag(BaseModel):

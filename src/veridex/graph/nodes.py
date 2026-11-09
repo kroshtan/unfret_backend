@@ -158,7 +158,31 @@ async def classify_node(state: AnalysisState) -> dict:
             "page_type": "storefront",
             "skill_results": ["[classify]\nPage type: storefront\nThe page lists a product with a price."],
         }
+    return await _classify_with_llm(state, facts)
 
+
+async def classify_by_rules_node(state: AnalysisState) -> dict:
+    """
+    Classify the page from its facts alone, without an LLM (the quick tier).
+
+    A known marketplace's product page, or a page with a product and a price, is analysed as :func:`classify_node`
+    would; anything else is not assessed (the caller pays nothing for it), since only the LLM could tell a product
+    page without a price from an article.
+
+    :param state: Current graph state; uses ``cleaned_content`` and ``facts``.
+    :return: ``page_type`` and a classification entry in ``skill_results``.
+    """
+    facts = state.get("facts")
+    known = facts is not None and facts.platform in _MARKETPLACE_NAMES and bool(facts.title)
+    if state["cleaned_content"] and (known or strong_product_signals(facts, state)):
+        return await classify_node(state)  # settled by the facts: no LLM call
+    return {
+        "page_type": "non_product",
+        "skill_results": ["[classify]\nPage type: non_product\nNo product with a price found on the page."],
+    }
+
+
+async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None) -> dict:
     output: _ClassifyOutput = await get_structured_llm(_ClassifyOutput).ainvoke(
         [
             SystemMessage(content=_CLASSIFY_SYSTEM.format(UNTRUSTED_NOTICE=UNTRUSTED_NOTICE)),
@@ -323,11 +347,13 @@ async def _verdict(
     return verdict.model_copy(update={"headline": written}) if written else verdict
 
 
-def make_judge_node(model_path: Path = scoring.MODEL_PATH) -> Callable[..., Awaitable[dict]]:
+def make_judge_node(model_path: Path = scoring.MODEL_PATH, *, llm: bool = True) -> Callable[..., Awaitable[dict]]:
     """
     A judge node bound to one scorer artifact (the quick tier uses its own, see :data:`scoring.MODEL_QUICK_PATH`).
 
     :param model_path: The scorer artifact.
+    :param llm: Whether the judge may call the LLM (the headline, or the LLM judge without a scorer). Without it the
+        headline is the template, and a missing scorer is an error.
     :return: The node.
     """
 
@@ -337,7 +363,12 @@ def make_judge_node(model_path: Path = scoring.MODEL_PATH) -> Callable[..., Awai
 
         :param state: Current graph state.
         :return: ``score``, ``explanation`` and, with a scorer, ``assessment``.
+        :raises RuntimeError: Without the LLM and without a scorer.
         """
+        if not llm:
+            if scoring.load_model(model_path) is None and scoring.load_model() is None:
+                raise RuntimeError("no scorer shipped, and this graph may not use the LLM judge")
+            state = {**state, "explain": False}
         return await _judge(state, model_path)
 
     return judge_node

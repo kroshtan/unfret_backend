@@ -415,3 +415,16 @@ valid 7 days. Nothing is stored when a check runs.
   `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_frozen`, `account_not_found`,
   `blockhash_not_found`, `insufficient_funds_for_rent`, another error class in snake case (`invalid_account_data`),
   or `custom_program_error_<code>` for another program's own error. Treat unknown values as opaque.
+## Changes (x402 tiers say what they buy; quick is rules-only)
+
+- `quick` ($0.01) now runs only rule-based checks of the page itself: `listing`, `pricing` (without the price
+  history), `html_source_signals`, `dark_patterns`, `injection`, `eu_registry` (without VIES), `us_identity`,
+  `shop_policies`, `shop_links`. No LLM call (also none to classify the page: a page without a product and a price
+  is answered `assessed: false` and refunded), no reviews, no image index, no domain age. It is scored by its own
+  model (`model_version` `v1-quick-…`). `deep` ($0.20) is unchanged: every skill, the same analysis as
+  `/v1/analyze`.
+- Each option in a 402's `accepts` carries `extra.tier` and `extra.includes` (one sentence: what the tier checks);
+  `/.well-known/x402` has `tiers.<tier>.includes`, and `/llms.txt` a "Tiers" section. Payments are matched as before
+  (scheme, network, asset, payTo, amount), so clients that ignore the new fields are unaffected.
+- Under the `balanced` and `lenient` policies, `action` is `allow` whenever `band` is `reliable` or `concerns`;
+  `/.well-known/x402` lists this per policy as `never_warns_on_bands`.

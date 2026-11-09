@@ -44,6 +44,7 @@ from veridex.x402.solana import (
     associated_token_address,
     usdc_mint,
 )
+from veridex.x402.verdict import tier_description
 from veridex.x402.wallet import HotWallet, build_sweep, build_usdc_sweep, load_keypair, unexpected_outflows
 
 logger = structlog.get_logger("veridex")
@@ -201,13 +202,16 @@ class X402:
             refuses).
         """
         assert self.hot is not None  # noqa: S101
-        return requirements(
+        option = requirements(
             network=self.network,
             amount=await self.price(tier, currency),
             pay_to=self.hot.pubkey,
             fee_payer=self.hot.pubkey,
             asset=WSOL_MINT if currency == "SOL" else self.usdc_mint,
         )
+        # What this price buys (descriptive only: payments are matched on scheme, network, asset, payTo and amount).
+        option["extra"] |= {"tier": tier, "includes": tier_description("deep" if tier == "deep" else "quick")}
+        return option
 
     async def accepts(self, tier: str) -> list[dict[str, Any]]:
         """

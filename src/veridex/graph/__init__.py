@@ -11,7 +11,13 @@ from langgraph.types import Send
 from veridex import scoring, shop_store
 from veridex.config import settings
 from veridex.graph import triage
-from veridex.graph.nodes import classify_node, early_exit_node, make_judge_node, preprocess_node
+from veridex.graph.nodes import (
+    classify_by_rules_node,
+    classify_node,
+    early_exit_node,
+    make_judge_node,
+    preprocess_node,
+)
 from veridex.graph.skills import Skill, SkillOutput
 from veridex.graph.skills.content import ContentSkill
 from veridex.graph.skills.dark_patterns import DarkPatternsSkill
@@ -144,7 +150,9 @@ def _recording(
 MAX_TRIAGE_ROUNDS = 2
 
 
-def build_graph(skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH) -> CompiledStateGraph:
+def build_graph(
+    skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH, *, llm: bool = True
+) -> CompiledStateGraph:
     """
     Compile the analysis graph.
 
@@ -167,18 +175,20 @@ def build_graph(skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_P
 
     :param skills: List of skill instances to wire into the graph.
     :param model_path: The scorer artifact the judge uses (the quick tier has its own).
+    :param llm: Whether the graph's own nodes may call the LLM (classification, headline); the quick tier's may not.
+        Which skills run is the caller's choice.
     :return: A compiled LangGraph ``StateGraph``.
     """
     builder = StateGraph(AnalysisState)
 
     # Nodes
     builder.add_node("preprocess", preprocess_node)
-    builder.add_node("classify", classify_node)
+    builder.add_node("classify", classify_node if llm else classify_by_rules_node)
     builder.add_node("early_exit", early_exit_node)
     for skill in skills:
         builder.add_node(skill.name, _isolated(skill))
     builder.add_node("triage", _triage_node(skills))
-    builder.add_node("judge", _recording(make_judge_node(model_path)))
+    builder.add_node("judge", _recording(make_judge_node(model_path, llm=llm)))
 
     # Edges
     builder.set_entry_point("preprocess")

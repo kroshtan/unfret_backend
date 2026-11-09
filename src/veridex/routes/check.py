@@ -36,7 +36,15 @@ from veridex.x402.solana import (
     decimals,
     usdc_mint,
 )
-from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
+from veridex.x402.verdict import (
+    POLICY_THRESHOLDS,
+    QUICK_SKILLS,
+    Policy,
+    Tier,
+    Verdict,
+    tier_description,
+    to_verdict,
+)
 
 logger = structlog.get_logger("veridex")
 
@@ -495,11 +503,13 @@ def _discovery() -> dict[str, Any]:
                 "price_usd": format_usd(settings.x402_price_quick_usd_micros),
                 "price_usd_micros": settings.x402_price_quick_usd_micros,
                 "skills": sorted(QUICK_SKILLS),
+                "includes": tier_description("quick"),
             },
             "deep": {
                 "price_usd": format_usd(settings.x402_price_deep_usd_micros),
                 "price_usd_micros": settings.x402_price_deep_usd_micros,
                 "skills": "all",
+                "includes": tier_description("deep"),
             },
         },
         "policies": {
@@ -558,6 +568,13 @@ async def llms_txt() -> str:
 
 POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional)", "tier": "quick|deep",
 "policy": "strict|balanced|lenient"}}. Send page_content for marketplaces (Amazon blocks server-side fetches).
+
+## Tiers
+
+- quick ({quick}): {d["tiers"]["quick"]["includes"]} Use it to screen many pages; it misses what only reading
+  the listing, its reviews or its photos shows, so check what matters with deep. A page without a product and a
+  price can't be assessed by quick (you are refunded).
+- deep ({deep}): {d["tiers"]["deep"]["includes"]}
 
 ## Payment (x402 v2)
 

@@ -2,7 +2,8 @@
 Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``.
 
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
-fingerprint store on request, and the review queue of reported results (``make reports``).
+fingerprint store on request, the review queue of reported results (``make reports``), and a small grant of credit to
+an API key (support, and test credits for a store reviewer).
 """
 
 import json
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from veridex import reports, shop_store
 from veridex.auth import require_admin
 from veridex.config import settings
+from veridex.credits import keys, ledger
 from veridex.fingerprint import contact_hash, normalise_email, normalise_phone
 from veridex.price_store import registrable_domain
 from veridex.routes.check import get_x402
@@ -126,3 +128,32 @@ async def label_report(report_id: int, body: LabelRequest, request: Request) -> 
         "reward_usd_micros": done.reward_usd_micros,
         "training": done.training,
     }
+
+
+# A grant is for support and store reviews, not a way to mint money: one grant is at most this much.
+MAX_GRANT_USD_MICROS = 10_000_000
+
+
+class GrantRequest(BaseModel):
+    """Credit to add to an API key, in micro-dollars."""
+
+    usd_micros: int = Field(gt=0, le=MAX_GRANT_USD_MICROS)
+
+
+@router.post("/keys/{key_id}/grant")
+async def grant_key(key_id: str, body: GrantRequest, request: Request) -> dict[str, Any]:
+    """
+    Add a small amount of credit to an existing API key (support, or test checks for a store reviewer).
+
+    :param key_id: The key's public id (the part after ``ufk_``).
+    :param body: How much, at most $10 per grant.
+    :param request: The incoming request.
+    :return: The key's new balance.
+    :raises HTTPException: 404 for an id that isn't an existing key.
+    """
+    pool = request.app.db_pool
+    if not keys.is_key_id(key_id) or not await keys.exists(pool, key_id):
+        raise HTTPException(404, "No such API key.")
+    balance = await ledger.credit(pool, keys.account_of(key_id), body.usd_micros)
+    logger.info("key_granted", usd_micros=body.usd_micros)
+    return {"key_id": key_id, "balance_usd_micros": balance}

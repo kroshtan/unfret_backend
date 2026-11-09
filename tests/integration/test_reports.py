@@ -262,3 +262,22 @@ async def test_api_keys_can_report(client: httpx.AsyncClient, pool: asyncpg.Pool
 
     assert response.json()["status"] == "queued"
     assert await pool.fetchval("SELECT account FROM reports") == issued.account
+
+
+async def test_the_operator_grants_a_little_credit_to_an_existing_key_only(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    issued = await keys.create(pool)
+    url = f"/v1/admin/keys/{issued.key_id}/grant"
+
+    assert (await client.post(url, json={"usd_micros": 1_000_000})).status_code == 401
+    response = await client.post(url, json={"usd_micros": 1_000_000}, headers=ADMIN)
+    assert response.status_code == 200
+    assert response.json() == {"key_id": issued.key_id, "balance_usd_micros": 1_000_000}
+    assert await keys.balance(pool, issued.key_id) == 1_000_000
+
+    too_much = await client.post(url, json={"usd_micros": 10_000_001}, headers=ADMIN)
+    assert too_much.status_code == 422
+    unknown = await client.post("/v1/admin/keys/aaaaaaaaaa/grant", json={"usd_micros": 1}, headers=ADMIN)
+    assert unknown.status_code == 404
+    assert await pool.fetchval("SELECT COUNT(*) FROM wallets WHERE pubkey = 'key:aaaaaaaaaa'") == 0

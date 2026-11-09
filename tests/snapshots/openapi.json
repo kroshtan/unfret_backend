@@ -447,7 +447,7 @@
         "type": "null"
        }
       ],
-      "description": "Received USDC not yet swapped to SOL",
+      "description": "Received USDC not yet swept to the cold wallet",
       "title": "Hot Usdc Units"
      },
      "hot_wsol_lamports": {

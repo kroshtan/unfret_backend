@@ -25,6 +25,7 @@
 
 ### Removed
 
+* **The USDC→SOL swap** (`veridex.x402.swap`, the Jupiter client, `VERIDEX_SWAP_*` settings, the `swap_failing` alert): the product never swaps. USDC is swept to the cold address's USDC account as USDC (`VERIDEX_USDC_SWEEP_THRESHOLD_UNITS`, $5, or ≥$0.50 older than a day; on mainnet and devnet alike), creating that account idempotently with the hot wallet paying the rent. The hot wallet signs only verified payments and the two sweep shapes, and the outflow audit accepts a token transfer by the hot wallet only as a USDC `transferChecked` into the cold address's USDC account, so a swap now counts as an unexpected outflow. `hot_usdc_units` in readiness stays (USDC not yet swept); `usdc_above_threshold` now means USDC sweeps are failing
 * The Google Cloud Vision photo lookup (`reverse_image` skill, `VERIDEX_VISION_API_KEY` / `VERIDEX_VISION_MONTHLY_BUDGET`, the `vision` status field and the "same photo on wholesale sites" reason): no external image services any more. Product photos will be matched against Unfret's own image index instead. The privacy page no longer mentions Google
 
 ## [0.6.0](https://github.com/kroshtan/veridex_backend/compare/0.5.0...0.6.0) (2026-11-08)

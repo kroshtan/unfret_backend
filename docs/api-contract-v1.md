@@ -137,7 +137,8 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - x402: the 402 `accepts` lists wSOL first, then USDC (amount = the converted quote) only while USDC can be priced
   AND the hot wallet's USDC account exists. A USDC payment may differ from the quote by ≤2% (prices move between 402
   and payment); wSOL must match exactly. Refunds of failed paid checks are the tier's canonical SOL price as credits.
-- `/v1/health/ready` adds `hot_usdc_units`; x402 alerts may include `swap_failing` and `usdc_above_threshold`.
+- `/v1/health/ready` adds `hot_usdc_units` (USDC not yet swept to cold); x402 alerts may include
+  `usdc_above_threshold`. `swap_failing` is no longer emitted: USDC is swept to cold as USDC, never swapped.
 - **Extension:** nothing has to change (it opens `/checkout`, which now has a SOL/USDC switch, and shows checks). It
   may show the USDC quote from `/v1/pricing.usdc` if it wants to.
 

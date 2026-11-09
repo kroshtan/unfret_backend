@@ -1,11 +1,11 @@
 """
-The x402 service: configuration, hot wallet health and alerts, settlement, the USDC swap, and the sweep to cold.
+The x402 service: configuration, hot wallet health and alerts, settlement, and the sweeps to cold.
 
-Money flows through the hot wallet: payments land in its wSOL or USDC account, it pays their fees, USDC is swapped
-to SOL (:mod:`veridex.x402.swap`), and a background sweep moves everything above a reserve to the cold address, which
-only ever receives SOL. Run a single instance: the sweeper is not coordinated across processes. Credit purchases pay
-into the same hot wallet; their scanner (veridex.credits.scanner) counts only incoming transfers and ignores sweeps,
-swaps and fee payments.
+Money flows through the hot wallet: payments land in its wSOL or USDC account, it pays their fees, and background
+sweeps move SOL above a reserve to the cold address and USDC, as USDC, into the cold address's USDC account. The
+product never swaps; converting USDC is the operator's business. Run a single instance: the sweeper is not
+coordinated across processes. Credit purchases pay into the same hot wallet; their scanner (veridex.credits.scanner)
+counts only incoming transfers and ignores sweeps and fee payments.
 
 Prices come from :class:`~veridex.prices.PriceBook`: canonical dollar prices, charged exactly in USDC and converted to
 wSOL at quote time with Pyth's SOL/USD price. While SOL can't be priced (oracle stale or uncertain) only USDC is
@@ -23,7 +23,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from veridex.config import Settings
-from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd, usdc_to_lamports
+from veridex.prices import PriceBook, PriceUnavailableError, Product, PythSolUsd
 from veridex.x402.breaker import SettlementBreaker
 from veridex.x402.payment import (
     PAYMENT_PROGRAMS,
@@ -44,8 +44,7 @@ from veridex.x402.solana import (
     associated_token_address,
     usdc_mint,
 )
-from veridex.x402.swap import JupiterClient, SwapError, verify_swap
-from veridex.x402.wallet import HotWallet, build_sweep, load_keypair, unexpected_outflows
+from veridex.x402.wallet import HotWallet, build_sweep, build_usdc_sweep, load_keypair, unexpected_outflows
 
 logger = structlog.get_logger("veridex")
 
@@ -62,10 +61,7 @@ _SEEN_MAX = 2_000
 _FEE_BUFFER = 10_000  # lamports kept back for the sweep transaction's own fee
 _TOKEN_ACCOUNT_SIZE = 165
 _META_RETRIES = 10
-_SWAP_FAILURES_ALERT = 3
 _MAINNET_PUBLIC_RPC = "https://api.mainnet-beta.solana.com"
-# The audit recognises a swap only at no worse than this fraction of the oracle rate (a compromise signal).
-_AUDIT_RATE_FRACTION = 0.5
 
 
 class DuplicateSettlementError(RpcError):
@@ -132,8 +128,6 @@ class X402:
             if settings.pyth_rpc_url
             else (self.rpc if mainnet or rpc is not None else SolanaRpc(_MAINNET_PUBLIC_RPC))
         )
-        # Jupiter routes mainnet tokens only; on devnet received USDC stays put.
-        self.swaps_enabled = mainnet
         self.prices = prices or PriceBook(
             settings,
             PythSolUsd(
@@ -143,12 +137,11 @@ class X402:
                 max_conf_bps=settings.pyth_max_conf_bps,
             ),
         )
-        self.swapper = JupiterClient(settings.swap_api_url, settings.swap_api_key.get_secret_value())
         self.hot: HotWallet | None = None
         self._config_status: Status = "ok"
         self._balances: tuple[float, int, int | None, int | None] | None = None
         self._lock = asyncio.Lock()
-        # Settlements, swaps and sweeps take turns, so balance reads, simulations and post-settlement checks see only
+        # Settlements and sweeps take turns, so balance reads, simulations and post-settlement checks see only
         # their own effect on the hot wallet.
         self._wallet_lock = asyncio.Lock()
         self._settling: dict[str, float] = {}
@@ -159,9 +152,7 @@ class X402:
         self.breaker = SettlementBreaker(
             settings.x402_breaker_per_payer, settings.x402_breaker_per_ip, settings.x402_breaker_global
         )
-        self._swap_failures = 0
-        self._last_swap = time.monotonic()
-        self._audit_rate_floor: float | None = None  # lamports per USDC unit, from the last oracle reading
+        self._last_usdc_sweep = time.monotonic()
 
         secret = settings.hot_wallet_key.get_secret_value()
         if not settings.cold_address or not secret:
@@ -268,8 +259,8 @@ class X402:
 
         Alerts: ``sweep_failing`` (value stays above 1.5x the sweep threshold), ``fee_reserve_low`` (SOL below
         ``x402_min_fee_lamports``, which also pauses payments), ``outflow_to_non_cold`` (a transfer from the hot
-        wallet to anywhere but cold was seen on chain, which also pauses payments), ``swap_failing`` (USDC swaps
-        failed repeatedly) and ``usdc_above_threshold`` (USDC piles up beyond 3x the swap threshold).
+        wallet to anywhere but cold was seen on chain, which also pauses payments) and ``usdc_above_threshold`` (USDC
+        piles up beyond 3x the USDC sweep threshold: USDC sweeps are failing).
 
         :return: The current health.
         """
@@ -289,9 +280,7 @@ class X402:
             logger.error("x402_fee_reserve_low", sol_lamports=sol, minimum=self.settings.x402_min_fee_lamports)
             alerts.append("fee_reserve_low")
             status = "low_balance"
-        if self._swap_failures >= _SWAP_FAILURES_ALERT:
-            alerts.append("swap_failing")
-        if self.swaps_enabled and (usdc or 0) > self.settings.swap_threshold_usdc * 3:
+        if (usdc or 0) > self.settings.usdc_sweep_threshold_units * 3:
             logger.error("x402_usdc_above_threshold", usdc_units=usdc)
             alerts.append("usdc_above_threshold")
         if self._mismatches:
@@ -382,7 +371,7 @@ class X402:
         """
         assert self.hot is not None  # noqa: S101
         key = str(pre.transaction.signatures[1])
-        # The lock covers verification and signing only: sweeps and swaps can't move the balances the simulation
+        # The lock covers verification and signing only: sweeps can't move the balances the simulation
         # is compared with in the meantime. Waiting for confirmation runs outside it, so payments settle in parallel.
         async with self._wallet_lock:
             now = time.monotonic()
@@ -486,63 +475,50 @@ class X402:
             self._mismatches.append(signature)
             raise SettlementMismatchError(signature, detail)
 
-    def _swap_due(self, usdc: int) -> bool:
+    def _usdc_sweep_due(self, usdc: int) -> bool:
         s = self.settings
-        if usdc >= s.swap_threshold_usdc:
+        if usdc >= s.usdc_sweep_threshold_units:
             return True
-        return usdc >= s.swap_dust_usdc and time.monotonic() - self._last_swap >= s.swap_max_interval_s
+        return (
+            usdc >= s.usdc_sweep_dust_units and time.monotonic() - self._last_usdc_sweep >= s.usdc_sweep_max_interval_s
+        )
 
-    async def swap_once(self) -> str | None:
+    async def sweep_usdc_once(self) -> str | None:
         """
-        Swap the hot wallet's USDC to wSOL once it holds enough (or has held dust too long).
+        Sweep the hot wallet's USDC, as USDC, into the cold address's USDC account once it holds enough (or dust long).
 
-        The minimum output is the stricter of the route's slippage bound and a floor from Pyth's SOL/USD price; no
-        swap runs while the oracle is unavailable. The transaction from the swap API is verified by simulation
-        (:func:`~veridex.x402.swap.verify_swap`) before the hot wallet signs it; the output lands in its wSOL account
-        for the next sweep.
+        One atomic transaction: create the cold address's USDC account if it is missing (the hot wallet pays the rent)
+        and transfer the whole USDC balance into it. It waits while paying that rent and the fee would take the hot
+        wallet's SOL under ``x402_min_fee_lamports``; the SOL sweep's unwrapping refills it. Balances are re-read every
+        time and the next sweep only starts after the previous one confirmed, so retrying is always safe.
 
-        :return: The swap's signature, or ``None`` if nothing was due.
-        :raises SwapError: If a due swap could not be done (counted towards the ``swap_failing`` alert).
+        :return: The sweep's signature, or ``None`` if nothing was due (or SOL for the rent is short).
         """
         assert self.hot is not None  # noqa: S101
-        if not self.swaps_enabled:
-            return None
-        s = self.settings
         async with self._wallet_lock:
             self._balances = None
-            _, wsol, usdc = await self._read_balances()
-            if not usdc or wsol is None or not self._swap_due(usdc):
+            sol, _, usdc = await self._read_balances()
+            if not usdc or not self._usdc_sweep_due(usdc):
                 return None
-            try:
-                reading = await self.prices.sol_usd()
-                expected = usdc_to_lamports(usdc, reading.usd_per_sol)
-                self._audit_rate_floor = expected / usdc * _AUDIT_RATE_FRACTION
-                floor = expected * (10_000 - s.swap_oracle_tolerance_bps) // 10_000
-                quote = await self.swapper.quote(self.usdc_mint, WSOL_MINT, usdc, s.swap_max_slippage_bps)
-                quoted = int(quote["outAmount"])
-                if quoted < floor:
-                    raise SwapError("quote below the oracle floor")
-                min_out = max(floor, quoted * (10_000 - s.swap_max_slippage_bps) // 10_000)
-                raw = await self.swapper.transaction(
-                    quote, self.hot.pubkey, associated_token_address(self.hot.pubkey), s.swap_max_priority_lamports
-                )
-                swap = await verify_swap(
-                    raw,
-                    rpc=self.rpc,
-                    hot=self.hot.pubkey,
-                    usdc_mint=self.usdc_mint,
-                    amount_in=usdc,
-                    min_out=min_out,
-                    max_compute_units=s.swap_max_compute_units,
-                    max_priority_lamports=s.swap_max_priority_lamports,
-                )
-                signature = await self.rpc.send_and_confirm(self.hot.sign(swap), s.x402_confirm_timeout_s)
-            except (PriceUnavailableError, SwapError, RpcError, KeyError, ValueError) as exc:
-                self._swap_failures += 1
-                raise SwapError(f"swap not done: {type(exc).__name__}: {str(exc)[:120]}") from exc
+            cold_account = associated_token_address(self.hot.cold, self.usdc_mint)
+            missing = await self.rpc.token_balance(cold_account) is None
+            rent = await self.rpc.rent_exempt_minimum(_TOKEN_ACCOUNT_SIZE) if missing else 0
+            if sol - rent - _FEE_BUFFER < self.settings.x402_min_fee_lamports:
+                logger.warning("x402_usdc_sweep_waiting_for_sol", sol_lamports=sol, rent_lamports=rent)
+                return None
+            sweep = build_usdc_sweep(
+                self.hot.pubkey,
+                self.hot.cold,
+                self.usdc_mint,
+                amount=usdc,
+                blockhash=await self.rpc.latest_blockhash(),
+            )
+            raw = self.hot.sign(sweep)
+            await self.rpc.simulate(raw)
+            signature = await self.rpc.send_and_confirm(raw, self.settings.x402_confirm_timeout_s)
             self._balances = None
-            self._swap_failures, self._last_swap = 0, time.monotonic()
-            logger.info("x402_swap", usdc_units=usdc, min_lamports=min_out)
+            self._last_usdc_sweep = time.monotonic()
+            logger.info("x402_usdc_sweep", usdc_units=usdc, created_cold_account=missing)
             return signature
 
     async def sweep_once(self) -> str | None:
@@ -592,7 +568,7 @@ class X402:
 
     async def audit_outflows(self) -> list[str]:
         """
-        Check the hot wallet's transactions for value leaving it except to cold or in a USDC→SOL swap.
+        Check the hot wallet's transactions for value leaving it except to cold (SOL) or cold's USDC account.
 
         Pages back to the last audited transaction (``until``), so a burst of payments can't push an outflow out of
         view; failed transactions are skipped without fetching them. The first run looks at the newest page only.
@@ -623,13 +599,7 @@ class X402:
                     contiguous = False  # not indexed yet; look again next time
                     continue
                 self._mark_seen(signature)
-                issues = (
-                    []
-                    if tx is None
-                    else unexpected_outflows(
-                        tx, self.hot.pubkey, self.hot.cold, self.usdc_mint, self._audit_rate_floor
-                    )
-                )
+                issues = [] if tx is None else unexpected_outflows(tx, self.hot.pubkey, self.hot.cold, self.usdc_mint)
                 if issues:
                     logger.error("x402_outflow_to_non_cold", signature=signature, issues=issues)
                     self._compromise.extend(issues)
@@ -656,9 +626,12 @@ class X402:
         return cleared
 
     async def run_forever(self) -> None:
-        """Swap, sweep and audit every ``sweep_interval_s`` until cancelled; failures are logged and retried."""
+        """Sweep USDC, sweep SOL and audit every ``sweep_interval_s`` until cancelled; failures are logged, retried."""
         while True:
-            for step, event in ((self.swap_once, "x402_swap_failed"), (self.sweep_once, "x402_sweep_failed")):
+            for step, event in (
+                (self.sweep_usdc_once, "x402_usdc_sweep_failed"),
+                (self.sweep_once, "x402_sweep_failed"),
+            ):
                 try:
                     await step()
                 except Exception as exc:  # noqa: BLE001

@@ -105,19 +105,11 @@ class Settings(BaseSettings):
     # USDC mint; empty picks Circle's mint for the configured network.
     usdc_mint: str = ""
 
-    # USDC received by the hot wallet is swapped to SOL (through Jupiter's swap API) before sweeping, so the cold
-    # wallet only ever receives SOL. Every swap is verified by simulation before the hot wallet signs it, including
-    # a floor from the Pyth price, so no swap runs while the oracle is unavailable. Mainnet only: Jupiter has no
-    # devnet routes, so on devnet USDC stays in the hot wallet (test money).
-    swap_api_url: str = "https://lite-api.jup.ag/swap/v1"
-    swap_api_key: SecretStr = SecretStr("")
-    swap_threshold_usdc: int = 5_000_000  # swap once the hot wallet holds this much USDC
-    swap_dust_usdc: int = 500_000  # …or at least this much and nothing was swapped for swap_max_interval_s
-    swap_max_interval_s: float = 24 * 3600.0
-    swap_max_slippage_bps: int = 100
-    swap_oracle_tolerance_bps: int = 300  # minimum output at most this far below the Pyth-implied amount
-    swap_max_priority_lamports: int = 100_000
-    swap_max_compute_units: int = 1_400_000
+    # USDC received by the hot wallet is swept to the cold address's USDC account as USDC (the product never swaps;
+    # converting it is the operator's business), on mainnet and devnet alike.
+    usdc_sweep_threshold_units: int = 5_000_000  # sweep once the hot wallet holds this much USDC ($5)
+    usdc_sweep_dust_units: int = 500_000  # …or at least this much and nothing was swept for usdc_sweep_max_interval_s
+    usdc_sweep_max_interval_s: float = 24 * 3600.0
     credits_scan_interval_s: float = 20.0
     # Free trial on a wallet's first sign-in, only for wallets with real on-chain history.
     trial_checks: int = 5
@@ -251,7 +243,6 @@ class Settings(BaseSettings):
             },
             "quote_tolerance_bps": self.quote_tolerance_bps,
             "pyth_account": self.pyth_sol_usd_account,
-            "swaps": self.solana_network == "solana-mainnet",
         }
 
     @property

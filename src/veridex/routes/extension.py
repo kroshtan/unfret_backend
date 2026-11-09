@@ -30,6 +30,7 @@ def _public_base() -> str:
 
 
 _GUPDATE_NS = "{http://www.google.com/update2/response}"
+_CODEBASE = re.compile(r"(?<=codebase=)(?P<q>['\"])[^'\"]*/(?P<name>[^/'\"]+)(?P=q)")
 
 # The only files served, by exact name pattern: no paths, so nothing outside RELEASE_DIR can be reached. Releases
 # before the rename to Unfret were called veridex-*; both names are accepted.
@@ -157,7 +158,12 @@ def update_manifest() -> Response:
     path = RELEASE_DIR / "updates.xml"
     if not path.is_file():
         raise HTTPException(status_code=404)
-    return Response(path.read_bytes(), media_type="text/xml", headers={"Cache-Control": "public, max-age=300"})
+    # The release script writes one manifest for every environment; point its download at this server, so dev
+    # offers the CRX it actually serves (production may not have that release yet).
+    manifest = _CODEBASE.sub(
+        lambda m: f"{m['q']}{_public_base()}/{m['name']}{m['q']}", path.read_text(encoding="utf-8")
+    )
+    return Response(manifest, media_type="text/xml", headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/extension/{name}")

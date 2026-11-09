@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from veridex.config import settings
 from veridex.main import app
 from veridex.routes import extension
 from veridex.routes.extension import RELEASE_DIR, current_release, linux_policy_command
@@ -123,9 +124,21 @@ async def test_update_manifest_is_served_as_xml(client: httpx.AsyncClient) -> No
     assert response.headers["content-type"].startswith("text/xml")
     assert "max-age=300" in response.headers["cache-control"]
     assert f"appid='{release.extension_id}'" in response.text
-    assert re.search(
-        rf"codebase='https://[a-z.]+/extension/{re.escape(release.crx)}'", response.text
-    )  # host: per release
+    assert f"codebase='{settings.public_base_url.rstrip('/')}/extension/{release.crx}'" in response.text
+
+
+async def test_update_manifest_points_at_this_server(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # One manifest ships to every environment; dev must offer its own CRX, not production's (which may not exist yet).
+    monkeypatch.setattr(settings, "public_base_url", "https://dev.example.test")
+    release = current_release()
+    assert release is not None
+
+    response = await client.get("/extension/updates.xml")
+
+    assert f"codebase='https://dev.example.test/extension/{release.crx}'" in response.text
+    assert "unfret.kroshtan.com" not in response.text
 
 
 async def test_release_files_are_served_with_their_types(client: httpx.AsyncClient) -> None:

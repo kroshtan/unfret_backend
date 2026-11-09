@@ -186,22 +186,21 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | `GATEWAY_TIMEOUT` | 504 | refunded | the analysis timed out: the price is credited to the paying wallet |
 | `INTERNAL_ERROR` | 500 | refunded | the analysis failed: the price is credited to the paying wallet |
 
-Money flows through, and the cold wallet only ever receives SOL. On mainnet, USDC the hot wallet received is swapped to
-wSOL once it holds `VERIDEX_SWAP_THRESHOLD_USDC` (5 USDC), or dust older than a day: Jupiter's swap API
-(`VERIDEX_SWAP_API_URL`, self-hostable) builds the route, and the transaction is **verified by simulation before the
-hot wallet signs it**: the hot wallet is the only signer and fee payer; its USDC account loses exactly the amount; its
-wSOL account gains at least the stricter of the route's slippage bound (`VERIDEX_SWAP_MAX_SLIPPAGE_BPS`, 1%) and a floor
-3% under the Pyth-implied amount (no swap without a fresh price); its SOL drops by no more than the capped fee; and it
-still owns both token accounts with no delegate or close authority, and is still a plain System account. A background
-sweep (one atomic transaction) then unwraps the hot wallet's wSOL, recreates its wSOL account, creates its USDC account
-if missing, and sends everything above `VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the
-hot wallet holds more than `VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). All signing goes through one function that
-accepts only verified payments (as fee payer, never referenced by an instruction), sweeps to the cold address and
-verified swaps. Alerts are logged at error level and counted in readiness (named, with the balances, for
-`Authorization: Bearer $VERIDEX_ADMIN_TOKEN`): value stuck above 1.5x the threshold (sweeps failing), SOL for fees
-below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), swaps failing repeatedly or USDC piling up beyond 3x the swap
-threshold, and any value leaving the hot wallet except to cold or in a USDC→SOL swap (recognised by its net effect:
-USDC down, wSOL up at a sane rate, nothing else lost; payments pause, a compromise signal). The audit pages through
+Money flows through, and nothing is ever swapped: SOL reaches the cold wallet as SOL and USDC as USDC (converting it is
+the operator's business, outside the product). A background sweep (one atomic transaction) unwraps the hot wallet's
+wSOL, recreates its wSOL account, creates its USDC account if missing, and sends everything above
+`VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot wallet holds more than
+`VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). A second sweep moves all of the hot wallet's USDC into the cold address's
+USDC account once it holds `VERIDEX_USDC_SWEEP_THRESHOLD_UNITS` (5 USDC), or at least 0.5 USDC older than a day: an
+idempotent create of that account (the hot wallet pays its rent, and waits while that would take its SOL under the fee
+reserve) and one `TransferChecked`, on mainnet and devnet alike. All signing goes through one function that accepts only
+verified payments (as fee payer, never referenced by an instruction) and those two sweep shapes, re-checked instruction
+by instruction against the cold address. Alerts are logged at error level and counted in readiness (named, with the
+balances, for `Authorization: Bearer $VERIDEX_ADMIN_TOKEN`): value stuck above 1.5x the threshold (sweeps failing), SOL
+for fees below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), USDC piling up beyond 3x its sweep threshold, and any
+value leaving the hot wallet except to cold or cold's USDC account (a token transfer by the hot wallet is accepted only
+as a `transferChecked` of USDC into cold's USDC account, so a swap is flagged too; payments pause, a compromise
+signal). The audit pages through
 every transaction since the last one it checked, skipping failed ones and ones the hot wallet didn't sign (neither can
 move its value). A compromise signal and post-settlement mismatches stay raised until the operator, having checked
 the logged transactions (and rotated the hot wallet if it was real), clears them:

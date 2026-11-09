@@ -1,18 +1,19 @@
 """
-The hot wallet: receives x402 payments (its wSOL and USDC accounts), pays their fees, and sweeps SOL to cold.
+The hot wallet: receives x402 payments (its wSOL and USDC accounts), pays their fees, and sweeps both to cold.
 
-Every use of its key goes through one function, :meth:`HotWallet.sign`, which accepts exactly three things:
+Every use of its key goes through one function, :meth:`HotWallet.sign`, which accepts exactly two things:
 
 * a :class:`~veridex.x402.payment.VerifiedPayment`, co-signed only as fee payer: the hot wallet may not appear in
   any instruction, so its signature can only pay the network fee;
-* a :class:`Sweep`, re-validated here instruction by instruction: optionally close the hot wallet's wSOL account
-  back into the hot wallet (unwrapping), recreate that account, create its USDC account if missing, and optionally
-  transfer SOL to the cold address. Nothing else, and no other destination;
-* a :class:`~veridex.x402.swap.VerifiedSwap`: USDC to wSOL into the hot wallet's own wSOL account, checked by
-  simulation in :func:`~veridex.x402.swap.verify_swap` (the cold wallet only ever receives SOL).
+* a :class:`Sweep`, re-validated here instruction by instruction, in one of two shapes. A SOL sweep: optionally close
+  the hot wallet's wSOL account back into the hot wallet (unwrapping), recreate that account, create its USDC account
+  if missing, and optionally transfer SOL to the cold address. A USDC sweep: optionally create the cold address's
+  USDC account (idempotent, rent paid by the hot wallet), then ``TransferChecked`` USDC from the hot wallet's USDC
+  account into it. Nothing else, and no other destination.
 
-Credit purchases also pay into the hot wallet; their scanner (veridex.credits.scanner) counts only INCOMING transfers,
-ignoring the sweeps, swaps and fee payments this module signs.
+The product never swaps: USDC goes to cold as USDC, and converting it is the operator's business. Credit purchases
+also pay into the hot wallet; their scanner (veridex.credits.scanner) counts only INCOMING transfers, ignoring the
+sweeps and fee payments this module signs.
 """
 
 import json
@@ -28,13 +29,20 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from veridex.x402.payment import VerifiedPayment, is_verified, references
-from veridex.x402.solana import ASSOCIATED_TOKEN_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, associated_token_address
-from veridex.x402.swap import VerifiedSwap, is_verified_swap
+from veridex.x402.solana import (
+    ASSOCIATED_TOKEN_PROGRAM,
+    TOKEN_PROGRAM,
+    USDC_DECIMALS,
+    WSOL_MINT,
+    associated_token_address,
+    transfer_checked,
+)
 
 SYSTEM_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
 _CLOSE_ACCOUNT = 9
 _CREATE_IDEMPOTENT = 1
 _SYSTEM_TRANSFER = 2
+_TRANSFER_CHECKED = 12
 
 
 def load_keypair(secret: str) -> Keypair:
@@ -63,8 +71,9 @@ class Sweep:
     """An unsigned sweep transaction from :func:`build_sweep`."""
 
     message: MessageV0
-    to_cold: int
+    to_cold: int  # lamports
     _token: object = field(repr=False)
+    usdc_to_cold: int = 0  # USDC base units
 
     def __post_init__(self) -> None:
         """Refuse construction anywhere but :func:`build_sweep`."""
@@ -149,14 +158,42 @@ def build_sweep(
     return Sweep(message=message, to_cold=to_cold, _token=_SWEEP)
 
 
-def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None) -> None:
+def build_usdc_sweep(hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey, *, amount: int, blockhash: str) -> Sweep:
+    """
+    Build one atomic USDC sweep: create the cold address's USDC account if missing, then move ``amount`` into it.
+
+    The create is idempotent (a no-op once the account exists), so it is always included; when it does create the
+    account, the hot wallet pays the rent.
+
+    :param hot: The hot wallet (fee payer, owner of the source account).
+    :param cold: The cold address, owner of the destination account.
+    :param usdc_mint: The USDC mint.
+    :param amount: USDC base units to send (more than 0).
+    :param blockhash: A recent blockhash.
+    :return: The unsigned sweep.
+    :raises ValueError: If ``amount`` is not positive.
+    """
+    if amount <= 0:
+        raise ValueError("a USDC sweep needs a positive amount")
+    source, destination = associated_token_address(hot, usdc_mint), associated_token_address(cold, usdc_mint)
+    instructions = [
+        create_ata_idempotent(hot, cold, usdc_mint),
+        transfer_checked(source, usdc_mint, destination, hot, amount),
+    ]
+    message = MessageV0.try_compile(hot, instructions, [], Hash.from_string(blockhash))
+    return Sweep(message=message, to_cold=0, _token=_SWEEP, usdc_to_cold=amount)
+
+
+def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None) -> None:  # noqa: C901
     """
     Validate a sweep's instructions independently of how it was built.
 
-    Allowed, in order: an optional ``CloseAccount`` of the hot wallet's wSOL account into the hot wallet, one
-    ``CreateIdempotent`` of that account paid by the hot wallet, an optional ``CreateIdempotent`` of its USDC account
-    (for ``usdc_mint`` only), and an optional System transfer from the hot wallet to the cold address. The hot wallet
-    must be the fee payer and the only signer.
+    Allowed, in order, either a SOL sweep: an optional ``CloseAccount`` of the hot wallet's wSOL account into the hot
+    wallet, one ``CreateIdempotent`` of that account paid by the hot wallet, an optional ``CreateIdempotent`` of its
+    USDC account (for ``usdc_mint`` only), and an optional System transfer from the hot wallet to the cold address;
+    or a USDC sweep: an optional ``CreateIdempotent`` of the cold address's USDC account paid by the hot wallet, then
+    one ``TransferChecked`` of a positive amount of ``usdc_mint`` from the hot wallet's USDC account into the cold
+    address's. The hot wallet must be the fee payer and the only signer.
 
     :param message: The sweep message (anything but a v0 message without lookup tables is refused).
     :param hot: The hot wallet.
@@ -170,6 +207,9 @@ def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | 
     if message.header.num_required_signatures != 1 or keys[0] != hot:
         raise PermissionError("sweep: the hot wallet must be the only signer and the fee payer")
     ata = associated_token_address(hot)
+    hot_usdc = cold_usdc = None
+    if usdc_mint is not None:
+        hot_usdc, cold_usdc = associated_token_address(hot, usdc_mint), associated_token_address(cold, usdc_mint)
     steps: list[str] = []
     for ix in message.instructions:
         program = keys[ix.program_id_index]
@@ -192,6 +232,23 @@ def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | 
         ):
             steps.append("create_usdc")
         elif (
+            usdc_mint is not None
+            and program == ASSOCIATED_TOKEN_PROGRAM
+            and data == bytes([_CREATE_IDEMPOTENT])
+            and accounts == [hot, cold_usdc, cold, usdc_mint, SYSTEM_PROGRAM, TOKEN_PROGRAM]
+        ):
+            steps.append("create_cold_usdc")
+        elif (
+            usdc_mint is not None
+            and program == TOKEN_PROGRAM
+            and len(data) == 10
+            and data[0] == _TRANSFER_CHECKED
+            and int.from_bytes(data[1:9], "little") > 0
+            and data[9] == USDC_DECIMALS
+            and accounts == [hot_usdc, usdc_mint, cold_usdc, hot]
+        ):
+            steps.append("usdc_to_cold")
+        elif (
             program == SYSTEM_PROGRAM
             and len(data) == 12
             and int.from_bytes(data[:4], "little") == _SYSTEM_TRANSFER
@@ -205,7 +262,7 @@ def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | 
         for close in ([], ["close"])
         for usdc in ([], ["create_usdc"])
         for send in ([], ["transfer"])
-    ]
+    ] + [["create_cold_usdc", "usdc_to_cold"], ["usdc_to_cold"]]
     if steps not in allowed:
         raise PermissionError("sweep: unexpected instruction sequence")
 
@@ -233,12 +290,12 @@ class HotWallet:
         """Show the public key only."""
         return f"HotWallet({self.pubkey})"
 
-    def sign(self, item: VerifiedPayment | Sweep | VerifiedSwap) -> bytes:
+    def sign(self, item: VerifiedPayment | Sweep) -> bytes:
         """
-        Sign a verified payment (as fee payer only), a sweep to the cold address, or a verified swap; nothing else.
+        Sign a verified payment (as fee payer only) or a sweep to the cold address; nothing else.
 
-        :param item: A payment from :func:`~veridex.x402.payment.confirm_by_simulation`, a sweep from
-            :func:`build_sweep`, or a swap from :func:`~veridex.x402.swap.verify_swap`.
+        :param item: A payment from :func:`~veridex.x402.payment.confirm_by_simulation`, or a sweep from
+            :func:`build_sweep` or :func:`build_usdc_sweep`.
         :return: The fully signed, serialised transaction.
         :raises PermissionError: If the item is anything else, or fails the re-checks.
         """
@@ -255,77 +312,20 @@ class HotWallet:
         if isinstance(item, Sweep):
             check_sweep(item.message, self.pubkey, self.cold, self.usdc_mint)
             return bytes(VersionedTransaction(item.message, [self._keypair]))
-        if is_verified_swap(item):
-            assert isinstance(item, VerifiedSwap)  # noqa: S101 (narrowing for mypy)
-            message = item.message
-            if message.header.num_required_signatures != 1 or message.account_keys[0] != self.pubkey:
-                raise PermissionError("refusing to sign: a swap must have the hot wallet as its only signer")
-            return bytes(VersionedTransaction(message, [self._keypair]))
-        raise PermissionError("refusing to sign: only verified payments, sweeps to cold and verified swaps")
-
-
-def _token_deltas(tx: dict[str, Any], owner: str) -> dict[str, int]:
-    """
-    Net token balance change per mint across the token accounts ``owner`` holds in a transaction.
-
-    :param tx: A ``getTransaction`` result in ``jsonParsed`` encoding.
-    :param owner: The owner (base58).
-    :return: Change per mint (base58), in base units.
-    """
-    meta = tx.get("meta") or {}
-    deltas: dict[str, int] = {}
-    for sign, key in ((-1, "preTokenBalances"), (1, "postTokenBalances")):
-        for entry in meta.get(key) or []:
-            if entry.get("owner") == owner:
-                mint = str(entry.get("mint", ""))
-                deltas[mint] = deltas.get(mint, 0) + sign * int(entry["uiTokenAmount"]["amount"])
-    return deltas
-
-
-def is_swap_into_sol(
-    tx: dict[str, Any], hot: Pubkey, usdc_mint: Pubkey, min_lamports_per_usdc: float | None = None
-) -> bool:
-    """
-    Whether a transaction's net effect on the hot wallet is a USDC→SOL swap: USDC down, wSOL up, nothing else lost.
-
-    The hot wallet paid only the fee (its SOL dropped by exactly ``meta.fee``), every other token it holds is
-    unchanged, and, given a rate floor, it got at least ``min_lamports_per_usdc`` per USDC base unit.
-
-    :param tx: A ``getTransaction`` result in ``jsonParsed`` encoding.
-    :param hot: The hot wallet.
-    :param usdc_mint: The USDC mint.
-    :param min_lamports_per_usdc: Optional sanity floor on the rate (e.g. half the oracle rate).
-    :return: ``True`` for such a swap.
-    """
-    meta = tx.get("meta") or {}
-    message = tx.get("transaction", {}).get("message", {})
-    keys = [k["pubkey"] if isinstance(k, dict) else k for k in message.get("accountKeys", [])]
-    if meta.get("err") is not None or not keys or keys[0] != str(hot):
-        return False
-    pre, post = meta.get("preBalances") or [], meta.get("postBalances") or []
-    if not pre or not post or pre[0] - post[0] != int(meta.get("fee", 0)):
-        return False
-    deltas = _token_deltas(tx, str(hot))
-    spent, got = -deltas.pop(str(usdc_mint), 0), deltas.pop(str(WSOL_MINT), 0)
-    if spent <= 0 or got <= 0 or any(change < 0 for change in deltas.values()):
-        return False
-    return min_lamports_per_usdc is None or got >= spent * min_lamports_per_usdc
+        raise PermissionError("refusing to sign: only verified payments and sweeps to cold")
 
 
 def unexpected_outflows(  # noqa: C901
-    tx: dict[str, Any],
-    hot: Pubkey,
-    cold: Pubkey,
-    usdc_mint: Pubkey | None = None,
-    min_lamports_per_usdc: float | None = None,
+    tx: dict[str, Any], hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None
 ) -> list[str]:
     """
     Find outgoing transfers from the hot wallet to anywhere but cold (or its own token accounts) in a transaction.
 
     Used on the hot wallet's recent signatures as a compromise signal: everything this service signs moves value only
-    to the cold address (sweeps), into the hot wallet's own token accounts (creating them), or, in a swap, USDC out
-    for more SOL in. A token transfer by the hot wallet is legitimate only inside a transaction whose net effect is
-    such a swap (:func:`is_swap_into_sol`); approvals, authority changes and closing to a foreign account never are.
+    to the cold address (SOL sweeps), into the cold address's USDC account (USDC sweeps, including the rent when one
+    creates that account), or into the hot wallet's own token accounts (creating them). A token transfer by the hot
+    wallet is legitimate only as a ``transferChecked`` of USDC into the cold address's USDC account. Anything else is
+    flagged: a swap (the product never swaps), approvals, authority changes and closing to a foreign account.
 
     A failed transaction moved nothing but its fee, and one the hot wallet didn't sign can't have moved its value
     (it is a key pair: it can only authorise as a header signer), so neither is an outflow.
@@ -334,7 +334,6 @@ def unexpected_outflows(  # noqa: C901
     :param hot: The hot wallet.
     :param cold: The cold address.
     :param usdc_mint: The USDC mint, if the hot wallet accepts USDC.
-    :param min_lamports_per_usdc: Optional rate floor for recognising swaps.
     :return: Human-readable descriptions of each unexpected outflow (empty if none).
     """
     hot_s, allowed = str(hot), {str(cold), str(associated_token_address(hot))}
@@ -343,9 +342,11 @@ def unexpected_outflows(  # noqa: C901
     keys = tx.get("transaction", {}).get("message", {}).get("accountKeys") or []
     if not any(isinstance(k, dict) and k.get("pubkey") == hot_s and k.get("signer") for k in keys):
         return []
+    cold_usdc = ""
     if usdc_mint is not None:
-        allowed.add(str(associated_token_address(hot, usdc_mint)))
-    swap = usdc_mint is not None and is_swap_into_sol(tx, hot, usdc_mint, min_lamports_per_usdc)
+        cold_usdc = str(associated_token_address(cold, usdc_mint))
+        # The cold address's USDC account receives rent when a USDC sweep creates it; it belongs to cold.
+        allowed |= {str(associated_token_address(hot, usdc_mint)), cold_usdc}
     instructions = list(tx.get("transaction", {}).get("message", {}).get("instructions", []))
     for inner in (tx.get("meta") or {}).get("innerInstructions") or []:
         instructions.extend(inner.get("instructions", []))
@@ -362,7 +363,13 @@ def unexpected_outflows(  # noqa: C901
                 found.append(f"system {kind} to {destination}")
         elif program in {"spl-token", "spl-token-2022"}:
             authority = info.get("authority") or info.get("owner") or info.get("multisigAuthority")
-            if kind.startswith("transfer") and authority == hot_s and not swap:
+            usdc_sweep = (
+                kind == "transferChecked"
+                and usdc_mint is not None
+                and info.get("mint") == str(usdc_mint)
+                and info.get("destination") == cold_usdc
+            )
+            if kind.startswith("transfer") and authority == hot_s and not usdc_sweep:
                 found.append(f"token {kind} by the hot wallet to {info.get('destination', '')}")
             elif kind == "closeAccount" and authority == hot_s and info.get("destination") != hot_s:
                 found.append(f"token closeAccount to {info.get('destination', '')}")

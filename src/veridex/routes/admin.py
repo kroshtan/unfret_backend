@@ -3,8 +3,9 @@ Operator endpoints, behind ``VERIDEX_ADMIN_TOKEN``.
 
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
 fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
-an API key (support, and test credits for a store reviewer), and the quarterly export of crypto sales records for
-the bookkeeping.
+an API key (support, and test credits for a store reviewer), the quarterly export of crypto sales records for
+the bookkeeping, and the "Spotted recently" showcase (``python -m veridex.showcase``): operator-run checks, drafts
+until published.
 """
 
 import json
@@ -15,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from veridex import reports, shop_store
+from veridex import page_fetch, reports, shop_store, showcase
 from veridex.auth import require_admin
 from veridex.config import settings
 from veridex.credits import keys, ledger, vat
@@ -186,3 +187,202 @@ async def sales_export(quarter: str, request: Request) -> PlainTextResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# ── Showcase ("Spotted recently") ─────────────────────────────────────────────────────────────────────────────────
+
+
+class ShowcaseAdd(BaseModel):
+    """A public product page for the operator's own check."""
+
+    url: str = Field(min_length=8, max_length=showcase.MAX_URL_CHARS)
+    origin: showcase.Origin = "operator"
+    title: str | None = Field(default=None, max_length=showcase.MAX_TITLE_CHARS)
+
+
+class ShowcaseRemove(BaseModel):
+    """Why a case comes off the site."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ShowcaseTitle(BaseModel):
+    """The title to show with a case."""
+
+    title: str = Field(min_length=1, max_length=showcase.MAX_TITLE_CHARS)
+
+
+def _pool(request: Request) -> Any:
+    if request.app.db_pool is None:
+        raise HTTPException(503, "Database not ready.")
+    return request.app.db_pool
+
+
+def _operator_view(row: dict[str, Any]) -> dict[str, Any]:
+    """
+    A case for the operator: everything stored (but the screenshot's bytes) and what the public would see.
+
+    :param row: The case.
+    :return: The case, its public view and what that view leaves out.
+    """
+    left_out: list[str] = []
+    public = showcase.public_view(row, left_out)
+    return {
+        "id": row["id"],
+        "status": row["status"],
+        "origin": row["origin"],
+        "title": row["title"],
+        "host": row["host"],
+        "product_url": row["product_url"],
+        "checked_at": row["checked_at"].isoformat(),
+        "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+        "removed_at": row["removed_at"].isoformat() if row["removed_at"] else None,
+        "removed_reason": row["removed_reason"],
+        "screenshot": {"type": row["screenshot_type"], "bytes": row["screenshot_bytes"]}
+        if row["screenshot_type"]
+        else None,
+        "response": row["response"],
+        "public": {k: v for k, v in public.items() if k not in {"checked_at", "published_at"}},
+        "left_out": left_out,
+    }
+
+
+async def _case_or_404(pool: Any, case_id: int) -> dict[str, Any]:
+    row = await showcase.get(pool, case_id)
+    if row is None:
+        raise HTTPException(404, "No such case.")
+    return row
+
+
+@router.post("/showcase", status_code=201)
+async def showcase_add(body: ShowcaseAdd, request: Request) -> dict[str, Any]:
+    """
+    Check a public product page as the operator and keep it as a draft case (nothing is public until published).
+
+    The server fetches the page and runs the full analysis, like a URL-only check, without any account or charge.
+
+    :param body: The page's address, where it came from and optionally the title to show.
+    :param request: The incoming request.
+    :return: The draft.
+    :raises HTTPException: 422 when the page can't be read or wasn't assessed, 504 when the analysis took too
+        long, 503 without the graph or database.
+    """
+    pool = _pool(request)
+    if request.app.graph is None:
+        raise HTTPException(503, "Analysis graph is not initialised.")
+    try:
+        analysed = await showcase.analyse(
+            request.app.graph, body.url, timeout_s=settings.analysis_timeout_s, title=body.title
+        )
+    except page_fetch.PageUnreadableError as exc:
+        raise HTTPException(422, f"{exc.reason}: {exc.detail}") from exc
+    except showcase.ShowcaseError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(504, "The analysis took too long.") from exc
+    case_id = await showcase.add(pool, analysed, body.origin)
+    return _operator_view(await _case_or_404(pool, case_id))
+
+
+@router.get("/showcase")
+async def showcase_list(request: Request, status: showcase.Status | None = None, limit: int = 100) -> dict[str, Any]:
+    """
+    The cases, newest first.
+
+    :param request: The incoming request.
+    :param status: Only drafts, published or removed cases.
+    :param limit: How many (at most 500).
+    :return: The cases.
+    """
+    rows = await showcase.cases(_pool(request), status, min(max(limit, 1), 500))
+    return {"items": [_operator_view(row) for row in rows]}
+
+
+@router.get("/showcase/{case_id}")
+async def showcase_show(case_id: int, request: Request) -> dict[str, Any]:
+    """
+    One case, with what the public would see.
+
+    :param case_id: The case.
+    :param request: The incoming request.
+    :return: The case.
+    """
+    return _operator_view(await _case_or_404(_pool(request), case_id))
+
+
+@router.post("/showcase/{case_id}/publish")
+async def showcase_publish(case_id: int, request: Request) -> dict[str, Any]:
+    """
+    Publish a draft on the site.
+
+    :param case_id: The case.
+    :param request: The incoming request.
+    :return: The published case.
+    :raises HTTPException: 409 if it isn't a draft or can't be shown.
+    """
+    pool = _pool(request)
+    await _case_or_404(pool, case_id)
+    try:
+        row = await showcase.publish(pool, case_id)
+    except showcase.ShowcaseError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _operator_view(row)
+
+
+@router.post("/showcase/{case_id}/remove")
+async def showcase_remove(case_id: int, body: ShowcaseRemove, request: Request) -> dict[str, Any]:
+    """
+    Take a case off the site for good (its screenshot is dropped; the reason is kept).
+
+    :param case_id: The case.
+    :param body: Why.
+    :param request: The incoming request.
+    :return: The removed case.
+    :raises HTTPException: 409 if it was removed already.
+    """
+    pool = _pool(request)
+    await _case_or_404(pool, case_id)
+    if not await showcase.remove(pool, case_id, body.reason):
+        raise HTTPException(409, "The case was removed already.")
+    return _operator_view(await _case_or_404(pool, case_id))
+
+
+@router.post("/showcase/{case_id}/title")
+async def showcase_title(case_id: int, body: ShowcaseTitle, request: Request) -> dict[str, Any]:
+    """
+    Change the title shown with a case.
+
+    :param case_id: The case.
+    :param body: The title.
+    :param request: The incoming request.
+    :return: The case.
+    :raises HTTPException: 409 if it was removed.
+    """
+    pool = _pool(request)
+    await _case_or_404(pool, case_id)
+    try:
+        changed = await showcase.set_title(pool, case_id, body.title)
+    except showcase.ShowcaseError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if not changed:
+        raise HTTPException(409, "The case was removed.")
+    return _operator_view(await _case_or_404(pool, case_id))
+
+
+@router.put("/showcase/{case_id}/screenshot")
+async def showcase_screenshot(case_id: int, request: Request) -> dict[str, Any]:
+    """
+    Attach a screenshot (the request body: a PNG, JPEG or WebP image of at most 800 kB).
+
+    :param case_id: The case.
+    :param request: The incoming request.
+    :return: The case.
+    :raises HTTPException: 422 for a file that isn't such an image.
+    """
+    pool = _pool(request)
+    await _case_or_404(pool, case_id)
+    try:
+        await showcase.set_screenshot(pool, case_id, await request.body())
+    except showcase.ShowcaseError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return _operator_view(await _case_or_404(pool, case_id))

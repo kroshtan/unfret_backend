@@ -14,9 +14,9 @@ import {
   bandOf,
   checklistDone,
   extractLink,
-  ownThumbnails,
   sharedLink,
 } from "./check-core.js";
+import { el, resultNodes } from "./check-render.js";
 import { discoverWallets, signIn, walletButton } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
@@ -262,13 +262,6 @@ function takeSharedLink() {
 
 // ── Views ────────────────────────────────────────────────────────────────────────────────────────────────
 
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
 function showOnly(...ids) {
   for (const id of ["progress", "result", "unreadable", "no-checks", "error", "again-row"]) $(id).hidden = !ids.includes(id);
 }
@@ -301,52 +294,13 @@ function updateSteps(done) {
   });
 }
 
-function card(className, title, detail, thumbs = []) {
-  const li = el("li", `card ${className}`);
-  li.append(el("span", "title", title));
-  if (detail || thumbs.length) {
-    const why = el("details");
-    why.append(el("summary", undefined, "Why?"));
-    if (detail) why.append(el("p", undefined, detail));
-    if (thumbs.length) {
-      const row = el("div", "thumbs");
-      for (const src of thumbs) {
-        const img = el("img");
-        img.src = src;
-        img.alt = "A matching photo on another shop";
-        img.width = 64;
-        img.height = 64;
-        img.loading = "lazy";
-        img.referrerPolicy = "no-referrer";
-        img.addEventListener("error", () => img.remove());
-        row.append(img);
-      }
-      why.append(row);
-    }
-    li.append(why);
-  }
-  return li;
-}
-
 function renderResult(result) {
   const band = bandOf(result);
-  const verdict = result.verdict;
-  const head = el("div", `verdict ${band ?? "none"}`);
-  const symbol = el("span", "symbol", band ? BAND_SYMBOL[band] : "–");
-  symbol.setAttribute("aria-hidden", "true");
-  head.append(symbol, el("p", "label", verdict?.label ?? (band ? BAND_WORD[band] : "Not assessed")));
-  const nodes = [head, el("p", "headline", verdict?.headline ?? result.explanation)];
-
-  const reasons = verdict?.reasons?.length
-    ? [
-        el("h2", undefined, "What we noticed"),
-        listOf(verdict.reasons.map((r) => card(r.severity, r.title, r.detail, ownThumbnails(r.thumbnails, location.origin)))),
-      ]
-    : [];
-  const positives = verdict?.positives?.length
-    ? [el("h2", undefined, "What looks good"), listOf(verdict.positives.map((p) => card("good", p.title, p.detail)))]
-    : [];
-  nodes.push(...(band === "reliable" ? [...positives, ...reasons] : [...reasons, ...positives]));
+  const { nodes, details } = resultNodes(result, {
+    band,
+    label: result.verdict?.label ?? (band ? BAND_WORD[band] : "Not assessed"),
+    symbol: band ? BAND_SYMBOL[band] : "–",
+  });
 
   if (band === null) {
     nodes.push(el("p", "small", "Unfret checks product pages and shops. Try the link to the product itself."));
@@ -357,30 +311,7 @@ function renderResult(result) {
   if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
   else if (result.charged === false) nodes.push(el("p", "small", "Checked recently: no check was used."));
 
-  const assessment = result.assessment;
-  if (assessment?.flags?.length) {
-    const details = el("details", "details");
-    details.append(el("summary", undefined, "Show details"));
-    const signals = assessment.flags.filter((f) => f.kind !== "context");
-    const context = assessment.flags.filter((f) => f.kind === "context");
-    for (const [title, flags] of [
-      ["Signals", signals],
-      ["About this page", context],
-    ]) {
-      if (!flags.length) continue;
-      const ul = el("ul");
-      for (const flag of flags) {
-        const li = el("li", undefined, flag.label ?? "Signal");
-        if (flag.evidence) li.append(document.createTextNode(`: ${flag.evidence}`));
-        ul.append(li);
-      }
-      details.append(el("h3", undefined, title), ul);
-    }
-    details.append(
-      el("p", "muted small", `Model ${assessment.model_version || "–"} · confidence ${Math.round(assessment.confidence * 100)}%`),
-    );
-    nodes.push(details);
-  }
+  if (details) nodes.push(details);
   $("result-body").replaceChildren(...nodes);
 
   const reportable = Boolean(result.report_token && account);
@@ -394,12 +325,6 @@ function renderResult(result) {
       "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
       `Personal details are removed first; once reviewed, it is kept without any link to you. If the score was far off, you get ${reward} free checks.`;
   }
-}
-
-function listOf(items) {
-  const ul = el("ul", "cards");
-  ul.append(...items);
-  return ul;
 }
 
 function showError(message, refunded) {

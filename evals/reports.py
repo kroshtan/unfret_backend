@@ -12,6 +12,10 @@ A label is written to the corpus first (``pages/report-<hash>.html`` with the sc
 training sample and deletes the report (its only link to the account). Quitting halfway loses nothing; an item whose
 label didn't reach the service shows up again and overwrites the same corpus page.
 
+When the model was right (the score inside the label's zone), the page can be promoted to a "Spotted recently" draft
+(``p``): the server checks the public page again itself, as the operator, and keeps only that new check; nothing from
+the report (its result, text or reporter) goes into the case. Review and publish it with ``make showcase``.
+
 Usage: ``make reports`` (or ``uv run python -m evals.reports``). Environment: ``UNFRET_URL`` (default
 https://unfret.kroshtan.com) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE`` (default
 ``~/kroshtan_secrets/veridex-prod-admin-token``).
@@ -28,6 +32,7 @@ import httpx
 
 from evals.corpus import Corpus, Label, LabelRecord, dump_json, now_iso, page_id
 from evals.label import read_key
+from veridex.showcase.cli import promote
 
 KEYS: dict[str, Label | None] = {"l": "legit", "j": "junk", "s": "scam", "r": None}
 _EXCERPT_CHARS = 1200
@@ -110,6 +115,27 @@ def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
     return record_id
 
 
+def offer_promotion(api: httpx.Client, item: dict[str, Any], gap: int) -> None:
+    """
+    When the model was right about a page with an address, offer to make a showcase draft of it.
+
+    :param api: The admin client.
+    :param item: The labelled queue item.
+    :param gap: How far the model's score was outside the label's zone.
+    """
+    url = item["payload"].get("url") or ""
+    if gap != 0 or not url.startswith(("http://", "https://")):
+        return
+    print("   [p] promote to a showcase draft (re-checked by the server)  · any other key: no")  # noqa: T201
+    if read_key().lower() != "p":
+        return
+    response = promote(api, url)
+    if response.is_success:
+        print(f"→ showcase draft #{response.json()['id']}; review it with make showcase")  # noqa: T201
+    else:
+        print(f"→ no showcase draft ({response.status_code}): {response.text[:200]}")  # noqa: T201
+
+
 def main() -> None:
     """Command-line entry point."""
     base = os.getenv("UNFRET_URL", "https://unfret.kroshtan.com").rstrip("/")
@@ -145,6 +171,8 @@ def main() -> None:
             )
             print(f"→ {label or 'rejected'} (off by {outcome['gap']}{reward})")  # noqa: T201 - interactive tool
             done += 1
+            if label is not None:
+                offer_promotion(api, item, outcome["gap"])
     print(f"\n{done} labelled; {len(items) - done} left in this batch.")  # noqa: T201 - interactive tool
 
 

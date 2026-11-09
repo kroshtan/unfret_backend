@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#1f8a70">
+  <meta name="description" content="{{description}}">
+  <title>{{title}} · Spotted by Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="application/json" id="case-data">{{data}}</script>
+  <script type="module" src="/static/showcase.js"></script>
+</head>
+<body class="app">
+  <main>
+    <header class="brand small">
+      <a href="/" class="home" aria-label="Unfret home">
+        <svg class="logo" viewBox="0 0 128 128" width="36" height="36" aria-hidden="true">
+          <rect x="4" y="4" width="120" height="120" rx="30" fill="#1f8a70"/>
+          <circle cx="45" cy="44" r="7.5" fill="#fff"/>
+          <circle cx="79" cy="44" r="7.5" fill="#fff"/>
+          <path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <p class="kicker">Spotted recently</p>
+    </header>
+
+    <article class="case">
+      <h1 class="case-title">{{title}}</h1>
+      <p class="case-meta"><span class="host">{{host}}</span> ·
+        <a href="{{product_url}}" rel="nofollow noopener">View the product page</a></p>
+      <p class="muted small">Checked on {{checked_on}}; the page may have changed since.</p>
+      {{screenshot}}
+      <section id="result" aria-label="Result">
+        <div id="result-body">
+          <div class="verdict {{band}}"><span class="symbol" aria-hidden="true">{{symbol}}</span>
+            <p class="label">{{label}}</p></div>
+          <p class="headline">{{headline}}</p>
+        </div>
+      </section>
+      <p class="muted small source-note">A real check Unfret ran itself on this public product page, with the same
+        analysis a paying user gets, reviewed before it was published. It describes what the page showed that day,
+        not the shop as a whole.</p>
+      <p class="small">Shop owner and think this is wrong? <a href="https://kroshtan.com">Tell us</a>, and we'll look
+        at it again or take it down.</p>
+    </article>
+
+    <p class="buttons"><a class="button primary" href="/check">Check a link yourself</a></p>
+
+    <footer><a href="/">About Unfret</a> · <a href="/check">Check a link</a> · <a href="/privacy">Privacy</a></footer>
+  </main>
+</body>
+</html>

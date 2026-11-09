@@ -7,6 +7,7 @@
   <meta name="description" content="Unfret checks a product page before you buy: fake discounts, made-up brands, generic factory goods, pushy tricks and brand-new shops.">
   <title>Unfret · shop without the worry</title>
   <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/showcase-list.js"></script>
 </head>
 <body>
   <main>
@@ -32,6 +33,13 @@
     <p>On your phone, or without the extension: <a href="/check">check a link</a>. Paste a product link, or share it
       to Unfret from another app once you've added the page to your home screen. Some shops block these checks; the
       extension can always check the page you see.</p>
+
+    <section id="spotted" class="spotted" aria-labelledby="spotted-heading" hidden>
+      <h2 id="spotted-heading">Spotted recently</h2>
+      <p class="muted small">Real product pages Unfret checked itself, each reviewed before it was published; never
+        a shopper's own check.</p>
+      <ul class="cards spotted-list"></ul>
+    </section>
 
     <h2>For AI shopping agents</h2>
     <p>One paid HTTP call per check over x402 on Solana, in USDC or SOL, with no account: the answer is an action

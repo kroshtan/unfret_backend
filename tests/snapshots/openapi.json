@@ -1270,6 +1270,228 @@
     "title": "SessionResponse",
     "type": "object"
    },
+   "ShowcaseCase": {
+    "description": "A published case with its full result.",
+    "properties": {
+     "band": {
+      "description": "The verdict band (warning: the band with the most warning signs).",
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "warning"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "checked_at": {
+      "description": "When Unfret checked it; the page may have changed since.",
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+     },
+     "checked_on": {
+      "description": "The day it was checked, in words.",
+      "title": "Checked On",
+      "type": "string"
+     },
+     "headline": {
+      "description": "One sentence about what the page showed.",
+      "title": "Headline",
+      "type": "string"
+     },
+     "host": {
+      "description": "The shop or marketplace.",
+      "title": "Host",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "label": {
+      "description": "What Unfret would tell a shopper about this listing.",
+      "title": "Label",
+      "type": "string"
+     },
+     "page_url": {
+      "description": "The case's page on this site.",
+      "title": "Page Url",
+      "type": "string"
+     },
+     "product_url": {
+      "description": "The product page that was checked.",
+      "title": "Product Url",
+      "type": "string"
+     },
+     "published_at": {
+      "format": "date-time",
+      "title": "Published At",
+      "type": "string"
+     },
+     "result": {
+      "additionalProperties": true,
+      "description": "The result as the link checker shows it: verdict (band, label, symbol, headline, reasons, positives) and the details (assessment flags).",
+      "title": "Result",
+      "type": "object"
+     },
+     "screenshot_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A screenshot of the page when it was checked.",
+      "title": "Screenshot Url"
+     },
+     "symbol": {
+      "description": "The band's symbol, as in the extension and the link checker.",
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "description": "The product's title, as the page showed it.",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "host",
+     "product_url",
+     "checked_at",
+     "checked_on",
+     "published_at",
+     "band",
+     "label",
+     "symbol",
+     "headline",
+     "page_url",
+     "result"
+    ],
+    "title": "ShowcaseCase",
+    "type": "object"
+   },
+   "ShowcaseList": {
+    "description": "The published cases, newest first.",
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/ShowcaseSummary"
+      },
+      "title": "Items",
+      "type": "array"
+     }
+    },
+    "required": [
+     "items"
+    ],
+    "title": "ShowcaseList",
+    "type": "object"
+   },
+   "ShowcaseSummary": {
+    "description": "A published case, as listed under \"Spotted recently\".",
+    "properties": {
+     "band": {
+      "description": "The verdict band (warning: the band with the most warning signs).",
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "warning"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "checked_at": {
+      "description": "When Unfret checked it; the page may have changed since.",
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+     },
+     "checked_on": {
+      "description": "The day it was checked, in words.",
+      "title": "Checked On",
+      "type": "string"
+     },
+     "headline": {
+      "description": "One sentence about what the page showed.",
+      "title": "Headline",
+      "type": "string"
+     },
+     "host": {
+      "description": "The shop or marketplace.",
+      "title": "Host",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "label": {
+      "description": "What Unfret would tell a shopper about this listing.",
+      "title": "Label",
+      "type": "string"
+     },
+     "page_url": {
+      "description": "The case's page on this site.",
+      "title": "Page Url",
+      "type": "string"
+     },
+     "product_url": {
+      "description": "The product page that was checked.",
+      "title": "Product Url",
+      "type": "string"
+     },
+     "published_at": {
+      "format": "date-time",
+      "title": "Published At",
+      "type": "string"
+     },
+     "screenshot_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A screenshot of the page when it was checked.",
+      "title": "Screenshot Url"
+     },
+     "symbol": {
+      "description": "The band's symbol, as in the extension and the link checker.",
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "description": "The product's title, as the page showed it.",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "host",
+     "product_url",
+     "checked_at",
+     "checked_on",
+     "published_at",
+     "band",
+     "label",
+     "symbol",
+     "headline",
+     "page_url"
+    ],
+    "title": "ShowcaseSummary",
+    "type": "object"
+   },
    "ValidationError": {
     "properties": {
      "ctx": {
@@ -2457,6 +2679,97 @@
     "summary": "Page Facts Schema",
     "tags": [
      "Credits"
+    ]
+   }
+  },
+  "/v1/showcase": {
+   "get": {
+    "description": "Real checks of real product pages, run by Unfret itself and reviewed before publication, newest first.\n\nNever a user's check. Each case is what the page showed on the day it was checked.\n\n:param request: The incoming request.\n:param limit: How many cases (at most 24).\n:return: The cases.",
+    "operationId": "showcase_list_v1_showcase_get",
+    "parameters": [
+     {
+      "description": "How many cases.",
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 6,
+       "description": "How many cases.",
+       "maximum": 24,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ShowcaseList"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Showcase List",
+    "tags": [
+     "Showcase"
+    ]
+   }
+  },
+  "/v1/showcase/{case_id}": {
+   "get": {
+    "description": "One published case with its full result.\n\n:param case_id: The case.\n:param request: The incoming request.\n:return: The case.",
+    "operationId": "showcase_case_v1_showcase__case_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "case_id",
+      "required": true,
+      "schema": {
+       "title": "Case Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ShowcaseCase"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Showcase Case",
+    "tags": [
+     "Showcase"
     ]
    }
   }

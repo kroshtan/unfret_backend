@@ -11,6 +11,7 @@ from veridex.routes.pages import router as pages_router
 from veridex.routes.probes import router as probes_router
 from veridex.routes.reports import router as reports_router
 from veridex.routes.session import router as session_router
+from veridex.routes.showcase import router as showcase_router
 
 router = APIRouter()
 router.include_router(session_router)
@@ -21,6 +22,7 @@ router.include_router(reports_router)
 router.include_router(check_router)
 router.include_router(probes_router)
 router.include_router(pages_router)
+router.include_router(showcase_router)
 router.include_router(extension_router)
 router.include_router(images_router)
 router.include_router(admin_router)

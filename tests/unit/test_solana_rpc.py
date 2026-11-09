@@ -36,6 +36,16 @@ async def test_transport_and_decoding_failures_are_rpc_errors() -> None:
         await rpc(lambda r: httpx.Response(200, json={"error": {"message": "boom"}})).call("getSlot", [])
 
 
+async def test_simulation_returns_its_error_and_logs() -> None:
+    value = {
+        "err": {"InstructionError": [1, {"Custom": 1}]},
+        "accounts": None,
+        "logs": ["Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x1"],
+    }
+    error, accounts, inner, logs = await rpc(lambda r: answer({"value": value})).simulate_accounts(b"tx", [])
+    assert (error, accounts, inner, logs) == (value["err"], [], [], value["logs"])
+
+
 async def test_one_connection_pool_is_reused() -> None:
     client = rpc(lambda r: answer(42))
     assert await client.call("getSlot", []) == 42

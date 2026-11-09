@@ -188,6 +188,17 @@ confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the t
 human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
 stored.
 
+Each `accepts` option names the network in CAIP-2 form (`solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` on devnet), as do
+`/.well-known/x402` (`network`, with the cluster name in `network_name`) and `/llms.txt`. Its `extra` carries the
+mint's `decimals` (9 for wSOL, 6 for USDC), `quoteToleranceBps` (how far a payment may be from this quote: 200 for
+wSOL, 0 for USDC; clients should re-fetch the 402 right before paying), `constraints` (below) and `feeCapNote`:
+`constraints.maxPriorityFeeLamports` is in lamports on every option, USDC included, because the hot wallet pays the
+fee in SOL; it is `VERIDEX_X402_MAX_PRIORITY_FEE_BPS` of the tier's dollar price converted at the SOL/USD quote. A
+refused payment answers `402` again with `error` saying why; when the simulation failed (`simulation_failed`) it adds
+`reason`, a short cause derived from the simulation's error and logs: `insufficient_funds`,
+`source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_not_found`, `blockhash_not_found`, the
+error class in snake case (`invalid_account_data`) or `custom_program_error_<code>` for another program's own error.
+
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
 fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly
@@ -228,7 +239,7 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 
 | error_code | HTTP | charged | what to do |
 | --- | --- | --- | --- |
-| `PAYMENT_REQUIRED` | 402 | no | pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why |
+| `PAYMENT_REQUIRED` | 402 | no | pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed) |
 | `INVALID_PAYMENT` | 400 | no | the PAYMENT-SIGNATURE header couldn't be decoded |
 | `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`) |
 | `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |

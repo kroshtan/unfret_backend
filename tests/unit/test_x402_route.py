@@ -88,6 +88,39 @@ async def test_unpaid_request_gets_402_with_requirements(client: httpx.AsyncClie
     assert accepts["extra"]["feePayer"] == str(HOT.pubkey())
     assert (usdc["asset"], usdc["amount"]) == (str(USDC_MINTS["solana-devnet"]), "10000")  # exactly $0.01
     assert graph.calls == []
+    assert "reason" not in required
+
+
+async def test_402_options_state_decimals_tolerance_and_fee_cap_units(client: httpx.AsyncClient) -> None:
+    wsol, usdc = decode_header((await client.post("/v1/check", json=BODY)).headers["PAYMENT-REQUIRED"])["accepts"]
+    assert (wsol["extra"]["decimals"], usdc["extra"]["decimals"]) == (9, 6)
+    assert (wsol["extra"]["quoteToleranceBps"], usdc["extra"]["quoteToleranceBps"]) == (200, 0)
+    # The fee cap is in lamports on both options: 5% of the $0.01 price at $100/SOL = 5% of 100_000 lamports.
+    assert wsol["extra"]["constraints"]["maxPriorityFeeLamports"] == 5_000
+    assert usdc["extra"]["constraints"]["maxPriorityFeeLamports"] == 5_000
+    for option in (wsol, usdc):
+        note = option["extra"]["feeCapNote"]
+        assert "in lamports (SOL) for every option, USDC included" in note
+        assert "5% of this tier's dollar price" in note
+
+
+async def test_failed_simulation_says_why(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
+    rpc.sim_error = {"InstructionError": [1, {"Custom": 1}]}
+    rpc.sim_logs = [
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA invoke [1]",
+        "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: custom program error: 0x1",
+    ]
+    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
+
+    assert response.status_code == 402
+    body = response.json()
+    assert (body["error"], body["reason"], body["error_code"]) == (
+        "simulation_failed",
+        "insufficient_funds",
+        "PAYMENT_REQUIRED",
+    )
+    assert decode_header(response.headers["PAYMENT-REQUIRED"])["reason"] == "insufficient_funds"
+    assert rpc.sent == []
 
 
 async def test_paid_request_settles_then_returns_verdict(
@@ -261,6 +294,12 @@ async def test_low_balance_refuses_payments(client: httpx.AsyncClient, rpc: Fake
 
 async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     discovery = (await client.get("/.well-known/x402")).json()
+    offered = decode_header((await client.post("/v1/check", json=BODY)).headers["PAYMENT-REQUIRED"])["accepts"]
+    assert {o["network"] for o in offered} == {discovery["network"]} == {"solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"}
+    assert discovery["network_name"] == "solana-devnet"
+    assert (discovery["assets"]["wSOL"]["decimals"], discovery["assets"]["USDC"]["decimals"]) == (9, 6)
+    assert discovery["assets"]["wSOL"]["quote_tolerance_bps"] == 200
+    assert "lamports (SOL) for every option, USDC included" in discovery["feeCap"]
     assert discovery["pricing"] == "canonical in USD"
     assert discovery["tiers"]["quick"]["price_usd_micros"] == 10_000
     assert discovery["tiers"]["deep"]["price_usd"] == "$0.20"
@@ -268,6 +307,10 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     assert "quick = $0.01" in text
     assert "deep = $0.20" in text
     assert "| `SETTLEMENT_PENDING` | 402 | maybe |" in text
+    assert "network solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1, i.e. solana-devnet" in text
+    assert "re-fetch the 402 right before paying" in text
+    assert "in lamports (SOL) on every option, USDC included" in text
+    assert "`reason`" in text
 
 
 async def test_every_error_has_an_error_code(client: httpx.AsyncClient) -> None:

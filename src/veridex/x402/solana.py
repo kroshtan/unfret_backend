@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 from typing import Any
 
 import httpx
@@ -81,6 +82,87 @@ CAIP2 = {
     "solana-devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
     "solana-mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 }
+
+
+# SPL Token program errors (spl_token::error::TokenError) a payer can act on, by custom error code.
+_TOKEN_ERRORS = {
+    0: "not_rent_exempt",
+    1: "insufficient_funds",
+    2: "invalid_mint",
+    3: "mint_mismatch",
+    4: "owner_mismatch",
+    9: "source_token_account_missing",  # UninitializedState
+    17: "account_frozen",
+    18: "mint_decimals_mismatch",
+}
+# What the token program answers when an account it reads holds no token account (it doesn't exist).
+_MISSING_ACCOUNT = frozenset({"InvalidAccountData", "UninitializedAccount"})
+_FAILED = re.compile(r"^Program (\w+) failed: (.*)$")
+_CUSTOM = re.compile(r"custom program error: 0x([0-9a-fA-F]+)")
+_INSTRUCTION_ERROR_PARTS = 2  # [instruction index, error]
+
+
+def _snake(name: str) -> str:
+    """
+    ``InsufficientFundsForRent`` → ``insufficient_funds_for_rent``, keeping only ``[a-z0-9_]`` (at most 64 chars).
+
+    :param name: A Solana error variant name.
+    :return: Its snake-case form.
+    """
+    return re.sub(r"[^a-z0-9_]", "", re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower())[:64] or "unknown"
+
+
+def simulation_failure_reason(error: Any, logs: list[str]) -> str:
+    """
+    A short, safe reason for a failed payment simulation that the payer can act on.
+
+    Built only from error variant names and the failing program's error code (about the client's own transaction,
+    nothing of ours): ``insufficient_funds``, ``source_token_account_missing``, ``mint_mismatch``,
+    ``account_not_found``, ``blockhash_not_found``, …; otherwise the error class in snake case (for example
+    ``invalid_account_data``), or ``custom_program_error_<code>`` for another program's own error.
+
+    :param error: The ``err`` of ``simulateTransaction`` (a string, or a one-key object such as ``InstructionError``).
+    :param logs: The simulation's program logs.
+    :return: The reason.
+    """
+    if any("insufficient funds" in line.lower() or "insufficient lamports" in line.lower() for line in logs):
+        return "insufficient_funds"
+    if isinstance(error, str):
+        return _snake(error)
+    if not isinstance(error, dict) or len(error) != 1:
+        return "unknown"
+    kind, value = next(iter(error.items()))
+    if kind != "InstructionError":
+        return _snake(str(kind))
+    return _instruction_error_reason(
+        value[1] if isinstance(value, list) and len(value) == _INSTRUCTION_ERROR_PARTS else None, logs
+    )
+
+
+def _instruction_error_reason(cause: Any, logs: list[str]) -> str:
+    """
+    The reason for an ``InstructionError``, read with the failing program from the logs.
+
+    :param cause: The instruction's error (a class name, or ``{"Custom": code}``).
+    :param logs: The simulation's program logs.
+    :return: The reason.
+    """
+    failing = next((m for line in logs if (m := _FAILED.match(line))), None)  # the innermost failing program
+    program = failing.group(1) if failing else None
+    code = cause.get("Custom") if isinstance(cause, dict) else None
+    if code is None and failing and (custom := _CUSTOM.search(failing.group(2))):
+        code = int(custom.group(1), 16)
+    if isinstance(code, int):
+        if program == str(TOKEN_PROGRAM) and code in _TOKEN_ERRORS:
+            return _TOKEN_ERRORS[code]
+        if program == str(SYSTEM_PROGRAM_ID) and code == 1:  # SystemError::ResultWithNegativeLamports
+            return "insufficient_funds"
+        return f"custom_program_error_{code}"
+    if isinstance(cause, str):
+        if cause in _MISSING_ACCOUNT and program == str(TOKEN_PROGRAM):
+            return "source_token_account_missing"
+        return _snake(cause)
+    return "instruction_error"
 
 
 def associated_token_address(owner: Pubkey, mint: Pubkey = WSOL_MINT) -> Pubkey:
@@ -295,14 +377,14 @@ class SolanaRpc:
 
     async def simulate_accounts(
         self, raw_tx: bytes, addresses: list[Pubkey]
-    ) -> tuple[Any, list[dict[str, Any] | None], list[int]]:
+    ) -> tuple[Any, list[dict[str, Any] | None], list[int], list[str]]:
         """
         Simulate a transaction (no signature checks, its own blockhash) and return the post-state of some accounts.
 
         :param raw_tx: The serialised transaction.
         :param addresses: The accounts to report, in ``jsonParsed`` encoding.
-        :return: The simulation error (``None`` on success), the accounts' post-state (``None`` if absent) and the
-            account indices of every program the transaction invoked by CPI.
+        :return: The simulation error (``None`` on success), the accounts' post-state (``None`` if absent), the
+            account indices of every program the transaction invoked by CPI, and the program logs.
         """
         result = await self.call(
             "simulateTransaction",
@@ -322,7 +404,8 @@ class SolanaRpc:
         inner = [
             ix["programIdIndex"] for group in value.get("innerInstructions") or [] for ix in group["instructions"]
         ]
-        return value.get("err"), list(value.get("accounts") or [None] * len(addresses)), inner
+        logs = [str(line) for line in value.get("logs") or []]
+        return value.get("err"), list(value.get("accounts") or [None] * len(addresses)), inner, logs
 
     async def simulate(self, raw_tx: bytes) -> None:
         """

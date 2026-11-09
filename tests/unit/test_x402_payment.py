@@ -25,8 +25,9 @@ from veridex.x402.payment import (
     confirm_by_simulation,
     encode_header,
     precheck,
+    requirements,
 )
-from veridex.x402.solana import MEMO_PROGRAM, WSOL_MINT
+from veridex.x402.solana import MEMO_PROGRAM, USDC_MINTS, WSOL_MINT, simulation_failure_reason
 
 HOT = Keypair()  # payTo and fee payer
 CLIENT = Keypair()
@@ -228,6 +229,75 @@ async def test_failed_simulation_is_rejected() -> None:
     rpc.sim_error = {"InstructionError": [2, "Custom"]}
     with pytest.raises(PaymentError, match="simulation_failed"):
         await simulate(rpc, cpi_payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000))
+
+
+TOKEN_FAILED = "Program TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA failed: "
+SYSTEM_FAILED = "Program 11111111111111111111111111111111 failed: "
+
+
+@pytest.mark.parametrize(
+    ("error", "logs", "reason"),
+    [
+        ({"InstructionError": [1, {"Custom": 1}]}, [TOKEN_FAILED + "custom program error: 0x1"], "insufficient_funds"),
+        ({"InstructionError": [1, {"Custom": 3}]}, [TOKEN_FAILED + "custom program error: 0x3"], "mint_mismatch"),
+        ({"InstructionError": [1, {"Custom": 4}]}, [TOKEN_FAILED + "custom program error: 0x4"], "owner_mismatch"),
+        (
+            {"InstructionError": [1, "InvalidAccountData"]},
+            [TOKEN_FAILED + "invalid account data for instruction"],
+            "source_token_account_missing",
+        ),
+        (
+            {"InstructionError": [1, "UninitializedAccount"]},
+            [TOKEN_FAILED + "instruction requires an initialized account"],
+            "source_token_account_missing",
+        ),
+        (
+            {"InstructionError": [0, {"Custom": 1}]},
+            [SYSTEM_FAILED + "custom program error: 0x1"],
+            "insufficient_funds",
+        ),
+        (
+            {"InstructionError": [2, {"Custom": 1}]},  # a smart wallet's CPI: the innermost failure is the token's
+            [
+                "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf invoke [1]",
+                "Program log: Error: insufficient funds",
+                TOKEN_FAILED + "custom program error: 0x1",
+                "Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf failed: custom program error: 0x1",
+            ],
+            "insufficient_funds",
+        ),
+        (
+            {"InstructionError": [2, {"Custom": 6001}]},
+            ["Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf failed: custom program error: 0x1771"],
+            "custom_program_error_6001",
+        ),
+        ({"InstructionError": [1, "InvalidAccountData"]}, [], "invalid_account_data"),  # no logs: just the class
+        ({"InstructionError": [2, "Custom"]}, [], "custom"),
+        ("AccountNotFound", [], "account_not_found"),
+        ("BlockhashNotFound", [], "blockhash_not_found"),
+        ({"InsufficientFundsForRent": {"account_index": 2}}, [], "insufficient_funds_for_rent"),
+        ({"InstructionError": [1, {"BorshIoError": "x"}]}, [], "instruction_error"),
+        (["unexpected"], [], "unknown"),
+    ],
+)
+def test_simulation_failure_reason(error: object, logs: list[str], reason: str) -> None:
+    assert simulation_failure_reason(error, logs) == reason
+
+
+async def test_failed_simulation_carries_its_reason() -> None:
+    rpc = FakeRpc()
+    rpc.sim_error = {"InstructionError": [1, "InvalidAccountData"]}
+    rpc.sim_logs = [TOKEN_FAILED + "invalid account data for instruction"]
+    with pytest.raises(PaymentError, match="simulation_failed") as raised:
+        await simulate(rpc, payment_instructions(CLIENT.pubkey(), HOT.pubkey(), 100_000))
+    assert raised.value.cause == "source_token_account_missing"
+
+
+def test_requirements_state_the_mint_decimals() -> None:
+    usdc = USDC_MINTS["solana-devnet"]
+    wsol_option = requirements(network="n", amount=1, pay_to=HOT.pubkey(), fee_payer=HOT.pubkey())
+    usdc_option = requirements(network="n", amount=1, pay_to=HOT.pubkey(), fee_payer=HOT.pubkey(), asset=usdc)
+    assert (wsol_option["extra"]["decimals"], usdc_option["extra"]["decimals"]) == (9, 6)
 
 
 async def test_missing_wsol_account_is_rejected() -> None:

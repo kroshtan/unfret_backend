@@ -52,6 +52,8 @@ from veridex.x402.solana import (
     WSOL_MINT,
     SolanaRpc,
     associated_token_address,
+    decimals,
+    simulation_failure_reason,
 )
 
 X402_VERSION = 2
@@ -100,16 +102,19 @@ PAYMENT_PROGRAMS = frozenset(
 class PaymentError(ValueError):
     """A payment payload was malformed or does not satisfy the requirements."""
 
-    def __init__(self, reason: str, *, malformed: bool = False) -> None:
+    def __init__(self, reason: str, *, malformed: bool = False, cause: str | None = None) -> None:
         """
         Record why the payment was refused.
 
-        :param reason: Machine-readable reason, returned to the client.
+        :param reason: Machine-readable reason, returned to the client (the 402's ``error``).
         :param malformed: Whether the payload could not even be decoded (HTTP 400 rather than 402).
+        :param cause: A finer, safe cause the client can act on (the 402's ``reason``), such as why a simulation
+            failed.
         """
         super().__init__(reason)
         self.reason = reason
         self.malformed = malformed
+        self.cause = cause
 
 
 def encode_header(value: dict[str, Any]) -> str:
@@ -173,6 +178,7 @@ def requirements(
         "extra": {
             "feePayer": str(fee_payer),
             "paymentFlow": "upfront",
+            "decimals": decimals(asset),
             **({"constraints": constraints} if constraints else {}),
         },
     }
@@ -399,9 +405,13 @@ async def confirm_by_simulation(
     before_sol, (before_token,) = await rpc.balances(pay_to, [account])
     if before_token is None:
         raise PaymentError("pay_to_account_not_ready")
-    error, (after_account, after_payer), inner = await rpc.simulate_accounts(bytes(pre.transaction), [account, pay_to])
-    if error is not None or after_account is None or after_payer is None:
-        raise PaymentError("simulation_failed")
+    error, (after_account, after_payer), inner, logs = await rpc.simulate_accounts(
+        bytes(pre.transaction), [account, pay_to]
+    )
+    if error is not None:
+        raise PaymentError("simulation_failed", cause=simulation_failure_reason(error, logs))
+    if after_account is None or after_payer is None:
+        raise PaymentError("simulation_failed", cause="account_not_found")
     keys = pre.transaction.message.account_keys
     if any(index >= len(keys) or keys[index] not in programs for index in inner):
         raise PaymentError("program_not_allowed")

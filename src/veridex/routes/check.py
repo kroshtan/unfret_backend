@@ -27,7 +27,15 @@ from veridex.shopper import pick_language
 from veridex.visitors import RateLimit
 from veridex.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from veridex.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
-from veridex.x402.solana import WSOL_MINT, RpcError, SettlementPendingError, TransactionFailedError, usdc_mint
+from veridex.x402.solana import (
+    CAIP2,
+    WSOL_MINT,
+    RpcError,
+    SettlementPendingError,
+    TransactionFailedError,
+    decimals,
+    usdc_mint,
+)
 from veridex.x402.verdict import POLICY_THRESHOLDS, QUICK_SKILLS, Policy, Tier, Verdict, to_verdict
 
 logger = structlog.get_logger("veridex")
@@ -82,14 +90,16 @@ def _resource() -> dict[str, Any]:
     }
 
 
-def _payment_required(accepts: list[dict[str, Any]], error: str) -> JSONResponse:
-    body = {
+def _payment_required(accepts: list[dict[str, Any]], error: str, reason: str | None = None) -> JSONResponse:
+    body: dict[str, Any] = {
         "x402Version": 2,
         "error": error,
         "error_code": "PAYMENT_REQUIRED",
         "resource": _resource(),
         "accepts": accepts,
     }
+    if reason:  # a finer cause the client can act on, e.g. why the payment's simulation failed
+        body["reason"] = reason
     return JSONResponse(body, status_code=402, headers={PAYMENT_REQUIRED: encode_header(body)})
 
 
@@ -211,7 +221,9 @@ async def _settle(
     try:
         return await x402.settle(pre)
     except PaymentError as exc:  # the simulation showed a different outcome; nothing was submitted
-        return _payment_required(accepts, exc.reason)
+        if exc.cause:
+            logger.info("x402_payment_refused", error=exc.reason, reason=exc.cause)
+        return _payment_required(accepts, exc.reason, exc.cause)
     except DuplicateSettlementError:
         return _payment_required(accepts, "duplicate_settlement")
     except SettlementMismatchError as exc:
@@ -299,7 +311,7 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     except PaymentError as exc:
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
-        return _payment_required(accepts, exc.reason)
+        return _payment_required(accepts, exc.reason, exc.cause)
 
     key = str(pre.transaction.signatures[1])
     now = time.monotonic()
@@ -419,7 +431,11 @@ def _json(response: Response) -> dict[str, Any]:
 
 # error_code → (HTTP status, charged?, what to do). Published in /llms.txt and the README.
 ERRORS: dict[str, tuple[int, str, str]] = {
-    "PAYMENT_REQUIRED": (402, "no", "pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why"),
+    "PAYMENT_REQUIRED": (
+        402,
+        "no",
+        "pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed)",
+    ),
     "INVALID_PAYMENT": (400, "no", "the PAYMENT-SIGNATURE header couldn't be decoded"),
     "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`)"),
     "PAGE_UNAVAILABLE": (422, "no", "the page couldn't be fetched: send page_content"),
@@ -450,18 +466,29 @@ def _discovery() -> dict[str, Any]:
         "endpoint": f"{settings.public_base_url}/v1/check",
         "method": "POST",
         "scheme": "exact",
-        "network": settings.solana_network,
+        "network": CAIP2[settings.solana_network],  # CAIP-2, the same identifier as accepts[].network
+        "network_name": settings.solana_network,
         "pricing": "canonical in USD",
         "assets": {
-            "USDC": {"mint": str(mint), "pricing": "exactly the USD price (1 USDC = $1)"},
+            "USDC": {
+                "mint": str(mint),
+                "decimals": decimals(mint),
+                "pricing": "exactly the USD price (1 USDC = $1)",
+                "quote_tolerance_bps": 0,
+            },
             "wSOL": {
                 "mint": str(WSOL_MINT),
+                "decimals": decimals(WSOL_MINT),
                 "pricing": "the USD price converted at quote time with Pyth's SOL/USD price; a payment may differ "
                 f"from the quote by up to {settings.quote_tolerance_bps / 100:g}%; offered only while the oracle is "
-                "fresh, otherwise pay in USDC",
+                "fresh, otherwise pay in USDC. Re-fetch the 402 right before paying",
+                "quote_tolerance_bps": settings.quote_tolerance_bps,
             },
         },
         "feePayer": "Unfret pays the network fee",
+        "feeCap": "extra.constraints.maxPriorityFeeLamports caps the priority fee a payment may make Unfret pay. It "
+        "is in lamports (SOL) for every option, USDC included, since the fee is paid in SOL: "
+        f"{settings.x402_max_priority_fee_bps / 100:g}% of the tier's dollar price converted at the SOL/USD quote",
         "wallets": "standard wallets and smart wallets (Squads and other program-controlled wallets paying by CPI)",
         "tiers": {
             "quick": {
@@ -528,13 +555,20 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 ## Payment (x402 v2)
 
 The first call answers 402 with a PAYMENT-REQUIRED header listing the options: wSOL (wrapped SOL) and USDC. Pay one
-with the `exact` scheme on Solana ({d["network"]}) and retry with PAYMENT-SIGNATURE. Prices are in US dollars:
-quick = {quick}, deep = {deep}. USDC pays exactly that; the wSOL amount is the dollar price converted at quote time
-with Pyth's SOL/USD price (wSOL isn't offered while the oracle is stale). Standard wallets and
-smart wallets (Squads and other program-controlled wallets paying by CPI) both work, as long as the transaction
-carries one memo and pays the quoted amount into payTo's token account for that mint (all rules: `extra.constraints`
-in each option). Unfret is the fee payer, so you only pay the price. A page we can't fetch costs nothing. Retrying
-with the same PAYMENT-SIGNATURE returns the same answer and is never charged twice.
+with the `exact` scheme on Solana (network {d["network"]}, i.e. {d["network_name"]}; the same CAIP-2 identifier as
+`accepts[].network`) and retry with PAYMENT-SIGNATURE. Prices are in US dollars: quick = {quick}, deep = {deep}.
+USDC (6 decimals) pays exactly that; the wSOL amount (9 decimals; `extra.decimals` in each option) is the dollar price
+converted at quote time with Pyth's SOL/USD price (wSOL isn't offered while the oracle is stale). A wSOL payment may
+differ from the quote by up to `extra.quoteToleranceBps` ({d["assets"]["wSOL"]["quote_tolerance_bps"]} bps); the
+price moves, so re-fetch the 402 right before paying. Standard wallets and smart wallets (Squads and other
+program-controlled wallets paying by CPI) both work, as long as the transaction carries one memo and pays the quoted
+amount into payTo's token account for that mint (all rules: `extra.constraints` in each option). Unfret is the fee
+payer, so you only pay the price. `extra.constraints.maxPriorityFeeLamports` caps the priority fee you may set; it is
+in lamports (SOL) on every option, USDC included, because the fee is paid in SOL: a share of the tier's dollar price
+converted at the SOL/USD quote (`extra.feeCapNote`). A refused payment answers 402 again with `error` (why) and, when
+the payment's simulation failed, `reason` (e.g. `insufficient_funds`, `source_token_account_missing`,
+`blockhash_not_found`). A page we can't fetch costs nothing. Retrying with the same PAYMENT-SIGNATURE returns the
+same answer and is never charged twice.
 
 ## Response
 

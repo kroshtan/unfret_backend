@@ -7,6 +7,7 @@ in).
 """
 
 import base64
+import io
 import time
 from typing import Any
 
@@ -281,9 +282,13 @@ async def solana_pay_qr(
         target = await _key_account(request, key_id)
     quote, amount = await _quote(request, checks, country, currency, target)
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
-    svg = segno.make(solana_pay_url(hot, amount, quote.memo, mint), error="m").svg_inline(
-        scale=6, border=2, dark="#111"
+    # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
+    # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
+    buffer = io.BytesIO()
+    segno.make(solana_pay_url(hot, amount, quote.memo, mint), error="m").save(
+        buffer, kind="svg", scale=6, border=2, dark="#111", xmldecl=False
     )
+    svg = buffer.getvalue()
     headers = {
         "Cache-Control": "no-store",
         "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),

@@ -311,6 +311,8 @@ async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc) -> None:
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$6.05", "21")
     assert response.text.startswith("<svg")
+    # Loaded by the page as an <img>: a standalone SVG only renders there with the SVG namespace.
+    assert 'xmlns="http://www.w3.org/2000/svg"' in response.text.split(">", 1)[0]
 
 
 # ── Scanner ───────────────────────────────────────────────────────────────────

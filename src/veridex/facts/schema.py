@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-Platform = Literal["amazon", "bol.com", "shopify", "woocommerce", "generic"]
+Platform = Literal["amazon", "bol.com", "walmart", "shopify", "woocommerce", "generic"]
 
 _SHORT = 300
 _LONG = 2_000

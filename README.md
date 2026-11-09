@@ -51,7 +51,9 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `html_source_signals` | Known dropship apps, supplier CDNs, AliExpress review importers, shipping-protection and countdown apps |
 | `dark_patterns` | Countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
 | `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
-| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint |
+| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint; on a US shop a named company or US business address counts as its imprint |
+| `us_identity` | US storefronts: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
+| `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
 | `shop_links` | Storefronts: other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
 

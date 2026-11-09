@@ -27,6 +27,8 @@ QUICK_SKILLS: frozenset[str] = frozenset(
         "dark_patterns",
         "injection",
         "eu_registry",
+        "us_identity",
+        "shop_policies",
         "shop_links",
     }
 )

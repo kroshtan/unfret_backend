@@ -319,3 +319,15 @@ valid 7 days. Nothing is stored when a check runs.
 - **`POST /v1/credits/fiat-checkout`** takes `{"key_id", "checks"}` (not `amount_usd_micros`) and charges the pack's
   card price. A paid order is credited the value of the pack whose card price it matches; another amount buys the
   whole checks it covers after the provider's cut (webhook outcome `too_small` if none).
+
+## Changes (US market, backwards-compatible)
+
+- `PageFacts.platform` may be `"walmart"` (snapshot updated). Walmart product pages are classified as marketplace
+  listings without an LLM call, like Amazon and bol.com.
+- New finding types: `us_address`, `mailbox_address`, `business_entity` (skill `us_identity`, US storefronts) and
+  `long_delivery`, `returns_abroad`, `return_address_withheld`, `restocking_fee`, `origin_doubt` (skill
+  `shop_policies`). New shopper reason keys `no_return_policy`, `returns_abroad`, `return_address_withheld`,
+  `restocking_fee`, `origin_doubt`, `long_delivery`, `mailbox_address` and positive `us_business`; clients that map
+  reason keys should fall back to the `title`/`detail` text they already get.
+- A skill whose rules don't apply to a page reports the feature `<skill>.not_applicable` (e.g.
+  `us_identity.not_applicable` on an EU shop); the scorer treats its features as neutral.

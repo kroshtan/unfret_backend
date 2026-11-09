@@ -148,6 +148,34 @@
     "overall": {
       "title": "Several small signals",
       "detail": "No single big problem, but several smaller signals together lowered the score."
+    },
+    "returns_abroad": {
+      "title": "Returns go abroad",
+      "detail": "Returns have to be sent to {place}: slow, expensive, and often not worth it."
+    },
+    "return_address_withheld": {
+      "title": "No return address",
+      "detail": "The shop only gives a return address when you ask for one: common with shops that don't hold their own stock."
+    },
+    "restocking_fee": {
+      "title": "Costly returns",
+      "detail": "Returning an item costs a {pct} restocking fee."
+    },
+    "origin_doubt": {
+      "title": "'Made in USA' doubtful",
+      "detail": "The page says 'Made in USA', but the goods ship from overseas."
+    },
+    "long_delivery": {
+      "title": "Long delivery time",
+      "detail": "Delivery can take up to {days} days: typical of goods shipped straight from an overseas supplier."
+    },
+    "mailbox_address": {
+      "title": "Mailbox address only",
+      "detail": "The only address shown is a mailbox (PO Box or PMB), not a place of business."
+    },
+    "no_return_policy": {
+      "title": "No return policy found",
+      "detail": "No return policy found on the page."
     }
   },
   "positives": {
@@ -178,6 +206,10 @@
     "nothing_found": {
       "title": "No warning signs",
       "detail": "Nothing suspicious found in the listing, the reviews or the page."
+    },
+    "us_business": {
+      "title": "Company details shown",
+      "detail": "The shop names its company ({company}) and a US business address."
     }
   },
   "age_units": {
@@ -264,7 +296,16 @@
     "shop_links.linked_shops": "Other shops with the same accounts",
     "shop_links.linked_young_shops": "Young shops with the same accounts",
     "shop_links.shared_payment": "Payment account shared with other shops",
-    "shop_links.shared_contact": "Contact details shared with other shops"
+    "shop_links.shared_contact": "Contact details shared with other shops",
+    "shop_policies.long_delivery": "Long delivery time",
+    "shop_policies.returns_abroad": "Returns go abroad",
+    "shop_policies.return_address_withheld": "No return address",
+    "shop_policies.restocking_fee_high": "Costly returns",
+    "shop_policies.origin_doubt": "'Made in USA' doubtful",
+    "us_identity.us_address": "US business address",
+    "us_identity.mailbox_only": "Mailbox address only",
+    "us_identity.business_entity": "Company named",
+    "us_identity.us_phone": "Phone number"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",

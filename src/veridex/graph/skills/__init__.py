@@ -9,6 +9,8 @@ Tier = Literal["cheap", "expensive"]
 
 # Feature suffix a failed skill reports instead of its features (see Skill.unavailable and veridex.scoring).
 UNAVAILABLE = "unavailable"
+# Feature suffix a skill reports when its rules don't apply to this shop (see Skill.not_applicable).
+NOT_APPLICABLE = "not_applicable"
 
 PRODUCT_PAGES: frozenset[PageType] = frozenset({"aggregate_listing", "storefront"})
 STOREFRONTS: frozenset[PageType] = frozenset({"storefront"})
@@ -99,4 +101,20 @@ class Skill(ABC):
             "features": {f"{self.name}.{UNAVAILABLE}": 1.0},
             "findings": [],
             "skill_results": [f"[{self.name}]\nSkill unavailable."],
+        }
+
+    def not_applicable(self, note: str) -> SkillOutput:
+        """
+        The state update for a skill whose rules don't apply to this page (EU rules on a US shop, say).
+
+        The marker (``<skill>.not_applicable``) tells the scorer to treat this skill's features as neutral: a page
+        can't fail a requirement it isn't subject to, and shoppers see no reason about it.
+
+        :param note: Why the skill doesn't apply, for the summary.
+        :return: The update.
+        """
+        return {
+            "features": {f"{self.name}.{NOT_APPLICABLE}": 1.0},
+            "findings": [],
+            "skill_results": [f"[{self.name}]\n{note}"],
         }

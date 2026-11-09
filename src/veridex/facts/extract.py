@@ -3,7 +3,7 @@ Extract :class:`~veridex.facts.schema.PageFacts` from raw HTML.
 
 One parse per page: :func:`parse_page` reads the facts from the soup first and then strips it down to the plain
 text the LLM sees, so the HTML is parsed once however many skills look at it. Platform-specific extractors
-(Amazon, bol.com) fill in what generic markup (JSON-LD, microdata, Open Graph) doesn't carry.
+(Amazon, bol.com, Walmart) fill in what generic markup (JSON-LD, microdata, Open Graph) doesn't carry.
 """
 
 import json
@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from veridex.facts import amazon, bolcom
+from veridex.facts import amazon, bolcom, walmart
 from veridex.facts._parse import parse_date, parse_number, parse_rating
 from veridex.facts.schema import Checkbox, PageFacts, Platform, Review
 from veridex.html_cleaner import strip_to_text
@@ -64,6 +64,7 @@ _SHOPIFY_RE = re.compile(r"cdn\.shopify\.com|Shopify\.theme|myshopify\.com", re.
 _WOO_RE = re.compile(r"woocommerce|wp-content/plugins/woocommerce", re.IGNORECASE)
 _AMAZON_HOST_RE = re.compile(r"(?:^|[\s.])amazon\.[a-z.]+")
 _BOL_HOST_RE = re.compile(r"(?:^|[\s.])bol\.com")
+_WALMART_HOST_RE = re.compile(r"(?:^|[\s.])walmart\.com\b")
 _COMPARE_AT_RE = re.compile(r'"compare_at_price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_PRICE_RE = re.compile(r'"price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_ID_RE = re.compile(r'"id"\s*:\s*"?(\d{6,})')
@@ -110,6 +111,8 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         amazon.extract(soup, facts)
     elif facts.platform == "bol.com":
         bolcom.extract(soup, facts)
+    elif facts.platform == "walmart":
+        walmart.extract(soup, facts)
     elif facts.platform == "shopify":
         _shopify(html, facts, url)
     if not facts.title:
@@ -128,6 +131,8 @@ def _platform(soup: BeautifulSoup, html: str, url: str) -> Platform:
         return "amazon"
     if _BOL_HOST_RE.search(hosts):
         return "bol.com"
+    if _WALMART_HOST_RE.search(hosts):
+        return "walmart"
     if _SHOPIFY_RE.search(html):
         return "shopify"
     if _WOO_RE.search(html):

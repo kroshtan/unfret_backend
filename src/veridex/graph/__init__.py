@@ -23,6 +23,8 @@ from veridex.graph.skills.listing import ListingSkill
 from veridex.graph.skills.pricing import PricingSkill
 from veridex.graph.skills.reviews import ReviewsSkill
 from veridex.graph.skills.shop_links import ShopLinksSkill
+from veridex.graph.skills.shop_policies import ShopPoliciesSkill
+from veridex.graph.skills.us_identity import UsIdentitySkill
 from veridex.graph.state import AnalysisState
 
 logger = structlog.get_logger("veridex")
@@ -38,6 +40,8 @@ SKILLS: list[Skill] = [
     DarkPatternsSkill(),
     InjectionSkill(),
     EuRegistrySkill(),
+    UsIdentitySkill(),
+    ShopPoliciesSkill(),
     DomainAgeSkill(),
     ShopLinksSkill(),
 ]

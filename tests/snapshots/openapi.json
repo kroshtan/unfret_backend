@@ -689,6 +689,7 @@
       "enum": [
        "amazon",
        "bol.com",
+       "walmart",
        "shopify",
        "woocommerce",
        "generic"

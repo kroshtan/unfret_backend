@@ -128,6 +128,8 @@ def _params(key: str, language: str) -> dict[str, str]:
         "anchor": "“adviesprijs”",
         "phrase": "“alles moet weg”",
         "listings": "listings",
+        "days": "30",
+        "company": "“Acme Goods LLC”",
     }
 
 

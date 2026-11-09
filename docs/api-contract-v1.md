@@ -281,3 +281,6 @@ valid 7 days. Nothing is stored when a check runs.
   and its label stay as training data. Reports nobody handled are deleted after 30 days.
 - Operator: `GET /v1/admin/reports` (the queue, without accounts) and `POST /v1/admin/reports/{id}/label`
   `{"label": "legit"|"junk"|"scam"|"reject"}`, used by `make reports`.
+- Extension 0.6.0 replaces 0.5.0 at `/extension` (`veridex-0.6.0.crx`, `veridex-chrome-0.6.0.zip`): an API key in the
+  settings as an alternative to a wallet sign-in, and "This is wrong" under a result. Same key and ID, same
+  permissions.

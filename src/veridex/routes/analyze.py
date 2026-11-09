@@ -62,12 +62,19 @@ async def _debit(request: Request, address: str) -> int:
     :return: The balance left after the debit.
     :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
     """
-    price = settings.analysis_price_lamports
+    price = settings.analysis_price_usd_micros
     left = await ledger.debit(request.app.db_pool, address, price)
     if left is None:
         balance = await ledger.balance(request.app.db_pool, address) or 0
         raise InsufficientCreditsError(
-            "Not enough credits for an analysis.", metadata={"balance_lamports": balance, "analysis_lamports": price}
+            "Not enough credits for an analysis.",
+            metadata={
+                "balance_usd_micros": balance,
+                "analysis_usd_micros": price,
+                # Deprecated aliases (same values), kept for extension versions up to 0.5.0.
+                "balance_lamports": balance,
+                "analysis_lamports": price,
+            },
         )
     return left
 
@@ -76,7 +83,7 @@ async def _refund(request: Request, address: str) -> int:
     # Pages that couldn't be analysed (score -1) and failed analyses cost nothing. Shielded: this often runs while
     # a client disconnect is cancelling the request, and a cancelled refund would keep the money.
     with anyio.CancelScope(shield=True):
-        balance = await ledger.credit(request.app.db_pool, address, settings.analysis_price_lamports)
+        balance = await ledger.credit(request.app.db_pool, address, settings.analysis_price_usd_micros)
     return balance
 
 
@@ -115,6 +122,7 @@ def _response(result: dict[str, Any], balance: int, *, charged: bool) -> Analyze
         explanation=result["explanation"],
         assessment=result.get("assessment"),
         verdict=result.get("verdict"),
+        balance_usd_micros=balance,
         balance_lamports=balance,
         charged=charged,
     )

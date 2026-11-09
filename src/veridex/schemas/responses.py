@@ -30,7 +30,15 @@ class AnalyzeResponse(BaseModel):
     assessment: dict[str, Any] | None = Field(
         default=None, description="The trained scorer's risk_score, confidence, weighted flags and model_version."
     )
-    balance_lamports: int | None = Field(default=None, description="The wallet's balance after this analysis.")
+    balance_usd_micros: int | None = Field(
+        default=None, description="The wallet's balance after this analysis, in micro-dollars (1 USD = 1,000,000)."
+    )
+    balance_lamports: int | None = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated alias of balance_usd_micros (same value; the name predates dollar prices). Kept for "
+        "extension versions up to 0.5.0.",
+    )
     charged: bool | None = Field(
         default=None,
         description="Whether this analysis used a check: false for pages that couldn't be analysed (score -1) and "

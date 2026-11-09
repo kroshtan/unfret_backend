@@ -2,7 +2,8 @@
 The self-hosted channel for the browser extension.
 
 ``/extension`` is the install page, ``/extension/updates.xml`` the update manifest Chromium polls, and
-``/extension/<file>`` the release files themselves.
+``/extension/<file>`` the release files themselves. ``/extension/updates-dev.xml`` is the manifest of "Unfret Dev", a
+separate extension (own key and ID) that only talks to the dev deployment, for testing.
 
 Releases are signed CRX packages built by the extension repository (``make release``) and copied into
 ``veridex/static/extension``, so they ship with the image. Chromium installs them through a browser policy (or the
@@ -36,7 +37,7 @@ _CODEBASE = re.compile(r"(?<=codebase=)(?P<q>['\"])[^'\"]*/(?P<name>[^/'\"]+)(?P
 # before the rename to Unfret were called veridex-*; both names are accepted.
 _FILES: dict[str, tuple[re.Pattern[str], str, str]] = {
     "crx": (
-        re.compile(r"(unfret|veridex)-\d+(\.\d+){1,3}\.crx"),
+        re.compile(r"(unfret(-dev)?|veridex)-\d+(\.\d+){1,3}\.crx"),
         "application/x-chrome-extension",
         "public, max-age=31536000, immutable",  # versioned names never change
     ),
@@ -62,17 +63,18 @@ class Release:
     checksums: str
 
 
-def current_release(release_dir: Path | None = None) -> Release | None:
+def current_release(release_dir: Path | None = None, manifest: str = "updates.xml") -> Release | None:
     """
     Read the published release from its update manifest and checksums.
 
     :param release_dir: Where releases live (``RELEASE_DIR`` by default).
+    :param manifest: ``updates.xml`` for Unfret, ``updates-dev.xml`` for Unfret Dev.
     :return: The release, or ``None`` when nothing (valid) is published.
     """
     root = release_dir or RELEASE_DIR
     try:
         # Our own release manifest, written by the release script: not untrusted input.
-        app = ET.parse(root / "updates.xml").getroot().find(f"{_GUPDATE_NS}app")  # noqa: S314
+        app = ET.parse(root / manifest).getroot().find(f"{_GUPDATE_NS}app")  # noqa: S314
         check = app.find(f"{_GUPDATE_NS}updatecheck") if app is not None else None
         checksums = (root / "SHA256SUMS").read_text(encoding="utf-8")
     except OSError, ET.ParseError:
@@ -153,9 +155,29 @@ def update_manifest() -> Response:
     The update manifest (Omaha ``gupdate`` XML) that installed copies poll every few hours.
 
     :return: The manifest.
-    :raises HTTPException: 404 when no release is published.
     """
-    path = RELEASE_DIR / "updates.xml"
+    return _manifest_response("updates.xml")
+
+
+@router.get("/extension/updates-dev.xml")
+def dev_update_manifest() -> Response:
+    """
+    Unfret Dev's update manifest.
+
+    :return: The manifest.
+    """
+    return _manifest_response("updates-dev.xml")
+
+
+def _manifest_response(name: str) -> Response:
+    """
+    Serve one of the update manifests, its download pointed at this server.
+
+    :param name: ``updates.xml`` or ``updates-dev.xml``.
+    :return: The manifest.
+    :raises HTTPException: 404 when that channel has no release.
+    """
+    path = RELEASE_DIR / name
     if not path.is_file():
         raise HTTPException(status_code=404)
     # The release script writes one manifest for every environment; point its download at this server, so dev

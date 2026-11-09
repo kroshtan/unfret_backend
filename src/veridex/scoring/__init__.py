@@ -12,6 +12,7 @@ talking to an LLM judge.
 
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -90,14 +91,15 @@ class Model:
         missing ones count as 0. A skill that *failed* (it reports ``<skill>.unavailable``) never measured
         anything: its features are scored at the training mean, a contribution of 0, so a failure (an LLM outage,
         a timeout) can't make a page look safer than its evidence says. A skill whose rules don't apply to the page
-        (``<skill>.not_applicable``, e.g. EU requirements on a US shop) is scored the same way.
+        (``<skill>.not_applicable``, e.g. EU requirements on a US shop) is scored the same way, and so is a single
+        feature that doesn't apply (``<skill>.<feature>.not_applicable``, e.g. an EU imprint on a US shop).
 
         :param features: Skill features.
         :return: One contribution per model feature.
         """
-        neutral = unavailable_skills(features) | not_applicable_skills(features)
+        neutral = neutral_features(features, self.features)
         return [
-            0.0 if name.split(".", 1)[0] in neutral else c * (features.get(name, 0.0) - m) / s
+            0.0 if name in neutral else c * (features.get(name, 0.0) - m) / s
             for name, m, s, c in zip(self.features, self.means, self.scales, self.coefficients, strict=True)
         ]
 
@@ -141,10 +143,40 @@ def not_applicable_skills(features: dict[str, float]) -> set[str]:
     :return: Their names.
     """
     return {
-        name.removesuffix(_NOT_APPLICABLE_SUFFIX)
+        skill
         for name, v in features.items()
-        if v and name.endswith(_NOT_APPLICABLE_SUFFIX)
+        if v
+        and name.endswith(_NOT_APPLICABLE_SUFFIX)
+        and "." not in (skill := name.removesuffix(_NOT_APPLICABLE_SUFFIX))
     }
+
+
+def not_applicable_features(features: dict[str, float], names: Iterable[str]) -> set[str]:
+    """
+    The features whose rules don't apply to this page.
+
+    That is every feature of a skill that doesn't apply, and single features reported as
+    ``<skill>.<feature>.not_applicable``.
+
+    :param features: Skill features.
+    :param names: The feature names to check.
+    :return: Those of ``names`` that don't apply.
+    """
+    skills = not_applicable_skills(features)
+    return {n for n in names if n.split(".", 1)[0] in skills or features.get(n + _NOT_APPLICABLE_SUFFIX)}
+
+
+def neutral_features(features: dict[str, float], names: Iterable[str]) -> set[str]:
+    """
+    The features scored as neutral (at the training mean): never measured, or not applicable to this page.
+
+    :param features: Skill features.
+    :param names: The feature names to check.
+    :return: Those of ``names`` that are neutral.
+    """
+    names = list(names)
+    failed = unavailable_skills(features)
+    return {n for n in names if n.split(".", 1)[0] in failed} | not_applicable_features(features, names)
 
 
 def _interpolate(points: list[tuple[float, float]], x: float) -> float:
@@ -200,12 +232,10 @@ def score(
         return None
     risk = model.probability(features)
     failed = unavailable_skills(features)
-    # A feature counts as measured when its skill measured it, or when its skill doesn't apply to the page.
-    settled = not_applicable_skills(features)
+    # A feature counts as measured when its skill measured it, or when it doesn't apply to the page.
+    settled = not_applicable_features(features, model.features)
     measured = sum(
-        1
-        for name in model.features
-        if (name in features and name.split(".", 1)[0] not in failed) or name.split(".", 1)[0] in settled
+        1 for name in model.features if (name in features and name.split(".", 1)[0] not in failed) or name in settled
     ) / len(model.features)
     confidence = abs(2 * risk - 1) * (0.5 + 0.5 * measured)
     degraded = bool(failed & KEY_SKILLS)

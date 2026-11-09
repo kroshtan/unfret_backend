@@ -2,9 +2,11 @@
 EU merchant identity: a VAT ID checked against the official EU VIES register, and the legally required info.
 
 EU law requires web shops to identify the trader (imprint) and to state the 14-day right of withdrawal; a VAT ID
-that VIES knows, under a name matching the shop, is strong evidence of a real business. A US shop has no imprint
-by law: there, a named company (LLC, Inc.) or a US business address counts as its trader identity. Results are
-cached per VAT number, never per caller.
+that VIES knows, under a name matching the shop, is strong evidence of a real business. A shop outside the EU (a US
+shop, or one elsewhere: :func:`veridex.market.shop_market`) is required to have none of these, so there a missing
+imprint, VAT ID or withdrawal/returns policy is reported as not applicable (neutral for the scorer, no reason for
+the shopper) rather than missing; what the page does show still counts as positive evidence, and a named company
+(LLC, Inc., Ltd) or a US business address counts as its imprint. Results are cached per VAT number, never per caller.
 """
 
 import json
@@ -15,7 +17,7 @@ import httpx
 
 from veridex.config import settings
 from veridex.fact_cache import cached_fact
-from veridex.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from veridex.graph.skills import NOT_APPLICABLE, STOREFRONTS, Observation, Skill, SkillOutput
 from veridex.graph.skills.us_identity import find_identity
 from veridex.graph.state import AnalysisState
 from veridex.market import shop_market
@@ -101,19 +103,23 @@ class EuRegistrySkill(Skill):
         legal = " ".join(facts.legal_mentions)
         withdrawal = bool(_WITHDRAWAL_RE.search(legal)) or "refund" in facts.policy_links
         imprint = bool(_IMPRINT_RE.search(legal)) or "imprint" in facts.policy_links
-        if not imprint and shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "us":
-            # A US shop has no imprint by law; its equivalent is a named company or a US business address.
+        eu = shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "eu"
+        if not imprint and not eu:
+            # Outside the EU there is no imprint by law; its equivalent is a named company or a US business address.
             found = find_identity(" ".join([state.get("cleaned_content", ""), legal]))
             imprint = bool(found.entity or found.street_addresses)
-        features: dict[str, float | bool] = {
-            "vat_present": bool(facts.vat_ids),
-            "withdrawal_right": withdrawal,
-            "imprint": imprint,
-        }
+        features: dict[str, float | bool]
+        if eu:
+            features = {"vat_present": bool(facts.vat_ids), "withdrawal_right": withdrawal, "imprint": imprint}
+        else:
+            # None of this is required outside the EU, so lacking it says nothing: only what the page shows counts.
+            features = {f"{name}.{NOT_APPLICABLE}": True for name in ("vat_present", "vat_valid", "vat_name_match")}
+            features["imprint" if imprint else f"imprint.{NOT_APPLICABLE}"] = True
+            features["withdrawal_right" if withdrawal else f"withdrawal_right.{NOT_APPLICABLE}"] = True
         observations: list[Observation] = []
-        if not withdrawal:
+        if not withdrawal and eu:
             observations.append(Observation(type="withdrawal_right", evidence="No return or withdrawal policy found."))
-        if not imprint:
+        if not imprint and eu:
             observations.append(Observation(type="imprint", evidence="No company identity (imprint) found."))
 
         if facts.vat_ids and self.vies and settings.network_lookups:

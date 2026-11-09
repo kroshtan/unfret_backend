@@ -146,8 +146,8 @@ class DarkPatternsSkill(Skill):
             total = await asyncio.to_thread(checkout_total, checkout)  # a big page takes a while to parse
             if (
                 total is not None
-                and shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "us"
-            ):
+                and shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) != "eu"
+            ):  # outside the EU, sales tax added at checkout isn't a hidden fee (EU prices must include VAT)
                 tax = await asyncio.to_thread(checkout_tax, checkout)
                 total -= tax or 0.0
             if total is not None and total > facts.price:

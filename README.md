@@ -51,12 +51,12 @@ concurrently. All page content is passed to the LLM as clearly delimited untrust
 | `html_source_signals` | Known dropship apps, supplier CDNs, AliExpress review importers, shipping-protection and countdown apps |
 | `dark_patterns` | Countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
 | `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
-| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint; on a US shop a named company or US business address counts as its imprint |
+| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match), withdrawal right and imprint; outside the EU (a US shop, or one on a non-European country domain or currency) a named company or US business address counts as its imprint, and a missing imprint, VAT ID or return policy is not applicable (neutral), since no law there requires them |
 | `us_identity` | US storefronts: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
 | `shop_links` | Storefronts: other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
-| `reverse_image` | The main product photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Also in the quick tier; not in the scorer yet |
+| `reverse_image` | The main product photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
 
 ### Adding a skill
 
@@ -185,8 +185,23 @@ wallet, or **a smart wallet** (Squads and other program-controlled wallets) payi
 payer** with the same hot wallet (agents pay only the price: quick $0.01, deep one check, $0.20), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
 confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
-human". A page that can't be fetched is refused before any money moves. Nothing about the payment or the page is
-stored.
+human". Under `balanced` and `lenient` an agent is never warned about a page a shopper would see as "reliable" or
+"concerns" (the `band`); `strict` warns from risk 0.25 whatever the band. A page that can't be fetched is refused
+before any money moves. Nothing about the payment or the page is stored.
+
+The two tiers (`QUICK_SKILLS` in `src/veridex/x402/verdict.py`; each 402 option says what it buys in
+`extra.includes`, as do `/.well-known/x402` and `/llms.txt`):
+
+| | quick ($0.01) | deep ($0.20) |
+| --- | --- | --- |
+| What runs | The page itself, by rules: `listing`, `pricing` (on-page discount checks, no price history), `html_source_signals`, `dark_patterns`, `injection`, `eu_registry` (no VIES), `us_identity`, `shop_policies`, `shop_links` (our own fingerprint store) | Everything: the same analysis as `/v1/analyze` and the extension, adding the LLM read (`content`), `reviews`, `reverse_image`, the price history, `domain_age` and VIES |
+| LLM / image index | Never (classification by rules: a page without a product and a price is not assessed, and refunded) | Yes |
+| Scorer | `model-quick.json`, trained on the quick features only (`evals.train --quick`, variant C) | `model.json` |
+| TEST (333 pages) | AUC 0.746 (US 0.782, EU 0.673; storefronts 0.769); legit flagged 29/143; recall 0.60 | AUC 0.894 (US 0.964, EU 0.828; storefronts 0.836); legit flagged 25/143; recall 0.82 |
+
+Quick is a first-pass filter: it catches what a page shows by itself (dropshipping and review-import apps, fake
+discounts, timers, pre-ticked add-ons, text aimed at AI, missing legal information, dropshipping terms), and misses
+what only reading the listing, its reviews or its photo reveals. Check what matters with deep.
 
 Each `accepts` option names the network in CAIP-2 form (`solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` on devnet), as do
 `/.well-known/x402` (`network`, with the cluster name in `network_name`) and `/llms.txt`. Its `extra` carries the

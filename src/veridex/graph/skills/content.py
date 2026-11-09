@@ -3,6 +3,7 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from veridex.config import settings
 from veridex.graph.skills import Observation, Skill, SkillOutput
 from veridex.graph.state import AnalysisState
 from veridex.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
@@ -37,6 +38,14 @@ score 0 there.
 
 
 _QUOTE_CHARS = 300
+_POLICY_NAMES = {
+    "refund": "returns/refund policy",
+    "shipping": "shipping policy",
+    "terms": "terms and conditions",
+    "privacy": "privacy policy",
+    "contact": "contact page",
+    "imprint": "legal notice (imprint)",
+}
 
 
 class _Signals(BaseModel):
@@ -105,6 +114,9 @@ class ContentSkill(Skill):
         header = f"Page: {page}\nTitle: {facts.title}\nBrand: {facts.brand or 'unknown'}\n"
         if facts.price is not None:
             header += f"Price: {facts.price} {facts.currency}\n"
+        if settings.content_policy_links and page == "shop's own page" and facts.policy_links:
+            # The page text has its footer stripped, so say which policy pages the page links to (not what they say).
+            header += f"Links to: {', '.join(_POLICY_NAMES.get(k, k) for k in sorted(facts.policy_links))}\n"
         signals: _Signals = await get_structured_llm(_Signals).ainvoke(
             [
                 SystemMessage(content=_SYSTEM),

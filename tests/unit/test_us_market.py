@@ -180,7 +180,7 @@ async def test_a_us_company_counts_as_the_imprint_of_a_us_shop() -> None:
     eu = await EuRegistrySkill(vies=False).run(state(EU, text))  # an EU shop still needs a real imprint
     assert eu["features"]["eu_registry.imprint"] == 0.0
     bare = await EuRegistrySkill(vies=False).run(state(US, "Great shoes."))
-    assert bare["features"]["eu_registry.imprint"] == 0.0
+    assert bare["features"]["eu_registry.imprint.not_applicable"] == 1.0  # not required, so not missing
 
 
 def test_scorer_reads_not_applicable_as_neutral() -> None:

@@ -49,6 +49,15 @@ class PricingSkill(Skill):
     description = "Checks whether a discount is plausible and whether the 'was' price was ever charged."
     features = ("implausible_discount", "reference_anchor", "permanent_sale", "history_days", "was_above_30d_low")
 
+    def __init__(self, *, history: bool = True) -> None:
+        """
+        Configure the skill.
+
+        :param history: Whether to record the price and compare it with the product's price history (a lookup in
+            Unfret's own price store). The quick tier turns it off and keeps the on-page checks.
+        """
+        self.history = history
+
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
         Read the discount, its label and sale wording; record the price and compare with its history.
@@ -77,7 +86,7 @@ class PricingSkill(Skill):
             features["permanent_sale"] = True
             observations.append(Observation(type="permanent_sale", evidence=f'"{sale.group(1)}"'))
 
-        if settings.price_observations:
+        if self.history and settings.price_observations:
             seen = await price_store.observe(state.get("url", ""), facts)
             if seen is not None:
                 _, history = seen

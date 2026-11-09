@@ -115,11 +115,14 @@ CONTEXT_FEATURES = frozenset(
         "reverse_image.searched",
     }
 )
+# Reasons that only say something is missing from the page (which a page fetched without its footer, or a shop
+# outside the EU, can lack without being any less reliable).
+ABSENCE_REASONS = ("no_withdrawal", "no_return_policy", "no_imprint", "missing_trust_info")
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
     ("generic_brand", "generic_product"),
-    ("no_withdrawal", "no_return_policy", "no_imprint", "missing_trust_info"),
+    ABSENCE_REASONS,
     ("hidden_ai_text", "ai_text"),
     ("was_never_charged", "implausible_discount", "big_discount"),
     ("returns_abroad", "return_address_withheld"),
@@ -484,7 +487,8 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if not e.storefront:
         return
     if e.has("eu_registry.withdrawal_right") and e.f("eu_registry.withdrawal_right") < 1:
-        # Only EU law requires a withdrawal right; elsewhere a missing return policy is still worth knowing.
+        # Only EU law requires a withdrawal right. Outside the EU, eu_registry reports a missing policy as not
+        # applicable, so this fires there only for features recorded before that (never citing EU law).
         fired["no_withdrawal" if e.market == "eu" else "no_return_policy"] = {}
     if e.has("eu_registry.imprint") and e.f("eu_registry.imprint") < 1:
         fired["no_imprint"] = {}
@@ -582,6 +586,7 @@ def build(
     language: str = DEFAULT_LANGUAGE,
     headline: str | None = None,
     market: str = "eu",
+    confidence: float | None = None,
 ) -> Verdict:
     """
     Build the shopper verdict for an analysed page.
@@ -589,6 +594,10 @@ def build(
     Reliable pages lead with what looks good and show at most one note; the other bands show up to three reasons,
     strongest first, and at most two positives. When the score is low but no single reason fired, an honest
     "several small signals" reason stands in.
+
+    A shopper is only told "careful" (or worse) when there is something concrete to show for it, or the scorer is
+    sure: when the only reasons are things missing from the page (:data:`ABSENCE_REASONS`, or none at all) and the
+    scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead.
 
     :param score: The 0–100 reliability score.
     :param features: The skill features from the graph state.
@@ -598,6 +607,7 @@ def build(
     :param language: The shopper's language (see :func:`pick_language`).
     :param headline: The headline sentence; the catalogue's template for the band when not given.
     :param market: The shop's market (:func:`veridex.market.shop_market`), for reasons that depend on its law.
+    :param confidence: The scorer's confidence (:class:`veridex.scoring.Assessment`); ``None`` without a scorer.
     :return: The verdict.
     """
     language = language if language in LANGUAGES else DEFAULT_LANGUAGE
@@ -613,6 +623,9 @@ def build(
     for group in _GROUPS:
         for key in [k for k in group if k in fired][1:]:
             del fired[key]
+    unsure = confidence is not None and confidence < settings.verdict_absence_only_min_confidence
+    if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= set(ABSENCE_REASONS):
+        band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
     order = list(REASON_SEVERITY)
     keys = sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
     reasons = [_reason(k, fired[k], language) for k in keys]

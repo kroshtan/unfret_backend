@@ -259,5 +259,10 @@ async def recall(url: str, tier: Tier, policy: Policy) -> Verdict | None:
         return None
     risk = verdict.risk_score if verdict.risk_score is not None else 1.0
     return verdict.model_copy(
-        update={"action": action_for(risk, policy), "policy_applied": policy, "cached": True, "source": "fingerprint"}
+        update={
+            "action": action_for(risk, policy, verdict.band),
+            "policy_applied": policy,
+            "cached": True,
+            "source": "fingerprint",
+        }
     )

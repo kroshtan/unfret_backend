@@ -70,7 +70,7 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     if rates_age > 45:  # `make vat-rates-check` compares the vendored table with the EU's TEDB
         logger.warning("vat_rates_stale", checked_days_ago=rates_age)
     api.graph = build_graph(SKILLS)
-    api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
+    api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
     # Store-level facts persist in Postgres, shared across restarts and workers.

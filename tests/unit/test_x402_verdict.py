@@ -3,6 +3,7 @@ import pytest
 from veridex import scoring
 from veridex.graph import SKILLS
 from veridex.graph.skills.eu_registry import EuRegistrySkill
+from veridex.graph.skills.pricing import PricingSkill
 from veridex.x402.verdict import QUICK_SKILLS, action_for, skills_for, to_verdict
 
 # Captured at import, before the suite's autouse fixture hides the shipped model.
@@ -128,12 +129,26 @@ def test_unassessable_page_asks_the_human() -> None:
     assert verdict.flags[0].type == "not_assessable"
 
 
-def test_quick_tier_runs_no_shop_lookups() -> None:
+def test_quick_tier_reads_only_the_page_by_rules() -> None:
     names = {s.name for s in skills_for("quick", SKILLS)}
-    assert names == QUICK_SKILLS
-    assert "domain_age" not in names  # eu_registry runs, without VIES (next test)
-    assert {"reverse_image", "shop_links"} <= names  # our own index and store: local lookups
-    assert skills_for("deep", SKILLS) == SKILLS
+    assert (
+        names
+        == QUICK_SKILLS
+        == {
+            "listing",
+            "pricing",
+            "html_source_signals",
+            "dark_patterns",
+            "injection",
+            "eu_registry",
+            "us_identity",
+            "shop_policies",
+            "shop_links",
+        }
+    )
+    # No LLM read, no reviews, no photo index, no domain age (and no VIES or price history: next tests).
+    assert not names & {"content", "reviews", "reverse_image", "domain_age"}
+    assert skills_for("deep", SKILLS) == SKILLS  # deep: everything, as an analysis
 
 
 def test_quick_tier_keeps_eu_registry_local() -> None:
@@ -143,6 +158,8 @@ def test_quick_tier_keeps_eu_registry_local() -> None:
     assert isinstance(quick["eu_registry"], EuRegistrySkill) and quick["eu_registry"].vies is False
     assert isinstance(deep["eu_registry"], EuRegistrySkill) and deep["eu_registry"].vies is True
     assert "domain_age" not in quick
+    assert isinstance(quick["pricing"], PricingSkill) and quick["pricing"].history is False  # on-page checks only
+    assert isinstance(deep["pricing"], PricingSkill) and deep["pricing"].history is True
 
 
 def test_quick_tier_computes_every_feature_of_the_full_model_or_ships_its_own() -> None:

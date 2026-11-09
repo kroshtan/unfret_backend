@@ -11,11 +11,11 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from veridex import __version__, fact_cache, log, price_store, scoring, vision
+from veridex import __version__, fact_cache, log, price_store, scoring
 from veridex.api import VeridexAPI
 from veridex.config import settings
 from veridex.credits import CreditsDoor
-from veridex.db import PostgresBudget, PostgresFactStore, create_pool, init_db
+from veridex.db import PostgresFactStore, create_pool, init_db
 from veridex.graph import SKILLS, build_graph
 from veridex.middleware import RequestGuardMiddleware
 from veridex.routes import router
@@ -36,10 +36,9 @@ async def lifespan(api: VeridexAPI) -> AsyncGenerator[None]:
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH)
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
-    # Store-level facts and the TinEye spending cap persist in Postgres, shared across restarts and workers.
+    # Store-level facts persist in Postgres, shared across restarts and workers.
     fact_cache.use_store(PostgresFactStore(api.db_pool))
     price_store.use_store(price_store.PostgresPriceStore(api.db_pool))
-    vision.use_budget(PostgresBudget(api.db_pool, "vision"))
     api.x402 = X402(settings)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)

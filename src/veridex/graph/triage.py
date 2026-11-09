@@ -15,7 +15,6 @@ from typing import Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from veridex import vision
 from veridex.config import settings
 from veridex.graph.state import AnalysisState
 from veridex.llm import get_structured_llm
@@ -111,7 +110,7 @@ async def plan(state: AnalysisState, available: set[str]) -> TriagePlan:
     spent = len(state.get("expensive_runs", []))
     if spent >= settings.triage_max_expensive_runs:
         return TriagePlan((), "Per-analysis budget for expensive checks used.")
-    if "reverse_image" not in available or not vision.is_enabled() or not state["facts"].image_urls:
+    if "reverse_image" not in available or not state["facts"].image_urls:
         return TriagePlan((), "No reverse image search available for this page.")
     if state.get("triage_round", 0) == 0:
         return await _first_round(state)

@@ -56,7 +56,6 @@ REASON_SEVERITY: dict[str, Severity] = {
     "ships_from_far": "low",
     "dropshipping_tools": "medium",
     "supplier_links": "medium",
-    "supplier_photos": "high",
     "missing_trust_info": "medium",
     "no_withdrawal": "medium",
     "no_imprint": "medium",
@@ -103,9 +102,6 @@ CONTEXT_FEATURES = frozenset(
         "domain_age.term_years",
         "domain_age.redacted",
         "domain_age.cert_age_years",
-        "reverse_image.searched",
-        "reverse_image.log_matches",
-        "reverse_image.log_full_matches",
     }
 )
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
@@ -114,11 +110,9 @@ _GROUPS = (
     ("generic_brand", "generic_product"),
     ("no_withdrawal", "no_imprint", "missing_trust_info"),
     ("hidden_ai_text", "ai_text"),
-    ("supplier_photos", "supplier_links"),
     ("was_never_charged", "implausible_discount", "big_discount"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
-_SUPPLIERS_RE = re.compile(r"appears on \d+ (.+?) listings?")
 _NUMBERS_RE = re.compile(r"\d+(?:\.\d+)?")
 _QUOTED_RE = re.compile(r'"([^"]{1,150})"')
 
@@ -422,17 +416,11 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 
 
 def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
-    """Traces of the supplier behind the shop: dropshipping tools, wholesale links and photos."""
+    """Traces of the supplier behind the shop: dropshipping tools and wholesale links."""
     if e.f("html_source_signals.dropship_app") >= 1:
         fired["dropshipping_tools"] = {}
     if e.f("html_source_signals.supplier_trace") >= 1:
         fired["supplier_links"] = {}
-    if (hits := int(e.f("reverse_image.supplier_hits"))) >= 1:
-        photo = e.first("supplier_photo")
-        named = _SUPPLIERS_RE.search(photo.evidence) if photo else None
-        sites = named.group(1) if named else e.phrase("wholesale_sites")
-        listings = e.phrase("listing_one" if hits == 1 else "listing_many")
-        fired["supplier_photos"] = {"count": e.number(hits), "sites": sites[:80], "listings": listings}
 
 
 def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:

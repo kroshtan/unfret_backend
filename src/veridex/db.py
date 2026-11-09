@@ -73,7 +73,7 @@ class PostgresBudget:
         Count usage under ``name``.
 
         :param pool: The connection pool.
-        :param name: The counter name, e.g. ``"tineye"``.
+        :param name: The counter name, e.g. ``"vision"``.
         """
         self.pool, self.name = pool, name
 

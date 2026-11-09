@@ -34,7 +34,6 @@ ALL_REASON_FEATURES = {
     "html_source_signals.dropship_app": 1.0,
     "html_source_signals.supplier_trace": 1.0,
     "reverse_image.supplier_hits": 2.0,
-    "reverse_image.photo_predates_listing": 1.0,
     "eu_registry.withdrawal_right": 0.0,
     "eu_registry.imprint": 0.0,
     "content.missing_trust_info": 0.9,
@@ -52,7 +51,9 @@ ALL_FINDINGS = [
     Finding(skill="dark_patterns", type="preticked_addon", evidence='Pre-ticked paid add-on: "Shipping protection".'),
     Finding(skill="reviews", type="review_velocity", evidence="4,800 ratings since 2026-10-01 (120.0 per day)."),
     Finding(skill="content", type="implausible_claim", evidence="99% Minder bacterien"),
-    Finding(skill="reverse_image", type="supplier_photo", evidence="The main photo also appears on aliexpress.com."),
+    Finding(
+        skill="reverse_image", type="supplier_photo", evidence="This photo also appears on 2 AliExpress listings."
+    ),
 ]
 FACTS = PageFacts(
     title="INSOON Dinosaurus Museum Book Nook bouwspeelgoedset, boekenend bouwstenen kit, jongens en meisjes",
@@ -130,6 +131,7 @@ def _params(key: str, language: str) -> dict[str, str]:
         "was": "€79.95",
         "anchor": "“adviesprijs”",
         "phrase": "“alles moet weg”",
+        "listings": "listings",
     }
 
 

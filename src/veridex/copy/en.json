@@ -115,11 +115,7 @@
     },
     "supplier_photos": {
       "title": "Same photos on wholesale sites",
-      "detail": "The same product photo also appears on {sites}."
-    },
-    "photo_predates": {
-      "title": "Older photos",
-      "detail": "The product photo was online before this listing appeared."
+      "detail": "This photo also appears on {count} {sites} {listings}."
     },
     "missing_trust_info": {
       "title": "Little shop information",
@@ -273,10 +269,12 @@
     "reverse_image.searched": "Photo search done",
     "reverse_image.supplier_hits": "Same photos on wholesale sites",
     "reverse_image.log_matches": "Photo found elsewhere",
-    "reverse_image.image_age_years": "Age of the photo online",
-    "reverse_image.photo_predates_listing": "Photo older than the listing"
+    "reverse_image.supplier_full": "Identical photo on wholesale sites",
+    "reverse_image.log_full_matches": "Identical copies of the photo online"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
-  "and": "and"
+  "and": "and",
+  "listing_one": "listing",
+  "listing_many": "listings"
 }

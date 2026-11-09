@@ -48,7 +48,7 @@ class _Photo(Skill):
 @pytest.fixture(autouse=True)
 def setup(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     _Photo.runs = []
-    monkeypatch.setattr(settings, "tineye_api_key", SecretStr("key"))
+    monkeypatch.setattr(settings, "vision_api_key", SecretStr("key"))
     prompts: list[Any] = []
 
     def structured(schema: type) -> RunnableLambda:
@@ -126,8 +126,8 @@ async def test_flag_forces_the_check_even_on_a_clean_page() -> None:
     assert _Photo.runs == [["reverse_image"]]
 
 
-async def test_nothing_runs_without_tineye(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "tineye_api_key", SecretStr(""))
+async def test_nothing_runs_without_a_vision_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "vision_api_key", SecretStr(""))
     await run(SUSPICIOUS)
     assert _Photo.runs == []
 

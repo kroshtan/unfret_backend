@@ -254,7 +254,7 @@ async def _judge(state: AnalysisState, model_path: Path) -> dict:
     assessment = scoring.score(state.get("features", {}), state.get("findings", []), model)
     if assessment is not None:
         score = round(100 * (1 - assessment.risk_score))
-        verdict = await _verdict(state, score)
+        verdict = await _verdict(state, score, confidence=assessment.confidence)
         details = asdict(assessment)
         details["flags"] = shopper.label_flags(details["flags"], verdict.language)
         return {
@@ -277,7 +277,9 @@ async def _judge(state: AnalysisState, model_path: Path) -> dict:
     return {"score": judged.score, "explanation": verdict.headline, "verdict": verdict.model_dump()}
 
 
-async def _verdict(state: AnalysisState, score: int, headline: str | None = None) -> shopper.Verdict:
+async def _verdict(
+    state: AnalysisState, score: int, headline: str | None = None, confidence: float | None = None
+) -> shopper.Verdict:
     """
     The shopper verdict, with a headline written by the LLM from the verdict's own reasons (or a band template).
 
@@ -286,6 +288,7 @@ async def _verdict(state: AnalysisState, score: int, headline: str | None = None
     :param state: Current graph state.
     :param score: The 0–100 reliability score.
     :param headline: A headline already written; skips the LLM.
+    :param confidence: The scorer's confidence, when the scorer set the score.
     :return: The verdict.
     """
     language = state.get("language", shopper.DEFAULT_LANGUAGE)
@@ -298,6 +301,7 @@ async def _verdict(state: AnalysisState, score: int, headline: str | None = None
         language=language,
         headline=headline,
         market=shop_market(state.get("facts") or PageFacts(), state.get("url", ""), state.get("cleaned_content", "")),
+        confidence=confidence,
     )
     if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict

@@ -242,31 +242,63 @@ def _images(soup: BeautifulSoup, url: str, facts: PageFacts) -> None:
     facts.image_urls = _dedupe(images)[:50]
 
 
-def _json_ld_products(soup: BeautifulSoup) -> list[dict[str, Any]]:
+# A product with variants is a schema.org ProductGroup (Google's variant markup, which Shopify themes emit) whose
+# offers sit on its variants (``hasVariant``); a product page may also state its rating in a separate block whose
+# ``itemReviewed`` is the product.
+_PRODUCT_TYPES = frozenset({"Product", "ProductGroup"})
+
+
+def _kinds(node: dict[str, Any]) -> set[str]:
+    kind = node.get("@type", "")
+    return {k for k in (kind if isinstance(kind, list) else [kind]) if isinstance(k, str) and k}
+
+
+def _json_ld(soup: BeautifulSoup) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     products: list[dict[str, Any]] = []
-
-    def walk(node: object) -> None:
-        if isinstance(node, list):
-            for item in node:
-                walk(item)
-        elif isinstance(node, dict):
-            kind = node.get("@type", "")
-            if kind == "Product" or (isinstance(kind, list) and "Product" in kind):
-                products.append(node)
-            for key in ("@graph", "mainEntity", "itemListElement"):
-                if key in node:
-                    walk(node[key])
-
+    ratings: list[dict[str, Any]] = []
     for script in soup.find_all("script", type="application/ld+json"):
         try:
-            walk(json.loads(script.string or ""))
+            _walk_json_ld(json.loads(script.string or ""), products, ratings)
         except ValueError, TypeError:
             continue
-    return products
+    return products, ratings
+
+
+def _walk_json_ld(node: object, products: list[dict[str, Any]], ratings: list[dict[str, Any]]) -> None:
+    if isinstance(node, list):
+        for item in node:
+            _walk_json_ld(item, products, ratings)
+    elif isinstance(node, dict):
+        if _kinds(node) & _PRODUCT_TYPES:
+            products.append(node)
+        elif (rating := _product_rating(node)) is not None:
+            ratings.append(rating)
+        for key in ("@graph", "mainEntity", "itemListElement"):
+            if key in node:
+                _walk_json_ld(node[key], products, ratings)
+
+
+def _about_a_product(item: object) -> bool:
+    return isinstance(item, dict) and bool(_kinds(item) & _PRODUCT_TYPES)
+
+
+def _product_rating(node: dict[str, Any]) -> dict[str, Any] | None:
+    # An AggregateRating of a product, on its own or wrapped in an untyped block; never a shop's own rating.
+    kinds = _kinds(node)
+    rating = node if "AggregateRating" in kinds else node.get("aggregateRating") if not kinds else None
+    return rating if isinstance(rating, dict) and _about_a_product(rating.get("itemReviewed")) else None
+
+
+def _variant_offers(product: dict[str, Any]) -> object:
+    variants = product.get("hasVariant")
+    for variant in variants if isinstance(variants, list) else [variants]:
+        if isinstance(variant, dict) and variant.get("offers"):
+            return variant["offers"]
+    return None
 
 
 def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> None:
-    products = _json_ld_products(soup)
+    products, ratings = _json_ld(soup)
     facts.json_ld = [_trim(p) for p in products[:20]]
     if products:
         product = products[0]
@@ -277,9 +309,14 @@ def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> None:
         _apply_rating(product.get("aggregateRating"), facts)
         _apply_reviews(product.get("review"), facts)
         _apply_images(product.get("image"), facts)
+    if ratings:
+        _apply_rating(ratings[0], facts)
     if facts.price is None:
         facts.price = _number(_meta(soup, "product:price:amount") or _meta(soup, "og:price:amount"))
         facts.currency = facts.currency or _meta(soup, "product:price:currency") or _meta(soup, "og:price:currency")
+    if facts.price is None and products:
+        # A ProductGroup's own price is its variants' (the page's Open Graph price, read above, is the one on show).
+        _apply_offer(_variant_offers(products[0]), facts)
     if not facts.reviews:
         _microdata_reviews(soup, facts)
 

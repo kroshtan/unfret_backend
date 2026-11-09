@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     verdict_reliable_min: int = 80
     verdict_concerns_min: int = 50
     verdict_careful_min: int = 25
+    # Below this scorer confidence, a page whose only reasons are things missing from it (no imprint, no return
+    # policy, …) is shown as "concerns", never "careful" or worse (0 turns this off)
+    verdict_absence_only_min_confidence: float = Field(default=0.2, ge=0, le=1)
     # An LLM judgement (0–1) this strong is shown to the shopper as a reason, whatever its model weight
     verdict_llm_signal_min: float = 0.6
 

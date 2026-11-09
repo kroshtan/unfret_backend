@@ -86,7 +86,7 @@ def solana_pay_url(
     url = f"solana:{hot}?amount={decimal_string(amount, places)}"
     if mint is not None:
         url += f"&spl-token={mint}"
-    url += f"&label=Veridex&message={quote('Veridex credits')}"
+    url += f"&label=Unfret&message={quote('Unfret credits')}"
     return f"{url}&memo={quote(credit_memo(beneficiary))}" if beneficiary else url
 
 

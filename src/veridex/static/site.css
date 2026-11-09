@@ -123,3 +123,9 @@ details summary { cursor: pointer; }
 .pairing h2 { margin-top: 0; }
 .code { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.6em; letter-spacing: 0.12em; padding: 0 0.3em; border-radius: 6px; background: var(--bg); }
 #pair-error { color: var(--error); }
+
+/* The home page: the mark next to the name. */
+.brand { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1rem; }
+.brand h1 { margin: 0; font-size: 2.2rem; }
+.brand .logo { flex: none; }
+.lead { font-size: 1.1rem; }

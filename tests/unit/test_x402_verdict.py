@@ -44,7 +44,7 @@ def test_verdict_uses_the_scorer_assessment() -> None:
         },
         "verdict": {
             "band": "junk_or_scam",
-            "label": "Likely junk or a scam",
+            "label": "Many warning signs",
             "headline": "Thousands of reviews on a brand-new listing and a too-good discount.",
             "reasons": [
                 {

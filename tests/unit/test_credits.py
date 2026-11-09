@@ -151,7 +151,7 @@ def test_sol_amounts_for_solana_pay() -> None:
     assert sol_string(15_000_000) == "0.015"
     assert sol_string(1_000_000_000) == "1"
     assert sol_string(1) == "0.000000001"
-    assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Veridex&message=Veridex%20credits"
+    assert solana_pay_url(hot, 1_500_000) == f"solana:{hot}?amount=0.0015&label=Unfret&message=Unfret%20credits"
 
 
 def test_purchase_transaction_is_an_unsigned_transfer_with_a_credit_memo() -> None:

@@ -1,4 +1,4 @@
-# Veridex API contract v1: credits door (backend phase 4 ↔ browser extension phase 5)
+# Unfret API contract v1: credits door (backend phase 4 ↔ browser extension phase 5)
 
 Base URL: `https://unfret.kroshtan.com` (configurable in the extension for dev: `http://localhost:8080`).
 All JSON. Errors use the existing shape `{"detail": str, "error_code": str, "metadata"?: any}`.
@@ -7,7 +7,7 @@ All JSON. Errors use the existing shape `{"detail": str, "error_code": str, "met
 Credits belong to a wallet public key. The user proves control by signing a plain-text message; nothing else is stored.
 
 - `GET /v1/auth/nonce` →
-  `{"domain": "unfret.kroshtan.com", "uri": "https://unfret.kroshtan.com", "statement": "Sign in to Veridex. This
+  `{"domain": "unfret.kroshtan.com", "uri": "https://unfret.kroshtan.com", "statement": "Sign in to Unfret. This
   signature costs nothing and grants no spending rights.", "nonce": str, "issued_at": ISO-8601, "expiration_time":
   ISO-8601, "version": "1"}`
   The nonce is stateless (HMAC-signed by the server, carrying its own expiry, 5 minutes).
@@ -29,7 +29,7 @@ The balance is held in **lamports** (`pubkey → balance_lamports`); the UI show
 - `GET /v1/credits` (Bearer) → `{"address": base58, "balance_lamports": int, "checks_remaining": int}`
 - `POST /v1/credits/purchase-tx` `{"address": base58, "lamports": int}` → `{"transaction": base64 (unsigned
   VersionedTransaction: a System transfer address → hot wallet, payer = address), "lamports": int, "hot_wallet": base58,
-  "solana_pay_url": "solana:<hot>?amount=<SOL>&label=Veridex&message=Veridex%20credits"}`
+  "solana_pay_url": "solana:<hot>?amount=<SOL>&label=Unfret&message=Unfret%20credits"}`
   No auth needed (anyone can fund any wallet). The wallet signs and sends it itself (`solana:signAndSendTransaction`).
 - Crediting is done by the server's scanner, from finalized incoming SOL transfers to the hot wallet; credits arrive
   after finality (~15–30 s). Clients poll `GET /v1/credits`.
@@ -112,7 +112,7 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - The phone opens `/connect?pair=<pair_id>`. The page fetches `GET /v1/auth/pair/<pair_id>/info` →
   `{"confirm_code", "expires_at"}` (410/409/404 as above; 409 `PAIRING_USED` once signed in) and shows "Sign in to the
   device showing K7-4Q". `GET /v1/auth/nonce?pair=<pair_id>` returns the statement
-  "Sign in to Veridex. This signature costs nothing and grants no spending rights. For the device showing K7-4Q."
+  "Sign in to Unfret. This signature costs nothing and grants no spending rights. For the device showing K7-4Q."
 - `POST /v1/auth/verify` takes an optional `pair_id`. With it, the signed message must carry exactly that pairing's
   statement (else 401 `PAIRING_MISMATCH`-style refusal "signed for another device"); the session is attached to the
   pairing once (a second verify → 409 `PAIRING_USED`). The response still contains the session; the phone page
@@ -218,7 +218,7 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - **`assessment.degraded`:** `true` when the content read failed. The score then rests on the other signals, the
   confidence is at most 0.3, and `/v1/check` never answers `allow` on it.
 - The headline is at most 25 words. Without an LLM sentence (and always for `/v1/check`, whose callers read the
-  flags) it names the verdict and its two strongest reasons ("Be careful: fake countdown timer and pre-ticked paid
+  flags) it names the verdict and its two strongest reasons ("Some warning signs: fake countdown timer and pre-ticked paid
   add-on.").
 - **Fake discounts:** new reasons `implausible_discount`, `reference_anchor` (the "was" price is an RRP/"usually"
   price), `permanent_sale` and, once a product has a month of anonymous price observations, `was_never_charged`.

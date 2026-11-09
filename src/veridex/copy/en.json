@@ -1,16 +1,16 @@
 {
   "language": "en",
   "labels": {
-    "reliable": "Looks reliable",
-    "concerns": "Some concerns",
-    "careful": "Be careful",
-    "junk_or_scam": "Likely junk or a scam"
+    "reliable": "Looks fine",
+    "concerns": "A few things to check",
+    "careful": "Some warning signs",
+    "junk_or_scam": "Many warning signs"
   },
   "headlines": {
     "reliable": "Nothing worrying stood out on this page.",
     "concerns": "Mostly fine, but a few things are worth a closer look before you buy.",
-    "careful": "Several warning signs: check the seller and reviews carefully before buying.",
-    "junk_or_scam": "Strong signs of generic factory goods or a dishonest offer."
+    "careful": "Some warning signs: look closely at the seller and the reviews before you buy.",
+    "junk_or_scam": "Many warning signs: this looks like generic factory goods, or an offer that isn't what it seems."
   },
   "reasons": {
     "timer_resets": {
@@ -63,7 +63,7 @@
     },
     "generic_brand": {
       "title": "Unknown brand",
-      "detail": "{brand} isn't a recognisable brand: usually a sign of generic factory goods sold under a made-up name."
+      "detail": "{brand} isn't a recognizable brand: usually a sign of generic factory goods sold under a made-up name."
     },
     "generic_product": {
       "title": "Generic product",

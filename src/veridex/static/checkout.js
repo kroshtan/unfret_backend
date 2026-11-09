@@ -1,4 +1,4 @@
-// /checkout: buy credits with SOL or USDC. The wallet signs and sends a transfer to Veridex's hot wallet; the server
+// /checkout: buy credits with SOL or USDC. The wallet signs and sends a transfer to Unfret's hot wallet; the server
 // credits the sending wallet once the transfer is final (SOL at its dollar value then). Phone wallets can pay the same
 // request by QR code. Prices are in US dollars: USDC pays them exactly, SOL at the live quote in /v1/pricing.
 // Credits can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
@@ -206,10 +206,10 @@ function choose(value) {
   let src = `/v1/credits/solana-pay.svg?currency=${currency}&amount=${amount}`;
   if (currency === "SOL") {
     const sol = (amount / 1e9).toFixed(9).replace(/\.?0+$/, "");
-    url = `solana:${pricing.hot_wallet}?amount=${sol}&label=Veridex&message=Veridex%20credits`;
+    url = `solana:${pricing.hot_wallet}?amount=${sol}&label=Unfret&message=Unfret%20credits`;
   } else {
     const usdc = (amount / 1e6).toFixed(6).replace(/\.?0+$/, "");
-    url = `solana:${pricing.hot_wallet}?amount=${usdc}&spl-token=${pricing.usdc.mint}&label=Veridex&message=Veridex%20credits`;
+    url = `solana:${pricing.hot_wallet}?amount=${usdc}&spl-token=${pricing.usdc.mint}&label=Unfret&message=Unfret%20credits`;
   }
   const id = forKey ? keyId() : null;
   if (id) {

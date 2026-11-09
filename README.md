@@ -1,10 +1,12 @@
-# Veridex
+# Unfret
+
+*Formerly Veridex: the code, the Python package (`veridex`) and the settings (`VERIDEX_*`) keep that name.*
 
 [![CI](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml/badge.svg)](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
-**Veridex scores e-commerce product pages for scam and dropshipping signals.** A browser extension sends the HTML of
+**Unfret scores e-commerce product pages for scam and dropshipping signals.** A browser extension sends the HTML of
 the page the user is viewing; the backend runs a [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of
 independent analysis "skills" in parallel, and a small trained model turns their features into a calibrated 0–100
 reliability score; an LLM writes the one-line explanation from the signals that moved it.
@@ -13,7 +15,7 @@ reliability score; an LLM writes the one-line explanation from the signals that 
 POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sourced images and templated 5-star reviews." }
 ```
 
-> **Project status: prototype.** Veridex is an exploratory prototype, not a finished product. It was built to try out
+> **Project status: prototype.** Unfret is an exploratory prototype, not a finished product. It was built to try out
 > what an agentic LLM pipeline can do for shopping-fraud detection, and to put a modern Python stack to work
 > (FastAPI, LangGraph, structured LLM output, asyncpg, uv). Payment is SOL-native: wallets sign in with Solana and
 > spend prepaid credits, and agents pay per check over x402. It is not maintained for production use.
@@ -122,7 +124,7 @@ first one ≥30 days ago), within a per-visitor limit and a daily cap kept in me
 over x402 v2 with the `exact` scheme on Solana, in **wSOL** (wrapped SOL) or **USDC**. Without a
 `PAYMENT-SIGNATURE` header it answers `402` with a `PAYMENT-REQUIRED` header listing wSOL first, then USDC. The client
 signs a transaction that pays the price into the **hot wallet**'s token account for that mint: a plain `TransferChecked` from a standard
-wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Veridex co-signs as **fee
+wallet, or **a smart wallet** (Squads and other program-controlled wallets) paying by CPI. Unfret co-signs as **fee
 payer** with the same hot wallet (agents pay only the price: quick $0.01, deep $0.15), submits it and waits
 for confirmation (`upfront` flow), then runs the analysis and answers with `{action: allow|warn|block, risk_score,
 confidence, flags, model_version, …}` plus `PAYMENT-RESPONSE`, scored by the trained scorer. `warn` means "ask your
@@ -338,7 +340,7 @@ rebuild. Deploys never run in parallel and are never cancelled half-way.
   judge instead of failing the analysis. The whole analysis has a deadline too (504 when exceeded).
 - **Bounded input.** Request bodies over `VERIDEX_MAX_PAGE_BYTES` are refused before they are parsed.
 - **Sign-in grants no spending power.** Wallets only ever sign a readable message (to sign in) or a transfer the
-  user sees (to buy). The server holds no user keys; a session token can spend Veridex credits, never SOL.
+  user sees (to buy). The server holds no user keys; a session token can spend Unfret credits, never SOL.
 - **Exactly-once crediting.** Credits and the scanner cursor move in one transaction, by compare-and-swap; debits are
   a single conditional `UPDATE`, so concurrent analyses never overspend.
 

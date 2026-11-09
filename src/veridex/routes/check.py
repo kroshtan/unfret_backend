@@ -88,7 +88,7 @@ def _resource() -> dict[str, Any]:
         "url": f"{settings.public_base_url}/v1/check",
         "description": "Scam, dropshipping and dark-pattern risk check of a store or product page",
         "mimeType": "application/json",
-        "serviceName": "Veridex",
+        "serviceName": "Unfret",
     }
 
 
@@ -441,7 +441,7 @@ def _discovery() -> dict[str, Any]:
     mint = usdc_mint(settings.solana_network, settings.usdc_mint)
     return {
         "x402Version": 2,
-        "service": "Veridex",
+        "service": "Unfret",
         "version": __version__,
         "endpoint": f"{settings.public_base_url}/v1/check",
         "method": "POST",
@@ -457,7 +457,7 @@ def _discovery() -> dict[str, Any]:
                 "fresh, otherwise pay in USDC",
             },
         },
-        "feePayer": "Veridex pays the network fee",
+        "feePayer": "Unfret pays the network fee",
         "wallets": "standard wallets and smart wallets (Squads and other program-controlled wallets paying by CPI)",
         "tiers": {
             "quick": {
@@ -511,7 +511,7 @@ async def llms_txt() -> str:
     """
     d = _discovery()
     quick, deep = d["tiers"]["quick"]["price_usd"], d["tiers"]["deep"]["price_usd"]
-    return f"""# Veridex
+    return f"""# Unfret
 
 > Pay-per-check risk signals for AI shopping agents: is this store or product listing showing signs of scams,
 > dropshipping of generic goods, fake reviews or dark patterns? Returns evidence and an action, never a "scam" label.
@@ -529,7 +529,7 @@ quick = {quick}, deep = {deep}. USDC pays exactly that; the wSOL amount is the d
 with Pyth's SOL/USD price (wSOL isn't offered while the oracle is stale). Standard wallets and
 smart wallets (Squads and other program-controlled wallets paying by CPI) both work, as long as the transaction
 carries one memo and pays the quoted amount into payTo's token account for that mint (all rules: `extra.constraints`
-in each option). Veridex is the fee payer, so you only pay the price. A page we can't fetch costs nothing. Retrying
+in each option). Unfret is the fee payer, so you only pay the price. A page we can't fetch costs nothing. Retrying
 with the same PAYMENT-SIGNATURE returns the same answer and is never charged twice.
 
 ## Response

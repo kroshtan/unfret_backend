@@ -1,4 +1,4 @@
-"""Plain-language explanations of Veridex flag types, for agents to relay to their humans."""
+"""Plain-language explanations of Unfret flag types, for agents to relay to their humans."""
 
 _EXPLANATIONS = {
     "page_content": (
@@ -45,5 +45,5 @@ def explain(flag_type: str) -> str:
     """
     return _EXPLANATIONS.get(
         flag_type,
-        f"'{flag_type}' is a factual signal from Veridex's analysis; see its evidence text for the specifics.",
+        f"'{flag_type}' is a factual signal from Unfret's analysis; see its evidence text for the specifics.",
     )

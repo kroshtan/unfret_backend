@@ -3,8 +3,8 @@ requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
 
 [project]
-name = "veridex-mcp"
-description = "MCP server for Veridex: pay-per-check store scam and dropshipping risk for AI shopping agents (x402, SOL)"
+name = "unfret-mcp"
+description = "MCP server for Unfret: pay-per-check store scam and dropshipping risk for AI shopping agents (x402, SOL)"
 version = "0.1.0"
 authors = [{ name = "Floris van Beers", email = "freelancing@kroshtan.com" }]
 readme = "README.md"
@@ -18,7 +18,12 @@ dependencies = [
 ]
 
 [project.scripts]
-veridex-mcp = "veridex_mcp.server:main"
+unfret-mcp = "veridex_mcp.server:main"
+veridex-mcp = "veridex_mcp.server:main"  # the name before the rename to Unfret
+
+[tool.uv.build-backend]
+# The distribution was renamed to unfret-mcp; the import package keeps its name.
+module-name = "veridex_mcp"
 
 [dependency-groups]
 dev = [

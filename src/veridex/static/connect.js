@@ -1,4 +1,4 @@
-// /connect: sign in with a wallet and hand the session to the Veridex browser extension.
+// /connect: sign in with a wallet and hand the session to the Unfret browser extension.
 // Two ways in:
 // - Same browser: the extension's content script (injected only on this page) receives the window message below,
 //   stores the session and answers with {type: "veridex-session-received"}.

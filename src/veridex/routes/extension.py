@@ -31,15 +31,16 @@ def _public_base() -> str:
 
 _GUPDATE_NS = "{http://www.google.com/update2/response}"
 
-# The only files served, by exact name pattern: no paths, so nothing outside RELEASE_DIR can be reached.
+# The only files served, by exact name pattern: no paths, so nothing outside RELEASE_DIR can be reached. Releases
+# before the rename to Unfret were called veridex-*; both names are accepted.
 _FILES: dict[str, tuple[re.Pattern[str], str, str]] = {
     "crx": (
-        re.compile(r"veridex-\d+(\.\d+){1,3}\.crx"),
+        re.compile(r"(unfret|veridex)-\d+(\.\d+){1,3}\.crx"),
         "application/x-chrome-extension",
         "public, max-age=31536000, immutable",  # versioned names never change
     ),
     "zip": (
-        re.compile(r"veridex-chrome-\d+(\.\d+){1,3}\.zip"),
+        re.compile(r"(unfret|veridex)-chrome-\d+(\.\d+){1,3}\.zip"),
         "application/zip",
         "public, max-age=31536000, immutable",
     ),
@@ -81,12 +82,14 @@ def current_release(release_dir: Path | None = None) -> Release | None:
     version = check.get("version", "")
     if not _FILES["crx"][0].fullmatch(crx) or not (root / crx).is_file():
         return None
-    zip_name = f"veridex-chrome-{version}.zip"
+    zip_name = next(
+        (z for z in (f"{n}-chrome-{version}.zip" for n in ("unfret", "veridex")) if (root / z).is_file()), None
+    )
     return Release(
         extension_id=app.get("appid", ""),
         version=version,
         crx=crx,
-        zip=zip_name if (root / zip_name).is_file() else None,
+        zip=zip_name,
         checksums=checksums,
     )
 
@@ -95,12 +98,18 @@ def linux_policy_command(extension_id: str, policy_dir: str = "/etc/brave/polici
     """
     The one-line command that force-installs the extension in a Chromium browser on Linux.
 
+    It also removes the policy file of releases before the rename to Unfret (``veridex.json``), so an earlier install
+    isn't listed twice.
+
     :param extension_id: The extension ID.
     :param policy_dir: The browser's managed-policy directory.
     :return: A shell command.
     """
     policy = f'{{"ExtensionInstallForcelist":["{extension_id};{_public_base()}/updates.xml"]}}'
-    return f"sudo mkdir -p {policy_dir} && echo '{policy}' | sudo tee {policy_dir}/veridex.json > /dev/null"
+    return (
+        f"sudo mkdir -p {policy_dir} && sudo rm -f {policy_dir}/veridex.json && "
+        f"echo '{policy}' | sudo tee {policy_dir}/unfret.json > /dev/null"
+    )
 
 
 @router.get("/extension", response_class=HTMLResponse)

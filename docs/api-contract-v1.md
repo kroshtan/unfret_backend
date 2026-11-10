@@ -516,3 +516,11 @@ valid 7 days. Nothing is stored when a check runs.
   another `Accept-Language` is the same cached result.
 - `GET /v1/pricing`: each pack's `label` is `{"en": …}` only (no `nl`).
 - The extension keeps working unchanged: it may still send `Accept-Language` and its own interface is its own.
+
+## Changes (copyright lines, backwards-compatible)
+
+- New optional `PageFacts.copyright_lines` (list of strings, at most 10; snapshot updated): the page's copyright lines
+  (`© 2026 Acme Outdoor LLC. All rights reserved.`), each the ©, "(c)" or "Copyright" plus the 100 characters after
+  it; the server keeps three. The `us_identity` skill reads the company name from them, since the page text it gets has
+  no footer; they never count as an imprint. Clients that extract facts themselves (the browser extension) should fill
+  it, or a company named only in the footer isn't seen.

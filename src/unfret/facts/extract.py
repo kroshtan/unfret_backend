@@ -52,6 +52,11 @@ _LEGAL_RE = re.compile(
     r"|recesso|14[ -](?:day|dagen|tage|jours|días|giorni))",
     re.IGNORECASE,
 )
+# The copyright line ("© 2026 Acme Outdoor LLC. All rights reserved."): where a shop most often names its company.
+# It sits in the footer, which the page text the skills read leaves out, so it travels with the facts. It names a
+# company, but isn't an imprint: only us_identity reads it.
+_COPYRIGHT_RE = re.compile(r"(?:\bcopyright\s*)?(?:©|\(c\)(?=\s*\d{4}))|\bcopyright(?=\s*\d{4})", re.IGNORECASE)
+_MAX_COPYRIGHT = 3
 _POLICY_KINDS: dict[str, re.Pattern[str]] = {
     "refund": re.compile(r"refund|return|retour|widerruf|rétractation|devoluci|reso", re.IGNORECASE),
     "shipping": re.compile(r"shipping|delivery|verzend|versand|livraison|envío|spedizion", re.IGNORECASE),
@@ -197,6 +202,9 @@ def _text_signals(soup: BeautifulSoup, facts: PageFacts) -> None:
     facts.fee_mentions = _dedupe(_snippets(_FEE_RE, text, 80, 80))[:_MAX_SNIPPETS]
     facts.vat_ids = _dedupe(_vat_ids(text))[:10]
     facts.legal_mentions = _dedupe(_snippets(_LEGAL_RE, text, 60, 100))[:_MAX_SNIPPETS]
+    # Not cut at the first full stop like the legal snippets: "Co. LLC" and "L.L.C." have them inside the name.
+    lines = _dedupe(_squash(text[m.start() : m.end() + 100]) for m in _COPYRIGHT_RE.finditer(text))
+    facts.copyright_lines = lines[:_MAX_COPYRIGHT]
 
 
 def _snippets(pattern: re.Pattern[str], text: str, before: int, after: int) -> Iterable[str]:

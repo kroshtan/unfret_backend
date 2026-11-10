@@ -33,9 +33,57 @@ _ADDRESS_RE = re.compile(
     rf"[^\n]{{0,80}}?\b(?:{_STATES}),?\s+\d{{5}}(?:-\d{{4}})?\b"
 )
 _MAILBOX_RE = re.compile(r"\b(?:P\.?\s?O\.?\s?Box|PMB|Private Mail\s?box)\b", re.IGNORECASE)
-_ENTITY_RE = re.compile(
-    r"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){0,4}),?\s+(LLC|L\.L\.C\.|Inc\.?|Incorporated|Corp\.?"
-    r"|Corporation|LLP|Ltd\.?)(?![A-Za-z])"
+_FORM = r"LLC|L\.L\.C\.|Inc\.?|Incorporated|Corp\.?|Corporation|LLP|Ltd\.?"
+# A word of a company name ("Acme", "ACME", "J&J", "Co.", "Wix.com", "5econds"; not a number like a year), never the
+# company form itself, so that "Wix.com Ltd. Square, Inc." is two companies; "&", "and" and "of" join two words.
+_WORD = rf"(?!(?:{_FORM})(?![A-Za-z]))(?:[A-Z]|\d+[A-Za-z])[A-Za-z0-9&'.-]*"
+
+
+def _name(gap: str) -> str:
+    return rf"{_WORD}(?:{gap}(?:(?:&|and|of){gap})?{_WORD}){{0,4}}"
+
+
+# A footer's copyright line: "© 2026 Acme Outdoor LLC", "Copyright © 2024-2026 Acme Goods, Inc.", "©2025 ACME LLC".
+# The page text breaks the line around every inline tag ("©\n2026\n, \nAcme \nOutdoor\n \nLLC"); the name starts
+# right after the year, so its words may be on separate lines.
+_COPYRIGHT_ENTITY_RE = re.compile(
+    rf"(?:©|\([cC]\)|\b(?i:copyright)\b)(?:\s*©)?[\s,]*(?:\d{{4}}(?:\s*[-–]\s*\d{{4}})?[\s,]*)?"
+    rf"(?P<name>{_name(r'\s+')}),?\s+(?:{_FORM})(?![A-Za-z])"
+)
+# A company named anywhere else. Its words share a line: across lines, menu items and table labels ("About Us",
+# "Manufacturer") would join the name.
+_ENTITY_RE = re.compile(rf"\b(?P<name>{_name(r'[ \t]+')}),?[ \t]+(?:{_FORM})(?![A-Za-z])")
+# Sentence and label words that don't start a name ("Sold By Acme LLC", "We Are Not An LLC"); a name made only of
+# them ("Our Company LLC") is no name.
+_LEAD_WORDS = frozenset(
+    {"a", "an", "the", "we", "are", "is", "was", "not", "our", "your", "sold", "by", "from", "of", "with", "at", "why"}
+    | {"choose", "form", "forming", "become", "be", "copyright", "all", "rights", "reserved", "about", "us", "contact"}
+    | {"note", "operated", "owned", "powered", "built", "designed", "developed", "hosted", "website", "company"}
+    | {"business", "store", "shop", "brand", "seller", "vendor", "manufacturer", "co", "pte"}
+)
+# Platforms, payment providers and other services a shop's footer or cookie notice credits by their company name,
+# and their subsidiaries ("Google Ireland Ltd", "Amazon.com Services LLC").
+_SERVICES = frozenset(
+    {"shopify", "wix", "squarespace", "bigcommerce", "automattic", "wordpress", "woocommerce", "godaddy", "ecwid"}
+    | {"weebly", "magento", "square", "block", "paypal", "stripe", "klarna", "afterpay", "affirm", "sezzle", "visa"}
+    | {"mastercard", "discover", "american express", "adobe", "amazon", "google", "alphabet", "meta", "facebook"}
+    | {"instagram", "tiktok", "pinterest", "snap", "twitter", "x corp", "youtube", "microsoft", "apple", "salesforce"}
+    | {"klaviyo", "yotpo", "trustpilot", "cloudflare"}
+)
+_SUBSIDIARY_WORDS = frozenset(
+    {"ireland", "usa", "us", "uk", "europe", "eu", "international", "services", "payments", "commerce"}
+    | {"technologies", "platforms", "operations"}
+)
+# "Powered by Shopify Inc.", "Website by Pixel Studio LLC": a credit names the platform or agency, not the shop.
+_CREDIT_RE = re.compile(
+    r"\b(?:powered|built|designed|developed|hosted|website|site|theme|payments?|processed)\s+(?:by|with|on)\s*$",
+    re.IGNORECASE,
+)
+_WS_RE = re.compile(r"\s+")
+# Any capitalised words before a company form, across lines and including platforms: how eu_registry's imprint
+# equivalent has always read a company, kept as it is so the trained scorer's feature doesn't shift.
+_ANY_COMPANY_RE = re.compile(
+    rf"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){{0,4}}),?\s+(?:{_FORM})(?![A-Za-z])"
 )
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\d)")
 _MAX_TEXT = 200_000
@@ -60,13 +108,75 @@ def find_identity(text: str) -> Identity:
     """
     text = text[:_MAX_TEXT]
     addresses = [m.group().strip() for m in _ADDRESS_RE.finditer(text)][:10]
-    entity = next((m for m in _ENTITY_RE.finditer(text) if not m.group(1).startswith("The ")), None)
     return Identity(
         street_addresses=[a for a in addresses if not _MAILBOX_RE.search(a)],
         mailbox_addresses=[a for a in addresses if _MAILBOX_RE.search(a)],
-        entity=entity.group().strip() if entity else "",
+        entity=_entity(text),
         phone=_PHONE_RE.search(text) is not None,
     )
+
+
+def names_any_company(text: str) -> bool:
+    """
+    Whether the text names some company (LLC, Inc., Corp., Ltd.), not necessarily the shop's.
+
+    Broader than :func:`find_identity`'s ``entity``: platforms, sentence words and names reaching across lines
+    count. ``eu_registry`` reads an imprint's equivalent outside the EU this way.
+
+    :param text: Page text (only the first 200,000 characters are read).
+    :return: Whether a company is named.
+    """
+    return any(not m.group(1).startswith("The ") for m in _ANY_COMPANY_RE.finditer(text[:_MAX_TEXT]))
+
+
+def _entity(text: str) -> str:
+    """
+    The shop's company: from a copyright line if there is one (the surest place), else the first company named.
+
+    :param text: Page text.
+    :return: The company with its form ("Acme Outdoor LLC"), or empty if there is none.
+    """
+    for pattern in (_COPYRIGHT_ENTITY_RE, _ENTITY_RE):
+        for m in pattern.finditer(text):
+            if entity := _shop_company(text, m):
+                return entity
+    return ""
+
+
+def _shop_company(text: str, m: re.Match[str]) -> str:
+    """
+    The company a match names, without the words in front of it; empty if that is no name or not the shop's.
+
+    :param text: The text that was matched.
+    :param m: A match of a company pattern, with a ``name`` group.
+    :return: The company on one line ("Acme Outdoor LLC"), or empty.
+    """
+    words = list(re.finditer(r"\S+", m.group("name")))
+    lead = 0
+    while lead < len(words) and words[lead].group().strip(".,'").lower() in _LEAD_WORDS:
+        lead += 1
+    if lead == len(words):
+        return ""
+    if lead and words[lead - 1].group() == "The":  # "The Acme Company LLC" is a name of its own
+        lead -= 1
+    start = m.start("name") + words[lead].start()
+    if _is_service(text[start : m.end("name")]) or _CREDIT_RE.search(text[max(start - 40, 0) : start]):
+        return ""
+    return _WS_RE.sub(" ", text[start : m.end()]).replace(" ,", ",")
+
+
+def _is_service(name: str) -> bool:
+    """
+    Whether a company name is a platform, payment provider or other service, or one of their subsidiaries.
+
+    :param name: The name without its form ("Shopify", "Google Ireland").
+    :return: Whether it names a service rather than a shop.
+    """
+    name = _WS_RE.sub(" ", name).lower().removeprefix("the ").replace(".com", "").strip(" .,")
+    if name in _SERVICES:
+        return True
+    first, _, rest = name.partition(" ")
+    return first in _SERVICES and bool(rest) and set(rest.split()) <= _SUBSIDIARY_WORDS
 
 
 class UsIdentitySkill(Skill):
@@ -79,7 +189,7 @@ class UsIdentitySkill(Skill):
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Look for the company name, address and phone number in the page text and its legal snippets.
+        Look for the company name, address and phone number in the page text, its legal snippets and copyright lines.
 
         :param state: Current graph state; uses ``facts``, ``cleaned_content`` and ``url``.
         :return: The skill's features and findings.
@@ -87,7 +197,8 @@ class UsIdentitySkill(Skill):
         facts = state["facts"]
         if shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) != "us":
             return self.not_applicable("Not a US shop.")
-        found = find_identity(" ".join([state["cleaned_content"][:_MAX_TEXT], *facts.legal_mentions]))
+        parts = [state["cleaned_content"][:_MAX_TEXT], *facts.legal_mentions, *facts.copyright_lines]
+        found = find_identity(" ".join(parts))
         street, mailbox = found.street_addresses, found.mailbox_addresses
         features: dict[str, float | bool] = {
             "us_address": bool(street),

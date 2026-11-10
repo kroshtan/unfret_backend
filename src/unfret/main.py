@@ -64,6 +64,21 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
         await asyncio.sleep(interval_s)
 
 
+def use_postgres_stores(pool: asyncpg.Pool) -> None:
+    """
+    Keep store-level facts, prices, shop fingerprints, image prints and kept verdicts in Postgres.
+
+    They are then shared across restarts and workers (each defaults to an in-memory store).
+
+    :param pool: The database pool.
+    """
+    fact_cache.use_store(PostgresFactStore(pool))
+    price_store.use_store(price_store.PostgresPriceStore(pool))
+    shop_store.use_store(shop_store.PostgresShopStore(pool))
+    reverse_image.use_store(image_store.PostgresImageStore(pool))
+    verdict_store.use_store(verdict_store.PostgresVerdictStore(pool))
+
+
 @asynccontextmanager
 async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     """Build the analysis graph and open the DB pool for the duration of the app's life."""
@@ -75,12 +90,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
-    # Store-level facts persist in Postgres, shared across restarts and workers.
-    fact_cache.use_store(PostgresFactStore(api.db_pool))
-    price_store.use_store(price_store.PostgresPriceStore(api.db_pool))
-    shop_store.use_store(shop_store.PostgresShopStore(api.db_pool))
-    reverse_image.use_store(image_store.PostgresImageStore(api.db_pool))
-    verdict_store.use_store(verdict_store.PostgresVerdictStore(api.db_pool))
+    use_postgres_stores(api.db_pool)
     api.x402 = X402(settings)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)

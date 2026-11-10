@@ -12,6 +12,10 @@
 
 * `/checkout`: a failed card checkout re-enables the "Pay by card" button (it read `event.currentTarget` after an `await`, when it is already `null`)
 
+### Removed
+
+* `scripts/grant_credits.py`, which wrote a column renamed long ago (`balance_lamports`) and so no longer worked; grant an API key credit with `POST /v1/admin/keys/<key_id>/grant`
+
 ## [0.8.0](https://github.com/kroshtan/unfret_backend/compare/0.7.0...0.8.0) (2026-11-10)
 
 ### ⚠ BREAKING CHANGES

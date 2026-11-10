@@ -1,4 +1,8 @@
-"""The /v1/check route end to end over ASGI, with real transactions and a stubbed RPC (no database needed)."""
+"""
+The /v1/check route end to end over ASGI, with real transactions and a stubbed RPC (no database needed).
+
+Refunds as credits need the database: tests/integration/test_check_refunds.py.
+"""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -33,6 +37,8 @@ BODY = {"url": "https://shop.test/p/1", "page_content": "<h1>Earbuds</h1>", "tie
 
 
 class FakeGraph:
+    """One tier's graph; the quick and deep tiers each get their own, so a test sees which one ran."""
+
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.error: Exception | None = None
@@ -52,27 +58,41 @@ def rpc() -> FakeRpc:
 
 @pytest.fixture
 def graph() -> FakeGraph:
+    """The quick tier's graph (``BODY`` asks for quick)."""
     return FakeGraph()
 
 
 @pytest.fixture
-async def client(rpc: FakeRpc, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncClient]:
+def deep_graph() -> FakeGraph:
+    """The deep tier's graph: every skill."""
+    return FakeGraph()
+
+
+@pytest.fixture
+async def client(
+    rpc: FakeRpc, graph: FakeGraph, deep_graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[httpx.AsyncClient]:
     monkeypatch.setattr(app, "x402", make_x402(configured(HOT, COLD), rpc))
     monkeypatch.setattr(app, "quick_graph", graph)
-    monkeypatch.setattr(app, "graph", graph)
+    monkeypatch.setattr(app, "graph", deep_graph)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         yield c
 
 
-def paid_header(amount: int = 100_000) -> str:
+DEEP_LAMPORTS = 1_500_000  # $0.15 at $100/SOL (x402_helpers.CHECK_USD)
+
+
+def paid_header(amount: int = 100_000, *, offered: int = 100_000) -> str:
+    """A wSOL payment of ``amount`` answering an offer of ``offered`` lamports (the quick price by default)."""
     tx = sign_payment(payment_instructions(CLIENT.pubkey(), HOT.pubkey(), amount), HOT.pubkey(), [CLIENT])
-    return payment_header(tx, expected(HOT.pubkey()))
+    return payment_header(tx, expected(HOT.pubkey(), offered))
 
 
 async def test_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(app, "x402", make_x402(Settings(), FakeRpc()))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
-        assert (await c.post("/v1/check", json=BODY)).status_code == 503
+        response = await c.post("/v1/check", json=BODY)
+    assert (response.status_code, response.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
 
 
 async def test_unpaid_request_gets_402_with_requirements(client: httpx.AsyncClient, graph: FakeGraph) -> None:
@@ -124,7 +144,7 @@ async def test_failed_simulation_says_why(client: httpx.AsyncClient, rpc: FakeRp
 
 
 async def test_paid_request_settles_then_returns_verdict(
-    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, deep_graph: FakeGraph
 ) -> None:
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
 
@@ -140,7 +160,58 @@ async def test_paid_request_settles_then_returns_verdict(
     assert settlement["success"] is True
     assert settlement["payer"] == str(CLIENT.pubkey())
     assert len(rpc.sent) == 1
-    assert graph.calls[0]["page_content"] == BODY["page_content"]
+    assert [c["page_content"] for c in graph.calls] == [BODY["page_content"]]
+    assert deep_graph.calls == []  # the quick tier never runs the deep graph
+
+
+async def test_the_deep_tier_is_priced_as_deep_and_runs_the_deep_graph(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, deep_graph: FakeGraph
+) -> None:
+    body = {**BODY, "tier": "deep"}
+    wsol, usdc = decode_header((await client.post("/v1/check", json=body)).headers["PAYMENT-REQUIRED"])["accepts"]
+    assert (wsol["amount"], usdc["amount"]) == (str(DEEP_LAMPORTS), "150000")  # $0.15, not the quick tier's $0.01
+    assert (wsol["extra"]["tier"], usdc["extra"]["tier"]) == ("deep", "deep")
+
+    rpc.sim_delta = DEEP_LAMPORTS
+    header = paid_header(DEEP_LAMPORTS, offered=DEEP_LAMPORTS)
+    response = await client.post("/v1/check", json=body, headers={"PAYMENT-SIGNATURE": header})
+
+    assert response.status_code == 200
+    assert response.json()["tier"] == "deep"
+    assert [c["page_content"] for c in deep_graph.calls] == [BODY["page_content"]]
+    assert graph.calls == []
+
+
+async def test_the_quick_price_does_not_buy_a_deep_check(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, deep_graph: FakeGraph
+) -> None:
+    response = await client.post(
+        "/v1/check", json={**BODY, "tier": "deep"}, headers={"PAYMENT-SIGNATURE": paid_header()}
+    )
+
+    assert (response.status_code, response.json()["error_code"]) == (402, "PAYMENT_REQUIRED")
+    assert rpc.sent == []
+    assert graph.calls == deep_graph.calls == []
+
+
+async def test_nothing_is_charged_while_the_tier_has_no_graph(
+    client: httpx.AsyncClient, rpc: FakeRpc, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app, "quick_graph", None)  # e.g. before the lifespan built it
+    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
+    assert (response.status_code, response.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
+    assert rpc.sent == []
+
+
+async def test_no_price_no_offer(monkeypatch: pytest.MonkeyPatch, graph: FakeGraph) -> None:
+    # The oracle is stale (no wSOL quote) and the USDC account doesn't exist yet: nothing can be offered.
+    monkeypatch.setattr(app, "x402", make_x402(configured(HOT, COLD), FakeRpc(wsol=None), usd_per_sol=None))
+    monkeypatch.setattr(app, "quick_graph", graph)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
+        response = await c.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
+    assert (response.status_code, response.json()["error_code"]) == (503, "PRICE_UNAVAILABLE")
+    assert response.headers["Retry-After"] == "30"
+    assert graph.calls == []
 
 
 async def test_wrong_payment_is_refused_without_settling(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
@@ -174,7 +245,7 @@ async def test_payment_that_landed_differently_gets_no_analysis(
 
 async def test_malformed_payment_is_400(client: httpx.AsyncClient) -> None:
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": "%%%"})
-    assert response.status_code == 400
+    assert (response.status_code, response.json()["error_code"]) == (400, "INVALID_PAYMENT")
 
 
 async def test_a_retry_with_the_same_payment_gets_the_same_answer_once_paid(
@@ -210,23 +281,6 @@ async def test_a_refusal_before_payment_can_be_retried(
     assert (await client.post("/v1/check", json=BODY, headers=header)).status_code == 200
 
 
-async def test_an_unassessable_page_is_refunded(
-    client: httpx.AsyncClient, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    credited: list[tuple[str, int]] = []
-
-    async def credit(pool: object, payer: str, usd_micros: int) -> int:
-        credited.append((payer, usd_micros))
-        return usd_micros
-
-    monkeypatch.setattr("unfret.routes.check._credit", credit)
-    graph.score = -1
-    response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
-    assert response.status_code == 200
-    assert response.json()["refunded_usd_micros"] == 10_000
-    assert credited == [(str(CLIENT.pubkey()), 10_000)]
-
-
 async def test_a_bot_check_page_costs_nothing(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
     body = {
         **BODY,
@@ -244,7 +298,7 @@ async def test_check_is_rate_limited_per_visitor(client: httpx.AsyncClient, monk
 
 
 async def test_unfetchable_page_costs_nothing(
-    client: httpx.AsyncClient, rpc: FakeRpc, monkeypatch: pytest.MonkeyPatch
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def blocked(url: str, **_: object) -> bytes:
         raise httpx.ConnectError("blocked")
@@ -254,8 +308,9 @@ async def test_unfetchable_page_costs_nothing(
 
     response = await client.post("/v1/check", json=body, headers={"PAYMENT-SIGNATURE": paid_header()})
 
-    assert response.status_code == 422
+    assert (response.status_code, response.json()["error_code"]) == (422, "PAGE_UNAVAILABLE")
     assert rpc.sent == []
+    assert graph.calls == []
 
 
 async def test_failed_settlement_is_reported(client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph) -> None:
@@ -280,15 +335,16 @@ async def test_pending_settlement_returns_the_signature(client: httpx.AsyncClien
 async def test_analysis_failure_after_payment_says_so(client: httpx.AsyncClient, graph: FakeGraph) -> None:
     graph.error = RuntimeError("llm down")
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
-    assert response.status_code == 500
+    assert (response.status_code, response.json()["error_code"]) == (500, "INTERNAL_ERROR")
     assert "Payment settled" in response.json()["detail"]
     assert decode_header(response.headers["PAYMENT-RESPONSE"])["success"] is True
+    assert "refunded_usd_micros" not in response.json()  # no database here: no refund is claimed that wasn't made
 
 
 async def test_low_balance_refuses_payments(client: httpx.AsyncClient, rpc: FakeRpc) -> None:
     rpc.sol = 1
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
-    assert response.status_code == 503
+    assert (response.status_code, response.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
     assert rpc.sent == []
 
 

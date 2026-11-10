@@ -1,11 +1,11 @@
-import time
+import re
 from datetime import date
 
 import pytest
 
 from unfret.facts import PageFacts, parse_page
 from unfret.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
-from unfret.facts.extract import shopify_compare_at
+from unfret.facts.extract import _FEE_RE, _LEGAL_RE, shopify_compare_at
 
 
 @pytest.mark.parametrize(
@@ -148,10 +148,13 @@ def test_shopify_compare_at_integers_are_always_cents() -> None:
 
 
 def test_fee_and_legal_snippets_stay_linear_on_huge_pages() -> None:
+    # The keyword patterns hold no repeats (`*`, `+`, `{m,n}`): a leading `[^.]{0,80}` was retried from every
+    # character, which made huge pages take minutes. Without repeats each attempt is as short as the longest keyword;
+    # the sentence around a keyword is sliced out instead.
+    for pattern in (_FEE_RE, _LEGAL_RE):
+        assert re.search(r"[*+{]", pattern.pattern) is None, pattern.pattern[:60]
     text = "Lorem ipsum dolor. " * 40_000 + "A service fee of €2 applies. " + "Sit amet. " * 80_000
-    started = time.perf_counter()
     facts, _ = parse_page(f"<p>{text}</p>")
-    assert time.perf_counter() - started < 5
     assert facts.fee_mentions == ["A service fee of €2 applies"]
 
 

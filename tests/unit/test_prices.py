@@ -133,7 +133,7 @@ class AccountRpc(SolanaRpc):
 async def test_the_reader_caches_briefly_and_rechecks_age() -> None:
     rpc = AccountRpc(price_update(publish_time=NOW - 50))
     oracle = PythSolUsd(rpc, Pubkey.default(), max_age_s=60, max_conf_bps=100)
-    assert (await oracle.read(NOW)).usd_per_sol > 0
+    assert (await oracle.read(NOW)).usd_per_sol == Decimal("89.60736310")
     await oracle.read(NOW + 2)
     assert rpc.calls == 1  # cached
     with pytest.raises(PriceUnavailableError, match="stale"):

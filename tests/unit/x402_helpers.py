@@ -154,6 +154,7 @@ class FakeRpc(SolanaRpc):
         self.sim_logs: list[str] = []
         self.sim_inner: list[int] | None = None
         self.failed: set[str] = set()
+        self.unfinalized: set[str] = set()  # confirmed only: listed at "confirmed", not at "finalized" commitment
         self.statuses: dict[str, dict[str, Any]] = {}  # signature → getSignatureStatuses entry
         self.landed_delta: int | None = None
         self.landed_fee = 10_000
@@ -195,7 +196,8 @@ class FakeRpc(SolanaRpc):
         commitment: str = "finalized",
     ) -> list[dict[str, Any]]:
         """``signatures`` (newest first) as ``getSignaturesForAddress`` pages them; ``failed`` ones carry an error."""
-        page = list(self.signatures)
+        assert commitment in {"confirmed", "finalized"}
+        page = [s for s in self.signatures if commitment == "confirmed" or s not in self.unfinalized]
         if until in page:
             page = page[: page.index(until)]
         if before in page:

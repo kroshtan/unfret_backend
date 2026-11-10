@@ -166,8 +166,7 @@ def test_quick_tier_computes_every_feature_of_the_full_model_or_ships_its_own() 
     # Scoring a feature the tier never computed as 0 reads "never checked" as "absent". Either the quick tier covers
     # every feature of the shipped model, or a quick-tier model (evals.train --quick) must be shipped.
     model = _LOAD_MODEL.__wrapped__(scoring.MODEL_PATH)
-    if model is None:
-        pytest.skip("no model shipped")
+    assert model is not None, "the model ships in the repo"
     computed = {f"{s.name}.{f}" for s in skills_for("quick", SKILLS) for f in s.features}
     missing = set(model.features) - computed
     assert not missing or scoring.MODEL_QUICK_PATH.exists(), f"quick tier lacks {sorted(missing)}"

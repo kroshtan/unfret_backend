@@ -1,11 +1,13 @@
 from collections.abc import AsyncIterator
 
 import httpx
+import pytest
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from unfret import middleware
 from unfret.middleware import _BODY_HEADROOM_BYTES, RequestGuardMiddleware
 
 LIMIT = 1_000
@@ -20,12 +22,14 @@ def client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
 
-async def test_accepts_small_body_and_times_it() -> None:
+async def test_accepts_small_body_and_times_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = iter([100.0, 100.25])  # the request starts, then its response starts a quarter second later
+    monkeypatch.setattr(middleware, "perf_counter", lambda: next(clock))
     async with client() as c:
         response = await c.post("/", content=b"x" * 10)
     assert response.status_code == 200
     assert response.json() == {"received": 10}
-    assert float(response.headers["x-process-time"]) >= 0
+    assert response.headers["x-process-time"] == "0.250"  # seconds
 
 
 async def test_rejects_oversized_content_length() -> None:

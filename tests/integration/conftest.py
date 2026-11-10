@@ -8,6 +8,7 @@ import pytest
 from pydantic import SecretStr
 from solders.keypair import Keypair
 
+from tests.conftest import unavailable
 from unfret import result_cache
 from unfret.config import settings
 from unfret.credits import siws
@@ -53,9 +54,9 @@ class FakeGraph:
 
 @pytest.fixture
 async def pool() -> AsyncIterator[asyncpg.Pool]:
-    """Fresh schema per test. Integration tests are skipped when no test database is configured."""
+    """Fresh schema per test. Without a test database integration tests are skipped (and fail in CI)."""
     if not POSTGRES_URI:
-        pytest.skip("UNFRET_TEST_POSTGRES_URI not set")
+        unavailable("UNFRET_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
     await pool.execute(DROP_ALL)
     await init_db(pool)
@@ -72,7 +73,8 @@ def graph() -> FakeGraph:
 async def client(
     pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[httpx.AsyncClient]:
-    # Bypass the lifespan (which builds the real graph) and inject test doubles; sign-in on, purchases off.
+    # Bypass the lifespan (which builds the real graph) and inject test doubles; sign-in on, purchases off. The
+    # app's attributes are put back after the test (tests/conftest.py, restore_app_state).
     monkeypatch.setattr(settings, "session_secret", SecretStr(SESSION_SECRET))
     app.db_pool = pool
     app.graph = graph  # type: ignore[assignment]
@@ -81,7 +83,6 @@ async def client(
     result_cache.clear()
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client
-    app.credits = None
 
 
 def bearer(address: str) -> dict[str, str]:

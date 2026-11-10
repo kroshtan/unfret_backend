@@ -139,7 +139,7 @@ async def test_the_quick_judge_warns_only_on_something_concrete(monkeypatch: pyt
 
     assert quick["assessment"]["confidence"] > 0.5
     assert quick["verdict"]["band"] == "concerns"
-    assert deep["verdict"]["band"] in {"careful", "junk_or_scam"}
+    assert deep["verdict"]["band"] == "junk_or_scam"  # the deep tier goes by the score alone
 
 
 # ── The whole graph on the fetched page, with the shipped scorer ─────────────
@@ -161,8 +161,7 @@ MISREAD = _Signals(generic_brand=1.0, generic_product=0.5, missing_trust_info=0.
 
 async def _check(monkeypatch: pytest.MonkeyPatch, signals: _Signals) -> tuple[dict[str, Any], list[Any]]:
     model = _LOAD_MODEL.__wrapped__(scoring.MODEL_PATH)
-    if model is None:
-        pytest.skip("no model shipped")
+    assert model is not None, "the model ships in the repo"
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: model)
     monkeypatch.setattr(settings, "fingerprints", False)
     monkeypatch.setattr(nodes, "get_structured_llm", lambda schema: pytest.fail("no other LLM call"))
@@ -195,7 +194,7 @@ async def test_allbirds_is_a_storefront_product_page_and_not_flagged(monkeypatch
     assert "Brand: Allbirds" in prompts[0][1].content  # the content read is told whose shoe it is
     verdict = to_verdict(result, policy="balanced", tier="quick")
     assert verdict.action == "allow"
-    assert verdict.band in {"reliable", "concerns"}
+    assert verdict.band == "reliable"  # a retrained model that moves this needs a look, not a wider assert
     assert "no_imprint" not in {f.type for f in verdict.flags}
 
 

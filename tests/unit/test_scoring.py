@@ -94,8 +94,7 @@ def test_load_model_reads_an_artifact(tmp_path: Path) -> None:
 
 def test_shipped_artifact_matches_the_skills() -> None:
     model = _LOAD_MODEL()
-    if model is None:
-        pytest.skip("no model shipped")
+    assert model is not None, "the model ships in the repo"
     declared = {f"{s.name}.{f}" for s in SKILLS for f in s.features}
     assert set(model.features) <= declared  # every model feature is still produced by a skill
 

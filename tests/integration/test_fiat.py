@@ -51,7 +51,8 @@ async def checkout(client: httpx.AsyncClient, key_id: str, checks: int = 25) -> 
 
 async def test_fiat_is_off_without_a_provider(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     issued = await keys.create(pool)
-    assert (await checkout(client, issued.key_id)).status_code == 503
+    refused = await checkout(client, issued.key_id)
+    assert (refused.status_code, refused.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
     assert (await client.get("/v1/pricing")).json()["fiat"] == {"available": False, "min_usd_micros": 6_000_000}
 
 
@@ -59,7 +60,12 @@ async def test_card_payments_buy_packs_only(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    assert (await checkout(client, issued.key_id, 10)).status_code == 400
+    odd = await checkout(client, issued.key_id, 10)
+    assert (odd.status_code, odd.json()["error_code"], odd.json()["detail"]) == (
+        400,
+        "BAD_REQUEST",
+        "Not a pack size.",
+    )
     started = await checkout(client, issued.key_id, 25)
     assert started.status_code == 200
     assert "amount=600&" in started.json()["checkout_url"]  # the 25-pack by card: $6.00
@@ -113,7 +119,7 @@ async def test_partial_refunds_debit_pro_rata_and_may_go_negative(
     assert [r.json()["status"] for r in (quarter, again, half)] == ["debited", "unchanged", "debited"]
     assert await balance(pool, issued.account) == 1_000_000 - 10_000_000  # half of $20, the balance below zero
     analysis = await client.post("/v1/analyze", json=PAGE, headers={"Authorization": f"Bearer {issued.key}"})
-    assert analysis.status_code == 402  # a negative balance blocks paid use
+    assert (analysis.status_code, analysis.json()["error_code"]) == (402, "INSUFFICIENT_CREDITS")  # negative: blocked
     assert (await client.get("/v1/credits", headers={"Authorization": f"Bearer {issued.key}"})).json()[
         "checks_remaining"
     ] == 0
@@ -152,7 +158,11 @@ async def test_forged_stale_or_unplaceable_webhooks(
     )
     refund = await send(client, provider, order("order.refunded", "ord_unknown", refunded_amount=100))
 
-    assert [r.status_code for r in (forged, tampered, stale)] == [400, 400, 400]
+    for rejected in (forged, tampered, stale):  # each fails one check only: a broken check would let it through
+        assert (rejected.status_code, rejected.json()) == (
+            400,
+            {"detail": "Webhook rejected.", "error_code": "BAD_REQUEST"},
+        )
     assert wallet.json() == {"status": "unknown_account"}  # fiat tops up API keys only
     assert refund.json() == {"status": "unknown_order"}
     assert await balance(pool, issued.account) is None
@@ -258,7 +268,7 @@ async def test_polar_checkout_failure_is_a_503(client: httpx.AsyncClient, pool: 
         response = await checkout(client, issued.key_id, 25)
     finally:
         app.fiat = None
-    assert response.status_code == 503
+    assert (response.status_code, response.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
     assert await pool.fetchval("SELECT COUNT(*) FROM fiat_checkouts") == 0
 
 

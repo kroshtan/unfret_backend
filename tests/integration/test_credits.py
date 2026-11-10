@@ -48,14 +48,22 @@ def transfer(source: str, destination: str, lamports: int, *, inner: bool = Fals
 
 
 class ChainRpc:
-    """A fake RPC over an ordered list of (signature, transaction), oldest first."""
+    """
+    A fake RPC over an ordered list of (signature, transaction), oldest first.
+
+    Transactions in ``unfinalized`` are only confirmed: listed at ``confirmed`` commitment, not at ``finalized``.
+    Fetching a transaction at anything but ``finalized`` fails the test: the scanner credits finalized ones only.
+    """
 
     def __init__(self) -> None:
         self.chain: list[tuple[str, dict[str, Any] | None, Any]] = []
         self.history: list[dict[str, Any]] = []
+        self.unfinalized: set[str] = set()
 
-    def add(self, signature: str, tx: dict[str, Any] | None, err: Any = None) -> None:
+    def add(self, signature: str, tx: dict[str, Any] | None, err: Any = None, *, finalized: bool = True) -> None:
         self.chain.append((signature, tx, err))
+        if not finalized:
+            self.unfinalized.add(signature)
 
     async def signature_page(
         self,
@@ -68,13 +76,22 @@ class ChainRpc:
     ) -> list[dict[str, Any]]:
         if str(address) != str(HOT.pubkey()):
             return self.history[:limit]
-        newest_first = [{"signature": s, "err": e, "blockTime": 1} for s, _, e in reversed(self.chain)]
+        assert commitment in {"confirmed", "finalized"}
+        newest_first = [
+            {"signature": s, "err": e, "blockTime": 1}
+            for s, _, e in reversed(self.chain)
+            if commitment == "confirmed" or s not in self.unfinalized
+        ]
         sigs = [e["signature"] for e in newest_first]
         start = sigs.index(before) + 1 if before else 0
         end = sigs.index(until) if until in sigs else len(sigs)
         return newest_first[start:end][:limit]
 
     async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
+        if commitment != "finalized":
+            pytest.fail(f"the scanner fetched {signature} at {commitment!r} commitment: credits need finalized")
+        if signature in self.unfinalized:
+            return None
         return next((tx for s, tx, _ in self.chain if s == signature), None)
 
     async def latest_blockhash(self) -> str:
@@ -247,12 +264,25 @@ async def test_buyers_outside_the_eu_pay_no_vat(client: httpx.AsyncClient, shop:
     assert (reply["price"]["country"], reply["price"]["vat_usd_micros"], reply["amount"]) == ("US", 0, 10_000_000)
 
 
-@pytest.mark.parametrize(("checks", "country"), [(10, "NL"), (26, "NL"), (25, "XX"), (25, "N1")])
+@pytest.mark.parametrize(
+    ("checks", "country", "detail"),
+    [
+        (10, "NL", "Not a pack size."),
+        (26, "NL", "Not a pack size."),
+        (25, "XX", "Not a country code (ISO 3166 alpha-2)."),
+        (25, "N1", "Not a country code (ISO 3166 alpha-2)."),
+    ],
+)
 async def test_only_packs_and_real_countries(
-    client: httpx.AsyncClient, shop: ChainRpc, checks: int, country: str
+    client: httpx.AsyncClient, shop: ChainRpc, checks: int, country: str, detail: str
 ) -> None:
     body = {"address": str(Keypair().pubkey()), "checks": checks, "country": country}
-    assert (await client.post("/v1/credits/purchase-tx", json=body)).status_code in {400, 422}
+    response = await client.post("/v1/credits/purchase-tx", json=body)
+    assert (response.status_code, response.json()["error_code"], response.json()["detail"]) == (
+        400,
+        "BAD_REQUEST",
+        detail,
+    )
 
 
 async def test_amounts_are_gone(client: httpx.AsyncClient, shop: ChainRpc) -> None:
@@ -369,6 +399,20 @@ async def test_scanner_waits_for_unretrievable_transactions(pool: asyncpg.Pool) 
     rpc.chain[1] = ("t2", transfer("dave", str(HOT.pubkey()), 4_000_000), None)
     assert await scanner.scan_once() == 2
     assert await balance(pool, "dave") == net(1_000_000) + net(4_000_000) + net(2_000_000)
+
+
+async def test_scanner_credits_only_finalized_transfers(pool: asyncpg.Pool) -> None:
+    rpc = ChainRpc()
+    scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
+    await scanner.initialise()
+    rpc.add("t1", transfer("frank", str(HOT.pubkey()), 1_000_000))
+    rpc.add("t2", transfer("frank", str(HOT.pubkey()), 2_000_000), finalized=False)  # confirmed: may still drop
+
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, "frank") == net(1_000_000)
+    rpc.unfinalized.clear()
+    assert await scanner.scan_once() == 1
+    assert await balance(pool, "frank") == net(1_000_000) + net(2_000_000)
 
 
 async def test_two_scanners_never_double_credit(pool: asyncpg.Pool) -> None:

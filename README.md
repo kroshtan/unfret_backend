@@ -143,8 +143,9 @@ and a page it can't read (an error, a shop that refuses automatic visitors, a bo
 browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
 share target; the sign-in or API key is kept in the browser until sign-out, and there is no history.
 
-There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant credits by hand with
-`uv run scripts/grant_credits.py <pubkey> --checks <n>`.
+There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant an API key credit by
+hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at
+most $10 a grant, with the admin token.
 
 **Invites** (`src/unfret/credits/invites.py`): every credited pack comes with invite codes to give away, one per 25
 checks (25 → 1, 50 → 2, 100 → 4), each worth 3 checks, so the 25-pack brings 28 checks in all. An account that never
@@ -369,11 +370,12 @@ cp .env.example .env       # add your UNFRET_LLM_API_KEY
 docker compose up --build  # API on http://localhost:8080, Postgres alongside
 ```
 
-Set `UNFRET_SESSION_SECRET` (e.g. `openssl rand -hex 32`), sign in with a wallet at
-`http://localhost:8080/connect`, give it credits and analyse a page with the session token:
+Set `UNFRET_SESSION_SECRET` and `UNFRET_ADMIN_TOKEN` (e.g. `openssl rand -hex 32` each), create an API key at
+`http://localhost:8080/checkout` (`TOKEN` below; a key is `ufk_<key_id>_<secret>`), give it credits and analyse a page:
 
 ```bash
-uv run scripts/grant_credits.py <your wallet address> --checks 10
+curl -X POST localhost:8080/v1/admin/keys/<key_id>/grant -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" -d '{"usd_micros": 2000000}'
 
 curl -s https://example-shop.com/product/123 > page.html
 jq -n --rawfile html page.html '{page_content: $html, url: "https://example-shop.com/product/123"}' \

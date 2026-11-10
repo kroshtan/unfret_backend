@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.0](https://github.com/kroshtan/veridex_backend/compare/0.6.0...0.7.0) (2026-11-10)
+
 ### ⚠ BREAKING CHANGES
 
 * **No free trial**: a wallet's first sign-in no longer grants free checks; every new account (wallet or API key) starts at zero and buys a pack. `/v1/pricing` loses `trial_checks`, and the `VERIDEX_TRIAL_*` settings (checks, wallet age, signatures, per-visitor limit, daily cap) are gone, with the on-chain history lookup and the in-memory limiter that served only the trial. Balances already granted stay. The `wallets.trial_granted` column (migration 5) is left in place, unused. The home page no longer mentions a trial. The reward of 3 checks for a good report is unchanged

@@ -427,19 +427,20 @@ and kamal-proxy), each with its own service, database accessory, hot wallet and 
 
 **Releasing to production:**
 
-1. Merge to `main`, and let it deploy to dev. Test it there.
-2. Bump the version and changelog, then tag the commit that ran on dev: `git tag v0.6.0 <sha> && git push origin v0.6.0`.
-3. In Forgejo: **Actions → Deploy production → Run workflow**, with `ref` = the tag.
+1. Bump the version and changelog (`make bump VERSION=x.y.z`) in a PR, merge it to `main`, and let it deploy to dev.
+   Test it there.
+2. In Forgejo: **Actions → Deploy production → Run workflow**, leaving `ref` at `main`. It deploys main's newest
+   commit and tags it `v<version>`; if that tag already names another commit, it stops (bump the version first).
 
 The production workflow refuses unless:
-- the tag's commit is on `main`;
+- the commit is on `main`;
 - its `CI / check` and `CI / deploy-dev` statuses are green;
 - every production secret is set, and the RPC URL isn't a test network.
 
 It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
 rebuild. Deploys never run in parallel and are never cancelled half-way.
 
-**Rolling back production:** run the workflow again with the previous release tag. The one-time move of
+**Rolling back production:** run the workflow again with `ref` = the previous release tag (e.g. `v0.7.0`). The one-time move of
 `unfret.kroshtan.com` from the pre-split devnet deployment to production is in
 [docs/production-cutover.md](docs/production-cutover.md).
 

@@ -153,7 +153,7 @@ def test_fake_discount_reasons() -> None:
 
     assert "was_never_charged" in types and "big_discount" not in types and "implausible_discount" not in types
     never = next(r for r in verdict.reasons if r.type == "was_never_charged")
-    assert "€19.95" in never.detail
+    assert never.detail == "This product sold for €19.95 in the past 30 days, yet the 'was' price is €79.95."
 
 
 def test_strongest_reasons_first_and_groups_collapse() -> None:

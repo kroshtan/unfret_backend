@@ -14,6 +14,7 @@
 
 ### Bug fixes
 
+* The "'Was' price never charged" reason named the wrong prices: it read the first two numbers of the pricing evidence, the "30" of "the last 30 days" and the 30-day low, so a €79.95 "was" price against a €19.95 low read "sold for €30.00 …, yet the 'was' price is €19.95". It now reads the two prices
 * `/checkout`: a failed card checkout re-enables the "Pay by card" button (it read `event.currentTarget` after an `await`, when it is already `null`)
 
 ### Removed

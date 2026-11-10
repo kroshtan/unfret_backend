@@ -355,7 +355,8 @@ def _pressure(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Fake discounts: implausible depth, reference-price anchors, endless sales, a 'was' price never charged."""
     if e.f("pricing.was_above_30d_low") >= 1 and (seen := e.first("was_never_charged")):
-        low, was = _NUMBERS_RE.findall(seen.evidence)[:2] or ("?", "?")
+        # "Lowest price in the last 30 days: 19.95; 'was' price: 79.95.": the prices are the last two numbers.
+        low, was = _NUMBERS_RE.findall(seen.evidence)[-2:] or ("?", "?")
         fired["was_never_charged"] = {"low": e.money(low), "was": e.money(was)}
     if e.f("pricing.implausible_discount") >= 1:
         fired["implausible_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}

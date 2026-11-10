@@ -19,6 +19,6 @@ def test_explain_flag_known_and_unknown() -> None:
 
 def test_settings_read_the_unfret_names(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("UNFRET_API_URL", raising=False)
-    assert server_module._api_url() == "https://unfret.kroshtan.com"
+    assert server_module._api_url() == "https://unfret.net"
     monkeypatch.setenv("UNFRET_API_URL", "https://new.example/")
     assert server_module._api_url() == "https://new.example"

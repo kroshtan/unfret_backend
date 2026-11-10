@@ -124,7 +124,7 @@ purchases are sold by the payment provider, which handles their tax.
 
 **Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a pack for the buyer's country and stores that as
 a quote; the transaction's memo is `unfret:quote:<id>`, so the scanner credits the right account (the payer, another
-wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.kroshtan.com/checkout) does it from a
+wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.net/checkout) does it from a
 browser wallet or a phone. A background scanner walks the hot wallet's finalized transactions (a second one its USDC
 account) and credits every incoming transfer, top-level or inside a program call: what arrived (USDC at face value,
 SOL at its dollar value at crediting time, Pyth SOL/USD, rounded down; it waits rather than guesses while the price is
@@ -134,12 +134,12 @@ quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an
 the older `unfret:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each
 transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored.
 
-[`/connect`](https://unfret.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
+[`/connect`](https://unfret.net/connect) signs a wallet in and hands the session to the browser extension
 (`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
 strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs one check ($0.20),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
-[`/check`](https://unfret.kroshtan.com/check) is the link checker for phones and browsers without the extension: it
+[`/check`](https://unfret.net/check) is the link checker for phones and browsers without the extension: it
 sends only the link (`POST /v1/analyze/stream` with `{"url"}`), the server fetches the page itself before charging,
 and a page it can't read (an error, a shop that refuses automatic visitors, a bot check, an empty shell that needs a
 browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
@@ -408,7 +408,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
 | `UNFRET_POSTGRES_URI` | `postgresql://unfret:unfret@localhost:5432/unfret` | Tables are created on startup |
 | `UNFRET_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
-| `UNFRET_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |
+| `UNFRET_SIWS_DOMAIN` | `unfret.net` | Sign-in messages must be bound to this domain |
 | `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
@@ -467,7 +467,7 @@ wallet and session secret:
 
 | | dev | production |
 | --- | --- | --- |
-| URL | https://dev.unfret.kroshtan.com | https://unfret.kroshtan.com |
+| URL | https://dev.unfret.net | https://unfret.net |
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |

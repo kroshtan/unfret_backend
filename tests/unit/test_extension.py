@@ -138,7 +138,7 @@ async def test_update_manifest_points_at_this_server(
     response = await client.get("/extension/updates.xml")
 
     assert f"codebase='https://dev.example.test/extension/{release.crx}'" in response.text
-    assert "unfret.kroshtan.com" not in response.text
+    assert "unfret.net" not in response.text
 
 
 async def test_unfret_dev_has_its_own_manifest_and_package(
@@ -214,7 +214,7 @@ def test_linux_policy_command_force_installs_from_this_server() -> None:
     assert command == (
         "sudo mkdir -p /etc/brave/policies/managed && echo "
         '\'{"ExtensionInstallForcelist":["abcdefghijklmnopabcdefghijklmnop;'
-        "https://unfret.kroshtan.com/extension/updates.xml\"]}' "
+        "https://unfret.net/extension/updates.xml\"]}' "
         "| sudo tee /etc/brave/policies/managed/unfret.json > /dev/null"
     )
 
@@ -255,7 +255,7 @@ def test_a_release_is_found_with_its_zip(tmp_path: Path) -> None:
     (tmp_path / "updates.xml").write_text(
         "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>"
         "<app appid='abcdefghijklmnopabcdefghijklmnop'><updatecheck "
-        "codebase='https://unfret.kroshtan.com/extension/unfret-1.2.3.crx' version='1.2.3'/></app></gupdate>"
+        "codebase='https://unfret.net/extension/unfret-1.2.3.crx' version='1.2.3'/></app></gupdate>"
     )
     (tmp_path / "SHA256SUMS").write_text("")
     (tmp_path / "unfret-1.2.3.crx").write_bytes(b"crx")

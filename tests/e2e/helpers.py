@@ -28,7 +28,7 @@ from unfret_mcp.solana import USDC_MINTS, associated_token_address, transfer_che
 
 from unfret.credits.fiat import sign_standard_webhook
 
-DEV_URL = "https://dev.unfret.kroshtan.com"
+DEV_URL = "https://dev.unfret.net"
 DEVNET_RPC = "https://api.devnet.solana.com"
 DEVNET_CAIP2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"

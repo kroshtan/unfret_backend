@@ -1,8 +1,10 @@
-# dev: dev.unfret.kroshtan.com on Solana devnet (test money only). Deployed automatically by CI on every push to
+# dev: dev.unfret.net on Solana devnet (test money only). Deployed automatically by CI on every push to
 # main (.forgejo/workflows/ci.yaml, job deploy-dev). Secrets: .kamal/secrets-common + .kamal/secrets.dev, fed from
 # the DEV_* repo secrets.
 proxy:
   hosts:
+    - dev.unfret.net
+    # The old name, until the forge's Caddy redirects it to dev.unfret.net (forge-infra); then remove it.
     - dev.unfret.kroshtan.com
 
 env:
@@ -12,8 +14,8 @@ env:
     UNFRET_SOLANA_NETWORK: solana-devnet
     UNFRET_SOLANA_RPC_URL: https://api.devnet.solana.com
     UNFRET_X402_ALLOW_MAINNET: "false"
-    UNFRET_SIWS_DOMAIN: dev.unfret.kroshtan.com
-    UNFRET_PUBLIC_BASE_URL: https://dev.unfret.kroshtan.com
+    UNFRET_SIWS_DOMAIN: dev.unfret.net
+    UNFRET_PUBLIC_BASE_URL: https://dev.unfret.net
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI

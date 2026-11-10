@@ -14,7 +14,7 @@ from unfret.x402.solana import MEMO_PROGRAM
 
 SECRET = "unit-secret"
 NOW = 1_800_000_000.0
-DOMAIN = "unfret.kroshtan.com"
+DOMAIN = "unfret.net"
 
 
 def signed(keypair: Keypair, **overrides: str) -> tuple[bytes, bytes]:
@@ -23,7 +23,7 @@ def signed(keypair: Keypair, **overrides: str) -> tuple[bytes, bytes]:
         "domain": DOMAIN,
         "address": str(keypair.pubkey()),
         "statement": siws.STATEMENT,
-        "uri": "https://unfret.kroshtan.com",
+        "uri": "https://unfret.net",
         "version": "1",
         "nonce": nonce,
         "issued_at": "2027-01-15T08:00:00Z",
@@ -55,7 +55,7 @@ def test_a_valid_sign_in_returns_the_address() -> None:
 def test_wallet_added_optional_fields_are_tolerated() -> None:
     keypair = Keypair()
     message, _ = signed(keypair)
-    extended = message + b"\nRequest ID: 42\nResources:\n- https://unfret.kroshtan.com"
+    extended = message + b"\nRequest ID: 42\nResources:\n- https://unfret.net"
     assert verify(keypair, extended, bytes(keypair.sign_message(extended))) == str(keypair.pubkey())
 
 

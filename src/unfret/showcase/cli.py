@@ -15,7 +15,7 @@ Commands::
     title ID TEXT               change the title shown
 
 Usage: ``make showcase ARGS="add https://…"`` (or ``uv run python -m unfret.showcase …``). Environment:
-``UNFRET_URL`` (default https://unfret.kroshtan.com) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE``
+``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE``
 (default ``~/kroshtan_secrets/unfret-prod-admin-token``), as for ``make reports``.
 """
 
@@ -28,7 +28,7 @@ from typing import Any
 
 import httpx
 
-DEFAULT_URL = "https://unfret.kroshtan.com"
+DEFAULT_URL = "https://unfret.net"
 # A full analysis may take up to the service's analysis timeout (90 s by default), plus the page fetch.
 ADD_TIMEOUT_S = 180.0
 

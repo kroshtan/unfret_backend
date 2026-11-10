@@ -17,7 +17,7 @@ When the model was right (the score inside the label's zone), the page can be pr
 the report (its result, text or reporter) goes into the case. Review and publish it with ``make showcase``.
 
 Usage: ``make reports`` (or ``uv run python -m evals.reports``). Environment: ``UNFRET_URL`` (default
-https://unfret.kroshtan.com) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE`` (default
+https://unfret.net) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE`` (default
 ``~/kroshtan_secrets/unfret-prod-admin-token``).
 """
 
@@ -138,7 +138,7 @@ def offer_promotion(api: httpx.Client, item: dict[str, Any], gap: int) -> None:
 
 def main() -> None:
     """Command-line entry point."""
-    base = os.getenv("UNFRET_URL", "https://unfret.kroshtan.com").rstrip("/")
+    base = os.getenv("UNFRET_URL", "https://unfret.net").rstrip("/")
     corpus = Corpus()
     with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {_token()}"}, timeout=30) as api:
         queue = api.get("/v1/admin/reports", params={"limit": 200})

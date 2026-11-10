@@ -2,7 +2,7 @@
 MCP server exposing Unfret's pay-per-check store risk API as tools for AI shopping agents.
 
 Configuration (environment):
-    UNFRET_API_URL                    default https://unfret.kroshtan.com
+    UNFRET_API_URL                    default https://unfret.net
     UNFRET_MCP_KEYPAIR                path to the agent's Solana CLI keypair JSON (or UNFRET_MCP_SECRET_KEY, base58)
     UNFRET_MCP_NETWORK                solana-devnet (default) or solana-mainnet
     UNFRET_MCP_RPC_URL                defaults to the public RPC of that network
@@ -94,7 +94,7 @@ def payer() -> Payer:
 
 
 def _api_url() -> str:
-    return (_env("API_URL") or "https://unfret.kroshtan.com").rstrip("/")
+    return (_env("API_URL") or "https://unfret.net").rstrip("/")
 
 
 @server.tool()

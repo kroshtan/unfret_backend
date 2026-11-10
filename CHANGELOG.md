@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### ⚠ BREAKING CHANGES
+
+* **Unfret moves to unfret.net**: production is https://unfret.net and dev https://dev.unfret.net. `UNFRET_PUBLIC_BASE_URL` and `UNFRET_SIWS_DOMAIN` follow (sign-in messages name `unfret.net`, so sessions signed for the old name no longer verify: sign in again), as do the settings' defaults, the MCP server's default `UNFRET_API_URL`, the e2e sweep's target and the production gate. Kamal still routes the old names (`unfret.kroshtan.com`, `dev.unfret.kroshtan.com`) to the same containers until the forge's Caddy redirects them to the new ones; then they are removed here. Polar's webhook moves to `https://unfret.net/v1/webhooks/fiat`
+
 ## [0.9.3](https://github.com/kroshtan/unfret_backend/compare/0.9.2...0.9.3) (2026-11-10)
 
 ### Changed

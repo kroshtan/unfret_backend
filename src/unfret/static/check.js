@@ -4,7 +4,8 @@
 // such and never as a verdict.
 //
 // What this page keeps, in localStorage: only the sign-in (a wallet's session token or an API key) until sign-out.
-// No history: the link lives in the text field and in memory for the one check. A shared link (/check?url=… or,
+// No history: the link lives in the text field and in memory for the one check (and goes into a shared result
+// only when the shopper shares it, after a preview). A shared link (/check?url=… or,
 // via the service worker, /check#url=…) is read here and removed from the address bar at once.
 import {
   BAND_SYMBOL,
@@ -47,7 +48,8 @@ let expired = false;
 let checks = null;
 let pricing = null;
 let running = null; // the AbortController of the check in progress
-let last = null; // { body, result } of the check on screen, for a report
+let last = null; // { body, result } of the check on screen, for a report or a share
+let preview = null; // what sharing the check on screen would make public
 
 // ── Storage (try/catch: private modes and blocked storage must still work, just without remembering) ───────
 
@@ -319,6 +321,7 @@ function renderResult(result) {
   $("report-open-row").hidden = false;
   $("report").hidden = true;
   $("report-status").hidden = true;
+  resetShare(result);
   const reward = pricing?.reports?.reward_checks;
   if (reward) {
     $("report-consent").textContent =
@@ -511,6 +514,132 @@ function reportReason() {
   return document.querySelector('#report input[name="reason"]:checked')?.value;
 }
 
+// ── "Share this result" ──────────────────────────────────────────────────────────────────────────────────
+// Sent without the sign-in (no Authorization header): nothing on the shared page, or kept with it, says who checked.
+// The server shows a preview of exactly what becomes public first; only "Share" stores it.
+
+const SHARE_ERROR = {
+  CHECKOUT_NOT_SHAREABLE: "A check that included a checkout page can't be shared.",
+  SHARE_TOKEN_EXPIRED: "This check is too old to share; check the link again first.",
+  BAD_SHARE_TOKEN: "This result can't be shared; check the link again first.",
+  NOT_SHAREABLE: "This result can't be shared.",
+};
+
+function shareStatus(text) {
+  $("share-status").textContent = text;
+  $("share-status").hidden = !text;
+}
+
+function resetShare(result) {
+  preview = null;
+  $("share-area").hidden = !result.share_token;
+  $("share-open-row").hidden = false;
+  $("share-preview").hidden = true;
+  $("share-done").hidden = true;
+  $("share-code").textContent = "";
+  shareStatus("");
+}
+
+function shareBody() {
+  const { score, explanation, assessment, verdict, share_token } = last.result;
+  return { share_token, url: last.body.url, result: { score, explanation, assessment, verdict } };
+}
+
+async function postShare(path) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(shareBody()),
+    cache: "no-store",
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+function shareFailed(error) {
+  if (error?.status === 429) return shareStatus("Too many shares from here for now; please try again later.");
+  shareStatus(SHARE_ERROR[error?.code] ?? "Sharing isn't available right now. Please try again later.");
+}
+
+async function openShare() {
+  if (!last?.result?.share_token) return;
+  $("share-open").disabled = true;
+  shareStatus("Preparing the preview…");
+  try {
+    preview = await postShare("/v1/shares/preview");
+    const { nodes, details } = resultNodes(preview.result, {
+      band: preview.band,
+      label: preview.label,
+      symbol: preview.symbol,
+    });
+    const meta = el("p", "case-meta");
+    meta.append(el("span", "host", preview.host), document.createTextNode(" · "), el("span", "share-link", preview.product_url));
+    $("share-preview-body").replaceChildren(
+      el("p", "case-title", preview.title),
+      meta,
+      el("p", "muted small", `Checked by an Unfret user on ${preview.checked_on_text}; the page may have changed.`),
+      ...nodes,
+      ...(details ? [details] : []),
+    );
+    $("share-notice").replaceChildren(el("strong", undefined, preview.notice));
+    $("share-open-row").hidden = true;
+    $("share-preview").hidden = false;
+    shareStatus("");
+  } catch (error) {
+    shareFailed(error);
+  } finally {
+    $("share-open").disabled = false;
+  }
+}
+
+function onPhone() {
+  return typeof navigator.share === "function" && window.matchMedia?.("(pointer: coarse)").matches;
+}
+
+async function copyLink(link) {
+  try {
+    await navigator.clipboard.writeText(link);
+    shareStatus("Link copied.");
+  } catch {
+    shareStatus("Copy the link above to pass it on.");
+  }
+}
+
+// On a phone, the system share sheet; elsewhere (or if it fails), the clipboard.
+async function passOn(link) {
+  if (onPhone()) {
+    try {
+      await navigator.share({ title: preview?.title ?? "Checked with Unfret", url: link });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+    }
+  }
+  await copyLink(link);
+}
+
+async function confirmShare() {
+  if (!preview) return;
+  $("share-confirm").disabled = true;
+  shareStatus("Sharing…");
+  try {
+    const created = await postShare("/v1/shares");
+    const link = new URL(created.link, window.location.origin).href;
+    $("share-link").href = link;
+    $("share-link").textContent = link;
+    $("share-code").textContent = created.delete_code;
+    $("share-again").hidden = !onPhone();
+    $("share-preview").hidden = true;
+    $("share-done").hidden = false;
+    shareStatus("");
+    await passOn(link);
+  } catch (error) {
+    shareFailed(error);
+  } finally {
+    $("share-confirm").disabled = false;
+  }
+}
+
 // ── Wiring ───────────────────────────────────────────────────────────────────────────────────────────────
 
 form.addEventListener("submit", (event) => {
@@ -559,6 +688,14 @@ $("report-cancel").addEventListener("click", () => {
 $("report").addEventListener("change", () => {
   $("report-send").disabled = reportReason() === undefined;
 });
+$("share-open").addEventListener("click", () => void openShare());
+$("share-cancel").addEventListener("click", () => {
+  $("share-preview").hidden = true;
+  $("share-open-row").hidden = false;
+});
+$("share-confirm").addEventListener("click", () => void confirmShare());
+$("share-again").addEventListener("click", () => void passOn($("share-link").href));
+$("share-copy").addEventListener("click", () => void copyLink($("share-link").href));
 $("report").addEventListener("submit", (event) => {
   event.preventDefault();
   const reason = reportReason();

@@ -20,6 +20,7 @@ from unfret import (
     price_store,
     reports,
     scoring,
+    shares,
     shop_store,
     verdict_store,
 )
@@ -42,7 +43,7 @@ logger = structlog.get_logger("unfret")
 
 async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     """
-    Every hour until cancelled: expire old reports, fiat order rows, VAT quotes and sales records.
+    Every hour until cancelled: expire old reports, fiat order rows, VAT quotes, sales records and shares.
 
     Unhandled reports go with their account links; sales records only after their ten-year retention.
 
@@ -54,6 +55,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("reports", reports.expire(pool, settings)),
             ("fiat", fiat.purge(pool, settings.fiat_retention_days)),
             ("vat", vat.purge(pool, settings)),
+            ("shares", shares.purge(pool)),
         ):
             try:
                 await job
@@ -123,8 +125,9 @@ app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_page_byte
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE"],  # Authorization: sessions and API keys
+    allow_methods=["GET", "POST", "DELETE"],
+    # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result
+    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE", "X-Delete-Code"],
     expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
 

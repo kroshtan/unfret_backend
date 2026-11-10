@@ -363,6 +363,29 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE vat_quotes ADD COLUMN paid_at TIMESTAMPTZ;
         """,
     ),
+    # 15 is left for another change in flight (invites); versions apply in list order, so it can still go before 16.
+    (
+        16,
+        "shared results",
+        """
+        -- Results a shopper chose to share (unfret.shares): public at /r/<id> until they expire, are deleted with
+        -- the delete code or by the operator. Deliberately no account, wallet, IP address, time of day or view
+        -- count: the day of the check only, and an expiry on a day boundary. hidden_reason is set by a shop owner's
+        -- objection (hidden at once) until the operator reviews it.
+        CREATE TABLE shared_results (
+            id             TEXT PRIMARY KEY CHECK (id ~ '^[a-z2-7]{26}$'),
+            host           TEXT NOT NULL CHECK (length(host) BETWEEN 1 AND 253),
+            product_url    TEXT NOT NULL CHECK (product_url ~ '^https?://' AND length(product_url) <= 2000),
+            title          TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 300),
+            checked_on     DATE NOT NULL,
+            result         JSONB NOT NULL,
+            delete_hash    BYTEA NOT NULL CHECK (octet_length(delete_hash) = 32),
+            expires_at     TIMESTAMPTZ NOT NULL,
+            hidden_reason  TEXT CHECK (length(hidden_reason) BETWEEN 1 AND 600)
+        );
+        CREATE INDEX shared_results_expires_at_idx ON shared_results (expires_at);
+        """,
+    ),
 ]
 
 

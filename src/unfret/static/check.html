@@ -102,6 +102,27 @@
         </form>
         <p id="report-status" role="status" aria-live="polite" hidden></p>
       </section>
+      <section id="share-area" aria-label="Share this result" hidden>
+        <p id="share-open-row"><button id="share-open" type="button" class="secondary">Share this result</button></p>
+        <div id="share-preview" class="panel share-preview" hidden>
+          <h2>This is what will be public</h2>
+          <div id="share-preview-body"></div>
+          <p id="share-notice" class="small"><strong>Anyone with the link sees this verdict and the product link. It
+            never says who checked.</strong></p>
+          <p class="muted small">No score and no quotes from the page. It stays up for 90 days, and you can delete it
+            sooner with a code you get next.</p>
+          <p class="buttons"><button id="share-confirm" type="button" class="primary">Share</button>
+            <button id="share-cancel" type="button" class="secondary">Cancel</button></p>
+        </div>
+        <div id="share-done" class="panel" hidden>
+          <p>Shared: <a id="share-link" class="share-link" href="/" rel="noopener"></a></p>
+          <p class="buttons"><button id="share-again" type="button" class="secondary">Share link</button>
+            <button id="share-copy" type="button" class="secondary">Copy link</button></p>
+          <p class="small">Delete code: <code id="share-code"></code><br>Shown only now. Keep it to delete the shared
+            result later, on its page.</p>
+        </div>
+        <p id="share-status" class="small" role="status" aria-live="polite" hidden></p>
+      </section>
     </section>
 
     <section id="unreadable" class="panel notice" aria-labelledby="unreadable-heading" hidden>

@@ -156,6 +156,14 @@ class Settings(BaseSettings):
     report_reward_gap: int = 30
     report_training_gap: int = 10
 
+    # Shared results ("Share this result", POST /v1/shares). A result's share_token can be used for
+    # share_token_ttl_s after the check; a shared result stays up share_days. At most shares_per_visitor_per_day per
+    # visitor network (in memory) and shares_daily_cap in total per UTC day.
+    share_token_ttl_s: int = 7 * 24 * 3600
+    share_days: int = 90
+    shares_per_visitor_per_day: int = 20
+    shares_daily_cap: int = 1000
+
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.kroshtan.com"
     solana_network: Literal["solana-devnet", "solana-mainnet"] = "solana-devnet"

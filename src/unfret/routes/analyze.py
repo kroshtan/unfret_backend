@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from unfret import page_fetch, reports, result_cache, shopper
+from unfret import page_fetch, reports, result_cache, shares, shopper
 from unfret.auth import require_account
 from unfret.config import settings
 from unfret.credits import ledger
+from unfret.facts import PageFacts
 from unfret.graph.state import Finding
 from unfret.schemas.errors import (
     GatewayTimeoutError,
@@ -33,6 +34,8 @@ router = APIRouter(prefix="/v1/analyze", tags=["Analyze"])
 
 _SKILL_TAG_RE = re.compile(r"\[([^\]]+)\]")
 _RESULT_KEYS = ("score", "explanation", "assessment", "verdict")
+# Kept with a result (in memory, as the cache entry) for its share token: the product's title, from the page.
+_TITLE = "title"
 # Pages fetched for URL-only requests, per account: a page we can't read is free, so this bounds the free fetches.
 _fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
 
@@ -172,10 +175,23 @@ def _report_token(body: AnalyzeRequest, address: str, result: dict[str, Any]) ->
     )
 
 
+def _kept(result: dict[str, Any]) -> dict[str, Any]:
+    # What the result cache keeps of a finished analysis: the answer, and the title for its share token.
+    kept = {k: result[k] for k in _RESULT_KEYS if k in result}
+    facts = result.get("facts")
+    kept[_TITLE] = facts.title if isinstance(facts, PageFacts) else str(result.get(_TITLE) or "")
+    return kept
+
+
 def _response(
-    result: dict[str, Any], balance: int, *, charged: bool, report_token: str | None = None
+    result: dict[str, Any],
+    balance: int,
+    *,
+    charged: bool,
+    report_token: str | None = None,
+    shared_from: AnalyzeRequest | None = None,
 ) -> AnalyzeResponse:
-    return AnalyzeResponse(
+    response = AnalyzeResponse(
         score=result["score"],
         explanation=result["explanation"],
         assessment=result.get("assessment"),
@@ -185,6 +201,17 @@ def _response(
         charged=charged,
         report_token=report_token,
     )
+    if shared_from is not None:
+        # Lets whoever sees this result make it public later (POST /v1/shares); it names no account.
+        response.share_token = shares.issue_token(
+            settings.session_secret.get_secret_value(),
+            url=shared_from.url,
+            title=str(result.get(_TITLE) or ""),
+            response=response.model_dump(mode="json", exclude_none=True),
+            checkout=bool(shared_from.checkout_content),
+            ttl_s=settings.share_token_ttl_s,
+        )
+    return response
 
 
 @router.post("", response_model=AnalyzeResponse, response_model_exclude_none=True)
@@ -202,7 +229,8 @@ async def analyze_page(
     price is taken from the balance up front and refunded when the page can't be analysed (score -1) or the
     analysis fails. The same input analysed again within the hour is served from an in-memory cache, free of
     charge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong
-    result later (``POST /v1/reports``), sharing the page only then and only with their consent.
+    result later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``
+    lets them make the verdict public as a link (``POST /v1/shares``, without any account).
 
     A request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check
     that way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop
@@ -214,8 +242,8 @@ async def analyze_page(
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
     :param address: The account (injected by require_account).
-    :return: Reliability score (0–100), explanation, verdict, the scorer's assessment, the balance left and a
-        report token.
+    :return: Reliability score (0–100), explanation, verdict, the scorer's assessment, the balance left, a report
+        token and a share token.
     :raises InternalServerError: If the graph fails.
     :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
     :raises asyncio.CancelledError: If the client hung up (after the refund).
@@ -226,7 +254,8 @@ async def analyze_page(
     if cached is not None:
         logger.info("analysis_cache_hit")
         token = _report_token(body, address, cached)
-        return _response(cached, await _balance(request, address), charged=False, report_token=token)
+        balance = await _balance(request, address)
+        return _response(cached, balance, charged=False, report_token=token, shared_from=body)
 
     await _fetch_if_url_only(request, body, address, state)
     left = await _debit(request, address)
@@ -247,7 +276,8 @@ async def analyze_page(
         raise InternalServerError("Analysis failed.") from exc
     finally:
         _log_usage(usage)
-    result_cache.put(key, {k: result[k] for k in _RESULT_KEYS if k in result})
+    kept = _kept(result)
+    result_cache.put(key, kept)
     skill_counts = Counter(
         m.group(1) for entry in result.get("skill_results", []) if (m := _SKILL_TAG_RE.match(entry))
     )
@@ -255,7 +285,8 @@ async def analyze_page(
 
     if result["score"] == -1:
         return _response(result, await _refund(request, address), charged=False)
-    return _response(result, left, charged=True, report_token=_report_token(body, address, result))
+    token = _report_token(body, address, result)
+    return _response(kept, left, charged=True, report_token=token, shared_from=body)
 
 
 def _event(name: str, data: dict[str, Any]) -> str:
@@ -272,6 +303,8 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
         if not isinstance(values, dict):
             continue
         final |= {k: values[k] for k in _RESULT_KEYS if k in values}
+        if isinstance(values.get("facts"), PageFacts):
+            final[_TITLE] = values["facts"].title
         if "score" in values:
             continue  # the judge (or the early exit): reported as the `result` event
         found = [f.model_dump() if isinstance(f, Finding) else dict(f) for f in values.get("findings", []) or []]
@@ -312,7 +345,8 @@ async def analyze_page_stream(
     if cached is not None:
         logger.info("analysis_cache_hit")
         token = _report_token(body, address, cached)
-        hit = _response(cached, await _balance(request, address), charged=False, report_token=token)
+        balance = await _balance(request, address)
+        hit = _response(cached, balance, charged=False, report_token=token, shared_from=body)
         return _stream(_replay(hit))
 
     await _fetch_if_url_only(request, body, address, state)
@@ -342,7 +376,7 @@ async def _live_events(
     Run the graph and stream its steps, then the result; refund unless the analysis finished.
 
     :param request: The FastAPI request.
-    :param body: The request body (for the report token).
+    :param body: The request body (for the report and share tokens).
     :param address: The account (already debited).
     :param graph: The compiled graph.
     :param state: The graph input.
@@ -377,7 +411,8 @@ async def _live_events(
         if final["score"] == -1:
             result = _response(final, await _refund(request, address), charged=False)
         else:
-            result = _response(final, left, charged=True, report_token=_report_token(body, address, final))
+            token = _report_token(body, address, final)
+            result = _response(final, left, charged=True, report_token=token, shared_from=body)
         yield _event("result", result.model_dump(mode="json", exclude_none=True))
     finally:
         if refund:

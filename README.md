@@ -87,6 +87,9 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `GET` | `/v1/showcase` \| `/v1/showcase/{id}` | "Spotted recently": published operator-run checks, see below |
+| `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
+| `GET` `DELETE` | `/v1/shares/{id}` | A shared result; delete it with `X-Delete-Code` |
+| `POST` | `/v1/shares/{id}/object` | A shop owner's objection: hides the shared result until reviewed |
 | `GET` | `/v1/health` | Liveness probe |
 | `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
 | `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
@@ -200,6 +203,31 @@ have changed since"), the shop, a `rel="nofollow noopener"` link to the product 
 route for shop owners to object. The wording is factual: the bands are phrased as what Unfret would tell a shopper
 about the listing ("Unfret would warn you about this listing"), there is no score, and the words "scam" and "fraud"
 never appear (a headline or quote containing one is left out; `show` lists what was).
+
+### Sharing a result
+
+A shopper can make their own check public as a link (`unfret.shares`, migration 16), and nothing on it says who
+they are. Every assessed result carries a `share_token`: an HMAC over the product address (without fragment,
+credentials and tracking parameters), a hash of the result as a share shows it, whether the check included the
+checkout page, the product title and an expiry (7 days). It names no account. `POST /v1/shares/preview` shows
+exactly what would be public; `POST /v1/shares` stores it. Both are sent **without `Authorization`** (a request with
+one is refused) and the token must match the url and the result exactly, so a share can only show a verdict Unfret
+really gave for that page. A check that included the checkout page is never shared.
+
+What is public, and stored in `shared_results`: the showcase's wording of the verdict (no score, never "scam" or
+"fraud"), without the page's own words (a reason whose detail quotes the page keeps only its title, a quoting
+headline becomes the band's catalogue sentence, flags keep their labels but not their evidence), the product title,
+the shop, the product link and the day of the check. Plus a SHA-256 hash of the delete code (shown once), the expiry
+(90 days, on a day boundary) and, after an objection, why it is hidden. No account, wallet, IP address, time of day
+or view count; expired rows go in the hourly housekeeping. Limits: 20 shares per visitor network per day (in
+memory) and a daily cap.
+
+`/r/{id}` shows it in the link checker's presentation (the showcase renderer): "Checked by an Unfret user on …; the
+page may have changed", a `nofollow` link to the product, `X-Robots-Tag: noindex` and a robots meta tag. The sharer
+deletes it with `DELETE /v1/shares/{id}` and `X-Delete-Code`; a shop owner's `POST /v1/shares/{id}/object` hides it
+at once, and the operator reviews it under the admin token: `GET /v1/admin/shares` (hidden ones),
+`POST /v1/admin/shares/{id}/unhide`, `DELETE /v1/admin/shares/{id}`. On `/check`, "Share this result" shows the
+preview, then shares through the phone's share sheet or copies the link, and shows the delete code once.
 
 ### Pay-per-check for agents (x402)
 
@@ -369,6 +397,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
+| `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 
@@ -400,6 +429,7 @@ src/unfret/
 │   └── skills/        # one module per skill
 ├── credits/           # SIWS, the dollar ledger, pricing, purchase scanner
 ├── showcase/          # "Spotted recently": operator-run cases, public wording, review CLI
+├── shares.py          # shared results: share tokens, public wording, storage
 ├── x402/              # pay-per-check: verification, hot wallet, sweeps
 ├── auth.py            # bearer sessions
 ├── db.py, migrations.py  # versioned schema + queries (asyncpg)

@@ -215,7 +215,7 @@ fieldset.currency legend { padding: 0; margin-bottom: 0.2rem; }
 .check-form { display: grid; gap: 0.5rem; }
 .check-form label { font-weight: 600; }
 .field-row { display: flex; gap: 0.5rem; }
-.app input[type="url"], .app input[type="password"] {
+.app input[type="url"], .app input[type="password"], .app textarea {
   flex: 1;
   min-width: 0;
   width: 100%;
@@ -352,6 +352,12 @@ fieldset.currency legend { padding: 0; margin-bottom: 0.2rem; }
 .shot img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 0.6rem; }
 .shot figcaption { margin-top: 0.3rem; }
 .case + .buttons { margin-top: 1.5rem; }
+
+/* "Share this result" on /check, and a shared result's page (/r/{id}). */
+#share-area { margin-top: 1rem; }
+.share-preview .case-title { font-size: 1.15rem; margin: 0 0 0.3rem; }
+.share-link, #share-code { overflow-wrap: anywhere; }
+.case .choice textarea, .case .choice input { margin: 0.3rem 0 0.5rem; }
 
 @media (min-width: 40rem) {
   .app main { padding-top: 2.5rem; }

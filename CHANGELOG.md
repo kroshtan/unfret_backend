@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.9.1](https://github.com/kroshtan/unfret_backend/compare/0.9.0...0.9.1) (2026-11-10)
+
+### Removed
+
+* The last of the rename's one-time machinery: the deploy jobs no longer run `free-host.sh` or `adopt-db.sh` (both scripts and the cutover runbook are gone; the services and databases from before the rename are removed from the server), and `/extension`'s install command no longer deletes a `veridex.json` policy file. The connect page's message types keep their names until the extensions in use understand the new ones
+
 ## [0.9.0](https://github.com/kroshtan/unfret_backend/compare/0.8.0...0.9.0) (2026-11-10)
 
 ### Features
@@ -28,7 +34,6 @@
 
 ### Removed
 
-* The last of the rename's one-time machinery: the deploy jobs no longer run `free-host.sh` or `adopt-db.sh` (both scripts and the cutover runbook are gone; the services and databases from before the rename are removed from the server), and `/extension`'s install command no longer deletes a `veridex.json` policy file. The connect page's message types keep their names until the extensions in use understand the new ones
 * **The Dutch translations: the app is in English only.** `Accept-Language` is no longer read (`shopper.pick_language`, `shopper.LANGUAGES` and `copy/nl.json` are gone; `shopper.copy_for(language)` is `shopper.catalogue()`), so the verdict's label, reasons, positives and template headline, the flag labels, the early-exit explanations and the pack labels are always English; numbers and amounts use English formatting. The LLM-written headline is asked for in English, and without a scorer the judge's own sentence is the headline for everyone. `verdict.language` stays on the wire, always `"en"`; `/v1/pricing` pack `label` keeps its shape with only `en`. The result cache no longer keys on a language (an analysis with a different `Accept-Language` is the same cached result), and report tokens issued before still match. The privacy page loses its Dutch section, `/check` no longer sends `Accept-Language`, and `/checkout` names countries in English. API contract: "English only"
 * `scripts/grant_credits.py`, which wrote a column renamed long ago (`balance_lamports`) and so no longer worked; grant an API key credit with `POST /v1/admin/keys/<key_id>/grant`
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.9.3](https://github.com/kroshtan/unfret_backend/compare/0.9.2...0.9.3) (2026-11-10)
+
+### Changed
+
+* The privacy page reads better: plain section titles ("What a check sends", "What we keep", "For shop owners", "Reporting a wrong result"), card payments and shop owners as their own items, shorter sentences. Same content
+
 ## [0.9.2](https://github.com/kroshtan/unfret_backend/compare/0.9.1...0.9.2) (2026-11-10)
 
 ### Bug fixes

@@ -7,9 +7,9 @@ import httpx
 import pytest
 
 from tests.integration.conftest import FakeGraph
-from veridex.config import settings
-from veridex.credits import keys
-from veridex.main import app
+from unfret.config import settings
+from unfret.credits import keys
+from unfret.main import app
 
 PRICE = settings.analysis_price_usd_micros
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater"}

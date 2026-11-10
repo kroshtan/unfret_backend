@@ -11,7 +11,7 @@ SPEC.loader.exec_module(bump_version)
 
 
 def repo(tmp_path: Path) -> Path:
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "veridex"\nversion = "0.5.0"\n')
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "unfret"\nversion = "0.5.0"\n')
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## Unreleased\n\n### Features\n\n* dollars\n")
     return tmp_path
 
@@ -21,7 +21,7 @@ def test_bump_dates_the_unreleased_section(tmp_path: Path) -> None:
     assert bump_version.bump("0.6.0", datetime.date(2026, 11, 8), root) == "0.5.0"
     assert 'version = "0.6.0"' in (root / "pyproject.toml").read_text()
     log = (root / "CHANGELOG.md").read_text()
-    heading = "## [0.6.0](https://github.com/kroshtan/veridex_backend/compare/0.5.0...0.6.0) (2026-11-08)"
+    heading = "## [0.6.0](https://github.com/kroshtan/unfret_backend/compare/0.5.0...0.6.0) (2026-11-08)"
     assert f"## Unreleased\n\n{heading}\n\n### Features" in log
 
 

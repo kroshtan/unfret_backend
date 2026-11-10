@@ -10,11 +10,11 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from veridex.config import Settings
-from veridex.credits import polar
-from veridex.credits.fiat import FiatEvent, FiatProviderError, FiatWebhookError, sign_standard_webhook
-from veridex.credits.packs import pack
-from veridex.credits.polar import PolarProvider
+from unfret.config import Settings
+from unfret.credits import polar
+from unfret.credits.fiat import FiatEvent, FiatProviderError, FiatWebhookError, sign_standard_webhook
+from unfret.credits.packs import pack
+from unfret.credits.polar import PolarProvider
 
 SECRET = "whsec_" + base64.b64encode(b"polar-test-webhook-secret-32byte").decode()
 PRODUCTS = {

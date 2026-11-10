@@ -31,6 +31,6 @@ make audit     # pip-audit over the locked dependencies
 ## Conventions
 
 - Python 3.14, uv, strict mypy, sphinx-style docstrings checked by pydoclint.
-- Settings come from `VERIDEX_*` environment variables (`src/veridex/config.py`); never commit secrets or `.env`.
-- Outbound requests to user-supplied URLs go through `veridex.net.fetch_public`.
+- Settings come from `UNFRET_*` environment variables (`src/unfret/config.py`); never commit secrets or `.env`.
+- Outbound requests to user-supplied URLs go through `unfret.net.fetch_public`.
 - Don't log or persist analysed URLs or anything that links a payer to what they checked.

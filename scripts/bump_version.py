@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REPO = "https://github.com/kroshtan/veridex_backend"
+REPO = "https://github.com/kroshtan/unfret_backend"
 
 
 def bump(version: str, today: datetime.date, root: Path = ROOT) -> str:

@@ -6,10 +6,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from veridex import shopper
-from veridex.facts import PageFacts
-from veridex.graph import SKILLS
-from veridex.graph.state import Finding
+from unfret import shopper
+from unfret.facts import PageFacts
+from unfret.graph import SKILLS
+from unfret.graph.state import Finding
 
 # Every reason at once (on a storefront), to check every piece of copy renders cleanly.
 ALL_REASON_FEATURES = {

@@ -8,9 +8,9 @@ from pydantic import SecretStr
 from solders.keypair import Keypair
 
 from tests.unit.x402_helpers import FakeRpc, configured, make_x402
-from veridex.config import settings
-from veridex.main import app
-from veridex.x402.service import X402
+from unfret.config import settings
+from unfret.main import app
+from unfret.x402.service import X402
 
 HOT = Keypair()
 COLD = Keypair().pubkey()
@@ -45,7 +45,7 @@ def service(rpc: FakeRpc) -> X402:
 
 
 async def test_a_burst_of_transactions_cant_hide_an_outflow(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.x402.service._AUDIT_PAGE", 3)
+    monkeypatch.setattr("unfret.x402.service._AUDIT_PAGE", 3)
     rpc = CountingRpc()
     rpc.signatures = ["s0"]
     rpc.transactions["s0"] = transfer(str(COLD))
@@ -85,7 +85,7 @@ async def test_an_unindexed_transaction_holds_the_cursor_back() -> None:
 
 
 async def test_the_seen_set_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.x402.service._SEEN_MAX", 5)
+    monkeypatch.setattr("unfret.x402.service._SEEN_MAX", 5)
     x402 = service(FakeRpc())
     for i in range(12):
         x402._mark_seen(f"s{i}")

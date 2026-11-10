@@ -3,7 +3,7 @@ requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
 
 [project]
-name = "veridex"
+name = "unfret"
 description = "LLM-powered API that scores e-commerce product pages for scam and dropshipping signals"
 version = "0.7.0"
 authors = [
@@ -38,7 +38,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/kroshtan/veridex_backend"
+Repository = "https://github.com/kroshtan/unfret_backend"
 
 [dependency-groups]
 dev = [
@@ -137,7 +137,7 @@ ignore = [
     "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "S311",
 ]
 # Owned by the analysis work (wave B): its RDAP fallback loop is deliberate; it can move into the file there.
-"src/veridex/graph/skills/domain_age.py" = ["S112"]
+"src/unfret/graph/skills/domain_age.py" = ["S112"]
 "evals/**" = [
     # Offline evaluation tooling: asserts and seeded sampling are fine there
     "S101", "S311",
@@ -149,7 +149,7 @@ ignore = [
 
 
 [tool.ruff.lint.isort]
-known-first-party = ["veridex"]
+known-first-party = ["unfret"]
 
 [tool.ruff.lint.pep8-naming]
 classmethod-decorators = ["validator", "field_validator"]
@@ -191,13 +191,13 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = [
-    "--cov=veridex",
+    "--cov=unfret",
     "--cov-report=term-missing",
     "--cov-report=xml",
     "--strict-markers",
 ]
 env = [
-    "VERIDEX_LLM_API_KEY=test-key",
+    "UNFRET_LLM_API_KEY=test-key",
 ]
 
 [tool.coverage.report]

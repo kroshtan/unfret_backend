@@ -18,7 +18,7 @@ the report (its result, text or reporter) goes into the case. Review and publish
 
 Usage: ``make reports`` (or ``uv run python -m evals.reports``). Environment: ``UNFRET_URL`` (default
 https://unfret.kroshtan.com) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE`` (default
-``~/kroshtan_secrets/veridex-prod-admin-token``).
+``~/kroshtan_secrets/unfret-prod-admin-token``).
 """
 
 import html
@@ -32,7 +32,7 @@ import httpx
 
 from evals.corpus import Corpus, Label, LabelRecord, dump_json, now_iso, page_id
 from evals.label import read_key
-from veridex.showcase.cli import promote
+from unfret.showcase.cli import promote
 
 KEYS: dict[str, Label | None] = {"l": "legit", "j": "junk", "s": "scam", "r": None}
 _EXCERPT_CHARS = 1200
@@ -42,7 +42,7 @@ _PLATFORMS = {"amazon": "amazon", "bol.com": "bol.com"}
 def _token() -> str:
     if token := os.getenv("UNFRET_ADMIN_TOKEN"):
         return token
-    path = Path(os.getenv("UNFRET_ADMIN_TOKEN_FILE", "~/kroshtan_secrets/veridex-prod-admin-token")).expanduser()
+    path = Path(os.getenv("UNFRET_ADMIN_TOKEN_FILE", "~/kroshtan_secrets/unfret-prod-admin-token")).expanduser()
     return path.read_text().strip()
 
 

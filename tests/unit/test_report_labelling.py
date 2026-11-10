@@ -3,7 +3,7 @@ from pathlib import Path
 
 from evals.corpus import Corpus
 from evals.reports import describe, to_corpus
-from veridex.html_cleaner import clean_html
+from unfret.html_cleaner import clean_html
 
 ITEM = {
     "id": 7,

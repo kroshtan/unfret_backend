@@ -1,12 +1,12 @@
 import pytest
 
-from veridex import reports
-from veridex.credits import keys
-from veridex.credits.keys import KeyGuard
-from veridex.facts import PageFacts
-from veridex.reports.scrub import clean_url, page_identity, page_of, scrub_text
-from veridex.schemas.requests import AnalyzeRequest
-from veridex.visitors import DailyLimit
+from unfret import reports
+from unfret.credits import keys
+from unfret.credits.keys import KeyGuard
+from unfret.facts import PageFacts
+from unfret.reports.scrub import clean_url, page_identity, page_of, scrub_text
+from unfret.schemas.requests import AnalyzeRequest
+from unfret.visitors import DailyLimit
 
 # ── Scrubbing ─────────────────────────────────────────────────────────────────
 

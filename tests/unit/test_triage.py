@@ -5,11 +5,11 @@ from typing import Any, ClassVar
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.graph import build_graph, nodes, triage
-from veridex.graph.skills import Skill, SkillOutput
-from veridex.graph.state import AnalysisState
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.graph import build_graph, nodes, triage
+from unfret.graph.skills import Skill, SkillOutput
+from unfret.graph.state import AnalysisState
 
 STOREFRONT = (
     "<html><body><h1>Glow Lamp</h1><img src='https://shop.test/1.jpg'><img src='https://shop.test/2.jpg'>"

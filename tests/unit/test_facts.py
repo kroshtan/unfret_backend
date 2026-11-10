@@ -3,9 +3,9 @@ from datetime import date
 
 import pytest
 
-from veridex.facts import PageFacts, parse_page
-from veridex.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
-from veridex.facts.extract import shopify_compare_at
+from unfret.facts import PageFacts, parse_page
+from unfret.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
+from unfret.facts.extract import shopify_compare_at
 
 
 @pytest.mark.parametrize(

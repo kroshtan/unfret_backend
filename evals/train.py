@@ -23,7 +23,7 @@ with isotonic regression on cross-validated TRAIN predictions, and scored once o
 the classes to a base rate of ``--prior`` (default 0.5): the corpus share of unreliable pages says how the corpus was
 collected, not how likely a page is to be unreliable, and left in it tilts every page towards "unreliable". A
 gradient-boosted model is reported for comparison only. The shipped artifact goes to
-``src/veridex/scoring/model.json``; the report to ``<corpus>/reports/scorer-<stamp>.md``.
+``src/unfret/scoring/model.json``; the report to ``<corpus>/reports/scorer-<stamp>.md``.
 """
 
 import argparse
@@ -44,9 +44,9 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
-from veridex.graph import SKILLS
-from veridex.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, neutral_features
-from veridex.x402.verdict import QUICK_SKILLS
+from unfret.graph import SKILLS
+from unfret.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, neutral_features
+from unfret.x402.verdict import QUICK_SKILLS
 
 UNRELIABLE = {"junk", "scam"}
 # Skill features that mirror the weak-labelling rules (evals/sources/amazon2023.py), for variant C.
@@ -108,7 +108,7 @@ def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]],
     A missing feature is 0 (the skill ran and found nothing), as in production. The columns of a skill that failed
     on a page (it reported ``<skill>.unavailable``), or whose rules don't apply to it (``<skill>.not_applicable``,
     or ``<skill>.<feature>.not_applicable`` for one feature), are NaN: :func:`fit` fills them with the column mean,
-    which is what :meth:`veridex.scoring.Model.contributions` scores them as.
+    which is what :meth:`unfret.scoring.Model.contributions` scores them as.
 
     :param records: Labelled records.
     :param features: Features by record id; records without features are skipped.
@@ -273,7 +273,7 @@ def to_markdown(report: dict[str, Any]) -> str:
     :param report: The report dict.
     :return: Markdown.
     """
-    lines = [f"# Veridex scorer {report['stamp']}", "", f"Features: `{report['features_file']}`", ""]
+    lines = [f"# Unfret scorer {report['stamp']}", "", f"Features: `{report['features_file']}`", ""]
     lines += [
         "| model | AUC | AUC marketplace | AUC storefront | F1 <30 | F1 <40 | F1 <50 | Brier |",
         "|---" * 8 + "|",

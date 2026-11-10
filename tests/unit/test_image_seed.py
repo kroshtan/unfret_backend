@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from veridex import image_seed, image_store
-from veridex.facts import PageFacts
+from unfret import image_seed, image_store
+from unfret.facts import PageFacts
 
 
 async def test_a_file_with_the_wrong_hash_is_refused_before_anything_is_read(tmp_path: Path) -> None:

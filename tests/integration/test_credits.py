@@ -13,15 +13,15 @@ from solders.transaction import VersionedTransaction
 
 from tests.integration.conftest import DROP_ALL, bearer
 from tests.unit.x402_helpers import StaticOracle
-from veridex.auth import get_credits
-from veridex.config import settings
-from veridex.credits import CreditsDoor, keys, siws, vat
-from veridex.credits.scanner import CreditScanner
-from veridex.main import app
-from veridex.migrations import MIGRATIONS, migrate
-from veridex.prices import PriceBook
-from veridex.routes.check import _refund_as_credits
-from veridex.x402.solana import USDC_MINTS, associated_token_address
+from unfret.auth import get_credits
+from unfret.config import settings
+from unfret.credits import CreditsDoor, keys, siws, vat
+from unfret.credits.scanner import CreditScanner
+from unfret.main import app
+from unfret.migrations import MIGRATIONS, migrate
+from unfret.prices import PriceBook
+from unfret.routes.check import _refund_as_credits
+from unfret.x402.solana import USDC_MINTS, associated_token_address
 
 HOT = Keypair()
 PRICE = settings.analysis_price_usd_micros
@@ -227,11 +227,11 @@ async def test_purchase_transaction_pays_the_pack_plus_vat(
     assert reply["amount"] == 60_500_000  # $6.05 at $100/SOL
     quote = await pool.fetchrow("SELECT * FROM vat_quotes")
     assert (quote["country"], quote["checks"], quote["beneficiary"]) == ("DE", 25, None)
-    memo = f"veridex:quote:{quote['id']}"
+    memo = f"unfret:quote:{quote['id']}"
     assert reply["quote_id"] == quote["id"]  # what the checkout polls
     reference = Pubkey.from_string(quote["reference"])  # the Solana Pay reference, in case the wallet drops the memo
     assert f"&reference={reference}&" in reply["solana_pay_url"]
-    assert reply["solana_pay_url"].endswith(f"&memo=veridex%3Aquote%3A{quote['id']}")
+    assert reply["solana_pay_url"].endswith(f"&memo=unfret%3Aquote%3A{quote['id']}")
     tx = VersionedTransaction.from_bytes(base64.b64decode(reply["transaction"]))
     keys = tx.message.account_keys
     assert keys[0] == buyer.pubkey() and HOT.pubkey() in keys
@@ -346,7 +346,7 @@ async def test_scanner_skips_zero_value_transfers(pool: asyncpg.Pool) -> None:
 
 
 async def test_scanner_pages_through_a_backlog(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.credits.scanner._PAGE", 3)
+    monkeypatch.setattr("unfret.credits.scanner._PAGE", 3)
     rpc = ChainRpc()
     scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
@@ -412,7 +412,7 @@ async def test_vault_paid_purchase_credits_the_memo_beneficiary(pool: asyncpg.Po
     await scanner.initialise()
     member = str(Keypair().pubkey())
     vault_payment = transfer("vault-pda", str(HOT.pubkey()), 2_000_000, inner=True)  # paid by a program (CPI)
-    rpc.add("vault", with_memos(vault_payment, f"veridex:credit:{member}"))
+    rpc.add("vault", with_memos(vault_payment, f"unfret:credit:{member}"))
 
     assert await scanner.scan_once() == 1
     assert await balance(pool, member) == net(2_000_000)
@@ -421,7 +421,7 @@ async def test_vault_paid_purchase_credits_the_memo_beneficiary(pool: asyncpg.Po
 
 @pytest.mark.parametrize(
     "memos",
-    [("veridex:credit:garbage",), (f"veridex:credit:{Keypair().pubkey()}", f"veridex:credit:{Keypair().pubkey()}")],
+    [("unfret:credit:garbage",), (f"unfret:credit:{Keypair().pubkey()}", f"unfret:credit:{Keypair().pubkey()}")],
 )
 async def test_bad_or_ambiguous_memos_credit_the_source(pool: asyncpg.Pool, memos: tuple[str, ...]) -> None:
     rpc = ChainRpc()
@@ -758,7 +758,7 @@ async def test_a_memo_naming_an_api_key_tops_up_the_key(pool: asyncpg.Pool) -> N
     scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     issued = await keys.create(pool)
-    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), f"veridex:credit:key:{issued.key_id}"))
+    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), f"unfret:credit:key:{issued.key_id}"))
 
     assert await scanner.scan_once() == 1
     assert await balance(pool, f"key:{issued.key_id}") == net(2_000_000)
@@ -769,7 +769,7 @@ async def test_a_memo_naming_an_unknown_key_credits_the_payer(pool: asyncpg.Pool
     rpc = ChainRpc()
     scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
-    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), "veridex:credit:key:aaaaaaaaaa"))
+    rpc.add("t", with_memos(transfer("payer", str(HOT.pubkey()), 2_000_000), "unfret:credit:key:aaaaaaaaaa"))
 
     assert await scanner.scan_once() == 1
     assert await balance(pool, "payer") == net(2_000_000)  # never stranded on a key nobody holds

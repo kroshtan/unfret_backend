@@ -8,10 +8,10 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from veridex import scoring
-from veridex.graph import SKILLS, nodes
-from veridex.graph.state import Finding
-from veridex.scoring import Model
+from unfret import scoring
+from unfret.graph import SKILLS, nodes
+from unfret.graph.state import Finding
+from unfret.scoring import Model
 
 # Captured at import, before the suite's autouse fixture replaces it.
 _LOAD_MODEL = scoring.load_model

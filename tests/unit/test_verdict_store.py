@@ -17,11 +17,11 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex import shop_store, verdict_store
-from veridex.facts import PageFacts
-from veridex.main import app
-from veridex.verdict_store import MemoryVerdictStore, Stored, listing_key
-from veridex.x402.verdict import Verdict
+from unfret import shop_store, verdict_store
+from unfret.facts import PageFacts
+from unfret.main import app
+from unfret.verdict_store import MemoryVerdictStore, Stored, listing_key
+from unfret.x402.verdict import Verdict
 
 HOT = Keypair()
 COLD = Keypair().pubkey()
@@ -91,7 +91,7 @@ async def client(
         fetched.append(url)
         return SHOP_HTML.encode()
 
-    monkeypatch.setattr("veridex.routes.check.fetch_public", fetch)
+    monkeypatch.setattr("unfret.routes.check.fetch_public", fetch)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         c.fetched = fetched  # type: ignore[attr-defined]
         yield c

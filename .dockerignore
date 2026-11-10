@@ -19,7 +19,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Secrets are passed via VERIDEX_* environment variables at runtime
+# Secrets are passed via UNFRET_* environment variables at runtime
 .env
 **/.secrets.toml
 models/

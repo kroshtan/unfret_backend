@@ -26,12 +26,12 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.main import app
-from veridex.visitors import network_of, visitor_key
-from veridex.x402.breaker import WINDOW_S, SettlementBreaker
-from veridex.x402.payment import PaymentError
-from veridex.x402.service import X402
-from veridex.x402.solana import LIGHTHOUSE_PROGRAM, TransactionFailedError
+from unfret.main import app
+from unfret.visitors import network_of, visitor_key
+from unfret.x402.breaker import WINDOW_S, SettlementBreaker
+from unfret.x402.payment import PaymentError
+from unfret.x402.service import X402
+from unfret.x402.solana import LIGHTHOUSE_PROGRAM, TransactionFailedError
 
 HOT = Keypair()
 CLIENT = Keypair()

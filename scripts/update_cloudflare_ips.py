@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Refresh the vendored Cloudflare edge ranges (``src/veridex/credits/cloudflare_ips.json``).
+Refresh the vendored Cloudflare edge ranges (``src/unfret/credits/cloudflare_ips.json``).
 
 The checkout trusts Cloudflare's ``CF-IPCountry`` header only when the request reached our edge (Caddy) from one of
 these ranges; Caddy passes the peer it saw on as ``X-Edge-Peer``.
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import httpx
 
-TABLE = Path(__file__).resolve().parent.parent / "src" / "veridex" / "credits" / "cloudflare_ips.json"
+TABLE = Path(__file__).resolve().parent.parent / "src" / "unfret" / "credits" / "cloudflare_ips.json"
 SOURCES = ("https://www.cloudflare.com/ips-v4", "https://www.cloudflare.com/ips-v6")
 
 

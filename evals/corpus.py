@@ -76,7 +76,7 @@ class Corpus:
         """
         Open (and create if needed) a corpus directory.
 
-        :param root: The corpus directory; defaults to ``VERIDEX_CORPUS_DIR``.
+        :param root: The corpus directory; defaults to ``UNFRET_CORPUS_DIR``.
         """
         self.root = root or eval_settings.corpus_dir
         self.pages_dir = self.root / "pages"

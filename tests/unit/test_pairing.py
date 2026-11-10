@@ -2,8 +2,8 @@
 
 import pytest
 
-from veridex.credits import siws
-from veridex.credits.pairing import PairingError, PairingStore, PairState, new_code, pairing_statement
+from unfret.credits import siws
+from unfret.credits.pairing import PairingError, PairingStore, PairState, new_code, pairing_statement
 
 
 class Clock:

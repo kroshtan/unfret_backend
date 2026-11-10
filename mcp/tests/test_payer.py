@@ -11,7 +11,7 @@ from solders.message import to_bytes_versioned
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from veridex_mcp.payer import (
+from unfret_mcp.payer import (
     Payer,
     PaymentFailedError,
     SpendGuard,
@@ -20,8 +20,8 @@ from veridex_mcp.payer import (
     build_payment,
     choose_requirement,
 )
-from veridex_mcp.price import SOL_USD_FEED_ID, PriceError, SolUsd
-from veridex_mcp.solana import CAIP2, SYSTEM_PROGRAM, USDC_MINTS, WSOL_MINT, Rpc, associated_token_address
+from unfret_mcp.price import SOL_USD_FEED_ID, PriceError, SolUsd
+from unfret_mcp.solana import CAIP2, SYSTEM_PROGRAM, USDC_MINTS, WSOL_MINT, Rpc, associated_token_address
 
 AGENT = Keypair()
 FEE_PAYER = Keypair().pubkey()

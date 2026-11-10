@@ -1,4 +1,4 @@
-from veridex.html_cleaner import clean_html
+from unfret.html_cleaner import clean_html
 
 
 def test_strips_noise_and_keeps_visible_text() -> None:

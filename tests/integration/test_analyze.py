@@ -8,9 +8,9 @@ import httpx
 import pytest
 
 from tests.integration.conftest import FakeGraph
-from veridex.config import settings
-from veridex.routes import analyze
-from veridex.schemas.requests import AnalyzeRequest
+from unfret.config import settings
+from unfret.routes import analyze
+from unfret.schemas.requests import AnalyzeRequest
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports

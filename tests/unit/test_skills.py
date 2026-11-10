@@ -11,19 +11,19 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from PIL import Image
 
-from veridex import fact_cache
-from veridex.config import settings
-from veridex.facts import Checkbox, PageFacts, Review
-from veridex.graph.skills import content, domain_age, reviews
-from veridex.graph.skills.content import ContentSkill
-from veridex.graph.skills.dark_patterns import DarkPatternsSkill, checkout_total
-from veridex.graph.skills.domain_age import DomainAgeSkill, earliest_certificate, parse_rdap
-from veridex.graph.skills.eu_registry import EuRegistrySkill, check_vat, name_matches
-from veridex.graph.skills.html_source_signals import HtmlSourceSignalsSkill
-from veridex.graph.skills.injection import InjectionSkill
-from veridex.graph.skills.listing import ListingSkill, generated_brand_score
-from veridex.graph.skills.reviews import ReviewsSkill, burst_share, duplicate_share, reviews_per_day
-from veridex.image_hash import dhash
+from unfret import fact_cache
+from unfret.config import settings
+from unfret.facts import Checkbox, PageFacts, Review
+from unfret.graph.skills import content, domain_age, reviews
+from unfret.graph.skills.content import ContentSkill
+from unfret.graph.skills.dark_patterns import DarkPatternsSkill, checkout_total
+from unfret.graph.skills.domain_age import DomainAgeSkill, earliest_certificate, parse_rdap
+from unfret.graph.skills.eu_registry import EuRegistrySkill, check_vat, name_matches
+from unfret.graph.skills.html_source_signals import HtmlSourceSignalsSkill
+from unfret.graph.skills.injection import InjectionSkill
+from unfret.graph.skills.listing import ListingSkill, generated_brand_score
+from unfret.graph.skills.reviews import ReviewsSkill, burst_share, duplicate_share, reviews_per_day
+from unfret.image_hash import dhash
 
 
 def state(facts: PageFacts, **extra: Any) -> Any:
@@ -426,7 +426,7 @@ async def test_eu_registry_without_vies_never_looks_up(monkeypatch: pytest.Monke
     async def no_lookup(*_: Any, **__: Any) -> None:
         raise AssertionError("VIES must not be called")
 
-    monkeypatch.setattr("veridex.graph.skills.eu_registry.cached_fact", no_lookup)
+    monkeypatch.setattr("unfret.graph.skills.eu_registry.cached_fact", no_lookup)
     facts = PageFacts(vat_ids=["NL123456789B01"], legal_mentions=["KvK 12345678. 14 dagen bedenktijd."])
     out = await EuRegistrySkill(vies=False).run(state(facts, page_type="storefront"))
 

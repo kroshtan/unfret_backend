@@ -11,10 +11,10 @@ from typing import Any
 import httpx
 import pytest
 
-from veridex import page_fetch
-from veridex.main import app
-from veridex.net import UnsafeURLError
-from veridex.routes.pages import STATIC_DIR
+from unfret import page_fetch
+from unfret.main import app
+from unfret.net import UnsafeURLError
+from unfret.routes.pages import STATIC_DIR
 
 
 @pytest.fixture
@@ -193,7 +193,7 @@ def test_an_empty_shell_is_too_thin(html: str, thin: bool) -> None:
 
 
 def test_httpx_never_logs_the_urls_it_fetches() -> None:
-    # veridex.main configured logging (veridex.log.configure) on import; httpx's request lines, which carry the
+    # unfret.main configured logging (unfret.log.configure) on import; httpx's request lines, which carry the
     # full URL, are below its level.
     assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
     assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Refresh the vendored EU VAT rates (``src/veridex/credits/vat_rates.json``) from the EU's TEDB.
+Refresh the vendored EU VAT rates (``src/unfret/credits/vat_rates.json``) from the EU's TEDB.
 
 TEDB (Taxes in Europe Database) publishes each member state's VAT rates as a SOAP service. Electronically supplied
 services (what Unfret sells) are taxed at the standard rate everywhere, so only the standard rate is kept.
@@ -20,7 +20,7 @@ from pathlib import Path
 
 import httpx
 
-TABLE = Path(__file__).resolve().parent.parent / "src" / "veridex" / "credits" / "vat_rates.json"
+TABLE = Path(__file__).resolve().parent.parent / "src" / "unfret" / "credits" / "vat_rates.json"
 ENDPOINT = "https://ec.europa.eu/taxation_customs/tedb/ws/"
 ACTION = "urn:ec.europa.eu:taxud:tedb:services:v1:VatRetrievalService/RetrieveVatRates"
 # TEDB's member state codes (Greece is EL there; ISO 3166 calls it GR).

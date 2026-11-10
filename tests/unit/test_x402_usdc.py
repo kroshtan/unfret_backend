@@ -19,12 +19,12 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.main import app
-from veridex.prices import PriceBook
-from veridex.x402.payment import PaymentError, decode_header
-from veridex.x402.service import X402
-from veridex.x402.solana import USDC_MINTS, WSOL_MINT, associated_token_address
-from veridex.x402.wallet import check_sweep, create_ata_idempotent
+from unfret.main import app
+from unfret.prices import PriceBook
+from unfret.x402.payment import PaymentError, decode_header
+from unfret.x402.service import X402
+from unfret.x402.solana import USDC_MINTS, WSOL_MINT, associated_token_address
+from unfret.x402.wallet import check_sweep, create_ata_idempotent
 
 HOT = Keypair()
 COLD = Keypair().pubkey()

@@ -8,10 +8,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from veridex.config import settings
-from veridex.main import app
-from veridex.routes import extension
-from veridex.routes.extension import RELEASE_DIR, current_release, linux_policy_command
+from unfret.config import settings
+from unfret.main import app
+from unfret.routes import extension
+from unfret.routes.extension import RELEASE_DIR, current_release, linux_policy_command
 
 # DigestInfo prefix for SHA-256 in EMSA-PKCS1-v1_5 (RFC 8017, section 9.2).
 _SHA256_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -97,7 +97,7 @@ def _verify_crx3(crx: bytes) -> str:
 
 def test_the_shipped_release_is_a_valid_crx3_with_the_manifest_id() -> None:
     release = current_release()
-    assert release is not None, "no release in veridex/static/extension"
+    assert release is not None, "no release in unfret/static/extension"
     crx = (RELEASE_DIR / release.crx).read_bytes()
 
     assert _verify_crx3(crx) == release.extension_id
@@ -178,14 +178,13 @@ async def test_release_files_are_served_with_their_types(client: httpx.AsyncClie
 @pytest.mark.parametrize(
     "name",
     [
-        "veridex-9.9.9.crx",
         "unfret-9.9.9.crx",
         "unfret-dev-9.9.9.crx",
         "unfret-staging-0.8.0.crx",
         "../extension.html",
         "..%2Fpages.py",
         "updates.xml.bak",
-        "veridex-0.1.0.crx.pem",
+        "unfret-0.1.0.crx.pem",
         "x.crx",
         "other-1.0.crx",
     ],
@@ -239,7 +238,7 @@ async def test_without_a_release_everything_is_404_and_the_page_says_so(
 ) -> None:
     assert current_release(no_release) is None
     assert (await client.get("/extension/updates.xml")).status_code == 404
-    assert (await client.get("/extension/veridex-0.1.0.crx")).status_code == 404
+    assert (await client.get("/extension/unfret-0.1.0.crx")).status_code == 404
     page = await client.get("/extension")
     assert page.status_code == 200
     assert "No release is published yet" in page.text
@@ -252,19 +251,16 @@ def test_a_broken_manifest_is_no_release(tmp_path: Path) -> None:
     assert current_release(tmp_path) is None
 
 
-def test_releases_named_after_either_brand_are_found(tmp_path: Path) -> None:
-    for name in ("unfret", "veridex"):
-        release_dir = tmp_path / name
-        release_dir.mkdir()
-        (release_dir / "updates.xml").write_text(
-            "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>"
-            "<app appid='abcdefghijklmnopabcdefghijklmnop'><updatecheck "
-            f"codebase='https://unfret.kroshtan.com/extension/{name}-1.2.3.crx' version='1.2.3'/></app></gupdate>"
-        )
-        (release_dir / "SHA256SUMS").write_text("")
-        (release_dir / f"{name}-1.2.3.crx").write_bytes(b"crx")
-        (release_dir / f"{name}-chrome-1.2.3.zip").write_bytes(b"zip")
-        release = current_release(release_dir)
-        assert release is not None
-        assert release.crx == f"{name}-1.2.3.crx"
-        assert release.zip == f"{name}-chrome-1.2.3.zip"
+def test_a_release_is_found_with_its_zip(tmp_path: Path) -> None:
+    (tmp_path / "updates.xml").write_text(
+        "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>"
+        "<app appid='abcdefghijklmnopabcdefghijklmnop'><updatecheck "
+        "codebase='https://unfret.kroshtan.com/extension/unfret-1.2.3.crx' version='1.2.3'/></app></gupdate>"
+    )
+    (tmp_path / "SHA256SUMS").write_text("")
+    (tmp_path / "unfret-1.2.3.crx").write_bytes(b"crx")
+    (tmp_path / "unfret-chrome-1.2.3.zip").write_bytes(b"zip")
+    release = current_release(tmp_path)
+    assert release is not None
+    assert release.crx == "unfret-1.2.3.crx"
+    assert release.zip == "unfret-chrome-1.2.3.zip"

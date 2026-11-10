@@ -1,40 +1,40 @@
 # production: unfret.kroshtan.com on Solana MAINNET (real money). Deployed ONLY by hand, through the
 # deploy-production workflow (.forgejo/workflows/deploy-production.yaml), for a release tag whose exact image already
 # ran on dev. Secrets: .kamal/secrets-common + .kamal/secrets.production, fed from the PROD_* repo secrets.
-# Its database (veridex-prod-db) is its own and starts empty: devnet balances and scan cursors never reach mainnet.
-service: veridex-prod
-
+# Its database (unfret-prod-db) is its own: devnet balances and scan cursors never reach mainnet.
 proxy:
   hosts:
     - unfret.kroshtan.com
 
 env:
   clear:
-    VERIDEX_LLM_BASE_URL: https://api.scaleway.ai/v1
-    VERIDEX_LLM_MODEL: mistral-small-3.2-24b-instruct-2506
-    VERIDEX_SOLANA_NETWORK: solana-mainnet
-    VERIDEX_X402_ALLOW_MAINNET: "true"
-    VERIDEX_SIWS_DOMAIN: unfret.kroshtan.com
-    VERIDEX_PUBLIC_BASE_URL: https://unfret.kroshtan.com
+    UNFRET_LLM_BASE_URL: https://api.scaleway.ai/v1
+    UNFRET_LLM_MODEL: mistral-small-3.2-24b-instruct-2506
+    UNFRET_SOLANA_NETWORK: solana-mainnet
+    UNFRET_X402_ALLOW_MAINNET: "true"
+    UNFRET_SIWS_DOMAIN: unfret.kroshtan.com
+    UNFRET_PUBLIC_BASE_URL: https://unfret.kroshtan.com
   secret:
-    - VERIDEX_LLM_API_KEY
-    - VERIDEX_POSTGRES_URI
-    - VERIDEX_SOLANA_RPC_URL  # a mainnet RPC provider (the public endpoint is rate-limited)
-    - VERIDEX_SESSION_SECRET
-    - VERIDEX_HOT_WALLET_KEY  # the mainnet hot wallet (fee payer and receiver)
-    - VERIDEX_COLD_ADDRESS  # the cold wallet (sweep destination)
-    - VERIDEX_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+    - UNFRET_LLM_API_KEY
+    - UNFRET_POSTGRES_URI
+    - UNFRET_SOLANA_RPC_URL  # a mainnet RPC provider (the public endpoint is rate-limited)
+    - UNFRET_SESSION_SECRET
+    - UNFRET_HOT_WALLET_KEY  # the mainnet hot wallet (fee payer and receiver)
+    - UNFRET_COLD_ADDRESS  # the cold wallet (sweep destination)
+    - UNFRET_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
 
 accessories:
-  # Reached by the app as veridex-prod-db on the `kamal` network; never published. forge-infra's nightly backup
+  # Reached by the app as unfret-prod-db on the `kamal` network; never published. forge-infra's nightly backup
   # pg_dumps it (APP_PG in backup/forge-backup.sh). It holds customers' balances.
   db:
+    # Its own container name (unfret-prod-db): both destinations' accessories share one host and service.
+    service: unfret-prod-db
     image: postgres:17-alpine
     host: git.kroshtan.com
     env:
       clear:
-        POSTGRES_USER: veridex
-        POSTGRES_DB: veridex
+        POSTGRES_USER: unfret
+        POSTGRES_DB: unfret
       secret:
         - POSTGRES_PASSWORD
     directories:

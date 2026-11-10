@@ -8,7 +8,7 @@ import pytest
 from solders.keypair import Keypair
 
 from tests.integration.test_credits import shop  # noqa: F401 - the fixture
-from veridex.config import settings
+from unfret.config import settings
 
 PAGE = {"page_content": "<h1>Earbuds</h1>", "url": "https://shop.test/p/1"}
 

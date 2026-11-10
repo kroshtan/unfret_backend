@@ -8,7 +8,7 @@ Usage::
 The deterministic skills that the US-market rules change or add (``eu_registry`` without VIES, ``us_identity``,
 ``shop_policies``) are recomputed on each page's saved HTML and merged into an earlier run's features; everything
 else (including the LLM-read ``content`` features) is reused, so this costs no LLM calls. Each page's market comes
-from :func:`veridex.market.shop_market` on its facts and original URL.
+from :func:`unfret.market.shop_market` on its facts and original URL.
 
 It reports the shipped model on TEST with the old and the new features, split by market, and a retrained candidate
 (variant C, as shipped: no rule-only labels, no rule-mirroring columns). ``--ship`` writes the candidate to
@@ -26,13 +26,13 @@ from typing import Any
 
 from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.train import RULE_MIRRORS, build, evaluate, feature_names, fit, load_features
-from veridex.facts import parse_page
-from veridex.graph.skills import Skill
-from veridex.graph.skills.eu_registry import EuRegistrySkill
-from veridex.graph.skills.shop_policies import ShopPoliciesSkill
-from veridex.graph.skills.us_identity import UsIdentitySkill
-from veridex.market import shop_market
-from veridex.scoring import MODEL_PATH, Model, load_model
+from unfret.facts import parse_page
+from unfret.graph.skills import Skill
+from unfret.graph.skills.eu_registry import EuRegistrySkill
+from unfret.graph.skills.shop_policies import ShopPoliciesSkill
+from unfret.graph.skills.us_identity import UsIdentitySkill
+from unfret.market import shop_market
+from unfret.scoring import MODEL_PATH, Model, load_model
 
 RECOMPUTED: list[Skill] = [EuRegistrySkill(vies=False), UsIdentitySkill(), ShopPoliciesSkill()]
 

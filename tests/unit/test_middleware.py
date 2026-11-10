@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from veridex.middleware import _BODY_HEADROOM_BYTES, RequestGuardMiddleware
+from unfret.middleware import _BODY_HEADROOM_BYTES, RequestGuardMiddleware
 
 LIMIT = 1_000
 

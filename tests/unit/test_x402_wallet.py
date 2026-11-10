@@ -21,9 +21,9 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.x402.payment import confirm_by_simulation, precheck
-from veridex.x402.solana import TOKEN_PROGRAM, WSOL_MINT, associated_token_address
-from veridex.x402.wallet import (
+from unfret.x402.payment import confirm_by_simulation, precheck
+from unfret.x402.solana import TOKEN_PROGRAM, WSOL_MINT, associated_token_address
+from unfret.x402.wallet import (
     HotWallet,
     Sweep,
     build_sweep,

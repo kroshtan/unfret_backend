@@ -9,9 +9,9 @@ import pytest
 from pydantic import SecretStr
 
 from tests.integration.conftest import FakeGraph
-from veridex import reports
-from veridex.config import settings
-from veridex.credits import keys
+from unfret import reports
+from unfret.config import settings
+from unfret.credits import keys
 
 PRICE = settings.analysis_price_usd_micros
 ADMIN = {"Authorization": "Bearer operator-token"}

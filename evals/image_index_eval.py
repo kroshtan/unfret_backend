@@ -18,7 +18,7 @@ with their main photos, licensed for commercial use with attribution. Steps::
   false (different item, different photo). It picks the most permissive thresholds with no false match at all, and
   reports the measured rate with its 95% upper bound (rule of three).
 
-The images are untrusted downloads; they are decoded by :mod:`veridex.image_index` with its usual guards.
+The images are untrusted downloads; they are decoded by :mod:`unfret.image_index` with its usual guards.
 """
 
 import argparse
@@ -36,8 +36,8 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance
 
-from veridex import image_index
-from veridex.image_index import ImagePrint, Thresholds
+from unfret import image_index
+from unfret.image_index import ImagePrint, Thresholds
 
 ABO = "https://amazon-berkeley-objects.s3.amazonaws.com"
 SHARDS = [f"{ABO}/listings/metadata/listings_{i:x}.json.gz" for i in range(16)]

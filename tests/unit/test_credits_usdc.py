@@ -6,11 +6,11 @@ from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 
 from tests.unit.x402_helpers import StaticOracle
-from veridex.config import Settings
-from veridex.credits.pricing import pricing, purchase_transaction, solana_pay_url
-from veridex.credits.scanner import credits_for, incoming_token_transfers
-from veridex.prices import PriceBook
-from veridex.x402.solana import ASSOCIATED_TOKEN_PROGRAM, TOKEN_PROGRAM, USDC_MINTS, associated_token_address
+from unfret.config import Settings
+from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
+from unfret.credits.scanner import credits_for, incoming_token_transfers
+from unfret.prices import PriceBook
+from unfret.x402.solana import ASSOCIATED_TOKEN_PROGRAM, TOKEN_PROGRAM, USDC_MINTS, associated_token_address
 
 HOT = Keypair().pubkey()
 BUYER = Keypair().pubkey()
@@ -18,7 +18,7 @@ USDC = USDC_MINTS["solana-devnet"]
 HOT_ATA = str(associated_token_address(HOT, USDC))
 
 
-MEMO = "veridex:quote:abcdefghijklmnopqrst"
+MEMO = "unfret:quote:abcdefghijklmnopqrst"
 
 
 def test_usdc_purchase_creates_the_account_if_needed_and_transfers_checked() -> None:
@@ -39,7 +39,7 @@ def test_usdc_purchase_creates_the_account_if_needed_and_transfers_checked() -> 
 def test_solana_pay_link_names_the_token() -> None:
     url = solana_pay_url(HOT, 1_500_000, MEMO, USDC)
     assert url.startswith(f"solana:{HOT}?amount=1.5&spl-token={USDC}&label=Unfret")
-    assert url.endswith("memo=veridex%3Aquote%3Aabcdefghijklmnopqrst")
+    assert url.endswith("memo=unfret%3Aquote%3Aabcdefghijklmnopqrst")
     assert solana_pay_url(HOT, 15_000_000).startswith(f"solana:{HOT}?amount=0.015&label=")
 
 
@@ -109,7 +109,7 @@ def test_x402_settlements_swaps_other_mints_and_failures_are_not_purchases() -> 
 
 def test_a_usdc_purchase_memo_names_the_beneficiary() -> None:
     member = str(Keypair().pubkey())
-    memo = {"program": "spl-memo", "parsed": f"veridex:credit:{member}"}
+    memo = {"program": "spl-memo", "parsed": f"unfret:credit:{member}"}
     vault = str(Keypair().pubkey())
     assert credits_for(token_tx(checked(1_500_000, authority=vault), memo), str(HOT), str(USDC)) == {member: 1_500_000}
 
@@ -136,5 +136,5 @@ def test_the_reference_rides_on_the_usdc_transfer_and_the_link() -> None:
     assert bytes(message.instructions[2].data) == MEMO.encode()  # the memo stays, for wallets that keep it
     url = solana_pay_url(HOT, 1_500_000, MEMO, USDC, reference=str(reference))
     assert f"&spl-token={USDC}&reference={reference}&label=Unfret" in url and url.endswith(
-        "memo=veridex%3Aquote%3Aabcdefghijklmnopqrst"
+        "memo=unfret%3Aquote%3Aabcdefghijklmnopqrst"
     )

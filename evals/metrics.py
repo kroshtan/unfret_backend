@@ -196,7 +196,7 @@ def summarise(outcomes: Sequence[Outcome]) -> dict[str, object]:
     }
 
 
-def to_markdown(report: dict[str, object], title: str = "Veridex evaluation") -> str:
+def to_markdown(report: dict[str, object], title: str = "Unfret evaluation") -> str:
     """
     Render :func:`summarise` output as a Markdown report.
 

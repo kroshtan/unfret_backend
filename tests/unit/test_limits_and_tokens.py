@@ -2,9 +2,9 @@
 
 import pytest
 
-from veridex.credits import siws
-from veridex.credits.pairing import PairingStore
-from veridex.visitors import DailyLimit
+from unfret.credits import siws
+from unfret.credits.pairing import PairingStore
+from unfret.visitors import DailyLimit
 
 SECRET = "s" * 32
 

@@ -31,12 +31,12 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: veridex
-          POSTGRES_PASSWORD: veridex
-          POSTGRES_DB: veridex
+          POSTGRES_USER: unfret
+          POSTGRES_PASSWORD: unfret
+          POSTGRES_DB: unfret
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U veridex"
+          --health-cmd "pg_isready -U unfret"
           --health-interval 2s
           --health-retries 15
     steps:
@@ -45,7 +45,7 @@ jobs:
       - run: uv sync --all-groups --frozen
       - run: uv run pytest
         env:
-          VERIDEX_TEST_POSTGRES_URI: postgresql://veridex:veridex@localhost:5432/veridex
+          UNFRET_TEST_POSTGRES_URI: postgresql://unfret:unfret@localhost:5432/unfret
       - name: MCP server (mcp/, its own environment)
         run: |
           uv sync --project mcp --all-groups --frozen

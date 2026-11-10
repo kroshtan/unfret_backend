@@ -339,13 +339,19 @@
      "checks_remaining": {
       "title": "Checks Remaining",
       "type": "integer"
+     },
+     "invite_eligible": {
+      "description": "Whether an invite can still be redeemed onto this account: only one that has never had credit.",
+      "title": "Invite Eligible",
+      "type": "boolean"
      }
     },
     "required": [
      "address",
      "balance_usd_micros",
      "checks_remaining",
-     "balance_lamports"
+     "balance_lamports",
+     "invite_eligible"
     ],
     "title": "CreditsResponse",
     "type": "object"
@@ -2680,7 +2686,7 @@
   },
   "/v1/credits": {
    "get": {
-    "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, and how many analyses it covers.",
+    "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, how many analyses it covers, and whether an invite can still be redeemed onto it.",
     "operationId": "get_balance_v1_credits_get",
     "responses": {
      "200": {

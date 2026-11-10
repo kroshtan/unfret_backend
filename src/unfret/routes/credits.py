@@ -43,6 +43,9 @@ class CreditsResponse(BaseModel):
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
+    invite_eligible: bool = Field(
+        description="Whether an invite can still be redeemed onto this account: only one that has never had credit."
+    )
 
 
 class PurchaseRequest(BaseModel):
@@ -160,14 +163,16 @@ async def get_balance(request: Request, address: str = Depends(require_account))
 
     :param request: The incoming request.
     :param address: The account (injected by require_account).
-    :return: The balance, and how many analyses it covers.
+    :return: The balance, how many analyses it covers, and whether an invite can still be redeemed onto it.
     """
-    balance = await ledger.balance(request.app.db_pool, address) or 0
+    row = await ledger.balance(request.app.db_pool, address)
+    balance = row or 0
     return CreditsResponse(
         address=address,
         balance_usd_micros=balance,
         checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
         balance_lamports=balance,
+        invite_eligible=row is None,  # the same test redeem makes: an account with a ledger row had credit
     )
 
 

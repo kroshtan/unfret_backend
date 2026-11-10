@@ -524,3 +524,8 @@ valid 7 days. Nothing is stored when a check runs.
   it; the server keeps three. The `us_identity` skill reads the company name from them, since the page text it gets has
   no footer; they never count as an imprint. Clients that extract facts themselves (the browser extension) should fill
   it, or a company named only in the footer isn't seen.
+
+## Changes (invite eligibility in credits, backwards-compatible)
+
+- `GET /v1/credits` adds `invite_eligible` (bool): true while the account has never had credit, the same test
+  `POST /v1/invites/redeem` makes, so a client can show "Have an invite?" only where a code would be accepted.

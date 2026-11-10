@@ -1,4 +1,4 @@
-"""A paid /v1/check whose analysis fails, times out or finds nothing to assess is refunded as credits, in the ledger."""
+"""A paid /v1/check whose analysis fails, times out or finds nothing to assess is refunded as credits (ledger)."""
 
 import asyncio
 from collections.abc import AsyncIterator

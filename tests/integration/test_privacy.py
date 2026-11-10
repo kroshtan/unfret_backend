@@ -184,6 +184,7 @@ async def x402_client(stores: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> 
 
 @pytest.mark.parametrize(("tier", "lamports"), [("quick", 100_000), ("deep", 1_500_000)])
 async def test_a_paid_check_keeps_nothing_that_names_the_page(
+    *,
     x402_client: httpx.AsyncClient,
     stores: asyncpg.Pool,
     outside: list[str],

@@ -1,4 +1,4 @@
-"""No test leaves state on the app for the next (tests/conftest.py puts it back); unit tests run after integration's."""
+"""No test leaves state on the app for the next (tests/conftest.py puts it back); unit tests run after integration."""
 
 from unfret.main import app
 

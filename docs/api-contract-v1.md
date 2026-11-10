@@ -517,9 +517,10 @@ valid 7 days. Nothing is stored when a check runs.
 - `GET /v1/pricing`: each pack's `label` is `{"en": …}` only (no `nl`).
 - The extension keeps working unchanged: it may still send `Accept-Language` and its own interface is its own.
 
-## Changes (copyright lines in legal mentions, backwards-compatible)
+## Changes (copyright lines, backwards-compatible)
 
-- `PageFacts.legal_mentions` also carries up to three copyright lines (`© 2026 Acme Outdoor LLC. All rights
-  reserved.`), the keyword plus the 100 characters after it (snapshot description updated). The `us_identity` skill
-  reads the company name from them, since the page text it gets has no footer. Clients that extract facts themselves
-  (the browser extension) should add the page's copyright lines here, or a footer-only company name isn't seen.
+- New optional `PageFacts.copyright_lines` (list of strings, at most 10; snapshot updated): the page's copyright lines
+  (`© 2026 Acme Outdoor LLC. All rights reserved.`), each the ©, "(c)" or "Copyright" plus the 100 characters after
+  it; the server keeps three. The `us_identity` skill reads the company name from them, since the page text it gets has
+  no footer; they never count as an imprint. Clients that extract facts themselves (the browser extension) should fill
+  it, or a company named only in the footer isn't seen.

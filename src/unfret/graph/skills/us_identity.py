@@ -80,6 +80,11 @@ _CREDIT_RE = re.compile(
     re.IGNORECASE,
 )
 _WS_RE = re.compile(r"\s+")
+# Any capitalised words before a company form, across lines and including platforms: how eu_registry's imprint
+# equivalent has always read a company, kept as it is so the trained scorer's feature doesn't shift.
+_ANY_COMPANY_RE = re.compile(
+    rf"\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){{0,4}}),?\s+(?:{_FORM})(?![A-Za-z])"
+)
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[\s.-]?)?\(?[2-9]\d{2}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\d)")
 _MAX_TEXT = 200_000
 
@@ -109,6 +114,19 @@ def find_identity(text: str) -> Identity:
         entity=_entity(text),
         phone=_PHONE_RE.search(text) is not None,
     )
+
+
+def names_any_company(text: str) -> bool:
+    """
+    Whether the text names some company (LLC, Inc., Corp., Ltd.), not necessarily the shop's.
+
+    Broader than :func:`find_identity`'s ``entity``: platforms, sentence words and names reaching across lines
+    count. ``eu_registry`` reads an imprint's equivalent outside the EU this way.
+
+    :param text: Page text (only the first 200,000 characters are read).
+    :return: Whether a company is named.
+    """
+    return any(not m.group(1).startswith("The ") for m in _ANY_COMPANY_RE.finditer(text[:_MAX_TEXT]))
 
 
 def _entity(text: str) -> str:
@@ -171,7 +189,7 @@ class UsIdentitySkill(Skill):
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Look for the company name, address and phone number in the page text and its legal snippets.
+        Look for the company name, address and phone number in the page text, its legal snippets and copyright lines.
 
         :param state: Current graph state; uses ``facts``, ``cleaned_content`` and ``url``.
         :return: The skill's features and findings.
@@ -179,7 +197,8 @@ class UsIdentitySkill(Skill):
         facts = state["facts"]
         if shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) != "us":
             return self.not_applicable("Not a US shop.")
-        found = find_identity(" ".join([state["cleaned_content"][:_MAX_TEXT], *facts.legal_mentions]))
+        parts = [state["cleaned_content"][:_MAX_TEXT], *facts.legal_mentions, *facts.copyright_lines]
+        found = find_identity(" ".join(parts))
         street, mailbox = found.street_addresses, found.mailbox_addresses
         features: dict[str, float | bool] = {
             "us_address": bool(street),

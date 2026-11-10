@@ -309,11 +309,27 @@ async def test_the_copyright_line_in_a_footer_names_the_company() -> None:
     # The page text the LLM sees has no footer, so the copyright line has to reach the skill through the facts.
     facts, text = parse_page(FOOTER_PAGE, "https://acme-outdoor.example.com/products/trail-jacket")
     assert "Acme" not in text
+    assert facts.copyright_lines == ["© 2026 , Acme Outdoor LLC . All rights reserved. Powered by Shopify"]
+    assert facts.legal_mentions == []
     out = await UsIdentitySkill().run(state(facts, text))
     assert out["features"]["us_identity.business_entity"] == 1.0
     assert {x.type: x.evidence for x in out["findings"]}["business_entity"] == "Company: Acme Outdoor LLC"
-    imprint = await EuRegistrySkill(vies=False).run(state(facts, text))
-    assert imprint["features"]["eu_registry.imprint"] == 1.0
+
+
+@pytest.mark.parametrize("facts", [US, EU])
+async def test_a_copyright_line_is_no_imprint(facts: PageFacts) -> None:
+    # It names the company for us_identity, but eu_registry.imprint reads as it always has: not from the facts'
+    # copyright lines, and not from us_identity's stricter choice of company.
+    with_line = facts.model_copy(update={"copyright_lines": ["© 2026 Acme Outdoor LLC. All rights reserved."]})
+    for page_facts in (facts, with_line):
+        out = await EuRegistrySkill(vies=False).run(state(page_facts, "Great shoes."))
+        imprint = {k: v for k, v in out["features"].items() if k.startswith("eu_registry.imprint")}
+        assert imprint == (
+            {"eu_registry.imprint.not_applicable": 1.0} if facts is US else {"eu_registry.imprint": 0.0}
+        )
+    # Outside the EU any company named in the page text still counts, a platform's included, as before.
+    out = await EuRegistrySkill(vies=False).run(state(US, "Powered by Shopify Inc."))
+    assert out["features"]["eu_registry.imprint"] == 1.0
 
 
 # ── Shipping and return terms ─────────────────────────────────────────────────

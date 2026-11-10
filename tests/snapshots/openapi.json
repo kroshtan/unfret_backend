@@ -733,6 +733,15 @@
       "title": "Checkboxes",
       "type": "array"
      },
+     "copyright_lines": {
+      "description": "Copyright lines ('\u00a9 2026 Acme Outdoor LLC. All rights reserved.'): the keyword and what follows.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Copyright Lines",
+      "type": "array"
+     },
      "currency": {
       "default": "",
       "maxLength": 8,
@@ -786,7 +795,7 @@
       "type": "array"
      },
      "legal_mentions": {
-      "description": "Imprint, company register, withdrawal-right and copyright text.",
+      "description": "Imprint, company register and withdrawal-right text.",
       "items": {
        "type": "string"
       },

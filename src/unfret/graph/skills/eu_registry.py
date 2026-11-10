@@ -18,7 +18,7 @@ import httpx
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
 from unfret.graph.skills import NOT_APPLICABLE, STOREFRONTS, Observation, Skill, SkillOutput
-from unfret.graph.skills.us_identity import find_identity
+from unfret.graph.skills.us_identity import find_identity, names_any_company
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
 from unfret.net import hostname
@@ -106,8 +106,10 @@ class EuRegistrySkill(Skill):
         eu = shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "eu"
         if not imprint and not eu:
             # Outside the EU there is no imprint by law; its equivalent is a named company or a US business address.
-            found = find_identity(" ".join([state.get("cleaned_content", ""), legal]))
-            imprint = bool(found.entity or found.street_addresses)
+            # A copyright line names a company but is no imprint, so this reads neither ``copyright_lines`` nor
+            # us_identity's choice of the shop's company (the scorer was trained on this reading).
+            text = " ".join([state.get("cleaned_content", ""), legal])
+            imprint = names_any_company(text) or bool(find_identity(text).street_addresses)
         features: dict[str, float | bool]
         if eu:
             features = {"vat_present": bool(facts.vat_ids), "withdrawal_right": withdrawal, "imprint": imprint}

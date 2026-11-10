@@ -68,9 +68,12 @@ class PageFacts(BaseModel):
     fee_mentions: list[str] = Field(default_factory=list, max_length=50)
     vat_ids: list[str] = Field(default_factory=list, max_length=10)
     legal_mentions: list[str] = Field(
+        default_factory=list, max_length=50, description="Imprint, company register and withdrawal-right text."
+    )
+    copyright_lines: list[str] = Field(
         default_factory=list,
-        max_length=50,
-        description="Imprint, company register, withdrawal-right and copyright text.",
+        max_length=10,
+        description="Copyright lines ('© 2026 Acme Outdoor LLC. All rights reserved.'): the keyword and what follows.",
     )
     policy_links: dict[str, str] = Field(
         default_factory=dict, description="Kind (refund, terms, privacy, contact, imprint, shipping) to URL."

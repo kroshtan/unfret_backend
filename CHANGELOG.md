@@ -6,6 +6,7 @@
 
 ### Bug fixes
 
+* `/connect` is for wallets only and said nothing to someone holding an API key (for instance after paying by card): it now points them to `/check`, "Use an API key", which also shows the key's balance
 * `/checkout`: "Pay by card" did nothing when clicked without a usable API key (none entered, or a new key whose "I've saved both" box wasn't ticked): it stayed enabled, silently returned, and with an empty key field showed no message. It is now disabled until a key is ready, and the key field says "Enter your API key or its ID, or create a new key, to pay."
 
 ## [0.9.1](https://github.com/kroshtan/unfret_backend/compare/0.9.0...0.9.1) (2026-11-10)

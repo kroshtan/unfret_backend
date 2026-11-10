@@ -55,7 +55,7 @@ BLOCKHASH = "EZ3rST5dvHmbanh75jc4PuLfV96vp9fEYBVeNk4FfM1k"
 
 def test_defaults_point_at_dev() -> None:
     config = E2EConfig.from_env({})
-    assert config.base_url == DEV_URL == "https://dev.unfret.kroshtan.com"
+    assert config.base_url == DEV_URL == "https://dev.unfret.net"
     assert config.expect_fiat == "polar:production"
     assert not config.no_skip
     assert not config.ssh_target

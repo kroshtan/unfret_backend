@@ -1,6 +1,6 @@
 # Kamal: the parts both environments share. Deploy with a destination, never without one:
-#   dev         config/deploy.dev.yml         dev.unfret.kroshtan.com, Solana devnet, auto-deployed on every push to main
-#   production  config/deploy.production.yml  unfret.kroshtan.com, Solana mainnet, deployed by hand (deploy-production)
+#   dev         config/deploy.dev.yml         dev.unfret.net, Solana devnet, auto-deployed on every push to main
+#   production  config/deploy.production.yml  unfret.net, Solana mainnet, deployed by hand (deploy-production)
 # Kamal deep-merges the destination file over this one (arrays are replaced, not merged), so each destination
 # declares its own proxy host, env and database accessory. The service is one for both: Kamal names the containers
 # unfret-web-dev-<sha> / unfret-web-production-<sha> (kamal-proxy services unfret-web-dev / unfret-web-production),

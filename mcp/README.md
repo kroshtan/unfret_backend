@@ -1,7 +1,7 @@
 # unfret-mcp
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents ask
-[Unfret](https://unfret.kroshtan.com) whether a store or product listing shows signs of scams, dropshipping of
+[Unfret](https://unfret.net) whether a store or product listing shows signs of scams, dropshipping of
 generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
 Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in USDC or
@@ -38,7 +38,7 @@ fetches.
 | `UNFRET_MCP_MAX_PRICE_USD` | `0.25` | Refuse any single check worth more than this many dollars |
 | `UNFRET_MCP_SESSION_CAP_USD` | `2.50` | Refuse once the session has spent this many dollars |
 | `UNFRET_MCP_PRICE_RPC_URL` | mainnet's public RPC | Where the agent reads Pyth SOL/USD to value wSOL payments |
-| `UNFRET_API_URL` | `https://unfret.kroshtan.com` | |
+| `UNFRET_API_URL` | `https://unfret.net` | |
 
 ```json
 {"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],

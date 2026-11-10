@@ -42,7 +42,7 @@ jobs:
 
   # The deploy runner: its own rootless docker daemon to build on, and the deploy credentials as read-only files
   # under /creds. Only pushes to main (and manual runs on main) get here, and they deploy to DEV only:
-  # dev.unfret.kroshtan.com on devnet. Production is never deployed from this workflow; see deploy-production.yaml
+  # dev.unfret.net on devnet. Production is never deployed from this workflow; see deploy-production.yaml
   # (manual, release tags only). The image built here is tagged with the commit SHA, and production later deploys
   # that same image.
   deploy-dev:

@@ -226,7 +226,7 @@ async def test_skill_finds_the_photo_on_other_shops_and_records_it(
     )  # fmt: skip
     shops, catalogue = out["findings"]
     assert shops.evidence == "The same product photo is on 1 other shop: cheap-lamps.shop."
-    assert shops.thumbnails == ["https://unfret.kroshtan.com/v1/images/1/thumbnail.jpg"]
+    assert shops.thumbnails == ["https://unfret.net/v1/images/1/thumbnail.jpg"]
     assert catalogue.evidence == "The same photo is used on an Amazon catalogue listing (brand: LumiCo)."
     assert ("glowlamp.shop" in {d for d, _ in stub.rows}) is True  # recorded for the next shop
 
@@ -270,7 +270,7 @@ def verdict(features: dict[str, float], brand_known: bool = False) -> shopper.Ve
         skill="reverse_image",
         type="photo_on_other_shops",
         evidence="The same product photo is on 2 other shops: a.shop, b.shop.",
-        thumbnails=["https://unfret.kroshtan.com/v1/images/1/thumbnail.jpg"],
+        thumbnails=["https://unfret.net/v1/images/1/thumbnail.jpg"],
     )
     return shopper.build(
         30,
@@ -285,7 +285,7 @@ def test_photo_reuse_is_a_warning_only_in_a_suspicious_context() -> None:
     reasons = verdict({"content.generic_product": 0.9}).reasons
     (reused,) = [r for r in reasons if r.type == "photo_reused"]
     assert reused.detail.startswith("The main product photo is the same photo as on 2 other shops (a.shop, b.shop).")
-    assert reused.thumbnails == ["https://unfret.kroshtan.com/v1/images/1/thumbnail.jpg"]
+    assert reused.thumbnails == ["https://unfret.net/v1/images/1/thumbnail.jpg"]
     assert not [r for r in verdict({}).reasons if r.type == "photo_reused"]  # no context: no warning
     known = verdict({"content.generic_product": 0.9}, brand_known=True)
     assert not [r for r in known.reasons if r.type == "photo_reused"]  # never for a known brand

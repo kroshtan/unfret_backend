@@ -24,7 +24,7 @@ PRODUCTS = {
 }
 ACCOUNT = "key:abcdefghij"
 CHECKOUT_ID = "c6a3b2e1-0f9d-4e8c-b7a6-5d4c3b2a1f00"
-SUCCESS_URL = "https://unfret.kroshtan.com/checkout?paid=1"
+SUCCESS_URL = "https://unfret.net/checkout?paid=1"
 
 
 def settings(**overrides: Any) -> Settings:

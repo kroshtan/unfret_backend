@@ -73,7 +73,9 @@ def _at(n: str) -> bool | None:
 
 def _be(n: str) -> bool | None:
     n = n.zfill(10)
-    return 97 - int(n[:8]) % 97 == int(n[8:])
+    # Mod 97 over all ten digits, as python-stdnum checks it: it also passes check digits 98, 99 and 00 (the same
+    # remainders as 1, 2 and 97), which the official rule never issues, so this never calls an issued number made up.
+    return (int(n[:8]) + int(n[8:])) % 97 == 0
 
 
 def _cz(n: str) -> bool | None:

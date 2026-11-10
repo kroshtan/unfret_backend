@@ -69,6 +69,12 @@ def test_real_vat_numbers_pass_and_one_wrong_digit_fails(vat_id: str) -> None:
     assert check_digits_ok(wrong) is False
 
 
+@pytest.mark.parametrize("vat_id", ["BE0464203198", "BE1634866999", "BE0580845700"])
+def test_belgian_check_digits_98_99_and_00_are_not_called_made_up(vat_id: str) -> None:
+    # The official rule never issues them, but mod 97 can't tell them from 1, 2 and 97: never flag what may be real.
+    assert check_digits_ok(vat_id) is True
+
+
 def test_dutch_sole_trader_numbers_use_mod_97() -> None:
     # Since 2020 a sole trader's VAT ID is checked with mod 97 over the whole ID, not the "elfproef".
     assert check_digits_ok("NL123456789B13") is True  # fails the elfproef, passes mod 97

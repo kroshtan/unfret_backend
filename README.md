@@ -422,6 +422,7 @@ make install           # uv sync + pre-commit hooks
 make lint              # ruff, mypy (strict), pydoclint
 make test-unit         # fast, no services needed
 make test              # unit + integration tests against a throwaway Postgres container
+make e2e               # the end-to-end sweep against dev (devnet; needs the UNFRET_E2E_* settings, see Deploying)
 make audit             # pip-audit over the locked dependencies
 make run               # uvicorn with auto-reload
 ```
@@ -463,7 +464,7 @@ wallet and session secret:
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
-| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
+| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
 
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).
@@ -478,7 +479,11 @@ The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto 
 The production workflow refuses unless:
 - the commit is on `main`;
 - its `CI / check` and `CI / deploy-dev` statuses are green;
+- dev reports that very commit (`/v1/health` → `commit`; the workflow waits up to 10 minutes for it) and passes the
+  [end-to-end sweep](#end-to-end-sweep) against it;
 - every production secret is set, and the RPC URL isn't a test network.
+
+Nothing is tagged or deployed when the sweep fails.
 
 It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
 rebuild. Deploys never run in parallel and are never cancelled half-way.
@@ -490,7 +495,38 @@ destination is set up; they carried the one-time move from the services before t
 ([docs/production-cutover.md](docs/production-cutover.md)).
 
 **Rolling back production:** run the workflow again with `ref` = the previous release tag. Releases from before the
-rename (up to `v0.7.0`) name the old services and can't be deployed this way; see the runbook's rollback.
+rename (up to `v0.7.0`) name the old services and can't be deployed this way; see the runbook's rollback. The e2e gate
+runs against dev, so it refuses a release that dev no longer runs (an older tag once main has moved on): for such a
+rollback, use the runbook's manual rollback ([docs/production-cutover.md](docs/production-cutover.md)).
+
+### End-to-end sweep
+
+`tests/e2e/test_dev_sweep.py` (`make e2e`, marker `e2e`; never part of `make test`) checks every path a customer or
+an agent takes against a deployed dev, with real infrastructure: health and readiness, the x402 discovery document and
+`llms.txt`; API keys (proof-of-work creation, an empty key's 402, an operator grant, recovery); analyses charged once,
+served free from the cache, streamed, and every page the server can't read (`PAGE_BLOCKED`, `PAGE_UNAVAILABLE`,
+`INVALID_URL`, `PAGE_TOO_THIN`, a validation error) free; sign-in with the payer's wallet; x402 with the MCP client
+(quick in USDC, deep in wSOL, confirmed on devnet, a replayed payment answered once and debited once, an underpayment
+and a malformed header refused, a bot-check page free); credit packs bought in USDC (memo) and in SOL by the Solana Pay
+reference alone; card top-ups (a Polar checkout page, then made-up signed `order.paid`/`order.refunded` webhooks: dev
+runs **live** Polar, so no real order is ever completed); the showcase and the operator endpoints' 401. Fixture pages
+come from the forge at the commit dev runs, each URL carrying a per-run marker that must not appear in dev's app logs
+or database afterwards (over ssh). It refuses to run against anything whose `/.well-known/x402` isn't devnet, and
+checks that the payer holds at least 1.5 SOL and 5.01 devnet USDC before spending (it never uses a faucet: "fund
+<address>"). The e2e key gets a working credit for the run and ends at exactly its starting balance (operator grant
+or debit). A run takes about five minutes and spends about $10.21 of devnet USDC and SOL (two packs and two x402
+checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
+
+| Setting | Repo secret (production gate) | |
+| --- | --- | --- |
+| `UNFRET_E2E_PAYER_KEY` | `DEV_E2E_PAYER_KEY` | the devnet payer: a Solana CLI keypair (JSON byte array) or base58 secret; devnet only |
+| `UNFRET_E2E_KEY` | `DEV_E2E_KEY` | a long-lived API key on dev (`ufk_…`, made once at dev's `/checkout`), so a run creates only one key (5 per address per day) |
+| `UNFRET_E2E_ADMIN_TOKEN` | `DEV_ADMIN_TOKEN` | dev's operator token |
+| `UNFRET_E2E_FIAT_WEBHOOK_SECRET` | `DEV_FIAT_WEBHOOK_SECRET` | dev's Polar webhook secret, to sign the made-up order events |
+| `UNFRET_E2E_POLAR_PRODUCTS` | `DEV_POLAR_PRODUCTS` | the packs' Polar products (`25=<id>,…`) |
+| `UNFRET_E2E_EXPECT_FIAT` | (from `DEV_POLAR_ENVIRONMENT`) | readiness's `fiat`, default `polar:production`; `off` skips the card tests |
+| `UNFRET_E2E_SSH` | `kamal@git.kroshtan.com` | where to read dev's logs and dump its database; without it the privacy check is skipped |
+| `UNFRET_E2E_URL`, `UNFRET_E2E_COMMIT`, `UNFRET_E2E_FIXTURE_REF`, `UNFRET_E2E_RPC_URL`, `UNFRET_E2E_NO_SKIP` | | the target (default dev), the commit it must run, the commit to serve the fixtures from (default: the one dev runs), the devnet RPC, and whether a skip fails the run (the gate sets it) |
 
 ## Design notes
 

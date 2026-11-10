@@ -189,13 +189,18 @@ should-document-star-arguments = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
+# tests/e2e (the dev sweep, `make e2e`) runs only when asked for: `pytest -m e2e tests/e2e`.
+testpaths = ["tests/unit", "tests/integration"]
 addopts = [
     "--cov=unfret",
     "--cov-report=term-missing",
     "--cov-report=xml",
     "--strict-markers",
     "-rs",  # name every skipped test and why in the summary
+    "-m", "not e2e",
+]
+markers = [
+    "e2e: the end-to-end sweep against a deployed dev (real devnet money, secrets; see README 'End-to-end sweep')",
 ]
 env = [
     "UNFRET_LLM_API_KEY=test-key",

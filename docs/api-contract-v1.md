@@ -502,3 +502,8 @@ valid 7 days. Nothing is stored when a check runs.
   have changed", a `rel="nofollow noopener noreferrer"` product link, `noindex` (header and robots meta), and forms
   to object or delete.
 - CORS: `DELETE` and the `X-Delete-Code` header are allowed.
+
+## Changes (the build commit in health, backwards-compatible)
+
+- `GET /v1/health` and `GET /v1/health/ready` add `commit`: the commit the running image was built from, or `null`
+  outside a built image (local runs, tests).

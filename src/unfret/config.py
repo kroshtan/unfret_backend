@@ -207,6 +207,9 @@ class Settings(BaseSettings):
     x402_breaker_global: int = 20
 
     log_json: bool = True  # one JSON object per line (False: human-readable, for local development)
+    # The commit the image was built from (the Dockerfile's GIT_SHA build argument), reported by /v1/health so a
+    # deploy can tell which build is serving. Empty outside a built image.
+    git_sha: str = ""
 
     @field_validator("polar_environment", mode="before")
     @classmethod

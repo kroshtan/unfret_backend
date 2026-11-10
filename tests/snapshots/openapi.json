@@ -506,6 +506,18 @@
    "Healthy": {
     "description": "Response schema for the health check endpoint.",
     "properties": {
+     "commit": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The git commit the running image was built from",
+      "title": "Commit"
+     },
      "credits": {
       "anyOf": [
        {
@@ -2979,7 +2991,7 @@
   },
   "/v1/health": {
    "get": {
-    "description": "Liveness probe. Always returns 200 while the process is serving requests.\n\n:return: Healthy response with the running version.",
+    "description": "Liveness probe. Always returns 200 while the process is serving requests.\n\n:return: Healthy response with the running version and the commit it was built from.",
     "operationId": "health_v1_health_get",
     "responses": {
      "200": {
@@ -3001,7 +3013,7 @@
   },
   "/v1/health/ready": {
    "get": {
-    "description": "Readiness probe. Returns 200 only while the database answers, so a deploy can wait for it.\n\nAlso reports whether x402 payments and card top-ups are available and how many alerts are raised; with the\noperator token (``Authorization: Bearer``), the hot wallet's balances and the alerts themselves. A low balance or\na compromise signal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API\nkeeps serving.\n\n:param request: The FastAPI request (used to access the DB pool).\n:return: Healthy response with the running version.\n:raises ServiceUnavailableError: If the database pool is missing or the query fails.",
+    "description": "Readiness probe. Returns 200 only while the database answers, so a deploy can wait for it.\n\nAlso reports whether x402 payments and card top-ups are available and how many alerts are raised; with the\noperator token (``Authorization: Bearer``), the hot wallet's balances and the alerts themselves. A low balance or\na compromise signal pauses payments (``/v1/check`` answers 503) but never fails readiness: the rest of the API\nkeeps serving.\n\n:param request: The FastAPI request (used to access the DB pool).\n:return: Healthy response with the running version and commit.\n:raises ServiceUnavailableError: If the database pool is missing or the query fails.",
     "operationId": "ready_v1_health_ready_get",
     "responses": {
      "200": {

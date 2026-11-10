@@ -3,6 +3,7 @@
 ## Unreleased
 
 ## [0.9.1](https://github.com/kroshtan/unfret_backend/compare/0.9.0...0.9.1) (2026-11-10)
+
 ### Features
 
 * **Card payments in production**: the deploy-production workflow passes the optional repo secrets `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS` and `PROD_FIAT_WEBHOOK_SECRET` (all three or none, else it refuses) to the app, with `UNFRET_POLAR_ENVIRONMENT` fixed to `production` in `config/deploy.production.yml`. Without them card top-ups stay off, as before

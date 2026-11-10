@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration e2e db-up db-down run docker-up clean corpus opinions split label reports showcase eval bump vat-rates-check
+.PHONY: help install lint audit test test-unit test-integration e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -42,6 +42,12 @@ corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 	uv run python -m evals.sources.beyondphish
 	uv run python -m evals.sources.amazon2023
 	uv run python -m evals.sources.mendeley
+
+eu-shops:  ## Add legitimate EU shops to the corpus, fetched live (robots.txt respected; no LLM calls)
+	uv run python -m evals.sources.eu_shops
+
+markets:  ## Per-market metrics (EU, US, other) of the shipped scorers; no LLM calls (MARKETS_ARGS="--train")
+	uv run python -m evals.markets $(MARKETS_ARGS)
 
 opinions:  ## Get the LLM second opinion on every corpus page and rebuild the review queue
 	uv run python -m evals.second_opinion

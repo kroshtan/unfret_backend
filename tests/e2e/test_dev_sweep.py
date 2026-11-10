@@ -118,7 +118,14 @@ async def offered(api: httpx.AsyncClient, url: str, tier: str) -> list[dict[str,
 
 
 async def paid_check(
-    api: httpx.AsyncClient, url: str, tier: str, requirement: dict[str, Any], payer: Keypair, rpc: Rpc, **change: Any
+    api: httpx.AsyncClient,
+    url: str,
+    tier: str,
+    requirement: dict[str, Any],
+    *,
+    payer: Keypair,
+    rpc: Rpc,
+    **change: Any,
 ) -> tuple[httpx.Response, str]:
     """Pay ``requirement`` (built with ``change`` applied, e.g. a different amount) and send the check."""
     tx = build_payment({**requirement, **change}, payer, await rpc.latest_blockhash())
@@ -311,7 +318,7 @@ async def test_a_streamed_analysis_reports_steps_then_the_charged_result(
     ],
 )
 async def test_a_page_that_cant_be_read_is_free(
-    api: httpx.AsyncClient, account: Account, target: Target, fixture: str | None, url: str | None, code: str
+    *, api: httpx.AsyncClient, account: Account, target: Target, fixture: str | None, url: str | None, code: str
 ) -> None:
     before = await key_balance(api, account.key)
 
@@ -414,7 +421,7 @@ async def test_a_deep_check_paid_in_wsol_is_answered_once_for_a_replayed_payment
     await wrapper.ensure_wsol(amount)
     before = await wsol_of(rpc, payer.pubkey())
 
-    paid, header = await paid_check(api, url, "deep", requirement, payer, rpc)
+    paid, header = await paid_check(api, url, "deep", requirement, payer=payer, rpc=rpc)
 
     assert paid.status_code == 200, paid.text
     receipt = b64json(paid.headers["PAYMENT-RESPONSE"])
@@ -444,7 +451,7 @@ async def test_an_underpaid_check_is_refused_before_any_money_moves(
     before = await usdc_of(rpc, payer.pubkey())
 
     response, _ = await paid_check(
-        api, url, "quick", requirement, payer, rpc, amount=str(int(requirement["amount"]) - 1)
+        api, url, "quick", requirement, payer=payer, rpc=rpc, amount=str(int(requirement["amount"]) - 1)
     )
 
     assert response.status_code == 402, response.text
@@ -469,7 +476,7 @@ async def test_a_paid_check_of_a_bot_check_page_charges_nothing(
     requirement = choose_requirement({"accepts": await offered(api, url, "quick")}, DEVNET_CAIP2, ("USDC",))
     before = await usdc_of(rpc, payer.pubkey())
 
-    response, _ = await paid_check(api, url, "quick", requirement, payer, rpc)
+    response, _ = await paid_check(api, url, "quick", requirement, payer=payer, rpc=rpc)
 
     assert response.status_code == 422, response.text
     assert response.json()["error_code"] == "PAGE_BLOCKED"

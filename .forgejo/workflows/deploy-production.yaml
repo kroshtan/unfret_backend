@@ -4,8 +4,9 @@ name: Deploy production
 # workflow. Nothing deploys here automatically. Leave the input at `main` to release main's newest commit: it is tagged
 # v<version in pyproject.toml> (refused if that tag already names another commit, so bump the version first). Or give
 # an existing release tag, e.g. v0.7.0, to deploy that release again. Either way the workflow refuses unless the
-# commit is on main, its CI passed and the SAME commit was deployed to dev successfully, and then it deploys the exact
-# image dev ran (tagged with the commit SHA): it never rebuilds.
+# commit is on main, its CI passed and the SAME commit was deployed to dev successfully, and dev, running that commit,
+# passes the end-to-end sweep (tests/e2e, devnet only); then it deploys the exact image dev ran (tagged with the
+# commit SHA): it never rebuilds.
 on:
   workflow_dispatch:
     inputs:
@@ -69,6 +70,71 @@ jobs:
           echo "sha=$sha" >> "$FORGEJO_OUTPUT"
           echo "tag=$tag" >> "$FORGEJO_OUTPUT"
           echo "Deploying $tag ($sha) to production"
+      # ── Gate: the end-to-end sweep (tests/e2e) on dev, running this very commit. Nothing is tagged or deployed
+      # unless it passes. It spends only devnet test money (the DEV_E2E_PAYER_KEY wallet) and refuses to run against
+      # anything that says mainnet.
+      - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Load the deploy credentials
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          install -m 600 /creds/ssh_key ~/.ssh/id_ed25519
+          install -m 644 /creds/known_hosts ~/.ssh/known_hosts
+          value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
+          [[ -n "$value" ]] && echo "::add-mask::$value"
+          printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
+      - name: Wait for dev to run the release
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+          NEW_TAG: ${{ steps.release.outputs.new_tag }}
+          DEV: https://dev.unfret.kroshtan.com
+        run: |
+          set -euo pipefail
+          # The sweep tests the checked-out code against dev; both must be the release.
+          [[ "$(git rev-parse HEAD)" == "$SHA" ]] \
+            || { echo "::error::the checkout ($(git rev-parse HEAD)) is not the release ($SHA): main moved, run again"; exit 1; }
+          running() { curl -fsS -m 10 "$DEV/v1/health" | ruby -rjson -e 'print JSON.parse($stdin.read)["commit"].to_s' || true; }
+          # deploy-dev already succeeded for this commit, so dev serves it within a minute or two (kamal-proxy switches
+          # over once the new container is ready). A release deployed again (an older tag) is no longer on dev.
+          deadline=$((SECONDS + 600))
+          until [[ "$(running)" == "$SHA" ]]; do
+            if [[ -z "$NEW_TAG" && "$(git rev-parse origin/main)" != "$SHA" ]]; then
+              echo "::error::dev runs $(running), not $SHA: the e2e sweep needs dev to run the release (README, 'Rolling back production')"
+              exit 1
+            fi
+            ((SECONDS < deadline)) || { echo "::error::dev still runs $(running), not $SHA, after 10 minutes"; exit 1; }
+            sleep 10
+          done
+          echo "dev runs $SHA"
+      - name: End-to-end sweep on dev
+        timeout-minutes: 15
+        env:
+          UNFRET_E2E_URL: https://dev.unfret.kroshtan.com
+          UNFRET_E2E_COMMIT: ${{ steps.release.outputs.sha }}
+          UNFRET_E2E_PAYER_KEY: ${{ secrets.DEV_E2E_PAYER_KEY }}
+          UNFRET_E2E_KEY: ${{ secrets.DEV_E2E_KEY }}
+          UNFRET_E2E_ADMIN_TOKEN: ${{ secrets.DEV_ADMIN_TOKEN }}
+          UNFRET_E2E_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
+          UNFRET_E2E_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
+          DEV_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
+          # Search dev's logs and database for the run's marker (the deploy key loaded above); a skipped part fails.
+          UNFRET_E2E_SSH: kamal@git.kroshtan.com
+          UNFRET_E2E_NO_SKIP: "1"
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in UNFRET_E2E_PAYER_KEY UNFRET_E2E_KEY UNFRET_E2E_ADMIN_TOKEN; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          ((${#missing[@]} == 0)) || { echo "::error::e2e settings not set (repo secrets DEV_E2E_PAYER_KEY, DEV_E2E_KEY, DEV_ADMIN_TOKEN): ${missing[*]}"; exit 1; }
+          # Card top-ups are checked as dev has them: on (Polar, in DEV_POLAR_ENVIRONMENT) when their secrets are set.
+          if [[ -n "$UNFRET_E2E_POLAR_PRODUCTS" && -n "$UNFRET_E2E_FIAT_WEBHOOK_SECRET" ]]; then
+            export UNFRET_E2E_EXPECT_FIAT="polar:${DEV_POLAR_ENVIRONMENT:-sandbox}"
+          else
+            export UNFRET_E2E_EXPECT_FIAT=off
+          fi
+          uv sync --frozen
+          uv run pytest -m e2e tests/e2e -x --no-cov -p no:cacheprovider -v
       - name: Tag the release
         if: steps.release.outputs.new_tag != ''
         env:
@@ -82,15 +148,6 @@ jobs:
           curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
             -d "$body" "$API/tags" && echo "tagged $TAG" \
             || echo "::warning::could not create tag $TAG (the deploy goes ahead); tag $SHA by hand"
-      - name: Load the deploy credentials
-        run: |
-          set -euo pipefail
-          install -d -m 700 ~/.ssh
-          install -m 600 /creds/ssh_key ~/.ssh/id_ed25519
-          install -m 644 /creds/known_hosts ~/.ssh/known_hosts
-          value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
-          [[ -n "$value" ]] && echo "::add-mask::$value"
-          printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
       - name: Deploy to production
         # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
         # production never starts with a feature silently off or pointing at the wrong network.

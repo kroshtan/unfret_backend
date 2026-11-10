@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration db-up db-down run docker-up clean corpus opinions split label reports showcase eval bump vat-rates-check
+.PHONY: help install lint audit test test-unit test-integration e2e db-up db-down run docker-up clean corpus opinions split label reports showcase eval bump vat-rates-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -32,6 +32,9 @@ test-integration: db-up  ## Run integration tests against a throwaway Postgres c
 
 test: db-up  ## Run the full test suite
 	UNFRET_TEST_POSTGRES_URI=$(TEST_DB_URI) uv run pytest
+
+e2e:  ## End-to-end sweep against dev (devnet; spends the e2e payer's test money): UNFRET_E2E_* (README)
+	uv run pytest -m e2e tests/e2e -x --no-cov -p no:cacheprovider -v
 
 corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 	uv run python -m evals.sources.beyondphish

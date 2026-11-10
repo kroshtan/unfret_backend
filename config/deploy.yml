@@ -53,3 +53,8 @@ registry:
 
 builder:
   arch: amd64
+  args:
+    # The commit the image is built from, reported by /v1/health as `commit` (CI exports GIT_SHA; by hand it falls
+    # back to the checkout's HEAD, which is also the version Kamal tags the image with). Quoted: a SHA such as
+    # 1234e567… would otherwise be read as a number.
+    GIT_SHA: "<%= ENV.fetch('GIT_SHA') { `git rev-parse HEAD`.strip } %>"

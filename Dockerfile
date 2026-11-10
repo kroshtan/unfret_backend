@@ -25,6 +25,12 @@ RUN python -m unfret.image_index "$UNFRET_IMAGE_MODEL_PATH"
 RUN useradd --create-home --uid 1000 unfret
 USER unfret
 
+# The commit this image is built from (Kamal passes it: config/deploy.yml, builder.args), shown by /v1/health as
+# `commit` so the production deploy can wait for dev to serve the release it tests. Last, so it never busts the
+# cached layers above.
+ARG GIT_SHA=""
+ENV UNFRET_GIT_SHA=$GIT_SHA
+
 EXPOSE 8080
 # Behind Caddy and kamal-proxy: trust their forwarded headers; no access log, so visitor addresses stay out of logs.
 CMD ["uvicorn", "unfret.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips=*", "--no-server-header", "--no-access-log"]

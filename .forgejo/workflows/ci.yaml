@@ -68,6 +68,9 @@ jobs:
         # Optional ones may be unset: an empty secret keeps its feature off. The database accessory (unfret-dev-db)
         # is booted once, on the first deploy, and takes over the data of the dev database from before the rename.
         env:
+          # Baked into the image (Dockerfile ARG, config/deploy.yml builder.args) and shown by /v1/health as
+          # `commit`; the production deploy waits for dev to report the release's commit before its e2e sweep.
+          GIT_SHA: ${{ forgejo.sha }}
           UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
           UNFRET_SESSION_SECRET: ${{ secrets.DEV_SESSION_SECRET }}

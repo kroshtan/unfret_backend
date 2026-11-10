@@ -281,3 +281,23 @@ async def test_the_operator_grants_a_little_credit_to_an_existing_key_only(
     unknown = await client.post("/v1/admin/keys/aaaaaaaaaa/grant", json={"usd_micros": 1}, headers=ADMIN)
     assert unknown.status_code == 404
     assert await pool.fetchval("SELECT COUNT(*) FROM wallets WHERE pubkey = 'key:aaaaaaaaaa'") == 0
+
+
+async def test_the_operator_takes_credit_back_from_a_key_but_never_below_zero(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    issued = await keys.create(pool)
+    await client.post(f"/v1/admin/keys/{issued.key_id}/grant", json={"usd_micros": 1_000_000}, headers=ADMIN)
+    url = f"/v1/admin/keys/{issued.key_id}/debit"
+
+    assert (await client.post(url, json={"usd_micros": 400_000})).status_code == 401
+    response = await client.post(url, json={"usd_micros": 400_000}, headers=ADMIN)
+    assert response.status_code == 200
+    assert response.json() == {"key_id": issued.key_id, "balance_usd_micros": 600_000}
+
+    too_much = await client.post(url, json={"usd_micros": 600_001}, headers=ADMIN)
+    assert too_much.status_code == 409
+    assert await keys.balance(pool, issued.key_id) == 600_000
+    assert (await client.post(url, json={"usd_micros": 0}, headers=ADMIN)).status_code == 422
+    unknown = await client.post("/v1/admin/keys/aaaaaaaaaa/debit", json={"usd_micros": 1}, headers=ADMIN)
+    assert unknown.status_code == 404

@@ -18,6 +18,12 @@ async def test_ready_when_database_answers(client: httpx.AsyncClient) -> None:
     assert response.json()["status"] == "ready"
 
 
+async def test_both_probes_report_the_build_commit(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "git_sha", "0123abcd" * 5)
+    assert (await client.get("/v1/health")).json()["commit"] == "0123abcd" * 5
+    assert (await client.get("/v1/health/ready")).json()["commit"] == "0123abcd" * 5
+
+
 async def test_not_ready_when_database_fails(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     class BrokenPool:
         async def fetchval(self, query: str) -> int:

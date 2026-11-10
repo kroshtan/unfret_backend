@@ -3,10 +3,10 @@ Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
 fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
-an API key (support, and test credits for a store reviewer), the quarterly export of crypto sales records for
-the bookkeeping, the count of invites outstanding (a gift, not revenue), the "Spotted recently" showcase
-(``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared results a shop
-owner objected to.
+an API key (support, and test credits for a store reviewer) and taking it back, the quarterly export of crypto
+sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), the "Spotted recently"
+showcase (``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared
+results a shop owner objected to.
 """
 
 import json
@@ -160,6 +160,29 @@ async def grant_key(key_id: str, body: GrantRequest, request: Request) -> dict[s
         raise HTTPException(404, "No such API key.")
     balance = await ledger.credit(pool, keys.account_of(key_id), body.usd_micros)
     logger.info("key_granted", usd_micros=body.usd_micros)
+    return {"key_id": key_id, "balance_usd_micros": balance}
+
+
+@router.post("/keys/{key_id}/debit")
+async def debit_key(key_id: str, body: GrantRequest, request: Request) -> dict[str, Any]:
+    """
+    Take a small amount of credit back from an API key (undo a grant; the e2e sweep nets its test key to zero).
+
+    Never below zero: a debit larger than the balance is refused and changes nothing.
+
+    :param key_id: The key's public id (the part after ``ufk_``).
+    :param body: How much, at most $10 per call.
+    :param request: The incoming request.
+    :return: The key's new balance.
+    :raises HTTPException: 404 for an id that isn't an existing key, 409 if the balance is smaller.
+    """
+    pool = request.app.db_pool
+    if not keys.is_key_id(key_id) or not await keys.exists(pool, key_id):
+        raise HTTPException(404, "No such API key.")
+    balance = await ledger.debit(pool, keys.account_of(key_id), body.usd_micros)
+    if balance is None:
+        raise HTTPException(409, "The key's balance is smaller than that.")
+    logger.info("key_debited", usd_micros=body.usd_micros)
     return {"key_id": key_id, "balance_usd_micros": balance}
 
 

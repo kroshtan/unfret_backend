@@ -3,6 +3,7 @@ from fastapi import APIRouter, Request
 
 from unfret import __version__
 from unfret.auth import get_credits, is_admin
+from unfret.config import settings
 from unfret.routes.check import get_x402
 from unfret.schemas.errors import ServiceUnavailableError
 from unfret.schemas.responses import Healthy
@@ -12,14 +13,23 @@ logger = structlog.get_logger("unfret")
 router = APIRouter(prefix="/v1/health", tags=["Health"])
 
 
+def build_commit() -> str | None:
+    """
+    The commit the running image was built from (``UNFRET_GIT_SHA``, set from the Dockerfile's ``GIT_SHA``).
+
+    :return: The SHA, or ``None`` outside a built image.
+    """
+    return settings.git_sha.strip() or None
+
+
 @router.get("", response_model=Healthy)
 def health() -> Healthy:
     """
     Liveness probe. Always returns 200 while the process is serving requests.
 
-    :return: Healthy response with the running version.
+    :return: Healthy response with the running version and the commit it was built from.
     """
-    return Healthy(status="healthy", version=__version__)
+    return Healthy(status="healthy", version=__version__, commit=build_commit())
 
 
 @router.get("/ready", response_model=Healthy)
@@ -33,7 +43,7 @@ async def ready(request: Request) -> Healthy:
     keeps serving.
 
     :param request: The FastAPI request (used to access the DB pool).
-    :return: Healthy response with the running version.
+    :return: Healthy response with the running version and commit.
     :raises ServiceUnavailableError: If the database pool is missing or the query fails.
     """
     pool = request.app.db_pool
@@ -52,6 +62,7 @@ async def ready(request: Request) -> Healthy:
     report = Healthy(
         status="ready",
         version=__version__,
+        commit=build_commit(),
         x402=x402.status,
         x402_alert_count=len(x402.alerts),
         credits=credits,

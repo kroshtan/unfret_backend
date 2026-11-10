@@ -126,8 +126,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "DELETE"],
-    # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result
-    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE", "X-Delete-Code"],
+    # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result; X-Unfret-Claim: collecting a
+    # purchase's invites (unfret.credits.invites)
+    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE", "X-Delete-Code", "X-Unfret-Claim"],
     expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
 )
 

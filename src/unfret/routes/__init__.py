@@ -6,6 +6,7 @@ from unfret.routes.check import router as check_router
 from unfret.routes.credits import router as credits_router
 from unfret.routes.extension import router as extension_router
 from unfret.routes.images import router as images_router
+from unfret.routes.invites import router as invites_router
 from unfret.routes.keys import router as keys_router
 from unfret.routes.pages import router as pages_router
 from unfret.routes.probes import router as probes_router
@@ -19,6 +20,7 @@ router = APIRouter()
 router.include_router(session_router)
 router.include_router(keys_router)
 router.include_router(credits_router)
+router.include_router(invites_router)
 router.include_router(analyze_router)
 router.include_router(reports_router)
 router.include_router(check_router)

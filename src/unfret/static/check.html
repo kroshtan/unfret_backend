@@ -33,6 +33,14 @@
       <p><span id="account-status"></span> <span id="checks" class="checks"></span></p>
       <p class="small"><a id="buy-more" href="/checkout">Buy checks</a> · <button id="sign-out" type="button"
         class="link">Sign out</button></p>
+      <details id="invite" class="invite small">
+        <summary>Have an invite?</summary>
+        <p class="muted">An invite adds 3 checks to a new wallet or a new API key, one that never had checks.</p>
+        <label for="invite-input">Invite code</label>
+        <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="ufi_…">
+        <button id="invite-redeem" type="button" class="secondary">Use invite</button>
+        <p id="invite-status" role="status" aria-live="polite"></p>
+      </details>
     </section>
 
     <form id="form" class="check-form" novalidate>
@@ -74,6 +82,8 @@
 
       <p class="choice-link"><a href="/checkout?for=key">Buy checks</a> <span class="muted small">by card or crypto;
         no wallet needed.</span></p>
+      <p class="muted small">Have an invite? Sign in with a new wallet, or make a new API key on the
+        <a href="/checkout?for=key">checkout page</a>, then enter it here.</p>
     </section>
 
     <section id="progress" class="panel" aria-labelledby="progress-status" hidden>

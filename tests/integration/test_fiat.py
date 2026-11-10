@@ -198,13 +198,31 @@ async def test_polar_checkout_then_paid_order_credits_the_key(
 ) -> None:
     issued = await keys.create(pool)
     started = await checkout(client, issued.key_id, 25)
-    assert started.json() == {"checkout_url": "https://buy.polar.sh/c", "provider": "polar"}
+    reply = started.json()
+    claim = reply.pop("claim")  # collects the order's invites; never sent to Polar
+    assert reply == {
+        "checkout_url": "https://buy.polar.sh/c",
+        "provider": "polar",
+        "checkout_id": test_polar.CHECKOUT_ID,
+    }
+    status = f"/v1/credits/fiat-checkouts/{test_polar.CHECKOUT_ID}"
+    assert (await client.get(status, headers={"X-Unfret-Claim": claim})).json() == {
+        "paid": False,
+        "checks": 25,
+        "invites": [],
+    }
     # Polar's order without our metadata: the checkout mapping names the key.
     paid = test_polar.order(metadata={})
 
     assert (await polar_send(client, "order.paid", paid)).json() == {"status": "credited"}
     assert (await polar_send(client, "order.paid", paid)).json() == {"status": "duplicate"}
     assert await balance(pool, issued.account) == 5_000_000
+    assert (await client.get(status)).status_code == 404  # the checkout id alone (Polar knows it) shows nothing
+    shown = (await client.get(status, headers={"X-Unfret-Claim": claim})).json()
+    assert shown["paid"] and len(shown["invites"]) == 1  # the 25-pack: one invite
+    again = (await client.get(status, headers={"X-Unfret-Claim": claim})).json()
+    assert again == {"paid": True, "checks": 25, "invites": []}  # shown once
+    assert await pool.fetchval("SELECT COUNT(*) FROM invites") == 1  # the duplicate webhook issued none
     assert "Kerkstraat" not in str([dict(r) for r in await pool.fetch("SELECT * FROM fiat_payments")])
 
     refunded = test_polar.order(status="partially_refunded", refunded_amount=300, refunded_tax_amount=63)

@@ -363,7 +363,30 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE vat_quotes ADD COLUMN paid_at TIMESTAMPTZ;
         """,
     ),
-    # 15 is left for another change in flight (invites); versions apply in list order, so it can still go before 16.
+    (
+        15,
+        "invites",
+        """
+        -- Invites (unfret.credits.invites): codes a pack comes with, to give away. Only the code's SHA-256 and two
+        -- days; no buyer, no redeemer, no IP: nothing links whoever bought it to whoever redeems it. No expiry.
+        CREATE TABLE invites (
+            code_hash    BYTEA PRIMARY KEY CHECK (octet_length(code_hash) = 32),
+            issued_on    DATE NOT NULL,
+            redeemed_on  DATE CHECK (redeemed_on >= issued_on)
+        );
+        -- An account that redeemed an invite (never which one); it can't redeem another.
+        ALTER TABLE wallets ADD COLUMN invite_redeemed BOOLEAN NOT NULL DEFAULT FALSE;
+        -- Showing a purchase's codes to its buyer once: the hash of a claim token only the buyer's page holds (never
+        -- on chain, never sent to the payment provider), and the codes themselves until the first read with that
+        -- token wipes them.
+        ALTER TABLE vat_quotes ADD COLUMN claim_hash BYTEA CHECK (octet_length(claim_hash) = 32);
+        ALTER TABLE vat_quotes ADD COLUMN invite_codes TEXT[];
+        ALTER TABLE fiat_checkouts ADD COLUMN checks INTEGER CHECK (checks > 0);
+        ALTER TABLE fiat_checkouts ADD COLUMN claim_hash BYTEA CHECK (octet_length(claim_hash) = 32);
+        ALTER TABLE fiat_checkouts ADD COLUMN paid_at TIMESTAMPTZ;
+        ALTER TABLE fiat_checkouts ADD COLUMN invite_codes TEXT[];
+        """,
+    ),
     (
         16,
         "shared results",

@@ -4,8 +4,9 @@ Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
 fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
 an API key (support, and test credits for a store reviewer), the quarterly export of crypto sales records for
-the bookkeeping, the "Spotted recently" showcase (``python -m unfret.showcase``): operator-run checks, drafts
-until published, and the review of shared results a shop owner objected to.
+the bookkeeping, the count of invites outstanding (a gift, not revenue), the "Spotted recently" showcase
+(``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared results a shop
+owner objected to.
 """
 
 import json
@@ -19,7 +20,7 @@ from pydantic import BaseModel, Field
 from unfret import page_fetch, reports, shares, shop_store, showcase
 from unfret.auth import require_admin
 from unfret.config import settings
-from unfret.credits import keys, ledger, vat
+from unfret.credits import invites, keys, ledger, vat
 from unfret.fingerprint import contact_hash, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
 from unfret.routes.check import get_x402
@@ -187,6 +188,20 @@ async def sales_export(quarter: str, request: Request) -> PlainTextResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@router.get("/invites")
+async def invites_summary(request: Request) -> dict[str, int]:
+    """
+    Invites issued, redeemed and outstanding, and what the outstanding ones would credit (gifts: not in the sales).
+
+    :param request: The incoming request.
+    :return: The counts.
+    :raises HTTPException: Without a database (503).
+    """
+    if request.app.db_pool is None:
+        raise HTTPException(503, "Database not ready.")
+    return await invites.summary(request.app.db_pool, settings)
 
 
 # ── Showcase ("Spotted recently") ─────────────────────────────────────────────────────────────────────────────────

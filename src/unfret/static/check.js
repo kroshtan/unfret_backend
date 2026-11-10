@@ -18,7 +18,7 @@ import {
   sharedLink,
 } from "./check-core.js";
 import { el, resultNodes } from "./check-render.js";
-import { discoverWallets, signIn, walletButton } from "./wallet.js";
+import { INVITE_RE, discoverWallets, redeemInvite, signIn, walletButton } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
@@ -672,6 +672,29 @@ $("again").addEventListener("click", () => {
 $("sign-out").addEventListener("click", () => {
   signedOut(false);
   showOnly();
+});
+// "Have an invite?": a code someone gave the user, for this (new) wallet or key's own sign-in.
+$("invite-redeem").addEventListener("click", async () => {
+  const status = $("invite-status");
+  const code = $("invite-input").value.trim().toLowerCase();
+  if (!INVITE_RE.test(code)) {
+    status.textContent = "That isn't an invite code (it starts with ufi_).";
+    return;
+  }
+  if (!account) return;
+  $("invite-redeem").disabled = true;
+  try {
+    const added = await redeemInvite(code, account.token);
+    $("invite-input").value = "";
+    status.textContent = `✓ ${added.checks_added} checks added.`;
+    checks = added.checks_remaining;
+    renderAccount();
+  } catch (error) {
+    if (error.status === 401) signedOut(true);
+    status.textContent = error.message || "That invite didn't work.";
+  } finally {
+    $("invite-redeem").disabled = false;
+  }
 });
 $("key-use").addEventListener("click", () => void useKey());
 $("key").addEventListener("keydown", (event) => {

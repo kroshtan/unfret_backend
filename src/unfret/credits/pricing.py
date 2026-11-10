@@ -13,7 +13,7 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from unfret.config import Settings
-from unfret.credits import vat
+from unfret.credits import invites, vat
 from unfret.credits.packs import Pack, packs
 from unfret.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
 from unfret.shopper import LANGUAGES, copy_for
@@ -121,16 +121,19 @@ def purchase_transaction(
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))
 
 
-def pack_labels(pack: Pack) -> dict[str, str]:
+def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
     """
-    How a pack is offered, per language: the card price as *the* price, crypto as the lower price.
+    How a pack is offered, per language: the card price as *the* price, crypto as the lower price, and its invites.
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
-    discount for paying another way is fine.
+    discount for paying another way is fine. Invites are invites, never "free" or a "trial".
 
     :param pack: The pack.
-    :return: Language → e.g. ``"25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable"``.
+    :param settings: The service settings (for the invites; without them, none are mentioned).
+    :return: Language → e.g. ``"25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable · comes with 1
+        invite of 3 checks to give away"``.
     """
+    count = invites.count_for(settings, pack.checks) if settings else 0
     labels = {}
     for language in LANGUAGES:
         text = copy_for(language)["pricing"]
@@ -139,7 +142,22 @@ def pack_labels(pack: Pack) -> dict[str, str]:
             price, crypto = price.replace(".", ","), crypto.replace(".", ",")
         offer = text["pack"].format(checks=pack.checks, price=price)
         labels[language] = f"{offer} · {text['crypto'].format(crypto=crypto)}"
+        if count and settings:
+            gift = text["invite_one" if count == 1 else "invite_many"]
+            labels[language] += f" · {gift.format(count=count, checks=settings.invite_checks)}"
     return labels
+
+
+def pack_invites(settings: Settings, pack: Pack) -> dict[str, int]:
+    """
+    The invites a pack comes with, for ``/v1/pricing``.
+
+    :param settings: The service settings.
+    :param pack: The pack.
+    :return: ``count`` invites worth ``checks`` checks in all (``checks_each`` each).
+    """
+    count = invites.count_for(settings, pack.checks)
+    return {"count": count, "checks_each": settings.invite_checks, "checks": count * settings.invite_checks}
 
 
 async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc: Pubkey) -> dict[str, Any]:
@@ -148,7 +166,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
 
     Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd``
     is the price (by card, before the provider's sales tax/VAT) and ``crypto_usd`` the lower price when paying with
-    SOL or USDC (before VAT where it applies: ``vat``).
+    SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the invites it comes with to give away (the
+    25-pack: one of 3 checks, so it brings 28 checks in all).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -174,13 +193,19 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
                 "crypto_usd_micros": p.value_usd_micros,
                 "crypto_usd": format_usd(p.value_usd_micros),
                 "credited_usd_micros": p.value_usd_micros,
-                "label": pack_labels(p),
+                "invites": pack_invites(settings, p),
+                "label": pack_labels(p, settings),
             }
             for p in on_sale
         ],
         # Deprecated: the packs' crypto prices under their old name.
         "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
         "vat": vat.describe(settings),
+        "invites": {
+            "checks_each": settings.invite_checks,
+            "per_checks": settings.invite_per_checks,
+            "for": "accounts that never had checks: a new wallet or a new API key",
+        },
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,
         # USDC base units are micro-dollars: USDC amounts equal the dollar prices.

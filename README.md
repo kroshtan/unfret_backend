@@ -85,6 +85,8 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
 | `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
+| `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid; with its `X-Unfret-Claim`, its invite codes once |
+| `POST` | `/v1/invites/redeem` | Redeem an invite `{code}` for the signed-in new wallet or API key: 3 checks |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `GET` | `/v1/showcase` \| `/v1/showcase/{id}` | "Spotted recently": published operator-run checks, see below |
 | `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
@@ -99,8 +101,8 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the ledger), no
-record of what was analysed.
+user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed an invite): no emails, no
+purchase history (the chain is the ledger), no record of what was analysed.
 
 **Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
 credits, an x402 deep check costs one check, and credits are sold in packs of 25, 50 and 100 checks
@@ -143,6 +145,15 @@ share target; the sign-in or API key is kept in the browser until sign-out, and 
 
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant credits by hand with
 `uv run scripts/grant_credits.py <pubkey> --checks <n>`.
+
+**Invites** (`src/unfret/credits/invites.py`): every credited pack comes with invite codes to give away, one per 25
+checks (25 → 1, 50 → 2, 100 → 4), each worth 3 checks, so the 25-pack brings 28 checks in all. An account that never
+had any credit (a wallet we've never credited, an API key never topped up) redeems one, once, with its own sign-in
+(`POST /v1/invites/redeem`). Only each code's SHA-256 is stored, with the day issued and the day redeemed: no buyer,
+no redeemer, no IP. The buyer sees the codes once: the purchase comes with a random claim token (never on chain or
+sent to the card provider, stored only hashed); the codes are kept with the quote or card checkout until the first
+status request carrying that token takes them and wipes them in one statement. Invites are a gift: no VAT, no sales
+record. `GET /v1/admin/invites` counts those outstanding.
 
 ### Card payments for API keys (Polar)
 
@@ -393,6 +404,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
+| `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |

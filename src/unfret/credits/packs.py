@@ -78,6 +78,18 @@ def pack(settings: Settings, checks: int) -> Pack | None:
     return next((p for p in packs(settings) if p.checks == checks), None)
 
 
+def pack_for_card(settings: Settings, amount_cents: int) -> Pack | None:
+    """
+    The pack whose card price a payment paid exactly.
+
+    :param settings: The service settings.
+    :param amount_cents: The amount paid, before tax, in US cents.
+    :return: The pack, or ``None`` if the amount matches none.
+    """
+    paid = amount_cents * USD_MICROS // 100
+    return next((p for p in packs(settings) if p.card_usd_micros == paid), None)
+
+
 def card_credits(settings: Settings, amount_cents: int) -> int:
     """
     The credits a card payment buys: the value of the pack it paid for.
@@ -90,14 +102,13 @@ def card_credits(settings: Settings, amount_cents: int) -> int:
     :param amount_cents: The amount paid, before tax, in US cents.
     :return: Micro-dollars to credit (zero if it covers no check).
     """
+    if (matched := pack_for_card(settings, amount_cents)) is not None:
+        return matched.value_usd_micros
     paid = amount_cents * USD_MICROS // 100
-    for p in packs(settings):
-        if p.card_usd_micros == paid:
-            return p.value_usd_micros
     keep = Decimal(1) - settings.card_fee_pct / 100
     covered = int(Decimal(paid) * keep) - micros(settings.card_fee_flat_usd)
     per_check = settings.analysis_price_usd_micros
     return max(covered, 0) // per_check * per_check
 
 
-__all__ = ["Pack", "card_credits", "card_price", "micros", "pack", "packs"]
+__all__ = ["Pack", "card_credits", "card_price", "micros", "pack", "pack_for_card", "packs"]

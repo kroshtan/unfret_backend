@@ -10,7 +10,8 @@ exactly once even if two scanners run or one restarts mid-way.
 
 A purchase is valued in dollars at crediting time (:meth:`~unfret.prices.PriceBook.value`; USDC is exact, SOL is
 converted with Pyth's SOL/USD price), VAT included: the account is credited the net amount, and the sale is recorded
-with its country and VAT (:mod:`unfret.credits.vat`) in the same database transaction. When SOL can't be valued
+with its country and VAT (:mod:`unfret.credits.vat`) in the same database transaction, as are the pack's invites
+(:mod:`unfret.credits.invites`) at a quote's first payment. When SOL can't be valued
 (oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
 Who is credited, and at which VAT rate: the quote's Solana Pay reference (a random public key that
@@ -37,7 +38,7 @@ import structlog
 from solders.pubkey import Pubkey
 
 from unfret.config import Settings
-from unfret.credits import keys, ledger, vat
+from unfret.credits import invites, keys, ledger, vat
 from unfret.prices import Currency, PriceBook, PriceUnavailableError
 from unfret.x402.solana import SolanaRpc, associated_token_address
 
@@ -342,8 +343,9 @@ class CreditScanner:
                 for account, (amount, sale) in sales.items():
                     await ledger.credit(conn, account, sale.net_usd_micros)
                     await vat.record_sale(conn, sale, self.currency, amount, signature=signature)
-                if quote is not None and sales:
-                    await vat.mark_paid(conn, quote.id)  # the checkout polls this
+                if quote is not None and sales and await vat.mark_paid(conn, quote.id):  # the checkout polls this
+                    paid_net = sum(sale.net_usd_micros for _, sale in sales.values())
+                    await invites.issue_for_quote(conn, self.settings, quote.id, paid_net)
                 await ledger.set_cursor(conn, self.name, signature)
             for _, sale in sales.values():
                 # Amounts only: which wallet bought is on chain already and needn't be in our logs.

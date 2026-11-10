@@ -587,12 +587,12 @@ async def test_a_quote_shows_whether_it_is_paid_and_nothing_else(
     await vat.save_quote(pool, quote)
     response = await client.get(f"/v1/credits/quotes/{quote.id}")
     assert response.status_code == 200
-    assert response.json() == {"paid": False, "checks": 50}  # no beneficiary, country or price
+    assert response.json() == {"paid": False, "checks": 50, "invites": []}  # no beneficiary, country or price
     assert response.headers["cache-control"] == "no-store"
 
     async with pool.acquire() as conn:
         await vat.mark_paid(conn, quote.id)
-    assert (await client.get(f"/v1/credits/quotes/{quote.id}")).json() == {"paid": True, "checks": 50}
+    assert (await client.get(f"/v1/credits/quotes/{quote.id}")).json() == {"paid": True, "checks": 50, "invites": []}
 
     for unknown in ("a" * 20, "A" * 20, "short", "1" * 20, "a" * 41):
         reply = await client.get(f"/v1/credits/quotes/{unknown}")

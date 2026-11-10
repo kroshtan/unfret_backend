@@ -219,16 +219,18 @@ def price_quote(
     )
 
 
-async def save_quote(db: asyncpg.Pool, quote: Quote) -> None:
+async def save_quote(db: asyncpg.Pool, quote: Quote, *, claim_hash: bytes | None = None) -> None:
     """
     Store a quote so the scanner can apply it to the payment.
 
     :param db: The database pool.
     :param quote: The quote.
+    :param claim_hash: The hash of the buyer's claim token, which collects the purchase's invites
+        (:mod:`unfret.credits.invites`); ``None``: the purchase gets none.
     """
     await db.execute(
         "INSERT INTO vat_quotes (id, checks, country, country_mismatch, vat_rate_bps, net_usd_micros, "
-        "vat_usd_micros, beneficiary, reference) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "vat_usd_micros, beneficiary, reference, claim_hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         quote.id,
         quote.checks,
         quote.country,
@@ -238,6 +240,7 @@ async def save_quote(db: asyncpg.Pool, quote: Quote) -> None:
         quote.vat_usd_micros,
         quote.beneficiary,
         quote.reference,
+        claim_hash,
     )
 
 
@@ -270,14 +273,18 @@ async def quote_by_reference(db: asyncpg.Pool | asyncpg.Connection, accounts: li
     return Quote(**{k: rows[0][k] for k in Quote.__dataclass_fields__})
 
 
-async def mark_paid(conn: asyncpg.Connection, quote_id: str) -> None:
+async def mark_paid(conn: asyncpg.Connection, quote_id: str) -> bool:
     """
     Record that a payment naming the quote was credited (in the scanner's transaction; the first payment counts).
 
     :param conn: The connection (inside the crediting transaction).
     :param quote_id: The quote's id.
+    :return: Whether this was the quote's first payment.
     """
-    await conn.execute("UPDATE vat_quotes SET paid_at = NOW() WHERE id = $1 AND paid_at IS NULL", quote_id)
+    first = await conn.fetchval(
+        "UPDATE vat_quotes SET paid_at = NOW() WHERE id = $1 AND paid_at IS NULL RETURNING TRUE", quote_id
+    )
+    return bool(first)
 
 
 async def quote_status(db: asyncpg.Pool, quote_id: str) -> tuple[bool, int] | None:

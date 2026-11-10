@@ -256,16 +256,18 @@ async def test_accounts_that_had_checks_are_refused(client: httpx.AsyncClient, p
     await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, 200000)", funded.account)
 
     for headers in (bearer(buyer), bearer(spent), {"Authorization": f"Bearer {funded.key}"}):
+        assert (await client.get("/v1/credits", headers=headers)).json()["invite_eligible"] is False
         response = await redeem(client, code, headers)
         assert (response.status_code, response.json()["error_code"]) == (403, "INVITE_NOT_FOR_THIS_ACCOUNT")
     assert await pool.fetchval("SELECT redeemed_on FROM invites") is None  # the code is still good
 
     fresh = await keys.create(pool)
+    before = await client.get("/v1/credits", headers={"Authorization": f"Bearer {fresh.key}"})
+    assert (before.json()["checks_remaining"], before.json()["invite_eligible"]) == (0, True)
     ok = await redeem(client, code, {"Authorization": f"Bearer {fresh.key}"})
     assert ok.status_code == 200 and ok.json()["checks_remaining"] == 3
-    assert (await client.get("/v1/credits", headers={"Authorization": f"Bearer {fresh.key}"})).json()[
-        "checks_remaining"
-    ] == 3
+    after = await client.get("/v1/credits", headers={"Authorization": f"Bearer {fresh.key}"})
+    assert (after.json()["checks_remaining"], after.json()["invite_eligible"]) == (3, False)
 
 
 async def test_invalid_unknown_and_unauthenticated(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:

@@ -197,7 +197,8 @@ async def test_a_forged_tampered_or_old_token_is_refused(
     friendlier = json.loads(json.dumps(result))
     friendlier["verdict"]["band"] = "reliable"
     other_page = share_body(result, url="https://shop.example/products/other")
-    forged = share_body(result) | {"share_token": result["share_token"][:-2] + "00"}
+    token = result["share_token"]
+    forged = share_body(result) | {"share_token": token[:-1] + ("1" if token[-1] == "0" else "0")}  # always differs
     for body in (share_body(friendlier), other_page, forged):
         refused = await client.post("/v1/shares", json=body)
         assert refused.status_code == 400 and refused.json()["error_code"] == "BAD_SHARE_TOKEN", body

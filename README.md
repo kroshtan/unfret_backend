@@ -491,16 +491,10 @@ Nothing is tagged or deployed when the sweep fails.
 It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
 rebuild. Deploys never run in parallel and are never cancelled half-way.
 
-Before deploying, both jobs run `scripts/deploy/free-host.sh` (takes the destination's host off any other
-kamal-proxy service and stops, never removes, that service's containers) and, after booting the database accessory,
-`scripts/deploy/adopt-db.sh` (copies a predecessor database into an empty new one, once). Both do nothing once the
-destination is set up; they carried the one-time move from the services before the rename to `unfret`
-([docs/production-cutover.md](docs/production-cutover.md)).
-
-**Rolling back production:** run the workflow again with `ref` = the previous release tag. Releases from before the
-rename (up to `v0.7.0`) name the old services and can't be deployed this way; see the runbook's rollback. The e2e gate
-runs against dev, so it refuses a release that dev no longer runs (an older tag once main has moved on): for such a
-rollback, use the runbook's manual rollback ([docs/production-cutover.md](docs/production-cutover.md)).
+**Rolling back production:** run the workflow again with `ref` = the previous release tag (`v0.8.0` or later). The e2e
+gate runs against dev, so it refuses a release that dev no longer runs (an older tag once main has moved on); for such
+a rollback, deploy that release's image by hand with `kamal deploy -d production --skip-push --version <its commit>`
+(like any production deploy, only with the owner's go).
 
 ### End-to-end sweep
 

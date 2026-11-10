@@ -87,18 +87,10 @@ jobs:
           [[ -n "$POSTGRES_PASSWORD" ]] || { echo "::error::repo secret DEV_POSTGRES_PASSWORD is not set"; exit 1; }
           # Build and push first: a failed build then leaves the running service alone.
           kamal build push -d dev
-          # The scripts' plain ssh must not leave a known_hosts that Kamal's Net::SSH rejects (HostKeyMismatch).
-          reset_known_hosts() { install -m 644 /creds/known_hosts ~/.ssh/known_hosts; }
-          # Take dev's host off any other service (the one from before the rename) and stop that service.
-          scripts/deploy/free-host.sh dev.unfret.kroshtan.com unfret-web-dev
-          reset_known_hosts
           # `details` echoes its docker ps command (which names the container), so match a running row instead.
           if ! kamal accessory details db -d dev 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d dev
           fi
-          # One-time: copy the dev database from before the rename into the new, still empty one.
-          scripts/deploy/adopt-db.sh veridex-dev-db unfret-dev-db
-          reset_known_hosts
           kamal deploy -d dev --skip-push
       - name: Discard the deploy key
         if: always()

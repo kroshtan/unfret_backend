@@ -170,21 +170,10 @@ jobs:
           ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
           [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
             || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
-          # The scripts' plain ssh must not leave a known_hosts that Kamal's Net::SSH rejects (HostKeyMismatch).
-          reset_known_hosts() { install -m 644 /creds/known_hosts ~/.ssh/known_hosts; }
-          # Take the host off any other service (the one from before the rename) and stop that service, so nothing
-          # writes to its database while it is copied below. Production is down from here until the new
-          # containers pass their readiness check; docs/production-cutover.md has the rollback.
-          scripts/deploy/free-host.sh unfret.kroshtan.com unfret-web-production
-          reset_known_hosts
           # `details` echoes its docker ps command (which names the container), so match a running row instead.
           if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d production
           fi
-          # One-time: copy the production database from before the rename (balances, sales records, scan cursors)
-          # into the new, still empty one. --require-data: never start production on an empty database.
-          scripts/deploy/adopt-db.sh veridex-prod-db unfret-prod-db --require-data
-          reset_known_hosts
           # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
           kamal deploy -d production --skip-push --version "$SHA"
       - name: Discard the deploy key

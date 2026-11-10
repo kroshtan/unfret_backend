@@ -98,18 +98,12 @@ def linux_policy_command(extension_id: str, policy_dir: str = "/etc/brave/polici
     """
     The one-line command that force-installs the extension in a Chromium browser on Linux.
 
-    It also removes the policy file of releases before the rename to Unfret (``veridex.json``), so an earlier install
-    isn't listed twice.
-
     :param extension_id: The extension ID.
     :param policy_dir: The browser's managed-policy directory.
     :return: A shell command.
     """
     policy = f'{{"ExtensionInstallForcelist":["{extension_id};{_public_base()}/updates.xml"]}}'
-    return (
-        f"sudo mkdir -p {policy_dir} && sudo rm -f {policy_dir}/veridex.json && "
-        f"echo '{policy}' | sudo tee {policy_dir}/unfret.json > /dev/null"
-    )
+    return f"sudo mkdir -p {policy_dir} && echo '{policy}' | sudo tee {policy_dir}/unfret.json > /dev/null"
 
 
 @router.get("/extension", response_class=HTMLResponse)

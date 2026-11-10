@@ -462,7 +462,8 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["no_imprint"] = {}
     if e.f("content.missing_trust_info") >= 0.6:
         fired["missing_trust_info"] = {}
-    if e.f("eu_registry.vat_present") >= 1 and e.has("eu_registry.vat_valid") and e.f("eu_registry.vat_valid") < 1:
+    # Not in VIES, or a number that can't exist (eu_registry gives a made-up one no credit as a VAT number).
+    if e.has("eu_registry.vat_valid") and e.f("eu_registry.vat_valid") < 1:
         fired["invalid_vat"] = {}
     if e.f("domain_age.under_6_months") >= 1:
         fired["new_domain"] = {"age": e.age(max(round(e.f("domain_age.age_years") * 365), 1))}
@@ -567,6 +568,8 @@ def build(
     sure: when the only reasons are things missing from the page (:data:`ABSENCE_REASONS`, or none at all) and the
     scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead. With
     ``concrete_only`` (the quick tier, which reads too little to be sure) that holds however sure the scorer is.
+    The other way round, a web shop showing a VAT number that can't exist (a ``vat_fake`` finding) is "careful" at
+    best, however good the rest looks.
 
     :param score: The 0–100 reliability score.
     :param features: The skill features from the graph state.
@@ -594,6 +597,8 @@ def build(
     unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
     if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= set(ABSENCE_REASONS):
         band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
+    if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
+        band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
     order = list(REASON_SEVERITY)
     keys = sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
     reasons = [_reason(k, fired[k]) for k in keys]

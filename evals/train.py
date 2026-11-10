@@ -266,6 +266,32 @@ def top_coefficients(model: Model, n: int = 12) -> list[tuple[str, float]]:
     return [(name, round(c, 3)) for name, c in pairs[:n]]
 
 
+def write_artifact(model: Model, path: Path, *, features_file: str, train_n: int, prior: float, test: Dataset) -> None:
+    """
+    Write a model's JSON artifact (what :func:`unfret.scoring.load_model` reads), with its provenance and TEST metrics.
+
+    :param model: The model.
+    :param path: Where to write it (``model.json`` or ``model-quick.json``).
+    :param features_file: The features file it was trained on.
+    :param train_n: Its number of training pages.
+    :param prior: The base rate its calibration assumes.
+    :param test: The TEST split, in the model's feature columns.
+    """
+    metrics = evaluate(model, test, model.features)
+    artifact = {
+        "version": model.version,
+        "features": model.features,
+        "means": model.means,
+        "scales": model.scales,
+        "coefficients": model.coefficients,
+        "intercept": model.intercept,
+        "calibration": model.calibration,
+        "trained_on": {"features_file": features_file, "train_n": train_n, "prior": prior},
+        "test": {k: metrics[k] for k in ("roc_auc", "brier", "thresholds")},
+    }
+    path.write_text(json.dumps(artifact, indent=1) + "\n")
+
+
 def to_markdown(report: dict[str, Any]) -> str:
     """
     Render the training report.
@@ -359,23 +385,14 @@ def main() -> None:
     report["shipped"] = "none" if args.ship == "none" else models[args.ship].version
 
     if args.ship != "none":
-        m = models[args.ship]
-        artifact = {
-            "version": m.version,
-            "features": m.features,
-            "means": m.means,
-            "scales": m.scales,
-            "coefficients": m.coefficients,
-            "intercept": m.intercept,
-            "calibration": m.calibration,
-            "trained_on": {
-                "features_file": path.name,
-                "train_n": report["variants"][args.ship]["train_n"],
-                "prior": args.prior,
-            },
-            "test": {k: report["variants"][args.ship]["test"][k] for k in ("roc_auc", "brier", "thresholds")},
-        }
-        (MODEL_QUICK_PATH if args.quick else MODEL_PATH).write_text(json.dumps(artifact, indent=1) + "\n")
+        write_artifact(
+            models[args.ship],
+            MODEL_QUICK_PATH if args.quick else MODEL_PATH,
+            features_file=path.name,
+            train_n=report["variants"][args.ship]["train_n"],
+            prior=args.prior,
+            test=build(test_records, features, models[args.ship].features),
+        )
     dump_json(reports / f"scorer-{tag}{stamp}.json", report)
     markdown = to_markdown(report)
     (reports / f"scorer-{tag}{stamp}.md").write_text(markdown)

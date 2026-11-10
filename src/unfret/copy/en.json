@@ -127,7 +127,7 @@
     },
     "invalid_vat": {
       "title": "Invalid VAT number",
-      "detail": "The VAT number shown isn't valid in the EU register."
+      "detail": "The VAT number shown isn't a real one: it isn't valid in the EU register, or couldn't exist at all."
     },
     "new_domain": {
       "title": "Brand-new web shop",

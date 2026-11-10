@@ -123,3 +123,26 @@ def test_scripts_only_load_images_the_policy_allows() -> None:
     # as the checkout's QR code once did.
     for script in STATIC_DIR.glob("*.js"):
         assert "createObjectURL" not in script.read_text(encoding="utf-8"), script.name
+
+
+async def test_privacy_statement_describes_invites_in_both_languages(client: httpx.AsyncClient) -> None:
+    text = (await client.get("/privacy")).text
+    english, dutch = text.split('<h2 id="nl"', 1)
+    assert "<strong>Invites</strong>" in english and "nothing links the buyer to the person they invited" in english
+    assert "<strong>Uitnodigingen:</strong>" in dutch
+    assert "niets koppelt de koper aan degene die hij uitnodigde" in dutch
+
+
+def test_pages_show_invites_and_offer_to_redeem_one() -> None:
+    wallet = (STATIC_DIR / "wallet.js").read_text()
+    assert "Give this to someone who hasn't tried Unfret: it adds 3 checks to a new wallet or a new API key." in wallet
+    assert "/v1/invites/redeem" in wallet and "navigator.clipboard.writeText(code)" in wallet  # Copy
+    checkout = (STATIC_DIR / "checkout.js").read_text()
+    assert '"X-Unfret-Claim"' in checkout and "inviteNodes(" in checkout  # the payment-received panel
+    assert "to give away" in checkout  # each pack's offer
+    for page in ("checkout", "connect", "check"):
+        html = (STATIC_DIR / f"{page}.html").read_text()
+        assert "Have an invite?" in html and 'id="invite-redeem"' in html, page
+    for name in ("index.html", "checkout.html", "checkout.js", "wallet.js", "connect.html", "check.html"):
+        text = (STATIC_DIR / name).read_text().lower()
+        assert "free invite" not in text and "trial" not in text, name  # an invite, never "free" or a "trial"

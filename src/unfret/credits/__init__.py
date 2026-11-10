@@ -4,7 +4,8 @@ The credits door: accounts spend a balance of micro-dollars on analyses.
 An account is a wallet that signs in with SIWS, or an API key (:mod:`unfret.credits.keys`) for callers without a
 wallet.
 
-The only stored user state is ``account → balance`` (:mod:`unfret.credits.ledger`), plus the hashes of API keys.
+The only stored user state is ``account → balance`` (:mod:`unfret.credits.ledger`) and whether the account redeemed
+an invite (:mod:`unfret.credits.invites`), plus the hashes of API keys.
 Credits are bought by sending SOL or USDC to the x402 hot wallet, which the scanners turn into balance (SOL at its
 dollar value at crediting time); failed paid x402 checks are refunded the same way. Sign-in and API keys are off
 until ``UNFRET_SESSION_SECRET`` is set; purchases additionally need the hot wallet and running scanners.

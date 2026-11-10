@@ -326,7 +326,9 @@
     "crypto": "betaal met crypto: {crypto} + btw waar van toepassing",
     "card_tax": "plus btw/sales tax waar van toepassing, bij het afrekenen",
     "vat_line": "{net} + {rate}% btw ({vat}) = {total}",
-    "no_vat_line": "{total} (geen btw buiten de EU)"
+    "no_vat_line": "{total} (geen btw buiten de EU)",
+    "invite_one": "met 1 uitnodiging van {checks} checks om weg te geven",
+    "invite_many": "met {count} uitnodigingen van {checks} checks om weg te geven"
   },
   "shop_one": "winkel",
   "shop_many": "winkels"

@@ -374,10 +374,20 @@
     "type": "object"
    },
    "FiatCheckoutResponse": {
-    "description": "Where to send the buyer.",
+    "description": "Where to send the buyer, and how to collect the order's invites when they come back.",
     "properties": {
+     "checkout_id": {
+      "description": "Poll GET /v1/credits/fiat-checkouts/{checkout_id} (with the claim) for it.",
+      "title": "Checkout Id",
+      "type": "string"
+     },
      "checkout_url": {
       "title": "Checkout Url",
+      "type": "string"
+     },
+     "claim": {
+      "description": "Send as X-Unfret-Claim with that poll: the first one after payment returns the pack's invite codes, once. Keep it in the buyer's browser (e.g. localStorage) across the provider's checkout; it isn't stored and is never sent to the provider.",
+      "title": "Claim",
       "type": "string"
      },
      "provider": {
@@ -387,9 +397,47 @@
     },
     "required": [
      "checkout_url",
-     "provider"
+     "provider",
+     "checkout_id",
+     "claim"
     ],
     "title": "FiatCheckoutResponse",
+    "type": "object"
+   },
+   "FiatCheckoutStatusResponse": {
+    "description": "Whether a card checkout has been paid, and its invites once.",
+    "properties": {
+     "checks": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pack size the checkout is for.",
+      "title": "Checks"
+     },
+     "invites": {
+      "description": "The pack's invite codes (ufi_...), to give away: returned once, in the first response after payment that carries the purchase's X-Unfret-Claim, then never again (only their hashes are kept). Empty otherwise.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Invites",
+      "type": "array"
+     },
+     "paid": {
+      "description": "True once the provider's webhook confirmed the payment and the key was credited.",
+      "title": "Paid",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "paid",
+     "checks"
+    ],
+    "title": "FiatCheckoutStatusResponse",
     "type": "object"
    },
    "Flag": {
@@ -1054,6 +1102,11 @@
       "title": "Checks",
       "type": "integer"
      },
+     "claim": {
+      "description": "Send as X-Unfret-Claim when polling the quote: the first poll after payment returns the pack's invite codes, once. Keep it in the buyer's page only; it isn't stored, so it can't be shown again.",
+      "title": "Claim",
+      "type": "string"
+     },
      "currency": {
       "enum": [
        "SOL",
@@ -1115,18 +1168,27 @@
      "solana_pay_url",
      "checks",
      "price",
-     "quote_id"
+     "quote_id",
+     "claim"
     ],
     "title": "PurchaseResponse",
     "type": "object"
    },
    "QuoteStatusResponse": {
-    "description": "Whether a purchase's payment has been credited.",
+    "description": "Whether a purchase's payment has been credited, and its invites once.",
     "properties": {
      "checks": {
       "description": "The pack size the quote is for.",
       "title": "Checks",
       "type": "integer"
+     },
+     "invites": {
+      "description": "The pack's invite codes (ufi_...), to give away: returned once, in the first response after payment that carries the purchase's X-Unfret-Claim, then never again (only their hashes are kept). Empty otherwise.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Invites",
+      "type": "array"
      },
      "paid": {
       "description": "True once a payment naming this quote has been credited.",
@@ -1197,6 +1259,51 @@
      "recovery_code"
     ],
     "title": "RecoverRequest",
+    "type": "object"
+   },
+   "RedeemRequest": {
+    "description": "An invite code.",
+    "properties": {
+     "code": {
+      "description": "The invite code (ufi_\u2026), as given.",
+      "maxLength": 100,
+      "title": "Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code"
+    ],
+    "title": "RedeemRequest",
+    "type": "object"
+   },
+   "RedeemResponse": {
+    "description": "What the invite added.",
+    "properties": {
+     "balance_usd_micros": {
+      "title": "Balance Usd Micros",
+      "type": "integer"
+     },
+     "checks_added": {
+      "title": "Checks Added",
+      "type": "integer"
+     },
+     "checks_remaining": {
+      "title": "Checks Remaining",
+      "type": "integer"
+     },
+     "usd_micros_added": {
+      "title": "Usd Micros Added",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "checks_added",
+     "usd_micros_added",
+     "balance_usd_micros",
+     "checks_remaining"
+    ],
+    "title": "RedeemResponse",
     "type": "object"
    },
    "ReportRequest": {
@@ -2612,6 +2719,66 @@
     ]
    }
   },
+  "/v1/credits/fiat-checkouts/{checkout_id}": {
+   "get": {
+    "description": "Whether a card checkout has been paid, and the pack's invite codes once: for the checkout page on the way back.\n\nNeeds the checkout's claim token (``X-Unfret-Claim``, from ``fiat-checkout``): the provider knows the checkout's\nid, but never the token. The first response after payment returns the codes and wipes them. 404 for an unknown\ncheckout, a wrong or missing token, or one older than a month.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it changes once paid).\n:param checkout_id: The checkout's id (from ``fiat-checkout``).\n:param x_unfret_claim: The checkout's claim token.\n:return: Paid or not, the pack size, and the invites the first time.\n:raises ServiceUnavailableError: While card payments are off.\n:raises UnknownCheckoutError: For an unknown checkout or a wrong or missing claim token.",
+    "operationId": "fiat_checkout_status_v1_credits_fiat_checkouts__checkout_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "checkout_id",
+      "required": true,
+      "schema": {
+       "title": "Checkout Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-unfret-claim",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 100,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Unfret-Claim"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FiatCheckoutStatusResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Fiat Checkout Status",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
   "/v1/credits/purchase-tx": {
    "post": {
     "description": "Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.\n\nThe pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the\ntransaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15\u201330 seconds):\nwhat arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.\nNo sign-in needed: anyone may fund any wallet or API key.\n\n:param body: Which pack, for whom, paid how, from where.\n:param request: The incoming request.\n:return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.",
@@ -2656,7 +2823,7 @@
   },
   "/v1/credits/quotes/{quote_id}": {
    "get": {
-    "description": "Whether a purchase has been paid: for the checkout to show when the checks have arrived.\n\nNo sign-in: the quote's id (from ``purchase-tx`` or the QR code's ``X-Unfret-Quote`` header) is random, so only\nwhoever started the purchase knows it until the payment's memo puts it on chain, which shows as much already.\nSays nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then).\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it changes once paid).\n:param quote_id: The quote's id.\n:return: Paid or not, and the pack size.\n:raises ServiceUnavailableError: Without a database.\n:raises UnknownQuoteError: For an unknown, expired or malformed id.",
+    "description": "Whether a purchase has been paid: for the checkout to show when the checks have arrived, and its invites once.\n\nNo sign-in: the quote's id (from ``purchase-tx`` or the QR code's ``X-Unfret-Quote`` header) is random, so only\nwhoever started the purchase knows it until the payment's memo puts it on chain, which shows as much already.\nSays nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then). The\ninvite codes need the purchase's claim token too (``X-Unfret-Claim``), which never goes on chain; the first\nresponse that carries it after payment returns them, and wipes them.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it changes once paid).\n:param quote_id: The quote's id.\n:param x_unfret_claim: The purchase's claim token (from ``purchase-tx`` or the QR code's ``X-Unfret-Claim``).\n:return: Paid or not, and the pack size.\n:raises ServiceUnavailableError: Without a database.\n:raises UnknownQuoteError: For an unknown, expired or malformed id.",
     "operationId": "quote_status_v1_credits_quotes__quote_id__get",
     "parameters": [
      {
@@ -2666,6 +2833,23 @@
       "schema": {
        "title": "Quote Id",
        "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-unfret-claim",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 100,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Unfret-Claim"
       }
      }
     ],
@@ -2699,7 +2883,7 @@
   },
   "/v1/credits/solana-pay.svg": {
    "get": {
-    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay\nlink itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
+    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``, and the claim\ntoken that collects the pack's invites with that poll in ``X-Unfret-Claim``; the Solana Pay link itself (to open\na wallet app on the same phone) in ``X-Unfret-Pay-Url``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
     "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
     "parameters": [
      {
@@ -2874,6 +3058,48 @@
     "summary": "Thumbnail",
     "tags": [
      "Images"
+    ]
+   }
+  },
+  "/v1/invites/redeem": {
+   "post": {
+    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nOnly for an account that never had any checks: a wallet we've never credited (no purchase, refund or reward) or\nan API key that was never topped up, and only once per account. Each code works once. Nothing about the code's\nbuyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400\n``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``\n(the account has had checks, or already redeemed an invite).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.",
+    "operationId": "redeem_v1_invites_redeem_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RedeemRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RedeemResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Redeem",
+    "tags": [
+     "Credits"
     ]
    }
   },

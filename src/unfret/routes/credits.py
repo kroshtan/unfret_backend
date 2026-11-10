@@ -14,14 +14,14 @@ from typing import Any
 
 import segno
 import structlog
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 from solders.pubkey import Pubkey
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import fiat, keys, ledger, vat
+from unfret.credits import fiat, invites, keys, ledger, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from unfret.credits.packs import Pack, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
@@ -100,6 +100,10 @@ class PurchaseResponse(BaseModel):
     checks: int
     price: VatBreakdown
     quote_id: str = Field(description="The purchase's quote: poll GET /v1/credits/quotes/{quote_id} to see it paid.")
+    claim: str = Field(
+        description="Send as X-Unfret-Claim when polling the quote: the first poll after payment returns the pack's "
+        "invite codes, once. Keep it in the buyer's page only; it isn't stored, so it can't be shown again."
+    )
 
 
 class UnknownQuoteError(NotFoundError):
@@ -109,11 +113,18 @@ class UnknownQuoteError(NotFoundError):
     headers = {"Cache-Control": "no-store"}
 
 
+INVITES_DESCRIPTION = (
+    "The pack's invite codes (ufi_...), to give away: returned once, in the first response after payment that "
+    "carries the purchase's X-Unfret-Claim, then never again (only their hashes are kept). Empty otherwise."
+)
+
+
 class QuoteStatusResponse(BaseModel):
-    """Whether a purchase's payment has been credited."""
+    """Whether a purchase's payment has been credited, and its invites once."""
 
     paid: bool = Field(description="True once a payment naming this quote has been credited.")
     checks: int = Field(description="The pack size the quote is for.")
+    invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
 
 
 @router.get("/v1/pricing")
@@ -204,8 +215,8 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
 
 async def _quote(
     request: Request, checks: int, country: str, currency: Currency, beneficiary: str | None
-) -> tuple[vat.Quote, int]:
-    """Price and store a pack for ``country``, and convert its total into ``currency``'s base units."""
+) -> tuple[vat.Quote, int, str]:
+    """Price and store a pack for ``country``, convert its total into ``currency``'s base units, make its claim."""
     chosen = _pack(checks)
     edge = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
     quote = vat.price_quote(
@@ -215,8 +226,9 @@ async def _quote(
         amount = await get_credits(request).book.amount(quote.gross_usd_micros, currency)
     except PriceUnavailableError as exc:
         raise ServiceUnavailableError("SOL can't be priced right now; pay in USDC or try again shortly.") from exc
-    await vat.save_quote(request.app.db_pool, quote)
-    return quote, amount
+    claim = invites.new_claim()
+    await vat.save_quote(request.app.db_pool, quote, claim_hash=invites.digest(claim))
+    return quote, amount, claim
 
 
 def _breakdown(quote: vat.Quote) -> VatBreakdown:
@@ -251,7 +263,7 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         beneficiary = await _key_account(request, body.key_id)
     elif body.beneficiary:
         beneficiary = str(_wallet(body.beneficiary, hot))
-    quote, amount = await _quote(request, body.checks, body.country, body.currency, beneficiary)
+    quote, amount, claim = await _quote(request, body.checks, body.country, body.currency, beneficiary)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
     reference = Pubkey.from_string(quote.reference) if quote.reference else None
@@ -269,21 +281,30 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         checks=quote.checks,
         price=_breakdown(quote),
         quote_id=quote.id,
+        claim=claim,
     )
 
 
 @router.get("/v1/credits/quotes/{quote_id}", response_model=QuoteStatusResponse)
-async def quote_status(request: Request, response: Response, quote_id: str) -> QuoteStatusResponse:
+async def quote_status(
+    request: Request,
+    response: Response,
+    quote_id: str,
+    x_unfret_claim: str | None = Header(default=None, max_length=100),
+) -> QuoteStatusResponse:
     """
-    Whether a purchase has been paid: for the checkout to show when the checks have arrived.
+    Whether a purchase has been paid: for the checkout to show when the checks have arrived, and its invites once.
 
     No sign-in: the quote's id (from ``purchase-tx`` or the QR code's ``X-Unfret-Quote`` header) is random, so only
     whoever started the purchase knows it until the payment's memo puts it on chain, which shows as much already.
-    Says nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then).
+    Says nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then). The
+    invite codes need the purchase's claim token too (``X-Unfret-Claim``), which never goes on chain; the first
+    response that carries it after payment returns them, and wipes them.
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it changes once paid).
     :param quote_id: The quote's id.
+    :param x_unfret_claim: The purchase's claim token (from ``purchase-tx`` or the QR code's ``X-Unfret-Claim``).
     :return: Paid or not, and the pack size.
     :raises ServiceUnavailableError: Without a database.
     :raises UnknownQuoteError: For an unknown, expired or malformed id.
@@ -297,7 +318,8 @@ async def quote_status(request: Request, response: Response, quote_id: str) -> Q
     if found is None:
         raise UnknownQuoteError("Unknown quote.")
     paid, checks = found
-    return QuoteStatusResponse(paid=paid, checks=checks)
+    codes = await invites.take_from_quote(request.app.db_pool, quote_id, x_unfret_claim) if paid else []
+    return QuoteStatusResponse(paid=paid, checks=checks, invites=codes)
 
 
 @router.get("/v1/credits/solana-pay.svg", response_class=Response)
@@ -314,8 +336,9 @@ async def solana_pay_qr(
     The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
 
     The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
-    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay
-    link itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
+    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``, and the claim
+    token that collects the pack's invites with that poll in ``X-Unfret-Claim``; the Solana Pay link itself (to open
+    a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
 
     :param request: The incoming request.
     :param checks: The pack size.
@@ -329,7 +352,7 @@ async def solana_pay_qr(
     target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:
         target = await _key_account(request, key_id)
-    quote, amount = await _quote(request, checks, country, currency, target)
+    quote, amount, claim = await _quote(request, checks, country, currency, target)
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
@@ -342,6 +365,7 @@ async def solana_pay_qr(
         "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),
         "X-Unfret-Vat-Rate": format(quote.vat_rate_bps / 100, "g"),
         "X-Unfret-Quote": quote.id,
+        "X-Unfret-Claim": claim,
         # The same request as a link, for a wallet app on the device the page is open on (a phone can't scan itself).
         "X-Unfret-Pay-Url": pay_url,
     }
@@ -369,10 +393,31 @@ class FiatCheckoutRequest(BaseModel):
 
 
 class FiatCheckoutResponse(BaseModel):
-    """Where to send the buyer."""
+    """Where to send the buyer, and how to collect the order's invites when they come back."""
 
     checkout_url: str
     provider: str
+    checkout_id: str = Field(description="Poll GET /v1/credits/fiat-checkouts/{checkout_id} (with the claim) for it.")
+    claim: str = Field(
+        description="Send as X-Unfret-Claim with that poll: the first one after payment returns the pack's invite "
+        "codes, once. Keep it in the buyer's browser (e.g. localStorage) across the provider's checkout; it isn't "
+        "stored and is never sent to the provider."
+    )
+
+
+class FiatCheckoutStatusResponse(BaseModel):
+    """Whether a card checkout has been paid, and its invites once."""
+
+    paid: bool = Field(description="True once the provider's webhook confirmed the payment and the key was credited.")
+    checks: int | None = Field(description="The pack size the checkout is for.")
+    invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
+
+
+class UnknownCheckoutError(NotFoundError):
+    """No such checkout, or not with this claim token."""
+
+    error_code = "UNKNOWN_CHECKOUT"
+    headers = {"Cache-Control": "no-store"}
 
 
 def get_fiat(request: Request) -> FiatProvider | None:
@@ -410,8 +455,45 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
         raise ServiceUnavailableError(
             "Card payments are unavailable right now; try again later or pay with SOL or USDC."
         ) from exc
-    await fiat.remember_checkout(request.app.db_pool, provider.name, checkout, account)
-    return FiatCheckoutResponse(checkout_url=checkout.url, provider=provider.name)
+    claim = invites.new_claim()
+    await fiat.remember_checkout(
+        request.app.db_pool, provider.name, checkout, account, checks=chosen.checks, claim_hash=invites.digest(claim)
+    )
+    return FiatCheckoutResponse(
+        checkout_url=checkout.url, provider=provider.name, checkout_id=checkout.checkout_id, claim=claim
+    )
+
+
+@router.get("/v1/credits/fiat-checkouts/{checkout_id}", response_model=FiatCheckoutStatusResponse)
+async def fiat_checkout_status(
+    request: Request,
+    response: Response,
+    checkout_id: str,
+    x_unfret_claim: str | None = Header(default=None, max_length=100),
+) -> FiatCheckoutStatusResponse:
+    """
+    Whether a card checkout has been paid, and the pack's invite codes once: for the checkout page on the way back.
+
+    Needs the checkout's claim token (``X-Unfret-Claim``, from ``fiat-checkout``): the provider knows the checkout's
+    id, but never the token. The first response after payment returns the codes and wipes them. 404 for an unknown
+    checkout, a wrong or missing token, or one older than a month.
+
+    :param request: The incoming request.
+    :param response: The response (marked uncacheable: it changes once paid).
+    :param checkout_id: The checkout's id (from ``fiat-checkout``).
+    :param x_unfret_claim: The checkout's claim token.
+    :return: Paid or not, the pack size, and the invites the first time.
+    :raises ServiceUnavailableError: While card payments are off.
+    :raises UnknownCheckoutError: For an unknown checkout or a wrong or missing claim token.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    provider = get_fiat(request)
+    if provider is None or request.app.db_pool is None:
+        raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
+    found = await invites.checkout_status(request.app.db_pool, provider.name, checkout_id[:100], x_unfret_claim)
+    if found is None:
+        raise UnknownCheckoutError("Unknown checkout.")
+    return FiatCheckoutStatusResponse(paid=found.paid, checks=found.checks, invites=found.invites)
 
 
 @router.post("/v1/webhooks/fiat", include_in_schema=False)

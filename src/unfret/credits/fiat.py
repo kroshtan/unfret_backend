@@ -12,7 +12,8 @@ mapping wins when both are present.
 
 What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`;
 the amount is the order's amount before the provider's sales tax/VAT). The provider is the seller of record and
-handles the tax, so no VAT record is kept here.
+handles the tax, so no VAT record is kept here. A paid pack also issues its invites (:mod:`unfret.credits.invites`)
+in the crediting transaction, for the buyer's page to collect once with its claim token.
 
 ``fiat_payments`` keeps one row per order: the account, the amount, the credits granted and how much was taken back.
 It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right account, and
@@ -44,8 +45,8 @@ from urllib.parse import urlencode
 import asyncpg
 
 from unfret.config import Settings
-from unfret.credits import keys, ledger
-from unfret.credits.packs import Pack, card_credits
+from unfret.credits import invites, keys, ledger
+from unfret.credits.packs import Pack, card_credits, pack_for_card
 
 USD_MICROS_PER_CENT = 10_000
 
@@ -238,7 +239,15 @@ class FakeFiatProvider:
 Outcome = Literal["credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account", "too_small"]
 
 
-async def remember_checkout(db: asyncpg.Pool, provider: str, checkout: FiatCheckout, account: str) -> None:
+async def remember_checkout(
+    db: asyncpg.Pool,
+    provider: str,
+    checkout: FiatCheckout,
+    account: str,
+    *,
+    checks: int | None = None,
+    claim_hash: bytes | None = None,
+) -> None:
     """
     Keep which account a checkout is for, in case the order's webhook doesn't echo the metadata.
 
@@ -246,12 +255,18 @@ async def remember_checkout(db: asyncpg.Pool, provider: str, checkout: FiatCheck
     :param provider: The provider's name.
     :param checkout: The checkout.
     :param account: The account (``key:<id>``).
+    :param checks: The pack size, for the buyer's status page.
+    :param claim_hash: The hash of the buyer's claim token, which collects the order's invites
+        (:mod:`unfret.credits.invites`).
     """
     await db.execute(
-        "INSERT INTO fiat_checkouts (provider, checkout_id, account) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash) VALUES ($1, $2, $3, $4, $5) "
+        "ON CONFLICT DO NOTHING",
         provider,
         checkout.checkout_id,
         account,
+        checks,
+        claim_hash,
     )
 
 
@@ -286,6 +301,10 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
     if not fresh:
         return "duplicate"
     await ledger.credit(conn, account, credits)
+    if event.checkout_id:  # marks the checkout paid; invites only for exactly a pack's card price
+        matched = pack_for_card(settings, event.amount_cents)
+        checks = matched.checks if matched else 0
+        await invites.issue_for_checkout(conn, settings, event.provider, event.checkout_id, checks)
     return "credited"
 
 
@@ -339,7 +358,9 @@ async def apply_event(db: asyncpg.Pool, event: FiatEvent, settings: Settings) ->
 
 async def purge(db: asyncpg.Pool, retention_days: int, now: datetime | None = None) -> None:
     """
-    Delete payment rows past their retention, and checkout mappings after a month (orders follow within minutes).
+    Delete payment rows past their retention, checkout mappings after a month (orders follow within minutes).
+
+    Invite codes a buyer never collected are wiped after ``invites.UNCLAIMED_DAYS``.
 
     :param db: The database pool.
     :param retention_days: Days to keep payment rows.
@@ -348,3 +369,7 @@ async def purge(db: asyncpg.Pool, retention_days: int, now: datetime | None = No
     today = (now or datetime.now(UTC)).date()
     await db.execute("DELETE FROM fiat_payments WHERE created_on < $1", today - timedelta(days=retention_days))
     await db.execute("DELETE FROM fiat_checkouts WHERE created_on < $1", today - timedelta(days=30))
+    await db.execute(
+        "UPDATE fiat_checkouts SET invite_codes = NULL WHERE invite_codes IS NOT NULL AND created_on < $1",
+        today - timedelta(days=invites.UNCLAIMED_DAYS),
+    )

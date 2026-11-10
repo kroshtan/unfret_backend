@@ -326,7 +326,9 @@
     "crypto": "pay with crypto: {crypto} + VAT where applicable",
     "card_tax": "plus sales tax/VAT where applicable, added at checkout",
     "vat_line": "{net} + {rate}% VAT ({vat}) = {total}",
-    "no_vat_line": "{total} (no VAT outside the EU)"
+    "no_vat_line": "{total} (no VAT outside the EU)",
+    "invite_one": "comes with 1 invite of {checks} checks to give away",
+    "invite_many": "comes with {count} invites of {checks} checks to give away"
   },
   "shop_one": "shop",
   "shop_many": "shops"

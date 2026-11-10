@@ -32,6 +32,12 @@
         never stored, so we can't recover it for you: keep the recovery code. A card payment, once available, is
         handled by the payment provider, which keeps your payment details; we keep only the order number, the amount and
         which key it topped up, for 180 days (for refunds and questions), never your name, e-mail or address.</li>
+      <li><strong>Invites</strong>: a pack comes with invite codes to give away. We keep only a one-way hash of each
+        code, the day it was issued and the day it was used: not who bought it, not who used it, no IP address, so
+        nothing links the buyer to the person they invited. The codes themselves are shown once, on your payment
+        confirmation, and wiped from the server when they are shown (or, if never shown, with the purchase's record
+        after at most a week); the checkout page keeps a random claim token for them in your browser for up to three
+        days, until they are shown. An account that used an invite is marked as having used one, not which.</li>
       <li><strong>Not the pages you check.</strong> Page addresses and contents are not stored and are never linked to
         your wallet. A result is kept in memory for up to an hour so the same page checked again is free; a restart
         clears it. Only a result you choose to share is kept, without any link to you (below).</li>
@@ -155,6 +161,13 @@
         kunnen hem niet terughalen, dus bewaar de herstelcode. Een betaling met een kaart (zodra dat kan) loopt via de
         betaalprovider, die je betaalgegevens bewaart; wij bewaren alleen het ordernummer, het bedrag en welke sleutel
         is opgewaardeerd, 180 dagen lang (voor terugbetalingen en vragen), nooit je naam, e-mail of adres.</p>
+      <p><strong>Uitnodigingen:</strong> bij een pakket horen uitnodigingscodes om weg te geven. We bewaren alleen een
+        eenrichtingshash van elke code, de dag van uitgifte en de dag van gebruik: niet wie de code kocht of wie hem
+        gebruikte, geen IP-adres, dus niets koppelt de koper aan degene die hij uitnodigde. De codes zelf zie je één
+        keer, bij de bevestiging van je betaling, en ze worden van de server gewist zodra ze getoond zijn (of, als ze
+        nooit getoond worden, met het record van de aankoop, na hooguit een week); de afrekenpagina bewaart daarvoor
+        tot drie dagen een willekeurig claimtoken in je browser, tot ze getoond zijn. Van een account dat een
+        uitnodiging gebruikte, onthouden we alleen dát het er een gebruikte, niet welke.</p>
       <p><strong>Een fout resultaat melden:</strong> druk je op <strong>Dit klopt niet</strong> en geef je
         toestemming, dan delen we de productgegevens, paginatekst en uitslag van die ene controle ter beoordeling.
         Persoonlijke gegevens worden in je browser en nog eens op de server verwijderd (begroetingen met je naam,

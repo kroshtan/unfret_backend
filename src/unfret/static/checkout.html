@@ -11,7 +11,8 @@
 <body>
   <main>
     <h1>Buy checks</h1>
-    <p>One check is one page analysed. Pick a pack, choose where the checks go, then pay.</p>
+    <p>One check is one page analysed. Pick a pack, choose where the checks go, then pay. Every pack comes with
+      invites to give away: each adds 3 checks for someone who hasn't tried Unfret.</p>
     <p id="network" class="muted"></p>
 
     <p id="unavailable" hidden>Buying checks isn't available yet. Please try again later.</p>
@@ -56,6 +57,15 @@
             <label><input type="checkbox" id="saved"> I've saved both somewhere safe</label>
           </div>
           <p id="key-status" role="status" aria-live="polite"></p>
+          <details id="invite-key" class="invite">
+            <summary>Have an invite?</summary>
+            <p class="muted">An invite adds 3 checks to a new API key, one that never had checks. Create a key above
+              (or paste one you just made), then enter the invite.</p>
+            <label for="invite-input">Invite code</label>
+            <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="ufi_…">
+            <button id="invite-redeem" type="button">Use invite</button>
+            <p id="invite-status" role="status" aria-live="polite"></p>
+          </details>
         </div>
       </section>
 

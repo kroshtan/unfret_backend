@@ -429,6 +429,38 @@ valid 7 days. Nothing is stored when a check runs.
 - Under the `balanced` and `lenient` policies, `action` is `allow` whenever `band` is `reliable` or `concerns`;
   `/.well-known/x402` lists this per policy as `never_warns_on_bands`.
 
+## Changes (invites, backwards-compatible; migration 15)
+
+- Every credited pack comes with **invites** to give away: one per 25 checks (25-pack → 1, 50 → 2, 100 → 4), each
+  worth 3 checks (3 × the price of a check). Always called an "invite", never "free" or a "trial".
+- `GET /v1/pricing`: each pack adds `invites: {"count", "checks_each", "checks"}` (`checks` = all its invites
+  together; the 25-pack brings 25 + 3 = 28 checks), and its `label` ends with "· comes with 1 invite of 3 checks to
+  give away" (nl: "· met 1 uitnodiging van 3 checks om weg te geven"). Top level adds `invites: {"checks_each",
+  "per_checks", "for"}`.
+- **Claim token.** `POST /v1/credits/purchase-tx` → also `claim`; `GET /v1/credits/solana-pay.svg` → also
+  `X-Unfret-Claim`; `POST /v1/credits/fiat-checkout` → also `checkout_id` and `claim`. Only its hash is stored. It
+  never goes on chain or to the card provider. Keep it in the buyer's page (the site keeps pending ones in
+  localStorage for up to three days, e.g. across Polar's checkout).
+- `GET /v1/credits/quotes/{quote_id}` → also `invites: [str]`. With header `X-Unfret-Claim: <claim>`, the first
+  response after payment carries the pack's codes (`ufi_` + 32 base32 characters); they are wiped in the same
+  statement, so every later response (and every response without the right claim) has `invites: []`. Shown once:
+  a client that loses that response can't get them again.
+- `GET /v1/credits/fiat-checkouts/{checkout_id}` (header `X-Unfret-Claim` required; 404 `UNKNOWN_CHECKOUT` without
+  it, with a wrong one, or for an unknown checkout; 503 while card payments are off) → `{"paid", "checks",
+  "invites"}`, the same once-only rule. `paid` turns true when the webhook credits the order.
+- `POST /v1/invites/redeem` `{"code"}` with `Authorization: Bearer <session token | ufk_ API key>` →
+  `{"checks_added": 3, "usd_micros_added", "balance_usd_micros", "checks_remaining"}`. Only for an account that never
+  had any credit (no purchase, refund, reward or grant: a new wallet, or a key never topped up), once per account;
+  each code works once. Errors: 400 `INVALID_INVITE`, 404 `UNKNOWN_INVITE`, 409 `INVITE_USED`, 403
+  `INVITE_NOT_FOR_THIS_ACCOUNT`, 401 without a valid sign-in. Codes are case-insensitive; surrounding spaces are
+  ignored.
+- No issue for a transfer without a quote, a quote made without a claim (older clients), a payment worth less than
+  90% of the pack, a quote's second payment, or a card order whose amount isn't exactly a pack's card price.
+- CORS allows the `X-Unfret-Claim` request header.
+- Storage: `invites (code_hash, issued_on, redeemed_on)` only; `wallets.invite_redeemed`; `vat_quotes` and
+  `fiat_checkouts` gain `claim_hash` and `invite_codes` (plaintext until first read, or until the row goes: a quote a
+  day after it expires, a card checkout's codes after 7 days), `fiat_checkouts` also `checks` and `paid_at`.
+
 ## Changes (card payments through Polar, backwards-compatible)
 
 - `POST /v1/credits/fiat-checkout` is live once Polar is configured (`/v1/pricing` → `fiat.available: true`):

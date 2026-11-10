@@ -5,15 +5,22 @@
 // (by card) and a lower crypto price, plus VAT for the buyer's country (prefilled from where the request comes from).
 // Checks can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
 // one, or one recovered with its recovery code. The purchase's quote then names the key's public ID; the key itself
-// never leaves this page except to check its balance.
+// never leaves this page except to check its balance (and to redeem an invite for it, "Have an invite?").
+// Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on chain,
+// never sent to the card provider); the first status poll after payment that carries it (X-Unfret-Claim) returns
+// the codes, once. Pending claims are kept in localStorage for a few days, so a closed tab or the card provider's
+// round trip doesn't lose them; each is dropped once its purchase is paid.
 import {
+  INVITE_RE,
   api,
   chainOf,
   discoverWallets,
   formatSol,
   fromBase64,
+  inviteNodes,
   recall,
   recallAny,
+  redeemInvite,
   setStatus,
   walletButton,
 } from "./wallet.js";
@@ -64,6 +71,8 @@ let watch = null; // the purchase being waited for (see watchQuote)
 
 const POLL_MS = 3000;
 const POLL_ROUNDS = 60; // about three minutes of waiting while the page is visible
+const CLAIMS_KEY = "unfret-invite-claims";
+const CLAIM_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // quotes are gone after about two days anyway
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
 const KEY_ID_RE = /^[a-z2-7]{10}$/;
@@ -186,19 +195,100 @@ document.getElementById("beneficiary").addEventListener("change", (event) => {
   refreshTarget();
 });
 
+// ── Pending invite claims (localStorage; try/catch: private modes must still work, just without remembering) ──
+
+function loadClaims() {
+  try {
+    const list = JSON.parse(localStorage.getItem(CLAIMS_KEY) ?? "[]");
+    return Array.isArray(list) ? list.filter((c) => c && c.id && c.claim && Date.now() - c.at < CLAIM_MAX_AGE_MS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveClaims(list) {
+  try {
+    if (list.length) localStorage.setItem(CLAIMS_KEY, JSON.stringify(list));
+    else localStorage.removeItem(CLAIMS_KEY);
+  } catch {
+    // not remembered: this page still shows the invites if it stays open
+  }
+}
+
+function rememberClaim(kind, id, claim, checks) {
+  if (!id || !claim) return;
+  saveClaims([...loadClaims().filter((c) => c.id !== id), { kind, id, claim, checks, at: Date.now() }]);
+}
+
+function forgetClaim(id) {
+  saveClaims(loadClaims().filter((c) => c.id !== id));
+}
+
+// A purchase's status with its claim: { paid, checks, invites } (the invites only the first time), or null if the
+// purchase is unknown (gone, or not this claim). Once paid, the claim has done its job and is forgotten.
+async function collectClaim(entry) {
+  const path =
+    entry.kind === "fiat"
+      ? `/v1/credits/fiat-checkouts/${encodeURIComponent(entry.id)}`
+      : `/v1/credits/quotes/${encodeURIComponent(entry.id)}`;
+  try {
+    const status = await api(path, { cache: "no-store", headers: { "X-Unfret-Claim": entry.claim } });
+    if (status.paid) forgetClaim(entry.id);
+    return status;
+  } catch (error) {
+    if (error.status === 404) forgetClaim(entry.id);
+    return null;
+  }
+}
+
+// ── Have an invite? (for an API key: it needs the whole key, which proves the key is yours) ────────────────────
+
+document.getElementById("invite-redeem").addEventListener("click", async (event) => {
+  const status = document.getElementById("invite-status");
+  const input = document.getElementById("invite-input");
+  const code = input.value.trim().toLowerCase();
+  keyId(); // sets fullKey from the key field
+  if (!INVITE_RE.test(code)) return setStatus(status, "That isn't an invite code (it starts with ufi_).", "error");
+  if (!fullKey) {
+    return setStatus(
+      status,
+      "Create a new key above, or paste the whole key (ufk_…, not just its ID): an invite needs the key itself.",
+      "error",
+    );
+  }
+  const redeemButton = event.currentTarget;
+  redeemButton.disabled = true;
+  try {
+    const added = await redeemInvite(code, fullKey);
+    input.value = "";
+    setStatus(
+      status,
+      `✓ ${checksWord(added.checks_added)} added to key ${keyId()}. It now has ${checksWord(added.checks_remaining)}.`,
+      "ok",
+    );
+  } catch (error) {
+    setStatus(status, error.message || "That invite didn't work.", "error");
+  } finally {
+    redeemButton.disabled = false;
+  }
+});
+
 document.getElementById("card-pay").addEventListener("click", async (event) => {
   const id = keyId();
   if (!id || !pack || !forKey || (!keyReveal.hidden && !saved.checked)) return refreshTarget();
-  event.currentTarget.disabled = true;
+  const payButton = event.currentTarget;
+  payButton.disabled = true;
   try {
     const started = await api("/v1/credits/fiat-checkout", {
       method: "POST",
       body: JSON.stringify({ key_id: id, checks: pack.checks }),
     });
+    // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
+    rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
     window.location.assign(started.checkout_url);
   } catch (error) {
     showMessage("error", error.message || "Card payment isn't available right now.");
-    event.currentTarget.disabled = false;
+    payButton.disabled = false;
   }
 });
 
@@ -273,10 +363,17 @@ function renderPacks() {
       crypto.className = "muted crypto";
       crypto.textContent = `or ${option.crypto_usd} with crypto (+ VAT where applicable)`;
       label.append(input, name, price, crypto);
+      if (option.invites?.count) label.append(element("span", inviteOffer(option.invites), "muted gift"));
       return label;
     }),
   );
   refreshTarget();
+}
+
+// "comes with 1 invite of 3 checks to give away": always called an invite.
+function inviteOffer(invites) {
+  const what = invites.count === 1 ? "1 invite" : `${invites.count} invites`;
+  return `comes with ${what} of ${invites.checks_each} checks to give away`;
 }
 
 function renderCountries() {
@@ -365,6 +462,12 @@ function reset() {
   refreshTarget();
 }
 
+// Leaving a confirmation that shows invites removes them from the page for good: ask first.
+function leaveInvites(invites) {
+  if (invites.length && !window.confirm("Copied your invites? They can't be shown again.")) return;
+  reset();
+}
+
 // Where the checks went, in words, for the success message.
 function destination(purchase) {
   if (purchase.keyId) return ` to key ${purchase.keyId}`;
@@ -395,10 +498,12 @@ function showTimeout(purchase) {
   );
 }
 
-async function showPaid(purchase) {
+async function showPaid(purchase, invites = []) {
   qr.hidden = true;
   const headline = `✓ Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
   const nodes = [element("p", headline, "headline")];
+  if (invites.length) nodes.push(...inviteNodes(invites));
+  const close = invites.length ? "Once you've copied your invites, you can close this page" : "You can close this page";
   if (purchase.keyId) {
     if (purchase.newKey) {
       const key = element("p", "Your API key");
@@ -409,13 +514,13 @@ async function showPaid(purchase) {
       );
     }
     nodes.push(
-      element("p", "Paste the key in the extension's settings (or use it in scripts) and the extension shows your checks. You can close this page."),
+      element("p", `Paste the key in the extension's settings (or use it in scripts) and the extension shows your checks. ${close}.`),
     );
   } else {
-    nodes.push(element("p", "You can close this page; the extension shows your checks."));
+    nodes.push(element("p", `${close}; the extension shows your checks.`));
   }
   const balance = element("p", "", "muted");
-  nodes.push(balance, button("Buy more", reset));
+  nodes.push(balance, button("Buy more", () => leaveInvites(invites)));
   showPanel("ok", ...nodes);
   bringIntoView();
   if (!purchase.token) return;
@@ -437,11 +542,16 @@ async function poll(purchase) {
   if (watch !== purchase) return;
   purchase.rounds += 1;
   try {
-    const quote = await api(`/v1/credits/quotes/${encodeURIComponent(purchase.quoteId)}`, { cache: "no-store" });
+    const headers = purchase.claim ? { "X-Unfret-Claim": purchase.claim } : {};
+    const quote = await api(`/v1/credits/quotes/${encodeURIComponent(purchase.quoteId)}`, {
+      cache: "no-store",
+      headers,
+    });
     if (watch !== purchase) return;
     if (quote.paid) {
+      forgetClaim(purchase.quoteId);
       stopWatching();
-      showPaid(purchase);
+      showPaid(purchase, quote.invites ?? []);
       return;
     }
   } catch {
@@ -503,7 +613,9 @@ qrShow.addEventListener("click", async () => {
       throw new Error(body.detail ?? `Request failed (${response.status})`);
     }
     const quoteId = response.headers.get("X-Unfret-Quote");
+    const claim = response.headers.get("X-Unfret-Claim");
     const payUrl = response.headers.get("X-Unfret-Pay-Url");
+    rememberClaim("quote", quoteId, claim, info.checks);
     // A data: URL, not a blob: one: the page's CSP allows images from 'self' and data: only.
     qr.src = `data:image/svg+xml;base64,${btoa(await response.text())}`;
     qr.hidden = false;
@@ -511,7 +623,7 @@ qrShow.addEventListener("click", async () => {
     payLink.hidden = !(payUrl && onPhone());
     if (payUrl) payLink.href = payUrl;
     if (quoteId) {
-      watchQuote({ ...info, quoteId });
+      watchQuote({ ...info, quoteId, claim });
     } else {
       showPanel("info", element("p", "Scan the code with your phone's wallet. Your checks arrive once the payment is final."));
     }
@@ -550,6 +662,7 @@ async function buy(wallet) {
         ...target,
       }),
     });
+    rememberClaim("quote", purchase.quote_id, purchase.claim, info.checks);
     showMessage("info", `Approve the payment of ${formatPay(purchase.amount)} (${purchase.price.total_usd}) in ${wallet.name}.`);
     bringIntoView();
     await send.signAndSendTransaction({
@@ -557,7 +670,7 @@ async function buy(wallet) {
       chain: chainOf(pricing.network),
       transaction: fromBase64(purchase.transaction),
     });
-    watchQuote({ ...info, quoteId: purchase.quote_id });
+    watchQuote({ ...info, quoteId: purchase.quote_id, claim: purchase.claim });
   } catch (error) {
     showMessage("error", error.message || "The purchase didn't go through.");
   } finally {
@@ -601,11 +714,48 @@ async function start() {
       "thanks",
       element("p", "Thanks! Your card payment is being confirmed; the checks reach your key within a minute.", "headline"),
     );
+    void watchCard();
+  } else {
+    void collectEarlier();
   }
   renderCountries();
   renderPacks();
   renderWallets([]);
   discoverWallets(renderWallets);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Back from the card provider: wait for the webhook to credit the key, then show the pack's invites.
+async function watchCard() {
+  const entry = loadClaims()
+    .filter((c) => c.kind === "fiat")
+    .sort((a, b) => b.at - a.at)[0];
+  if (!entry) return;
+  for (let round = 0; round < POLL_ROUNDS; round += 1) {
+    const status = await collectClaim(entry);
+    if (status === null) return;
+    if (status.paid) {
+      const checks = status.checks ?? entry.checks;
+      const nodes = [element("p", `✓ Card payment received: ${checksWord(checks)} added to your key.`, "headline")];
+      if (status.invites?.length) nodes.push(...inviteNodes(status.invites));
+      showPanel("ok", ...nodes, button("Buy more", () => leaveInvites(status.invites ?? [])));
+      bringIntoView();
+      return;
+    }
+    await sleep(POLL_MS);
+  }
+}
+
+// Invites from an earlier purchase on this browser whose page was closed before they were shown.
+async function collectEarlier() {
+  const codes = [];
+  for (const entry of loadClaims()) {
+    const status = await collectClaim(entry);
+    if (status?.paid && status.invites?.length) codes.push(...status.invites);
+  }
+  if (!codes.length || watch) return;
+  showPanel("thanks", element("p", "Your earlier purchase came with invites", "headline"), ...inviteNodes(codes));
 }
 
 start();

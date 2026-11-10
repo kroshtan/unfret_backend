@@ -6,7 +6,9 @@
 // - Phone pairing (/connect?pair=<id>, opened from the extension's QR code in a phone wallet's browser): the
 //   message names the pairing's confirmation code, the server attaches the session to the pairing and the extension
 //   collects it; this page keeps nothing.
-import { api, discoverWallets, setStatus, signIn, walletButton } from "./wallet.js";
+// After a same-browser sign-in the page offers "Have an invite?": a code someone gave the user, redeemed for this
+// (new) wallet with the session it just got.
+import { INVITE_RE, api, discoverWallets, redeemInvite, setStatus, signIn, walletButton } from "./wallet.js";
 
 const list = document.getElementById("wallets");
 const empty = document.getElementById("no-wallets");
@@ -17,6 +19,8 @@ const pairing = document.getElementById("pairing");
 const pairCode = document.getElementById("pair-code");
 const pairError = document.getElementById("pair-error");
 const pairDone = document.getElementById("pair-done");
+const invite = document.getElementById("invite");
+let signedIn = null; // this tab's sign-in, for redeeming an invite
 
 const HANDOFF_WAIT_MS = 3000;
 const pairId = new URLSearchParams(window.location.search).get("pair");
@@ -89,6 +93,8 @@ async function connect(wallet) {
       return;
     }
     setStatus(status, `Signed in as ${session.address.slice(0, 4)}…${session.address.slice(-4)}.`, "ok");
+    signedIn = session;
+    invite.hidden = false;
     window.postMessage(
       { type: "veridex-session", token: session.token, address: session.address, expires_at: session.expires_at },
       window.location.origin,
@@ -102,6 +108,25 @@ async function connect(wallet) {
     setButtons(pairReady);
   }
 }
+
+document.getElementById("invite-redeem").addEventListener("click", async (event) => {
+  const inviteStatus = document.getElementById("invite-status");
+  const input = document.getElementById("invite-input");
+  const code = input.value.trim().toLowerCase();
+  if (!INVITE_RE.test(code)) return setStatus(inviteStatus, "That isn't an invite code (it starts with ufi_).", "error");
+  if (!signedIn) return setStatus(inviteStatus, "Sign in first.", "error");
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const added = await redeemInvite(code, signedIn.token);
+    input.value = "";
+    setStatus(inviteStatus, `✓ ${added.checks_added} checks added to this wallet.`, "ok");
+  } catch (error) {
+    setStatus(inviteStatus, error.message || "That invite didn't work.", "error");
+  } finally {
+    button.disabled = false;
+  }
+});
 
 render([]);
 discoverWallets(render);

@@ -182,3 +182,54 @@ export function setStatus(element, text, kind = "info") {
   element.textContent = text;
   element.dataset.kind = kind;
 }
+
+// ── Invites: codes a pack comes with, to give to someone who hasn't tried Unfret ───────────────────────────────
+
+export const INVITE_RE = /^ufi_[a-z2-7]{32}$/;
+export const INVITE_LINE =
+  "Give this to someone who hasn't tried Unfret: it adds 3 checks to a new wallet or a new API key.";
+
+// Redeem an invite for the account behind `token` (a session token or a whole API key). Returns the server's
+// { checks_added, checks_remaining, … }; throws with the server's reason (used, not a new account, …).
+export async function redeemInvite(code, token) {
+  return api("/v1/invites/redeem", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ code: code.trim() }),
+  });
+}
+
+// The codes as a list with Copy buttons, and the line that says what they are for. The server shows them once:
+// these nodes are the only copy.
+export function inviteNodes(codes) {
+  const heading = document.createElement("p");
+  const strong = document.createElement("strong");
+  strong.textContent = codes.length === 1 ? "Your invite (shown only now):" : `Your ${codes.length} invites (shown only now):`;
+  heading.append(strong);
+  const list = document.createElement("ul");
+  list.className = "invites";
+  for (const code of codes) {
+    const item = document.createElement("li");
+    const value = document.createElement("code");
+    value.textContent = code;
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "Copy";
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code);
+        copy.textContent = "Copied";
+      } catch {
+        copy.textContent = "Select and copy it";
+      }
+    });
+    item.append(value, document.createTextNode(" "), copy);
+    list.append(item);
+  }
+  const line = document.createElement("p");
+  line.textContent = INVITE_LINE;
+  const keep = document.createElement("p");
+  keep.className = "muted";
+  keep.textContent = "Copy them now: Unfret keeps only a fingerprint of each, so they can't be shown again.";
+  return [heading, list, line, keep];
+}

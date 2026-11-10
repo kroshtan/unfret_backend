@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
     card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
+    # Invites (unfret.credits.invites): every credited pack comes with one invite per invite_per_checks checks bought
+    # (25 → 1, 50 → 2, 100 → 4), each worth invite_checks checks to an account that never had any credit. 0 turns
+    # issuing off; invites already issued stay redeemable.
+    invite_per_checks: int = Field(default=25, ge=0)
+    invite_checks: int = Field(default=3, gt=0)
     # VAT on crypto purchases (unfret.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
     # cross-border sales, every EU buyer pays Dutch VAT and everyone else none; "per_country": each EU buyer pays
     # their own country's rate (vendored from the EU's TEDB). Card purchases: the Merchant of Record handles VAT.

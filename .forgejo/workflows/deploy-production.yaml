@@ -113,6 +113,21 @@ jobs:
           else
             echo "no pre-split route: nothing to retire"
           fi
+      - name: Label dev's image for production
+        # Kamal refuses an image whose `service` label isn't this destination's, and dev's build carries
+        # service=veridex-dev. Wrap the very image dev ran in a metadata-only image (no new layer: the same files)
+        # labelled service=veridex-prod, pushed as <sha>-prod, on the server, where kamal has logged in to the registry.
+        env:
+          SHA: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          image=git.kroshtan.com/kroshtan/veridex
+          ssh -o BatchMode=yes -o UpdateHostKeys=no -o CheckHostIP=no -o StrictHostKeyChecking=yes \
+            kamal@git.kroshtan.com "set -e
+              docker pull -q $image:$SHA
+              printf 'FROM $image:$SHA\n' | docker build -q --label service=veridex-prod -t $image:$SHA-prod -
+              docker push -q $image:$SHA-prod
+              [ \"\$(docker inspect -f '{{ .Config.Labels.service }}' $image:$SHA-prod)\" = veridex-prod ]"
           install -m 644 /creds/known_hosts ~/.ssh/known_hosts  # kamal gets the pristine file, whatever ssh did
       - name: Deploy to production
         # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
@@ -140,8 +155,8 @@ jobs:
           if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d production
           fi
-          # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
-          kamal deploy -d production --skip-push --version "$SHA"
+          # --skip-push pulls the image instead of building one: dev's image for this commit, labelled for production.
+          kamal deploy -d production --skip-push --version "$SHA-prod"
       - name: Discard the deploy key
         if: always()
         run: rm -f ~/.ssh/id_ed25519

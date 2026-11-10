@@ -21,8 +21,10 @@ audit:  ## Check the locked dependencies for known vulnerabilities (pip-audit)
 		rm -f .audit-requirements.txt .audit-requirements-mcp.txt; exit $$status
 
 vat-rates-check:  ## Compare the vendored EU VAT rates and Cloudflare ranges with their sources (monthly; exit 1 on change)
-	uv run scripts/update_vat_rates.py --check
-	uv run scripts/update_cloudflare_ips.py --check
+	@status=0; \
+		uv run scripts/update_vat_rates.py --check || status=1; \
+		uv run scripts/update_cloudflare_ips.py --check || status=1; \
+		exit $$status
 
 test-unit:  ## Run unit tests (no external services needed)
 	uv run pytest tests/unit

@@ -19,7 +19,8 @@ from pathlib import Path
 
 import httpx
 
-TABLE = Path(__file__).resolve().parent.parent / "src" / "unfret" / "credits" / "cloudflare_ips.json"
+ROOT = Path(__file__).resolve().parent.parent
+TABLE = ROOT / "src" / "unfret" / "credits" / "cloudflare_ips.json"
 SOURCES = ("https://www.cloudflare.com/ips-v4", "https://www.cloudflare.com/ips-v6")
 
 
@@ -42,11 +43,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--check", action="store_true", help="only compare; exit 1 on a difference")
     args = parser.parse_args()
-    ranges = fetch()
+    try:
+        ranges = fetch()
+    except httpx.HTTPError as error:
+        sys.exit(f"could not fetch Cloudflare's ranges ({error!r}); nothing compared or written, try again later")
     if args.check:
         current = json.loads(TABLE.read_text())["ranges"]
         if ranges != current:
-            print("Cloudflare ranges changed:", sorted(set(ranges) ^ set(current)))
+            print(f"{TABLE.relative_to(ROOT)} is out of date: Cloudflare's published edge ranges differ from it:")
+            for cidr in sorted(set(ranges) - set(current)):
+                print(f"  added:   {cidr}")
+            for cidr in sorted(set(current) - set(ranges)):
+                print(f"  removed: {cidr}")
+            if set(ranges) == set(current):
+                print("  (the same ranges, in a different order)")
+            print(
+                "Update it: run `uv run scripts/update_cloudflare_ips.py`, review the diff, and commit it with a "
+                "CHANGELOG entry (until then CF-IPCountry is not trusted from an added range)."
+            )
             sys.exit(1)
         print(f"Cloudflare ranges unchanged ({len(ranges)})")
         return

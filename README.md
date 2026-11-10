@@ -117,7 +117,9 @@ from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come f
 that peer as `X-Edge-Peer`, checked against the vendored ranges). The IP address is never stored or logged. With
 `UNFRET_VAT_MODE=nl_under_threshold` (default, while EU cross-border sales stay under €10,000 a year) every EU buyer
 pays Dutch VAT (21%) and everyone else none; `per_country` uses each member state's standard rate, vendored from the
-EU's TEDB (`make vat-rates-check` compares it monthly; the service logs `vat_rates_stale` after 45 days). Card
+EU's TEDB (`make vat-rates-check` compares it and the Cloudflare ranges with their sources, run monthly by
+`.forgejo/workflows/vat-rates.yaml`, which fails naming the changed file and the script that rewrites it; the
+service logs `vat_rates_stale` 45 days after the table was last rewritten). Card
 purchases are sold by the payment provider, which handles their tax.
 
 **Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a pack for the buyer's country and stores that as
@@ -424,6 +426,7 @@ make test-unit         # fast, no services needed
 make test              # unit + integration tests against a throwaway Postgres container
 make e2e               # the end-to-end sweep against dev (devnet; needs the UNFRET_E2E_* settings, see Deploying)
 make audit             # pip-audit over the locked dependencies
+make vat-rates-check   # vendored EU VAT rates and Cloudflare ranges vs their sources (CI runs it monthly)
 make run               # uvicorn with auto-reload
 ```
 

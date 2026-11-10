@@ -1,0 +1,30 @@
+name: Vendored data
+
+# Monthly: compare the vendored EU VAT rates (src/unfret/credits/vat_rates.json, from the EU's TEDB) and Cloudflare's
+# edge ranges (src/unfret/credits/cloudflare_ips.json) with their sources. A failed run means one of them changed (or
+# a source couldn't be reached): the log names the file and the command that rewrites it; commit that in a PR. It
+# needs the network, no secrets, and changes nothing itself. Forgejo registers the schedule from the default branch.
+on:
+  schedule:
+    - cron: "0 6 1 * *" # 06:00 UTC on the 1st of every month
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ forgejo.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  # The public runner: an unprivileged throwaway container with no docker socket and no secrets.
+  vat-rates-check:
+    runs-on: kroshtan-public
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install dependencies
+        run: uv sync --all-groups --frozen
+      - name: Compare the vendored VAT rates and Cloudflare ranges with their sources
+        run: |
+          make vat-rates-check || {
+            echo "::error::Vendored data is out of date (or a source was unreachable): the log above names the file and how to update it"
+            exit 1
+          }

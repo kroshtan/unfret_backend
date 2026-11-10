@@ -20,7 +20,8 @@ from pathlib import Path
 
 import httpx
 
-TABLE = Path(__file__).resolve().parent.parent / "src" / "unfret" / "credits" / "vat_rates.json"
+ROOT = Path(__file__).resolve().parent.parent
+TABLE = ROOT / "src" / "unfret" / "credits" / "vat_rates.json"
 ENDPOINT = "https://ec.europa.eu/taxation_customs/tedb/ws/"
 ACTION = "urn:ec.europa.eu:taxud:tedb:services:v1:VatRetrievalService/RetrieveVatRates"
 # TEDB's member state codes (Greece is EL there; ISO 3166 calls it GR).
@@ -75,12 +76,24 @@ def main() -> None:
     parser.add_argument("--check", action="store_true", help="only compare; exit 1 on a difference")
     args = parser.parse_args()
     today = datetime.now(UTC).date().isoformat()
-    rates = fetch(today)
+    try:
+        rates = fetch(today)
+    except httpx.HTTPError as error:
+        sys.exit(
+            f"could not fetch the EU VAT rates from TEDB ({error!r}); nothing compared or written, try again later"
+        )
     current = json.loads(TABLE.read_text()) if TABLE.exists() else {"standard_rates": {}}
     if args.check:
-        if rates != current["standard_rates"]:
-            changed = {c: (current["standard_rates"].get(c), r) for c, r in rates.items()}
-            print("EU VAT rates changed:", {c: v for c, v in changed.items() if v[0] != v[1]})
+        table = current["standard_rates"]
+        if rates != table:
+            print(f"{TABLE.relative_to(ROOT)} is out of date: TEDB's standard VAT rates on {today} differ from it:")
+            for code in sorted(rates.keys() | table.keys()):
+                if rates.get(code) != table.get(code):
+                    print(f"  {code}: {table.get(code, '(none)')}% in the table, {rates.get(code, '(none)')}% in TEDB")
+            print(
+                "Update it: run `uv run scripts/update_vat_rates.py`, review the diff, and commit it with a CHANGELOG "
+                "entry (the rates apply with UNFRET_VAT_MODE=per_country)."
+            )
             sys.exit(1)
         print(f"EU VAT rates unchanged ({len(rates)} member states, TEDB {today})")
         return

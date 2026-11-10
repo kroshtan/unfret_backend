@@ -45,13 +45,14 @@ The balance is held in **lamports** (`pubkey → balance_lamports`); the UI show
   401 for missing/invalid/expired token.
 - `POST /v1/analyze/stream` (Bearer), same body, `text/event-stream`: one `event: step` per skill finishing
   (`data: {"skill": str, "findings": [...]}`), then `event: result` with the body above, or `event: error`.
-- `PageFacts` is the backend's pydantic model `veridex.facts.schema.PageFacts`; its JSON schema is served at
+- `PageFacts` is the backend's pydantic model `unfret.facts.schema.PageFacts`; its JSON schema is served at
   `GET /v1/schema/page-facts` so the extension can validate against it.
 
 ## Pages served by the backend
 - `GET /connect` — sign-in page. After a successful verify it does
   `window.postMessage({"type": "veridex-session", "token", "address", "expires_at"}, location.origin)`.
-  The extension's content script, injected only on `https://unfret.kroshtan.com/connect*`, relays it to the
+  (The message types `veridex-session` and `veridex-session-received` keep their names from before the rename to
+  Unfret: released extensions use exactly these.) The extension's content script, injected only on `https://unfret.kroshtan.com/connect*`, relays it to the
   extension (works in Chrome and Firefox; no `externally_connectable`). The page then shows "You can close this tab".
 - `GET /checkout?checks=<n>` — connect a wallet, buy credits (purchase-tx → signAndSend), Solana Pay QR for phone
   wallets, polls `/v1/credits`, shows when credits land.
@@ -81,9 +82,9 @@ Allow origins `chrome-extension://*` and `moz-extension://*` plus the site itsel
 - Limitation: credits bought from a smart wallet (a program-owned vault, e.g. Squads) are credited to the vault
   address, which can't sign a SIWS message. Buy from a normal wallet to use credits; smart wallets fit x402 instead.
 - **Smart wallets / beneficiary (supersedes the limitation above):** `POST /v1/credits/purchase-tx` takes an optional
-  `beneficiary` (base58, defaults to `address`). The transaction carries a Memo instruction `veridex:credit:<beneficiary>`,
+  `beneficiary` (base58, defaults to `address`). The transaction carries a Memo instruction `unfret:credit:<beneficiary>`,
   and `solana_pay_url` a `memo=` parameter with the same text. The scanner credits the memo's beneficiary when the
-  transaction has exactly one well-formed `veridex:credit:` memo; otherwise (none, several, malformed) the transfer's
+  transaction has exactly one well-formed `unfret:credit:` memo; otherwise (none, several, malformed) the transfer's
   source. CPI (inner-instruction) System transfers from vaults count. `GET /v1/credits/solana-pay.svg` also takes
   `beneficiary`. So a Squads vault can pay with `address = vault`, `beneficiary = the member key that signs in`.
 - **Stream events:** `/v1/analyze/stream` emits `event: step` with `data: {"skill": <node>, "findings": [...]}` per
@@ -188,7 +189,7 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   `refunded_lamports` is kept as a deprecated alias of the same value.
 - `/.well-known/x402` adds `"pricing": "canonical in USD"` and per-tier `price_usd` / `price_usd_micros`; `/llms.txt`
   quotes dollar prices.
-- MCP: spend caps are in dollars (`VERIDEX_MCP_MAX_PRICE_USD`, `VERIDEX_MCP_SESSION_CAP_USD`); a wSOL charge is valued
+- MCP: spend caps are in dollars (`UNFRET_MCP_MAX_PRICE_USD`, `UNFRET_MCP_SESSION_CAP_USD`); a wSOL charge is valued
   with the agent's own Pyth reading. `check_store`'s `paid` adds `usd_micros`.
 
 ## Changes (wave A: hardening, errors and constraints)
@@ -226,8 +227,7 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 - **`balance_usd_micros`** in `/v1/analyze` responses (and `balance_usd_micros`/`analysis_usd_micros` in the 402
   metadata) is the balance in micro-dollars. `balance_lamports` and `analysis_lamports` carry the same values and are
   deprecated: extension versions up to 0.5.0 read them.
-- Extension 0.5.0 is published at `/extension` (CRX, `updates.xml` on unfret.kroshtan.com, and the Chrome Web Store zip
-  `veridex-chrome-0.5.0.zip`).
+- Extension 0.5.0 is published at `/extension` (CRX, `updates.xml` on unfret.kroshtan.com, and the Chrome Web Store zip).
 
 ## Changes (accounts v2: API keys, fiat interface, reports; backwards-compatible)
 
@@ -247,7 +247,7 @@ start empty.
   per day.
 - 401 `INVALID_API_KEY` for a malformed, unknown or rotated key.
 - **Top up with crypto:** `POST /v1/credits/purchase-tx` and `GET /v1/credits/solana-pay.svg` take `key_id` (the id or
-  the whole key; only the id is used) instead of `beneficiary`. The memo is `veridex:credit:key:<id>`. A memo naming
+  the whole key; only the id is used) instead of `beneficiary`. The memo is `unfret:credit:key:<id>`. A memo naming
   an unknown key credits the paying wallet instead. 404 `UNKNOWN_KEY`.
 - **Fiat (interface only, shaped for Polar):** `POST /v1/credits/fiat-checkout` `{"key_id", "amount_usd_micros"}`
   (USD, whole cents, at least $10) → `{"checkout_url", "provider"}`. Our account id goes into the checkout's
@@ -281,13 +281,13 @@ valid 7 days. Nothing is stored when a check runs.
   and its label stay as training data. Reports nobody handled are deleted after 30 days.
 - Operator: `GET /v1/admin/reports` (the queue, without accounts) and `POST /v1/admin/reports/{id}/label`
   `{"label": "legit"|"junk"|"scam"|"reject"}`, used by `make reports`.
-- Extension 0.6.0 replaces 0.5.0 at `/extension` (`veridex-0.6.0.crx`, `veridex-chrome-0.6.0.zip`): an API key in the
+- Extension 0.6.0 replaces 0.5.0 at `/extension`: an API key in the
   settings as an alternative to a wallet sign-in, and "This is wrong" under a result. Same key and ID, same
   permissions.
 
 ## Changes (pricing v2: one price per check, packs, VAT on crypto; breaking for credit purchases)
 
-- **One price per check**, `VERIDEX_PRICE_PER_CHECK_USD` ($0.20): an analysis costs one check in credits and the x402
+- **One price per check**, `UNFRET_PRICE_PER_CHECK_USD` ($0.20): an analysis costs one check in credits and the x402
   deep tier costs one check (`deep_usd_micros` 200_000). The quick tier stays $0.01. Changing the setting moves every
   price below.
 - **Packs only:** 25, 50 and 100 checks. Bonuses and arbitrary purchase amounts are gone (`bonuses` and `purchase` are
@@ -307,12 +307,12 @@ valid 7 days. Nothing is stored when a check runs.
   refused). The response adds `checks` and `price: {"country", "vat_rate_pct", "net_usd_micros", "vat_usd_micros",
   "total_usd_micros", "total_usd"}`; `amount` is the total in the currency's base units, VAT included. Under
   `vat_mode=nl_under_threshold` (default) every EU country pays 21% and others 0%; `per_country` uses each member
-  state's standard rate. The memo is `veridex:quote:<20-char id>`; the stored quote names who to credit and the VAT.
+  state's standard rate. The memo is `unfret:quote:<20-char id>`; the stored quote names who to credit and the VAT.
 - **`GET /v1/credits/solana-pay.svg`** takes `checks`, `country`, `currency` and `beneficiary`/`key_id` (not
   `amount`); headers `X-Unfret-Total-Usd` and `X-Unfret-Vat-Rate` carry the price.
 - **Crediting:** what arrives, minus the VAT at the quote's rate, is credited. A transfer without a known quote (sent
   by hand) counts as a sale to an unknown country at the Dutch rate (credited `received / 1.21`); the older
-  `veridex:credit:<account>` memo still names the beneficiary. Each credit leaves a sales record (day, country,
+  `unfret:credit:<account>` memo still names the beneficiary. Each credit leaves a sales record (day, country,
   country mismatch with Cloudflare's guess, net, rate, VAT, asset, amount, transaction signature), kept ten years;
   no IP address, no wallet column. `GET /v1/admin/sales/{YYYY-Qn}` (admin) exports a quarter as CSV.
 - **`POST /v1/credits/fiat-checkout`** takes `{"key_id", "checks"}` (not `amount_usd_micros`) and charges the pack's
@@ -352,12 +352,12 @@ valid 7 days. Nothing is stored when a check runs.
 ## Changes (link checker, backwards-compatible)
 
 - `POST /v1/analyze` and `/v1/analyze/stream` accept a body with only `url` (no `page_content`/`page_facts`): the
-  server fetches the page itself (`veridex.page_fetch`) before anything is charged. An account whose balance doesn't
+  server fetches the page itself (`unfret.page_fetch`) before anything is charged. An account whose balance doesn't
   cover a check gets its 402 without a fetch. A page that can't be checked that way is a free `422` (plain JSON, no
   stream) with `error_code` `PAGE_UNAVAILABLE` (couldn't be fetched), `PAGE_BLOCKED` (the shop answered 401/403/405/
   406/429/503/999, or with a Cloudflare/DataDome/PerimeterX/Amazon bot check), `PAGE_TOO_THIN` (under 400 characters
   of visible text with no price and no product JSON-LD: a shell its scripts fill in) or `INVALID_URL` (not a public
-  http(s) address). Fetches are limited per account (`VERIDEX_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
+  http(s) address). Fetches are limited per account (`UNFRET_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
   The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back
   `{"url": …}` and the server fetches the page again for the review queue.
 - Requests that send the page (the extension) are unchanged.
@@ -381,7 +381,7 @@ valid 7 days. Nothing is stored when a check runs.
 - There is no free trial any more: a wallet's first sign-in grants nothing, and every new account (wallet or API key)
   starts at zero checks and buys a pack. Balances already granted stay.
 - `GET /v1/pricing` no longer has `trial_checks`. Clients that read it should treat it as absent (0).
-- The `VERIDEX_TRIAL_*` settings are gone.
+- The `UNFRET_TRIAL_*` settings are gone.
 
 ## Changes (purchase confirmation and Solana Pay references, backwards-compatible)
 
@@ -394,9 +394,9 @@ valid 7 days. Nothing is stored when a check runs.
   `X-Unfret-Quote: <quote_id>` header (not CORS-exposed; the checkout fetches it from the same origin).
 - Each quote has a Solana Pay **reference** (a random public key). The purchase transaction carries it as an extra
   read-only, non-signer account on the transfer instruction (System transfer or `TransferChecked`; both programs
-  ignore it), and the Solana Pay link has `&reference=<pubkey>`. The memo `veridex:quote:<id>` stays. The scanner
+  ignore it), and the Solana Pay link has `&reference=<pubkey>`. The memo `unfret:quote:<id>` stays. The scanner
   finds the quote by the reference among the transaction's accounts first (some wallets, e.g. Phantom, drop memo
-  instructions), then by the quote memo, then the older `veridex:credit:` memo, then credits the sender. The
+  instructions), then by the quote memo, then the older `unfret:credit:` memo, then credits the sender. The
   reference is never credited.
 - The Solana Pay link's `message` is now `Unfret checks`.
 
@@ -409,7 +409,7 @@ valid 7 days. Nothing is stored when a check runs.
 - Each 402 `accepts[].extra` gains `decimals` (9 for wSOL, 6 for USDC), `quoteToleranceBps` (200 for wSOL, 0 for
   USDC: how far a paid amount may be from the quote; re-fetch the 402 right before paying) and `feeCapNote`.
   `extra.constraints.maxPriorityFeeLamports` is unchanged: it is in lamports on every option, USDC included (the fee
-  is paid in SOL), the tier's dollar price times `VERIDEX_X402_MAX_PRIORITY_FEE_BPS` converted at the SOL/USD quote.
+  is paid in SOL), the tier's dollar price times `UNFRET_X402_MAX_PRIORITY_FEE_BPS` converted at the SOL/USD quote.
 - A 402 for a refused payment may carry `reason` next to `error`. With `error: "simulation_failed"` it says why the
   payment's simulation failed, derived from the simulation's error and logs: `insufficient_funds`,
   `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_frozen`, `account_not_found`,

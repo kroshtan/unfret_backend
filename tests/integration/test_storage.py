@@ -9,17 +9,17 @@ import numpy as np
 import pytest
 from pydantic import SecretStr
 
-from veridex import fact_cache, image_seed, shop_store, verdict_store
-from veridex.config import settings
-from veridex.db import PostgresFactStore
-from veridex.facts import PageFacts
-from veridex.image_index import ImagePrint
-from veridex.image_store import Listing, PostgresImageStore, lookup
-from veridex.migrations import MIGRATIONS, migrate
-from veridex.price_store import History, Observation, PostgresPriceStore
-from veridex.shop_store import MAX_SHARE, PostgresShopStore, ShopRecord
-from veridex.verdict_store import PostgresVerdictStore, Stored, listing_key
-from veridex.x402.verdict import Verdict
+from unfret import fact_cache, image_seed, shop_store, verdict_store
+from unfret.config import settings
+from unfret.db import PostgresFactStore
+from unfret.facts import PageFacts
+from unfret.image_index import ImagePrint
+from unfret.image_store import Listing, PostgresImageStore, lookup
+from unfret.migrations import MIGRATIONS, migrate
+from unfret.price_store import History, Observation, PostgresPriceStore
+from unfret.shop_store import MAX_SHARE, PostgresShopStore, ShopRecord
+from unfret.verdict_store import PostgresVerdictStore, Stored, listing_key
+from unfret.x402.verdict import Verdict
 
 
 async def test_migrations_are_recorded_and_idempotent(pool: asyncpg.Pool) -> None:

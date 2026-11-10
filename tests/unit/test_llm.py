@@ -7,8 +7,8 @@ import openai
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from veridex import llm
-from veridex.config import settings
+from unfret import llm
+from unfret.config import settings
 
 _BACKOFF = llm._backoff  # before the fixture replaces it
 

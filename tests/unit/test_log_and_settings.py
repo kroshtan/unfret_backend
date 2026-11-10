@@ -3,8 +3,8 @@
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from veridex.config import Settings
-from veridex.log import redact, scrub
+from unfret.config import Settings
+from unfret.log import redact, scrub
 
 
 def test_urls_and_ips_never_reach_the_log() -> None:

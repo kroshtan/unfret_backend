@@ -14,21 +14,21 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
-from veridex import scoring, shopper
-from veridex.config import settings
-from veridex.facts import PageFacts, parse_page
-from veridex.graph import build_graph, nodes
-from veridex.graph.skills import content
-from veridex.graph.skills.content import ContentSkill
-from veridex.graph.skills.dark_patterns import DarkPatternsSkill
-from veridex.graph.skills.eu_registry import EuRegistrySkill
-from veridex.graph.skills.html_source_signals import HtmlSourceSignalsSkill
-from veridex.graph.skills.injection import InjectionSkill
-from veridex.graph.skills.listing import ListingSkill
-from veridex.graph.skills.shop_policies import ShopPoliciesSkill
-from veridex.graph.skills.us_identity import UsIdentitySkill
-from veridex.market import shop_market
-from veridex.x402.verdict import to_verdict
+from unfret import scoring, shopper
+from unfret.config import settings
+from unfret.facts import PageFacts, parse_page
+from unfret.graph import build_graph, nodes
+from unfret.graph.skills import content
+from unfret.graph.skills.content import ContentSkill
+from unfret.graph.skills.dark_patterns import DarkPatternsSkill
+from unfret.graph.skills.eu_registry import EuRegistrySkill
+from unfret.graph.skills.html_source_signals import HtmlSourceSignalsSkill
+from unfret.graph.skills.injection import InjectionSkill
+from unfret.graph.skills.listing import ListingSkill
+from unfret.graph.skills.shop_policies import ShopPoliciesSkill
+from unfret.graph.skills.us_identity import UsIdentitySkill
+from unfret.market import shop_market
+from unfret.x402.verdict import to_verdict
 
 # Captured at import, before the suite's autouse fixture hides the shipped model.
 _LOAD_MODEL = scoring.load_model

@@ -1,10 +1,10 @@
 import pytest
 
-from veridex import scoring
-from veridex.graph import SKILLS
-from veridex.graph.skills.eu_registry import EuRegistrySkill
-from veridex.graph.skills.pricing import PricingSkill
-from veridex.x402.verdict import QUICK_SKILLS, action_for, skills_for, to_verdict
+from unfret import scoring
+from unfret.graph import SKILLS
+from unfret.graph.skills.eu_registry import EuRegistrySkill
+from unfret.graph.skills.pricing import PricingSkill
+from unfret.x402.verdict import QUICK_SKILLS, action_for, skills_for, to_verdict
 
 # Captured at import, before the suite's autouse fixture hides the shipped model.
 _LOAD_MODEL = scoring.load_model

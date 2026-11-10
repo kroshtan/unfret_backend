@@ -9,16 +9,16 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from veridex import image_index, image_store, shop_store, shopper
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.graph.skills import reverse_image
-from veridex.graph.skills.reverse_image import ReverseImageSkill
-from veridex.graph.state import Finding
-from veridex.image_index import ImagePrint, NotDiscriminativeError, Thresholds
-from veridex.image_store import Listing, MemoryImageStore
-from veridex.main import app
-from veridex.routes import images as images_route
+from unfret import image_index, image_store, shop_store, shopper
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.graph.skills import reverse_image
+from unfret.graph.skills.reverse_image import ReverseImageSkill
+from unfret.graph.state import Finding
+from unfret.image_index import ImagePrint, NotDiscriminativeError, Thresholds
+from unfret.image_store import Listing, MemoryImageStore
+from unfret.main import app
+from unfret.routes import images as images_route
 
 TODAY = date(2026, 11, 9)
 

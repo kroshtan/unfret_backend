@@ -18,7 +18,7 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.x402.payment import (
+from unfret.x402.payment import (
     PaymentError,
     Precheck,
     VerifiedPayment,
@@ -27,7 +27,7 @@ from veridex.x402.payment import (
     precheck,
     requirements,
 )
-from veridex.x402.solana import MEMO_PROGRAM, USDC_MINTS, WSOL_MINT, simulation_failure_reason
+from unfret.x402.solana import MEMO_PROGRAM, USDC_MINTS, WSOL_MINT, simulation_failure_reason
 
 HOT = Keypair()  # payTo and fee payer
 CLIENT = Keypair()

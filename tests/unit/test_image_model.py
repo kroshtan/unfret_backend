@@ -1,7 +1,7 @@
 """
 The image index with the real model on real catalogue photos (ABO, CC BY 4.0, see tests/fixtures/abo/README.md).
 
-Downloads the pinned model once (about 24 MB) into ``~/.cache/unfret`` (or ``VERIDEX_TEST_MODEL_DIR``). The full
+Downloads the pinned model once (about 24 MB) into ``~/.cache/unfret`` (or ``UNFRET_TEST_MODEL_DIR``). The full
 measurement, 4,881 held-out queries against a 48,777-photo index, is in ``docs/image-index.json``; these tests check
 that the shipped thresholds are the measured ones and still hold on photos of 40 different product types.
 """
@@ -16,8 +16,8 @@ import pytest
 from PIL import Image
 
 from evals.image_index_eval import _edits
-from veridex import image_index
-from veridex.image_index import THRESHOLDS, Embedder, ImagePrint
+from unfret import image_index
+from unfret.image_index import THRESHOLDS, Embedder, ImagePrint
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "abo"
 REPORT = Path(__file__).parent.parent.parent / "docs" / "image-index.json"
@@ -26,7 +26,7 @@ MIN_RECALL = 0.5  # measured: 0.54 on these fixtures and on the 3,187 edited cop
 
 @pytest.fixture(scope="module")
 def model() -> Embedder:
-    directory = Path(os.environ.get("VERIDEX_TEST_MODEL_DIR", Path.home() / ".cache" / "unfret"))
+    directory = Path(os.environ.get("UNFRET_TEST_MODEL_DIR", Path.home() / ".cache" / "unfret"))
     return Embedder(image_index.ensure_model(directory / "dinov2-small-int8.onnx"))
 
 

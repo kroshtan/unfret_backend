@@ -30,9 +30,6 @@ fetches.
 
 ## Configuration
 
-The settings were called `VERIDEX_*` before the rename to Unfret; those names still work, and the `veridex-mcp`
-command is kept as an alias of `unfret-mcp`.
-
 | Variable | Default | |
 | --- | --- | --- |
 | `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58) |

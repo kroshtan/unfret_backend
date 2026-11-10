@@ -10,9 +10,9 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from tests.unit.x402_helpers import BLOCKHASH, FakeRpc, StaticOracle, configured
-from veridex.prices import PriceBook
-from veridex.x402.service import X402
-from veridex.x402.solana import (
+from unfret.prices import PriceBook
+from unfret.x402.service import X402
+from unfret.x402.solana import (
     ASSOCIATED_TOKEN_PROGRAM,
     TOKEN_PROGRAM,
     USDC_MINTS,
@@ -20,7 +20,7 @@ from veridex.x402.solana import (
     associated_token_address,
     transfer_checked,
 )
-from veridex.x402.wallet import (
+from unfret.x402.wallet import (
     HotWallet,
     build_sweep,
     build_usdc_sweep,

@@ -22,7 +22,7 @@ from evals.shopcheck import looks_like_shop
 from evals.sources._http import PoliteClient
 from evals.sources.wayback import closest_snapshot, fetch_snapshot
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 DATASET = "mendeley-m7xtkx7g5m"
 DOWNLOAD_URL = (

@@ -8,14 +8,14 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from veridex import fact_cache, shop_store
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.fingerprint import contacts, fingerprint, hamming, link_ids, skeleton_hash
-from veridex.graph import _recording
-from veridex.graph.skills.shop_links import ShopLinksSkill
-from veridex.main import app
-from veridex.shop_store import MemoryShopStore, ShopRecord
+from unfret import fact_cache, shop_store
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.fingerprint import contacts, fingerprint, hamming, link_ids, skeleton_hash
+from unfret.graph import _recording
+from unfret.graph.skills.shop_links import ShopLinksSkill
+from unfret.main import app
+from unfret.shop_store import MemoryShopStore, ShopRecord
 
 TODAY = date(2026, 11, 9)
 PIXEL = "1234509876543"

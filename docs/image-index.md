@@ -9,14 +9,14 @@ Precision comes first: a false "this photo is used elsewhere" is worse than a mi
 
 1. **Filters.** Images that can't identify a product are left out: smaller than 200 px, wider or taller than 2.5:1
    (banners), blank or nearly blank. Only the main photo of a listing is used.
-2. **Independent fingerprints must all agree** (`veridex.image_index`):
+2. **Independent fingerprints must all agree** (`unfret.image_index`):
    - perceptual hashes: a 64-bit pHash (DCT) *and* a 64-bit dHash (gradients), each within a Hamming distance;
    - an image embedding: the class token of [DINOv2-small](https://huggingface.co/facebook/dinov2-small)
      (Apache-2.0), int8-quantised ONNX, run on the CPU (about 120 ms per photo on one core), compared by cosine;
    - a colour signature: the photo's Lab colour averaged over a 4x4 grid. The hashes work on grayscale and the
      embedding barely sees colour, so without it the same sofa in black and in beige, or one packaging design in
      two flavours' colours, would be "the same photo". The measurement found exactly those.
-3. **What doesn't count** (`veridex.image_store`): the photo's own shop (shops reuse their own photos), the same
+3. **What doesn't count** (`unfret.image_store`): the photo's own shop (shops reuse their own photos), the same
    listing (a changed listing is an update, not a duplicate; Amazon country sites are one shop), and a photo found
    on more than 50 shops (a stock image, logo or placeholder, not evidence). Matches are photo to photo, never chained.
 4. **Context.** The finding is factual ("the same product photo is on 2 other shops: …"). The shopper verdict turns it
@@ -30,7 +30,7 @@ nothing. An approximate nearest-neighbour index would only matter for a later, m
 
 ## Thresholds and measurement
 
-Shipped (`veridex.image_index.THRESHOLDS`): **pHash ≤ 10 bits, dHash ≤ 8 bits, cosine ≥ 0.96, colour ≤ 3.0**.
+Shipped (`unfret.image_index.THRESHOLDS`): **pHash ≤ 10 bits, dHash ≤ 8 bits, cosine ≥ 0.96, colour ≤ 3.0**.
 Measured with `python -m evals.image_index_eval` (the full report, without its grid, is
 [image-index.json](image-index.json)):
 
@@ -89,7 +89,7 @@ analyses only.
 python -m evals.image_index_eval sample --out DIR      # pick 50,000 index + 5,000 query photos from ABO
 python -m evals.image_index_eval prints --dir DIR      # download (256 px) and fingerprint them
 python -m evals.image_index_eval tune --dir DIR        # measure and pick the thresholds (DIR/report.json)
-python -m veridex.image_seed build --dir DIR --out abo-seed.npz
+python -m unfret.image_seed build --dir DIR --out abo-seed.npz
 ```
 
 The current seed, `abo-seed.npz`: **53,553 photos** (one per ASIN), 16 MB, SHA-256
@@ -97,37 +97,37 @@ The current seed, `abo-seed.npz`: **53,553 photos** (one per ASIN), 16 MB, SHA-2
 
 ### Importing it into a database (operator step)
 
-`python -m veridex.image_seed import FILE --source abo --sha256 HEX` checks the file's hash before anything else
-(a mismatch imports nothing), then copies the photos into `VERIDEX_POSTGRES_URI` in one transaction (0.8 s for 53,553 photos locally).
+`python -m unfret.image_seed import FILE --source abo --sha256 HEX` checks the file's hash before anything else
+(a mismatch imports nothing), then copies the photos into `UNFRET_POSTGRES_URI` in one transaction (0.8 s for 53,553 photos locally).
 It is idempotent: photos already there are skipped, so running it again, or after a partial attempt, is safe. It
-prints the number of `abo` photos in the index afterwards. `python -m veridex.image_seed remove --source abo` deletes
+prints the number of `abo` photos in the index afterwards. `python -m unfret.image_seed remove --source abo` deletes
 them again.
 
-On the server (the app container already has `VERIDEX_POSTGRES_URI`; Kamal names it `<service>-web-<version>`, with
-service `veridex` today and `veridex-dev` / `veridex-prod` after the dev/production split):
+On the server (the app container already has `UNFRET_POSTGRES_URI`; Kamal names it
+`unfret-web-<destination>-<version>`):
 
 ```bash
 # 1. copy the file to the server
 scp abo-seed.npz <server>:/tmp/abo-seed.npz
 
 # 2. on the server: find the app container, copy the file in, import with the expected hash
-APP=$(docker ps --format '{{.Names}}' | grep '^veridex-web-' | head -1)   # or veridex-dev-web- / veridex-prod-web-
+APP=$(docker ps --format '{{.Names}}' | grep '^unfret-web-production-' | head -1)   # or unfret-web-dev-
 docker cp /tmp/abo-seed.npz "$APP":/tmp/abo-seed.npz
-docker exec "$APP" python -m veridex.image_seed import /tmp/abo-seed.npz --source abo \
+docker exec "$APP" python -m unfret.image_seed import /tmp/abo-seed.npz --source abo \
   --sha256 44e30c5337c4c2ff4cfbc8c930eccec27527b4d59833b3dafe37fdb29b50a5d3
 # prints 53553
 
 # 3. verify the count in the database
-docker exec veridex-db psql -U veridex -d veridex -tAc "SELECT COUNT(*) FROM image_prints WHERE source = 'abo'"
-# 53553   (veridex-dev-db / veridex-prod-db for the other databases)
+docker exec unfret-prod-db psql -U unfret -d unfret -tAc "SELECT COUNT(*) FROM image_prints WHERE source = 'abo'"
+# 53553   (unfret-dev-db for dev)
 
 # 4. delete the copies
 docker exec -u root "$APP" rm /tmp/abo-seed.npz   # docker cp made it root-owned
 rm /tmp/abo-seed.npz
 ```
 
-Each database is seeded separately: repeat steps 1–4 for every database that should have the seed (today's
-`veridex-db`, and later `veridex-dev-db` and `veridex-prod-db` with their own app containers). A new deploy doesn't
+Each database is seeded separately: repeat steps 1–4 for every database that should have the seed (`unfret-dev-db`
+and `unfret-prod-db`, each with its own app containers). A new deploy doesn't
 remove the seed (it lives in the database, not the image); a fresh database needs the import again.
 
 ## Privacy

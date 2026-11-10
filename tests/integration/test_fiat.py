@@ -11,11 +11,11 @@ import pytest
 
 from tests.integration.conftest import FakeGraph
 from tests.unit import test_polar  # Polar's sample payloads
-from veridex.config import settings
-from veridex.credits import fiat, keys, polar
-from veridex.credits.fiat import FakeFiatProvider, FiatEvent
-from veridex.credits.polar import PolarProvider
-from veridex.main import app
+from unfret.config import settings
+from unfret.credits import fiat, keys, polar
+from unfret.credits.fiat import FakeFiatProvider, FiatEvent
+from unfret.credits.polar import PolarProvider
+from unfret.main import app
 
 SECRET = "whsec_" + base64.b64encode(b"fake-webhook-secret-32-bytes!!!!").decode()
 BUYER = {"email": "jan.jansen@example.nl", "name": "Jan Jansen", "billing_address": {"line1": "Kerkstraat 1"}}

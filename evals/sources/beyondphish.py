@@ -23,7 +23,7 @@ from evals.corpus import Corpus, LabelRecord, page_id
 from evals.shopcheck import looks_like_shop
 from evals.sources._http import USER_AGENT
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 DATASET = "beyondphish-sp2023"
 DOWNLOAD_URL = "https://www.dropbox.com/s/pdnkje0q9m5sp1u/dataset.jsonl?dl=1"
@@ -45,6 +45,7 @@ def iter_pages(path: Path) -> Iterator[tuple[str, str]]:
 
 def sample_key(url: str) -> str:
     """A stable pseudo-random sort key, so the same sample is drawn on every run."""
+    # The salt predates the rename to Unfret; another one would draw a different sample.
     return hashlib.sha256(f"veridex:{url}".encode()).hexdigest()
 
 

@@ -7,10 +7,10 @@ import pytest
 from pydantic import SecretStr
 from solders.keypair import Keypair
 
-from veridex.config import settings
-from veridex.credits import siws
-from veridex.credits.pairing import pairing_statement
-from veridex.main import app
+from unfret.config import settings
+from unfret.credits import siws
+from unfret.credits.pairing import pairing_statement
+from unfret.main import app
 
 
 def message(fields: dict[str, str], keypair: Keypair, statement: str | None = None) -> bytes:

@@ -3,8 +3,8 @@ import socket
 import httpx
 import pytest
 
-from veridex import net
-from veridex.net import UnsafeURLError, fetch_public, hostname
+from unfret import net
+from unfret.net import UnsafeURLError, fetch_public, hostname
 
 
 @pytest.mark.parametrize(

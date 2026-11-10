@@ -5,14 +5,14 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from veridex import shopper
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.graph.skills import content
-from veridex.graph.skills.content import ContentSkill
-from veridex.graph.skills.eu_registry import EuRegistrySkill
-from veridex.market import shop_market
-from veridex.x402.verdict import action_for, to_verdict
+from unfret import shopper
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.graph.skills import content
+from unfret.graph.skills.content import ContentSkill
+from unfret.graph.skills.eu_registry import EuRegistrySkill
+from unfret.market import shop_market
+from unfret.x402.verdict import action_for, to_verdict
 
 
 def _state(facts: PageFacts, text: str = "", url: str = "https://shop.example.com/p", **extra: Any) -> Any:

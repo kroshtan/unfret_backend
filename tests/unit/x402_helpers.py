@@ -14,11 +14,11 @@ from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
-from veridex.config import Settings
-from veridex.prices import PriceBook, PriceUnavailableError, PythSolUsd, SolUsd
-from veridex.x402.payment import encode_header, requirements
-from veridex.x402.service import X402
-from veridex.x402.solana import CAIP2, MEMO_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
+from unfret.config import Settings
+from unfret.prices import PriceBook, PriceUnavailableError, PythSolUsd, SolUsd
+from unfret.x402.payment import encode_header, requirements
+from unfret.x402.service import X402
+from unfret.x402.solana import CAIP2, MEMO_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
 
 NETWORK = CAIP2["solana-devnet"]
 BLOCKHASH = str(Hash.default())

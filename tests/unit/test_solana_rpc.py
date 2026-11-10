@@ -7,9 +7,9 @@ from typing import Any
 import httpx
 import pytest
 
-from veridex.net import fetch_public
-from veridex.routes import check
-from veridex.x402.solana import RpcError, SettlementPendingError, SolanaRpc, TransactionFailedError
+from unfret.net import fetch_public
+from unfret.routes import check
+from unfret.x402.solana import RpcError, SettlementPendingError, SolanaRpc, TransactionFailedError
 
 
 def rpc(handler: Any) -> SolanaRpc:
@@ -57,7 +57,7 @@ async def test_one_connection_pool_is_reused() -> None:
 
 
 async def test_confirmation_polling_survives_hiccups(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.x402.solana._POLL_S", 0)
+    monkeypatch.setattr("unfret.x402.solana._POLL_S", 0)
     statuses = iter([None, "error", {"confirmationStatus": "processed"}, {"confirmationStatus": "confirmed"}])
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -73,7 +73,7 @@ async def test_confirmation_polling_survives_hiccups(monkeypatch: pytest.MonkeyP
 
 
 async def test_a_landed_failure_and_a_timeout_are_told_apart(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.x402.solana._POLL_S", 0)
+    monkeypatch.setattr("unfret.x402.solana._POLL_S", 0)
 
     def failed(request: httpx.Request) -> httpx.Response:
         if json.loads(request.content)["method"] == "sendTransaction":
@@ -141,6 +141,6 @@ async def test_a_trickling_page_hits_the_total_timeout(monkeypatch: pytest.Monke
         async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, content=slow_stream())
 
-    monkeypatch.setattr("veridex.net._assert_public", public)
+    monkeypatch.setattr("unfret.net._assert_public", public)
     with pytest.raises(TimeoutError):
         await fetch_public("https://shop.test/", total_timeout=0.1, transport=Trickle())

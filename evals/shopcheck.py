@@ -2,7 +2,7 @@
 
 import re
 
-from veridex.html_cleaner import clean_html
+from unfret.html_cleaner import clean_html
 
 _PRICE_RE = re.compile(r"(?:[$€£¥]\s?\d{1,5}(?:[.,]\d{2})?)|(?:\d{1,5}(?:[.,]\d{2})\s?(?:€|EUR|USD|GBP|kr|zł))")
 _CART_RE = re.compile(

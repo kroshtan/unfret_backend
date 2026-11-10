@@ -4,9 +4,9 @@ import time
 import httpx
 import structlog
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
-USER_AGENT = "veridex-evals/0.1 (research corpus builder; https://git.kroshtan.com/kroshtan/veridex_backend)"
+USER_AGENT = "unfret-evals/0.1 (research corpus builder; https://git.kroshtan.com/kroshtan/unfret_backend)"
 
 
 class PoliteClient:

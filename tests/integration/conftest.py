@@ -8,14 +8,14 @@ import pytest
 from pydantic import SecretStr
 from solders.keypair import Keypair
 
-from veridex import result_cache
-from veridex.config import settings
-from veridex.credits import siws
-from veridex.db import init_db
-from veridex.graph.state import Finding
-from veridex.main import app
+from unfret import result_cache
+from unfret.config import settings
+from unfret.credits import siws
+from unfret.db import init_db
+from unfret.graph.state import Finding
+from unfret.main import app
 
-POSTGRES_URI = os.getenv("VERIDEX_TEST_POSTGRES_URI")
+POSTGRES_URI = os.getenv("UNFRET_TEST_POSTGRES_URI")
 SESSION_SECRET = "test-session-secret"
 # Every table any migration creates (plus the pre-migration ones), dropped before each test.
 DROP_ALL = (
@@ -55,7 +55,7 @@ class FakeGraph:
 async def pool() -> AsyncIterator[asyncpg.Pool]:
     """Fresh schema per test. Integration tests are skipped when no test database is configured."""
     if not POSTGRES_URI:
-        pytest.skip("VERIDEX_TEST_POSTGRES_URI not set")
+        pytest.skip("UNFRET_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
     await pool.execute(DROP_ALL)
     await init_db(pool)

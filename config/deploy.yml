@@ -2,13 +2,15 @@
 #   dev         config/deploy.dev.yml         dev.unfret.kroshtan.com, Solana devnet, auto-deployed on every push to main
 #   production  config/deploy.production.yml  unfret.kroshtan.com, Solana mainnet, deployed by hand (deploy-production)
 # Kamal deep-merges the destination file over this one (arrays are replaced, not merged), so each destination
-# declares its own service, proxy host, env and database accessory. Both run on the same box and behind the same
-# Caddy + kamal-proxy as kroshtan-web (forge-infra README, "Adding an app"); kamal-proxy only switches traffic over
-# once the new container passes its readiness check.
-service: veridex
+# declares its own proxy host, env and database accessory. The service is one for both: Kamal names the containers
+# unfret-web-dev-<sha> / unfret-web-production-<sha> (kamal-proxy services unfret-web-dev / unfret-web-production),
+# and the image dev built carries the label service=unfret that a production deploy of it checks for. Both run on the
+# same box and behind the same Caddy + kamal-proxy as kroshtan-web (forge-infra README, "Adding an app"); kamal-proxy
+# only switches traffic over once the new container passes its readiness check.
+service: unfret
 # Kamal prefixes registry.server itself; a host here would make it git.kroshtan.com/git.kroshtan.com/….
 # One image for both destinations, tagged with the commit SHA: production deploys the exact image dev ran.
-image: kroshtan/veridex
+image: kroshtan/unfret
 
 servers:
   web:

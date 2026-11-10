@@ -9,10 +9,10 @@ import httpx
 import pytest
 
 from evals import reports as labelling
-from veridex import showcase
-from veridex.routes.pages import STATIC_DIR
-from veridex.routes.showcase import render_case_page
-from veridex.showcase import cli
+from unfret import showcase
+from unfret.routes.pages import STATIC_DIR
+from unfret.routes.showcase import render_case_page
+from unfret.showcase import cli
 
 CHECKED = datetime(2026, 11, 9, 14, 30, tzinfo=UTC)
 

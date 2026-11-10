@@ -1,7 +1,7 @@
 """
 An independent LLM second opinion on every corpus page, and the review queue built from it.
 
-A stronger model than the pipeline's own (``VERIDEX_LABELLER_MODEL``) reads each page with a written rubric and
+A stronger model than the pipeline's own (``UNFRET_LABELLER_MODEL``) reads each page with a written rubric and
 gives a label, a confidence and a reason. Then:
 
 - **Agreement** (both unreliable, or both legit) upgrades a dataset or rule label to ``agreed``.
@@ -28,10 +28,10 @@ from pydantic import BaseModel, Field
 from evals.config import eval_settings
 from evals.corpus import UNRELIABLE, Corpus, LabelRecord, QueueItem, dump_json
 from evals.llm_cache import SQLiteLLMCache
-from veridex.config import settings
-from veridex.html_cleaner import clean_html
+from unfret.config import settings
+from unfret.html_cleaner import clean_html
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 _MAX_CHARS = 7_000
 _CONFIDENT = 0.75

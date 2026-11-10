@@ -16,10 +16,10 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.integration.conftest import FakeGraph
-from veridex import page_fetch
-from veridex.config import settings
-from veridex.net import UnsafeURLError
-from veridex.routes import analyze
+from unfret import page_fetch
+from unfret.config import settings
+from unfret.net import UnsafeURLError
+from unfret.routes import analyze
 
 PRICE = settings.analysis_price_usd_micros
 URL = "https://secret-shop.test/products/wool-sweater?ref=share"

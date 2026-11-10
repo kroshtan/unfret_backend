@@ -1,7 +1,7 @@
 """
 "Spotted recently": operator-run checks kept as drafts, published after review, and only then public.
 
-The CLI (``python -m veridex.showcase``) runs here against the app in-process: its synchronous client is bridged
+The CLI (``python -m unfret.showcase``) runs here against the app in-process: its synchronous client is bridged
 to the test's ASGI client, and the shop's page and the analysis graph are test doubles, as in the URL-only tests.
 """
 
@@ -17,11 +17,11 @@ import pytest
 from pydantic import SecretStr
 
 from tests.integration.conftest import FakeGraph
-from veridex import page_fetch
-from veridex.config import settings
-from veridex.facts.schema import PageFacts
-from veridex.showcase import MAX_SCREENSHOT_BYTES
-from veridex.showcase.cli import promote, run
+from unfret import page_fetch
+from unfret.config import settings
+from unfret.facts.schema import PageFacts
+from unfret.showcase import MAX_SCREENSHOT_BYTES
+from unfret.showcase.cli import promote, run
 
 PRICE = settings.analysis_price_usd_micros
 ADMIN = {"Authorization": "Bearer operator-token"}

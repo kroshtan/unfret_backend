@@ -33,11 +33,11 @@ from evals.corpus import Corpus, LabelRecord, dump_json
 from evals.embedding_cache import CachedEmbeddings
 from evals.llm_cache import SQLiteLLMCache
 from evals.metrics import Outcome, summarise, to_markdown
-from veridex import llm
-from veridex.config import settings
-from veridex.graph import SKILLS, build_graph
+from unfret import llm
+from unfret.config import settings
+from unfret.graph import SKILLS, build_graph
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 DEFAULT_EXCLUDED = ("reverse_image", "shop_links")
 
@@ -187,7 +187,7 @@ def main() -> None:
     reports = corpus.root / "reports"
     reports.mkdir(exist_ok=True)
     dump_json(reports / f"{stamp}.json", report)
-    markdown = to_markdown(report, f"Veridex evaluation {stamp} ({report['mode']}, {settings.llm_model})")
+    markdown = to_markdown(report, f"Unfret evaluation {stamp} ({report['mode']}, {settings.llm_model})")
     (reports / f"{stamp}.md").write_text(markdown)
     (reports / "latest.md").write_text(markdown)
     (reports / f"{stamp}-outcomes.jsonl").write_text("".join(json.dumps(o.__dict__) + "\n" for o in outcomes))

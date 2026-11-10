@@ -11,16 +11,16 @@ from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
 from tests.unit.x402_helpers import FakeRpc
-from veridex.x402.payment import confirm_by_simulation, precheck
-from veridex.x402.solana import CAIP2, USDC_MINTS, associated_token_address
-from veridex.x402.verdict import QUICK_SKILLS
-from veridex.x402.wallet import HotWallet
+from unfret.x402.payment import confirm_by_simulation, precheck
+from unfret.x402.solana import CAIP2, USDC_MINTS, associated_token_address
+from unfret.x402.verdict import QUICK_SKILLS
+from unfret.x402.wallet import HotWallet
 
 # The MCP package lives in mcp/ with its own environment; its payment module needs only solders and httpx.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mcp" / "src"))
-from veridex_mcp.payer import build_payment, choose_requirement
+from unfret_mcp.payer import build_payment, choose_requirement
 
-from veridex.x402.payment import requirements
+from unfret.x402.payment import requirements
 
 HOT = Keypair()
 AGENT = Keypair()

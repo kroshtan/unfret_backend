@@ -2,8 +2,8 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from veridex.config import settings
-from veridex.main import app
+from unfret.config import settings
+from unfret.main import app
 
 
 async def test_liveness(client: httpx.AsyncClient) -> None:

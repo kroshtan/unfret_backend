@@ -9,8 +9,8 @@ import pytest
 from solders.pubkey import Pubkey
 
 from tests.unit.x402_helpers import CHECK_USD, StaticOracle
-from veridex.config import Settings
-from veridex.prices import (
+from unfret.config import Settings
+from unfret.prices import (
     PYTH_RECEIVER_PROGRAM,
     SOL_USD_FEED_ID,
     PriceBook,
@@ -24,7 +24,7 @@ from veridex.prices import (
     usdc_to_lamports,
     validate_sol_usd,
 )
-from veridex.x402.solana import SolanaRpc
+from unfret.x402.solana import SolanaRpc
 
 NOW = 1_800_000_000
 OWNER = str(PYTH_RECEIVER_PROGRAM)
@@ -72,7 +72,7 @@ def test_untrustworthy_prices_are_refused(data: bytes, owner: str, reason: str) 
         check(data, owner)
 
 
-def test_conversions_round_in_veridexs_disfavour_never_the_payers() -> None:
+def test_conversions_round_in_unfrets_disfavour_never_the_payers() -> None:
     price = Decimal("89.6073631")
     # 0.0015 SOL at that price = 134_411.04 USDC units: charged as 134_412 (rounded up).
     assert lamports_to_usdc(1_500_000, price) == 134_412
@@ -92,7 +92,7 @@ async def test_dollar_prices_are_canonical_usdc_exact_and_sol_converted() -> Non
     assert book.converted("SOL") and not book.converted("USDC")
 
 
-async def test_sol_conversions_round_in_veridexs_disfavour() -> None:
+async def test_sol_conversions_round_in_unfrets_disfavour() -> None:
     book = PriceBook(Settings(price_per_check_usd=CHECK_USD), StaticOracle("89.6073631"))
     # $0.15 / $89.6073631 = 1_673_969.4 lamports: charged as 1_673_970 (rounded up).
     assert await book.price("analysis", "SOL") == 1_673_970

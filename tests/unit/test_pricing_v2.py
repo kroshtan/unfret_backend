@@ -6,12 +6,12 @@ from decimal import Decimal
 import pytest
 
 from tests.unit.x402_helpers import StaticOracle
-from veridex.config import Settings
-from veridex.credits import vat
-from veridex.credits.packs import card_credits, card_price, pack, packs
-from veridex.credits.pricing import pricing
-from veridex.prices import PriceBook
-from veridex.x402.solana import USDC_MINTS
+from unfret.config import Settings
+from unfret.credits import vat
+from unfret.credits.packs import card_credits, card_price, pack, packs
+from unfret.credits.pricing import pricing
+from unfret.prices import PriceBook
+from unfret.x402.solana import USDC_MINTS
 
 
 def test_the_packs_at_twenty_cents() -> None:
@@ -96,7 +96,7 @@ def test_quotes_and_splits() -> None:
     s = Settings()
     quote = vat.price_quote(s, 25, 5_000_000, "BE", edge="NL", beneficiary=None)
     assert (quote.vat_rate_bps, quote.vat_usd_micros, quote.gross_usd_micros) == (2100, 1_050_000, 6_050_000)
-    assert quote.country_mismatch and len(quote.id) == 20 and quote.memo == f"veridex:quote:{quote.id}"
+    assert quote.country_mismatch and len(quote.id) == 20 and quote.memo == f"unfret:quote:{quote.id}"
     assert not vat.price_quote(s, 25, 5_000_000, "BE", edge=None, beneficiary=None).country_mismatch
     assert vat.split_gross(6_050_000, 2100) == (5_000_000, 1_050_000)
     assert vat.split_gross(1, 2100) == (0, 1)  # dust credits nothing

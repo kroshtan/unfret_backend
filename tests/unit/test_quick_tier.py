@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 
-from veridex import image_index, llm, price_store, scoring
-from veridex.config import settings
-from veridex.graph import SKILLS, build_graph, nodes, triage
-from veridex.graph.skills import content, reviews
-from veridex.x402.verdict import skills_for, tier_description, to_verdict
+from unfret import image_index, llm, price_store, scoring
+from unfret.config import settings
+from unfret.graph import SKILLS, build_graph, nodes, triage
+from unfret.graph.skills import content, reviews
+from unfret.x402.verdict import skills_for, tier_description, to_verdict
 
 # Captured at import, before the suite's autouse fixture hides the shipped models.
 _LOAD_MODEL = scoring.load_model

@@ -23,9 +23,11 @@ import structlog
 
 from evals.corpus import Corpus, LabelRecord, dump_json
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 TEST_ELIGIBLE: frozenset[str] = frozenset({"dataset", "agreed", "human"})
+# From before the rename to Unfret, kept: another seed would reshuffle the test set the shipped scorers were
+# measured on.
 DEFAULT_SEED = "veridex-2026"
 
 

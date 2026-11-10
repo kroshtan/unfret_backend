@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from veridex import scoring, shopper
-from veridex.facts import PageFacts, parse_page
-from veridex.graph.nodes import classify_node
-from veridex.graph.skills.dark_patterns import DarkPatternsSkill, checkout_tax
-from veridex.graph.skills.eu_registry import EuRegistrySkill
-from veridex.graph.skills.shop_policies import ShopPoliciesSkill, longest_delivery_days
-from veridex.graph.skills.us_identity import UsIdentitySkill
-from veridex.graph.state import Finding
-from veridex.market import shop_market
-from veridex.price_store import product_id
+from unfret import scoring, shopper
+from unfret.facts import PageFacts, parse_page
+from unfret.graph.nodes import classify_node
+from unfret.graph.skills.dark_patterns import DarkPatternsSkill, checkout_tax
+from unfret.graph.skills.eu_registry import EuRegistrySkill
+from unfret.graph.skills.shop_policies import ShopPoliciesSkill, longest_delivery_days
+from unfret.graph.skills.us_identity import UsIdentitySkill
+from unfret.graph.state import Finding
+from unfret.market import shop_market
+from unfret.price_store import product_id
 
 
 def state(facts: PageFacts, text: str = "", **extra: Any) -> Any:

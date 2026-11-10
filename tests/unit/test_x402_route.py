@@ -19,12 +19,12 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.config import Settings
-from veridex.main import app
-from veridex.routes.check import _errors_table
-from veridex.visitors import RateLimit
-from veridex.x402.payment import decode_header
-from veridex.x402.solana import USDC_MINTS, RpcError, SettlementPendingError
+from unfret.config import Settings
+from unfret.main import app
+from unfret.routes.check import _errors_table
+from unfret.visitors import RateLimit
+from unfret.x402.payment import decode_header
+from unfret.x402.solana import USDC_MINTS, RpcError, SettlementPendingError
 
 HOT = Keypair()
 CLIENT = Keypair()
@@ -219,7 +219,7 @@ async def test_an_unassessable_page_is_refunded(
         credited.append((payer, usd_micros))
         return usd_micros
 
-    monkeypatch.setattr("veridex.routes.check._credit", credit)
+    monkeypatch.setattr("unfret.routes.check._credit", credit)
     graph.score = -1
     response = await client.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
     assert response.status_code == 200
@@ -238,7 +238,7 @@ async def test_a_bot_check_page_costs_nothing(client: httpx.AsyncClient, rpc: Fa
 
 
 async def test_check_is_rate_limited_per_visitor(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("veridex.routes.check._rate", RateLimit(2))
+    monkeypatch.setattr("unfret.routes.check._rate", RateLimit(2))
     codes = [(await client.post("/v1/check", json=BODY)).status_code for _ in range(3)]
     assert codes == [402, 402, 429]
 
@@ -249,7 +249,7 @@ async def test_unfetchable_page_costs_nothing(
     async def blocked(url: str, **_: object) -> bytes:
         raise httpx.ConnectError("blocked")
 
-    monkeypatch.setattr("veridex.routes.check.fetch_public", blocked)
+    monkeypatch.setattr("unfret.routes.check.fetch_public", blocked)
     body = {k: v for k, v in BODY.items() if k != "page_content"}
 
     response = await client.post("/v1/check", json=body, headers={"PAYMENT-SIGNATURE": paid_header()})

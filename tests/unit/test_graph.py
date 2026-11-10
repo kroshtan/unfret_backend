@@ -5,11 +5,11 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel
 
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.graph import build_graph, nodes
-from veridex.graph.skills import Skill, SkillOutput
-from veridex.graph.state import AnalysisState, PageType
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.graph import build_graph, nodes
+from unfret.graph.skills import Skill, SkillOutput
+from unfret.graph.state import AnalysisState, PageType
 
 
 class _RecordingSkill(Skill):

@@ -7,10 +7,10 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
-from veridex.credits import siws
-from veridex.credits.pricing import purchase_transaction, sol_string, solana_pay_url
-from veridex.credits.scanner import credit_beneficiary, credits_for, incoming_transfers
-from veridex.x402.solana import MEMO_PROGRAM
+from unfret.credits import siws
+from unfret.credits.pricing import purchase_transaction, sol_string, solana_pay_url
+from unfret.credits.scanner import credit_beneficiary, credits_for, incoming_transfers
+from unfret.x402.solana import MEMO_PROGRAM
 
 SECRET = "unit-secret"
 NOW = 1_800_000_000.0
@@ -145,7 +145,7 @@ def test_sol_amounts_for_solana_pay() -> None:
 
 def test_purchase_transaction_is_an_unsigned_transfer_with_the_quote_memo() -> None:
     payer, hot = Keypair().pubkey(), Keypair().pubkey()
-    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", "veridex:quote:abcdefghijklmnopqrst")
+    raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", "unfret:quote:abcdefghijklmnopqrst")
     message = VersionedTransaction.from_bytes(raw).message
     assert message.account_keys[0] == payer  # fee payer and the only signer
     assert message.header.num_required_signatures == 1
@@ -153,13 +153,13 @@ def test_purchase_transaction_is_an_unsigned_transfer_with_the_quote_memo() -> N
     assert message.account_keys[pay.program_id_index] == Pubkey.from_string("11111111111111111111111111111111")
     assert int.from_bytes(bytes(pay.data)[4:12], "little") == 7
     assert message.account_keys[memo.program_id_index] == MEMO_PROGRAM
-    assert bytes(memo.data) == b"veridex:quote:abcdefghijklmnopqrst"
+    assert bytes(memo.data) == b"unfret:quote:abcdefghijklmnopqrst"
     assert list(memo.accounts) == []
 
 
 def test_the_reference_rides_on_the_sol_transfer_and_the_link() -> None:
     payer, hot, reference = Keypair().pubkey(), Keypair().pubkey(), Keypair().pubkey()
-    memo = "veridex:quote:abcdefghijklmnopqrst"
+    memo = "unfret:quote:abcdefghijklmnopqrst"
     raw = purchase_transaction(payer, hot, 7, "11111111111111111111111111111111", memo, reference=reference)
     message = VersionedTransaction.from_bytes(raw).message
     pay, note = message.instructions
@@ -173,14 +173,14 @@ def test_the_reference_rides_on_the_sol_transfer_and_the_link() -> None:
     url = solana_pay_url(hot, 1_000_000, memo, reference=str(reference))
     assert url == (
         f"solana:{hot}?amount=0.001&reference={reference}&label=Unfret&message=Unfret%20checks"
-        "&memo=veridex%3Aquote%3Aabcdefghijklmnopqrst"
+        "&memo=unfret%3Aquote%3Aabcdefghijklmnopqrst"
     )
 
 
 def test_solana_pay_url_carries_the_quote_memo() -> None:
     hot = Keypair().pubkey()
-    url = solana_pay_url(hot, 1_000_000, "veridex:quote:abcdefghijklmnopqrst")
-    assert url.endswith("&memo=veridex%3Aquote%3Aabcdefghijklmnopqrst")
+    url = solana_pay_url(hot, 1_000_000, "unfret:quote:abcdefghijklmnopqrst")
+    assert url.endswith("&memo=unfret%3Aquote%3Aabcdefghijklmnopqrst")
 
 
 # ── Reading transfers ────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ MEMBER = str(Keypair().pubkey())
 def test_a_memo_names_who_is_credited() -> None:
     # A smart-wallet vault pays through a program; its member key (which can sign in) gets the credits.
     parsed = tx(
-        memo(f"veridex:credit:{MEMBER}"), inner=[system("transfer", source="vault", destination=HOT, lamports=9)]
+        memo(f"unfret:credit:{MEMBER}"), inner=[system("transfer", source="vault", destination=HOT, lamports=9)]
     )
     assert credit_beneficiary(parsed) == MEMBER
     assert credits_for(parsed, HOT) == {MEMBER: 9}
@@ -241,9 +241,9 @@ def test_a_memo_names_who_is_credited() -> None:
     "memos",
     [
         [],
-        ["veridex:credit:not-a-pubkey"],
-        [f"veridex:credit:{MEMBER}", f"veridex:credit:{Keypair().pubkey()}"],
-        [f"veridex:credit:{MEMBER}", f"veridex:credit:{MEMBER}"],
+        ["unfret:credit:not-a-pubkey"],
+        [f"unfret:credit:{MEMBER}", f"unfret:credit:{Keypair().pubkey()}"],
+        [f"unfret:credit:{MEMBER}", f"unfret:credit:{MEMBER}"],
         [f"thanks! {MEMBER}"],
     ],
 )
@@ -253,10 +253,10 @@ def test_without_exactly_one_good_memo_the_sender_is_credited(memos: list[str]) 
 
 
 def test_a_memo_without_a_payment_credits_nothing() -> None:
-    assert credits_for(tx(memo(f"veridex:credit:{MEMBER}")), HOT) == {}
+    assert credits_for(tx(memo(f"unfret:credit:{MEMBER}")), HOT) == {}
 
 
 def test_a_memo_naming_the_hot_wallet_is_ignored() -> None:
     hot = str(Keypair().pubkey())
-    parsed = tx(memo(f"veridex:credit:{hot}"), system("transfer", source="alice", destination=hot, lamports=5))
+    parsed = tx(memo(f"unfret:credit:{hot}"), system("transfer", source="alice", destination=hot, lamports=5))
     assert credits_for(parsed, hot) == {"alice": 5}

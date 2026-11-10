@@ -16,7 +16,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-veridex-production
+  group: deploy-unfret-production
   cancel-in-progress: false
 
 jobs:
@@ -91,49 +91,43 @@ jobs:
           value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
           [[ -n "$value" ]] && echo "::add-mask::$value"
           printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
-      - name: Retire the pre-split service (first deploy only)
-        # Until the first production deploy, unfret.kroshtan.com is routed to the pre-split devnet service
-        # `veridex-web`, and kamal-proxy won't give a host to a second service. Take its route off and stop (never
-        # remove) its containers, so docs/production-cutover.md's rollback still works. Downtime lasts until
-        # veridex-prod passes its readiness check. Later deploys find no such route and skip this.
-        run: |
-          set -euo pipefail
-          remote() { ssh -o BatchMode=yes kamal@git.kroshtan.com "$@"; }
-          if remote docker exec kamal-proxy kamal-proxy list | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $1}' \
-            | grep -qx veridex-web; then
-            echo "::notice::taking unfret.kroshtan.com off the pre-split service (veridex-web) for production"
-            remote docker ps --filter label=service=veridex --format '{{.Names}}'
-            remote docker exec kamal-proxy kamal-proxy remove veridex-web
-            remote 'docker stop $(docker ps -q --filter label=service=veridex)'
-          else
-            echo "no pre-split route: nothing to retire"
-          fi
       - name: Deploy to production
         # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
         # production never starts with a feature silently off or pointing at the wrong network.
         env:
           SHA: ${{ steps.release.outputs.sha }}
-          VERIDEX_LLM_API_KEY: ${{ secrets.VERIDEX_LLM_API_KEY }}
+          UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
-          VERIDEX_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
-          VERIDEX_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
-          VERIDEX_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
-          VERIDEX_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
-          VERIDEX_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
+          UNFRET_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
+          UNFRET_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
+          UNFRET_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
+          UNFRET_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
+          UNFRET_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
         run: |
           set -euo pipefail
           missing=()
-          for name in VERIDEX_LLM_API_KEY POSTGRES_PASSWORD VERIDEX_SOLANA_RPC_URL VERIDEX_SESSION_SECRET \
-            VERIDEX_HOT_WALLET_KEY VERIDEX_COLD_ADDRESS VERIDEX_ADMIN_TOKEN; do
+          for name in UNFRET_LLM_API_KEY POSTGRES_PASSWORD UNFRET_SOLANA_RPC_URL UNFRET_SESSION_SECRET \
+            UNFRET_HOT_WALLET_KEY UNFRET_COLD_ADDRESS UNFRET_ADMIN_TOKEN; do
             [[ -n "${!name}" ]] || missing+=("$name")
           done
           ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
-          [[ "$VERIDEX_SOLANA_RPC_URL" != *devnet* && "$VERIDEX_SOLANA_RPC_URL" != *testnet* ]] \
+          [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
             || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
+          # The scripts' plain ssh must not leave a known_hosts that Kamal's Net::SSH rejects (HostKeyMismatch).
+          reset_known_hosts() { install -m 644 /creds/known_hosts ~/.ssh/known_hosts; }
+          # Take the host off any other service (the one from before the rename) and stop that service, so nothing
+          # writes to its database while it is copied below. Production is down from here until the new
+          # containers pass their readiness check; docs/production-cutover.md has the rollback.
+          scripts/deploy/free-host.sh unfret.kroshtan.com unfret-web-production
+          reset_known_hosts
           # `details` echoes its docker ps command (which names the container), so match a running row instead.
           if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d production
           fi
+          # One-time: copy the production database from before the rename (balances, sales records, scan cursors)
+          # into the new, still empty one. --require-data: never start production on an empty database.
+          scripts/deploy/adopt-db.sh veridex-prod-db unfret-prod-db --require-data
+          reset_known_hosts
           # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
           kamal deploy -d production --skip-push --version "$SHA"
       - name: Discard the deploy key

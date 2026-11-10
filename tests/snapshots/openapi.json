@@ -140,7 +140,7 @@
      "verdict": {
       "anyOf": [
        {
-        "$ref": "#/components/schemas/veridex__shopper__Verdict"
+        "$ref": "#/components/schemas/unfret__shopper__Verdict"
        },
        {
         "type": "null"
@@ -1708,7 +1708,7 @@
     "title": "VerifyRequest",
     "type": "object"
    },
-   "veridex__shopper__Verdict": {
+   "unfret__shopper__Verdict": {
     "description": "The shopper-facing result of an analysis.",
     "properties": {
      "band": {
@@ -1761,7 +1761,7 @@
     "title": "Verdict",
     "type": "object"
    },
-   "veridex__x402__verdict__Verdict": {
+   "unfret__x402__verdict__Verdict": {
     "description": "The response of ``POST /v1/check``.",
     "properties": {
      "action": {
@@ -2213,7 +2213,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/veridex__x402__verdict__Verdict"
+         "$ref": "#/components/schemas/unfret__x402__verdict__Verdict"
         }
        }
       },

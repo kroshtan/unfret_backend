@@ -1,7 +1,7 @@
 # Product page fixtures
 
 Hand-made pages that reproduce the structure of real product pages as Unfret's server-side fetch
-(`veridex.page_fetch.fetch_page`) receives them, for regression tests of the whole pipeline. They are written for
+(`unfret.page_fetch.fetch_page`) receives them, for regression tests of the whole pipeline. They are written for
 these tests (text, markup and data are our own); no third-party page content, images or markup is copied.
 
 | File | Reproduces | Used by |

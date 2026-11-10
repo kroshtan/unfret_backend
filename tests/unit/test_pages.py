@@ -9,9 +9,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from veridex.credits import siws
-from veridex.main import app
-from veridex.routes.pages import STATIC_DIR
+from unfret.credits import siws
+from unfret.main import app
+from unfret.routes.pages import STATIC_DIR
 
 
 @pytest.fixture

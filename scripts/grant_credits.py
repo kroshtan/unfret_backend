@@ -14,7 +14,7 @@ import sys
 import asyncpg
 from solders.pubkey import Pubkey
 
-from veridex.config import settings
+from unfret.config import settings
 
 
 async def grant(pubkey: str, lamports: int) -> int:

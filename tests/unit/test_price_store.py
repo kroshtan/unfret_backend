@@ -5,12 +5,12 @@ from typing import Any
 
 import pytest
 
-from veridex import price_store
-from veridex.config import settings
-from veridex.facts import PageFacts
-from veridex.facts.schema import Platform
-from veridex.graph.skills.pricing import PricingSkill
-from veridex.price_store import MemoryPriceStore, Observation
+from unfret import price_store
+from unfret.config import settings
+from unfret.facts import PageFacts
+from unfret.facts.schema import Platform
+from unfret.graph.skills.pricing import PricingSkill
+from unfret.price_store import MemoryPriceStore, Observation
 
 
 @pytest.fixture(autouse=True)

@@ -13,7 +13,7 @@ import textwrap
 import tty
 
 from evals.corpus import Corpus, Label, LabelRecord, QueueItem
-from veridex.html_cleaner import clean_html
+from unfret.html_cleaner import clean_html
 
 KEYS: dict[str, Label] = {"j": "junk", "s": "scam", "l": "legit"}
 _EXCERPT_CHARS = 900

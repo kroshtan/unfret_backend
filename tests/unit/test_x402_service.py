@@ -18,11 +18,11 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from veridex.config import Settings
-from veridex.x402.payment import PaymentError
-from veridex.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
-from veridex.x402.solana import USDC_MINTS, TransactionFailedError, associated_token_address
-from veridex.x402.wallet import SYSTEM_PROGRAM, check_sweep
+from unfret.config import Settings
+from unfret.x402.payment import PaymentError
+from unfret.x402.service import X402, DuplicateSettlementError, SettlementMismatchError
+from unfret.x402.solana import USDC_MINTS, TransactionFailedError, associated_token_address
+from unfret.x402.wallet import SYSTEM_PROGRAM, check_sweep
 
 HOT = Keypair()
 COLD = Keypair().pubkey()
@@ -150,7 +150,7 @@ async def test_an_unindexed_settlement_stands_on_its_confirmation(monkeypatch: p
         async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
             return None
 
-    monkeypatch.setattr("veridex.x402.service._META_RETRIES", 1)
+    monkeypatch.setattr("unfret.x402.service._META_RETRIES", 1)
     x402 = service(Unindexed())
     assert (await x402.settle(prechecked(x402))).amount == 100_000
 

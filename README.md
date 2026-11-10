@@ -1,8 +1,6 @@
 # Unfret
 
-*Formerly Veridex: the code, the Python package (`veridex`) and the settings (`VERIDEX_*`) keep that name.*
-
-[![CI](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml/badge.svg)](https://github.com/kroshtan/veridex_backend/actions/workflows/ci.yaml)
+[![CI](https://github.com/kroshtan/unfret_backend/actions/workflows/ci.yaml/badge.svg)](https://github.com/kroshtan/unfret_backend/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
@@ -71,7 +69,7 @@ class ShippingTimeSkill(Skill):
         return self.output({"weeks": weeks}, [Observation(type="shipping", evidence=f"Ships in {weeks} weeks.")])
 ```
 
-Register an instance in `SKILLS` in [`src/veridex/graph/__init__.py`](src/veridex/graph/__init__.py).
+Register an instance in `SKILLS` in [`src/unfret/graph/__init__.py`](src/unfret/graph/__init__.py).
 
 ## API
 
@@ -101,24 +99,24 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the ledger), no
 record of what was analysed.
 
-**Pricing.** One setting, `VERIDEX_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
+**Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
 credits, an x402 deep check costs one check, and credits are sold in packs of 25, 50 and 100 checks
-(`src/veridex/credits/packs.py`). A pack's price is its card price ($6, $11.50, $22: the pack's value plus the card
+(`src/unfret/credits/packs.py`). A pack's price is its card price ($6, $11.50, $22: the pack's value plus the card
 provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50, before the provider's sales tax/VAT); paying with SOL
 or USDC costs less, just the pack's value ($5, $10, $20) plus VAT where it applies. The card price is shown as *the*
 price and crypto as the discount, never as a card surcharge (EU rules forbid surcharging consumer card payments).
 Either way the account is credited the pack's value, so a check costs the same in credits however it was bought.
 
-**VAT on crypto purchases** (`src/veridex/credits/vat.py`). The buyer states their country; the checkout prefills it
+**VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
 from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come from Cloudflare's edge (it forwards
 that peer as `X-Edge-Peer`, checked against the vendored ranges). The IP address is never stored or logged. With
-`VERIDEX_VAT_MODE=nl_under_threshold` (default, while EU cross-border sales stay under €10,000 a year) every EU buyer
+`UNFRET_VAT_MODE=nl_under_threshold` (default, while EU cross-border sales stay under €10,000 a year) every EU buyer
 pays Dutch VAT (21%) and everyone else none; `per_country` uses each member state's standard rate, vendored from the
 EU's TEDB (`make vat-rates-check` compares it monthly; the service logs `vat_rates_stale` after 45 days). Card
 purchases are sold by the payment provider, which handles their tax.
 
 **Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a pack for the buyer's country and stores that as
-a quote; the transaction's memo is `veridex:quote:<id>`, so the scanner credits the right account (the payer, another
+a quote; the transaction's memo is `unfret:quote:<id>`, so the scanner credits the right account (the payer, another
 wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.kroshtan.com/checkout) does it from a
 browser wallet or a phone. A background scanner walks the hot wallet's finalized transactions (a second one its USDC
 account) and credits every incoming transfer, top-level or inside a program call: what arrived (USDC at face value,
@@ -126,7 +124,7 @@ SOL at its dollar value at crediting time, Pyth SOL/USD, rounded down; it waits 
 stale) minus its VAT. Each credit leaves a sales record (day, country, net, rate, VAT, asset, amount, signature; no
 IP, no wallet column) in the same database transaction, kept ten years; `GET /v1/admin/sales/<YYYY-Qn>` exports a
 quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an unknown country at the Dutch rate;
-the older `veridex:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each
+the older `unfret:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each
 transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored.
 
 [`/connect`](https://unfret.kroshtan.com/connect) signs a wallet in and hands the session to the browser extension
@@ -147,16 +145,16 @@ There is no free trial: every new wallet or API key starts at zero checks and bu
 
 API keys can also be topped up by card through [Polar](https://polar.sh), the Merchant of Record: Polar sells the pack,
 collects the buyer's details and sales tax/VAT, and issues the invoice; this service only learns that a key was paid
-for (`src/veridex/credits/polar.py`, `src/veridex/credits/fiat.py`). Card payments are **off** (`/v1/pricing` says
+for (`src/unfret/credits/polar.py`, `src/unfret/credits/fiat.py`). Card payments are **off** (`/v1/pricing` says
 `fiat.available: false`, `/v1/credits/fiat-checkout` answers 503, readiness says `"fiat": "off"`) until all of these
 are set:
 
 | Variable | |
 | --- | --- |
-| `VERIDEX_POLAR_ACCESS_TOKEN` | An **Organization Access Token** (Polar → Settings → Developers) with the single scope **`checkouts:write`**. Nothing else is called: no product, order, customer or refund reads |
-| `VERIDEX_POLAR_ENVIRONMENT` | `production` (https://api.polar.sh, real money) or `sandbox` (https://sandbox-api.polar.sh; the default, also when empty). The token, products and webhook must come from the same environment |
-| `VERIDEX_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,50=<product id>,100=<product id>` |
-| `VERIDEX_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
+| `UNFRET_POLAR_ACCESS_TOKEN` | An **Organization Access Token** (Polar → Settings → Developers) with the single scope **`checkouts:write`**. Nothing else is called: no product, order, customer or refund reads |
+| `UNFRET_POLAR_ENVIRONMENT` | `production` (https://api.polar.sh, real money) or `sandbox` (https://sandbox-api.polar.sh; the default, also when empty). The token, products and webhook must come from the same environment |
+| `UNFRET_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,50=<product id>,100=<product id>` |
+| `UNFRET_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
 
 **In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax ($6.00, $11.50,
 $22.00 at $0.20 a check). A checkout is created for the pack's product with `currency: "usd"`, discount codes off,
@@ -174,7 +172,7 @@ webhook for disputes themselves. Other events are acknowledged and ignored.
 ### "Spotted recently": the showcase
 
 No demo data: the site shows **real checks of real product pages**, run by the operator and each
-reviewed by the owner before it is published (`veridex.showcase`, migration 13). Never a user's check: a case is
+reviewed by the owner before it is published (`unfret.showcase`, migration 13). Never a user's check: a case is
 always a fresh server-side check of a public page (the same `fetch_page` + full graph path as a URL-only check,
 without any account or charge), and the `showcase_cases` table has no column that could hold an account, payer or
 report. A case stores the product title, the shop's host, the product URL, when it was checked, the analysis
@@ -217,7 +215,7 @@ human". Under `balanced` and `lenient` an agent is never warned about a page a s
 "concerns" (the `band`); `strict` warns from risk 0.25 whatever the band. A page that can't be fetched is refused
 before any money moves. Nothing about the payment or the page is stored.
 
-The two tiers (`QUICK_SKILLS` in `src/veridex/x402/verdict.py`; each 402 option says what it buys in
+The two tiers (`QUICK_SKILLS` in `src/unfret/x402/verdict.py`; each 402 option says what it buys in
 `extra.includes`, as do `/.well-known/x402` and `/llms.txt`):
 
 | | quick ($0.01) | deep ($0.20) |
@@ -236,7 +234,7 @@ Each `accepts` option names the network in CAIP-2 form (`solana:EtWTRABZaYq6iMfe
 mint's `decimals` (9 for wSOL, 6 for USDC), `quoteToleranceBps` (how far a payment may be from this quote: 200 for
 wSOL, 0 for USDC; clients should re-fetch the 402 right before paying), `constraints` (below) and `feeCapNote`:
 `constraints.maxPriorityFeeLamports` is in lamports on every option, USDC included, because the hot wallet pays the
-fee in SOL; it is `VERIDEX_X402_MAX_PRIORITY_FEE_BPS` of the tier's dollar price converted at the SOL/USD quote. A
+fee in SOL; it is `UNFRET_X402_MAX_PRIORITY_FEE_BPS` of the tier's dollar price converted at the SOL/USD quote. A
 refused payment answers `402` again with `error` saying why; when the simulation failed (`simulation_failed`) it adds
 `reason`, a short cause derived from the simulation's error and logs: `insufficient_funds`,
 `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_not_found`, `blockhash_not_found`, the
@@ -244,7 +242,7 @@ error class in snake case (`invalid_account_data`) or `custom_program_error_<cod
 
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
-fee stay within `VERIDEX_X402_MAX_COMPUTE_UNITS` / `VERIDEX_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly
+fee stay within `UNFRET_X402_MAX_COMPUTE_UNITS` / `UNFRET_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly
 one memo; no signature precompiles; the transaction fits a packet; and a simulation shows the hot wallet's token
 account growing by exactly the accepted amount with the hot wallet paying no more than the fee.
 
@@ -252,31 +250,31 @@ The hot wallet pays the fee of every transaction it submits, even one that fails
 able to pass the simulation and then fail. It may reference no slot-dependent sysvar (`Clock`, `SlotHashes`,
 `SlotHistory`, `RecentBlockhashes`, `EpochRewards`) and use no address lookup table, and every program it runs, top
 level or by CPI (from the simulation), must be a known wallet program: System, Token, ATA, Compute Budget, Memo,
-Squads v3 and v4, Lighthouse, plus `VERIDEX_X402_EXTRA_PROGRAMS`. An allowlist is needed because any other program
+Squads v3 and v4, Lighthouse, plus `UNFRET_X402_EXTRA_PROGRAMS`. An allowlist is needed because any other program
 could branch on the slot through the `Clock` syscall, which no account check sees. Its priority fee is capped at
-`VERIDEX_X402_MAX_PRIORITY_FEE_BPS` (5%) of the tier's price. What remains, such as a payer racing its own payment, is
-bounded by a breaker: after `VERIDEX_X402_BREAKER_PER_PAYER` (3) failed settlements in an hour from one wallet,
-`VERIDEX_X402_BREAKER_PER_IP` (5) from one visitor network (IPv6 per /64) or `VERIDEX_X402_BREAKER_GLOBAL` (20) in
+`UNFRET_X402_MAX_PRIORITY_FEE_BPS` (5%) of the tier's price. What remains, such as a payer racing its own payment, is
+bounded by a breaker: after `UNFRET_X402_BREAKER_PER_PAYER` (3) failed settlements in an hour from one wallet,
+`UNFRET_X402_BREAKER_PER_IP` (5) from one visitor network (IPv6 per /64) or `UNFRET_X402_BREAKER_GLOBAL` (20) in
 total, `/v1/check` answers `503 SETTLEMENTS_PAUSED` with `Retry-After` (a global trip also raises the
 `settlements_failing` alert).
 
-**Prices are canonical in US dollars** (`VERIDEX_X402_PRICE_*_USD_MICROS`, `VERIDEX_ANALYSIS_PRICE_USD_MICROS`; one
+**Prices are canonical in US dollars** (`UNFRET_X402_PRICE_*_USD_MICROS`, `UNFRET_ANALYSIS_PRICE_USD_MICROS`; one
 dollar = 1,000,000, which is also USDC's base unit). USDC pays them exactly. SOL amounts are those prices converted at
 quote time with Pyth's SOL/USD price (rounded up), read on chain from the Pyth receiver's `PriceUpdateV2` account
-(`VERIDEX_PYTH_SOL_USD_ACCOUNT`): fully verified, at most `VERIDEX_PYTH_MAX_AGE_S` (60 s) old, confidence at most
-`VERIDEX_PYTH_MAX_CONF_BPS` (1%). wSOL isn't offered while the oracle fails those checks (the 402 then lists USDC
+(`UNFRET_PYTH_SOL_USD_ACCOUNT`): fully verified, at most `UNFRET_PYTH_MAX_AGE_S` (60 s) old, confidence at most
+`UNFRET_PYTH_MAX_CONF_BPS` (1%). wSOL isn't offered while the oracle fails those checks (the 402 then lists USDC
 only, or answers 503 `PRICE_UNAVAILABLE` if the USDC account doesn't exist yet); a wSOL payment may be up to
-`VERIDEX_QUOTE_TOLERANCE_BPS` (2%) off the current quote, since the price moves between the 402 and the payment. On
+`UNFRET_QUOTE_TOLERANCE_BPS` (2%) off the current quote, since the price moves between the 402 and the payment. On
 devnet the oracle is read from mainnet (Pyth's devnet copy updates too rarely).
-All prices come from one place, `veridex.prices.PriceBook`. After settlement the real
+All prices come from one place, `unfret.prices.PriceBook`. After settlement the real
 on-chain delta is checked again; a mismatch gets no analysis and raises an alert. If the analysis fails or takes
-longer than `VERIDEX_X402_ANALYSIS_TIMEOUT_S` (60 s) after a payment settled, or the page can't be assessed (score
+longer than `UNFRET_X402_ANALYSIS_TIMEOUT_S` (60 s) after a payment settled, or the page can't be assessed (score
 `-1`), the price is refunded as credits to the paying wallet (never as an outgoing transfer), usable after signing in
 with it. A payment submitted but not confirmed in time answers `402 SETTLEMENT_PENDING` with its signature; if it
 lands within two minutes its price is credited the same way. Retrying with the same payment returns the same answer
 for 15 minutes (concurrent retries wait for the first) and is never charged twice. Bot-check interstitials
 (Cloudflare, DataDome, PerimeterX, Amazon) are refused as `422 PAGE_BLOCKED` before any money moves, and
-`/v1/check` takes `VERIDEX_X402_CHECK_PER_MINUTE` (30) requests per visitor network.
+`/v1/check` takes `UNFRET_X402_CHECK_PER_MINUTE` (30) requests per visitor network.
 
 Every error from the API is JSON with `detail` and `error_code` (validation errors add `errors`). For `/v1/check`:
 
@@ -300,25 +298,25 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 Money flows through, and nothing is ever swapped: SOL reaches the cold wallet as SOL and USDC as USDC (converting it is
 the operator's business, outside the product). A background sweep (one atomic transaction) unwraps the hot wallet's
 wSOL, recreates its wSOL account, creates its USDC account if missing, and sends everything above
-`VERIDEX_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `VERIDEX_COLD_ADDRESS` once the hot wallet holds more than
-`VERIDEX_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). A second sweep moves all of the hot wallet's USDC into the cold address's
-USDC account once it holds `VERIDEX_USDC_SWEEP_THRESHOLD_UNITS` (5 USDC), or at least 0.5 USDC older than a day: an
+`UNFRET_SWEEP_RESERVE_LAMPORTS` (0.01 SOL) to `UNFRET_COLD_ADDRESS` once the hot wallet holds more than
+`UNFRET_SWEEP_THRESHOLD_LAMPORTS` (0.1 SOL). A second sweep moves all of the hot wallet's USDC into the cold address's
+USDC account once it holds `UNFRET_USDC_SWEEP_THRESHOLD_UNITS` (5 USDC), or at least 0.5 USDC older than a day: an
 idempotent create of that account (the hot wallet pays its rent, and waits while that would take its SOL under the fee
 reserve) and one `TransferChecked`, on mainnet and devnet alike. All signing goes through one function that accepts only
 verified payments (as fee payer, never referenced by an instruction) and those two sweep shapes, re-checked instruction
 by instruction against the cold address. Alerts are logged at error level and counted in readiness (named, with the
-balances, for `Authorization: Bearer $VERIDEX_ADMIN_TOKEN`): value stuck above 1.5x the threshold (sweeps failing), SOL
-for fees below `VERIDEX_X402_MIN_FEE_LAMPORTS` (payments pause), USDC piling up beyond 3x its sweep threshold, and any
+balances, for `Authorization: Bearer $UNFRET_ADMIN_TOKEN`): value stuck above 1.5x the threshold (sweeps failing), SOL
+for fees below `UNFRET_X402_MIN_FEE_LAMPORTS` (payments pause), USDC piling up beyond 3x its sweep threshold, and any
 value leaving the hot wallet except to cold or cold's USDC account (a token transfer by the hot wallet is accepted only
 as a `transferChecked` of USDC into cold's USDC account, so a swap is flagged too; payments pause, a compromise
 signal). The audit pages through
 every transaction since the last one it checked, skipping failed ones and ones the hot wallet didn't sign (neither can
 move its value). A compromise signal and post-settlement mismatches stay raised until the operator, having checked
 the logged transactions (and rotated the hot wallet if it was real), clears them:
-`curl -X POST -H "Authorization: Bearer $VERIDEX_ADMIN_TOKEN" https://…/v1/admin/x402/clear-alerts`.
+`curl -X POST -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" https://…/v1/admin/x402/clear-alerts`.
 
-The feature is off (`503`) until `VERIDEX_HOT_WALLET_KEY` and `VERIDEX_COLD_ADDRESS` (a cold wallet; the server never
-holds its key) are set. Devnet is the default, and mainnet needs `VERIDEX_X402_ALLOW_MAINNET=true`. Run one instance:
+The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
+holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
 spend cap.
 
@@ -328,11 +326,11 @@ spend cap.
 ([Scaleway Generative APIs](https://www.scaleway.com/en/generative-apis/) by default).
 
 ```bash
-cp .env.example .env       # add your VERIDEX_LLM_API_KEY
+cp .env.example .env       # add your UNFRET_LLM_API_KEY
 docker compose up --build  # API on http://localhost:8080, Postgres alongside
 ```
 
-Set `VERIDEX_SESSION_SECRET` (e.g. `openssl rand -hex 32`), sign in with a wallet at
+Set `UNFRET_SESSION_SECRET` (e.g. `openssl rand -hex 32`), sign in with a wallet at
 `http://localhost:8080/connect`, give it credits and analyse a page with the session token:
 
 ```bash
@@ -345,34 +343,34 @@ jq -n --rawfile html page.html '{page_content: $html, url: "https://example-shop
 
 ### Configuration
 
-Settings are defined and validated in [`src/veridex/config.py`](src/veridex/config.py) (with
+Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config.py) (with
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). Override any of them with a
-`VERIDEX_`-prefixed environment variable or a git-ignored `.env` file.
+`UNFRET_`-prefixed environment variable or a git-ignored `.env` file.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `VERIDEX_LLM_API_KEY` | — | Required |
-| `VERIDEX_LLM_BASE_URL` | `https://api.scaleway.ai/v1` | Any OpenAI-compatible chat completions API |
-| `VERIDEX_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
-| `VERIDEX_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
-| `VERIDEX_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
-| `VERIDEX_FINGERPRINTS` / `VERIDEX_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop fingerprint store; the key for contact hashes (no key and no session secret: contacts aren't stored) |
-| `VERIDEX_IMAGE_MODEL_PATH` / `VERIDEX_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
-| `VERIDEX_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
-| `VERIDEX_SKILL_TIMEOUT_S` / `VERIDEX_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
-| `VERIDEX_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
-| `VERIDEX_POSTGRES_URI` | `postgresql://veridex:veridex@localhost:5432/veridex` | Tables are created on startup |
-| `VERIDEX_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
-| `VERIDEX_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |
-| `VERIDEX_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
-| `VERIDEX_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
-| `VERIDEX_PACKS` | `[25,50,100]` | Pack sizes in checks |
-| `VERIDEX_CARD_FEE_PCT` / `VERIDEX_CARD_FEE_FLAT_USD` / `VERIDEX_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
-| `VERIDEX_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
-| `VERIDEX_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
-| `VERIDEX_HOT_WALLET_KEY` / `VERIDEX_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
-| `VERIDEX_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
-| `VERIDEX_POLAR_ACCESS_TOKEN` / `VERIDEX_POLAR_ENVIRONMENT` / `VERIDEX_POLAR_PRODUCTS` / `VERIDEX_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
+| `UNFRET_LLM_API_KEY` | — | Required |
+| `UNFRET_LLM_BASE_URL` | `https://api.scaleway.ai/v1` | Any OpenAI-compatible chat completions API |
+| `UNFRET_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
+| `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
+| `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
+| `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop fingerprint store; the key for contact hashes (no key and no session secret: contacts aren't stored) |
+| `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
+| `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
+| `UNFRET_SKILL_TIMEOUT_S` / `UNFRET_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
+| `UNFRET_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
+| `UNFRET_POSTGRES_URI` | `postgresql://unfret:unfret@localhost:5432/unfret` | Tables are created on startup |
+| `UNFRET_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
+| `UNFRET_SIWS_DOMAIN` | `unfret.kroshtan.com` | Sign-in messages must be bound to this domain |
+| `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
+| `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
+| `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
+| `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
+| `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
+| `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
+| `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
+| `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
+| `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 
 ## Development
 
@@ -390,7 +388,7 @@ payment verification and SIWS. Integration tests exercise the HTTP API end-to-en
 concurrent debits, the credits scanner), with the analysis graph replaced by a test double so no LLM calls are made.
 
 ```
-src/veridex/
+src/unfret/
 ├── main.py            # FastAPI app, lifespan (graph + DB pool), middleware
 ├── config.py          # typed settings (pydantic-settings)
 ├── middleware.py      # body size cap, x-process-time header
@@ -412,17 +410,18 @@ src/veridex/
 ## Deploying
 
 Two environments, both deployed with [Kamal](https://kamal-deploy.org) to the same server (behind the forge's Caddy
-and kamal-proxy), each with its own service, database accessory, hot wallet and session secret:
+and kamal-proxy), one Kamal service (`unfret`) with a destination each, and each destination with its own database accessory, hot
+wallet and session secret:
 
 | | dev | production |
 | --- | --- | --- |
 | URL | https://dev.unfret.kroshtan.com | https://unfret.kroshtan.com |
 | Solana | devnet (test money) | **mainnet** |
-| Kamal destination | `config/deploy.dev.yml` (service `veridex-dev`, DB `veridex-dev-db`) | `config/deploy.production.yml` (`veridex-prod`, `veridex-prod-db`) |
+| Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
 | Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
 
-`VERIDEX_LLM_API_KEY` is shared. The Kamal secrets files map these onto the app's `VERIDEX_*` settings
+The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).
 
 **Releasing to production:**
@@ -440,9 +439,14 @@ The production workflow refuses unless:
 It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
 rebuild. Deploys never run in parallel and are never cancelled half-way.
 
-**Rolling back production:** run the workflow again with `ref` = the previous release tag (e.g. `v0.7.0`). The one-time move of
-`unfret.kroshtan.com` from the pre-split devnet deployment to production is in
-[docs/production-cutover.md](docs/production-cutover.md).
+Before deploying, both jobs run `scripts/deploy/free-host.sh` (takes the destination's host off any other
+kamal-proxy service and stops, never removes, that service's containers) and, after booting the database accessory,
+`scripts/deploy/adopt-db.sh` (copies a predecessor database into an empty new one, once). Both do nothing once the
+destination is set up; they carried the one-time move from the services before the rename to `unfret`
+([docs/production-cutover.md](docs/production-cutover.md)).
+
+**Rolling back production:** run the workflow again with `ref` = the previous release tag. Releases from before the
+rename (up to `v0.7.0`) name the old services and can't be deployed this way; see the runbook's rollback.
 
 ## Design notes
 
@@ -452,7 +456,7 @@ rebuild. Deploys never run in parallel and are never cancelled half-way.
   cannot rebind the request. Every redirect hop is re-validated and response size is capped.
 - **Fail soft.** Each skill runs under its own timeout; a skill that fails or hangs reports "unavailable" to the
   judge instead of failing the analysis. The whole analysis has a deadline too (504 when exceeded).
-- **Bounded input.** Request bodies over `VERIDEX_MAX_PAGE_BYTES` are refused before they are parsed.
+- **Bounded input.** Request bodies over `UNFRET_MAX_PAGE_BYTES` are refused before they are parsed.
 - **Sign-in grants no spending power.** Wallets only ever sign a readable message (to sign in) or a transfer the
   user sees (to buy). The server holds no user keys; a session token can spend Unfret credits, never SOL.
 - **Exactly-once crediting.** Credits and the scanner cursor move in one transaction, by compare-and-swap; debits are
@@ -460,7 +464,7 @@ rebuild. Deploys never run in parallel and are never cancelled half-way.
 
 ## Limitations and responsible use
 
-- Scores come from a logistic regression over skill features (`src/veridex/scoring/model.json`, trained with
+- Scores come from a logistic regression over skill features (`src/unfret/scoring/model.json`, trained with
   `python -m evals.train` on a private labelled corpus). They are a calibrated signal, not a verdict, and can be wrong
   in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
   so marketplace accuracy on real pages is likely lower than measured.

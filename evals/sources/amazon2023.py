@@ -33,7 +33,7 @@ from evals.features import (
 )
 from evals.sources._http import USER_AGENT
 
-logger = structlog.get_logger("veridex.evals")
+logger = structlog.get_logger("unfret.evals")
 
 DATASET = "amazon-reviews-2023"
 BASE = "https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023/resolve/main/raw"

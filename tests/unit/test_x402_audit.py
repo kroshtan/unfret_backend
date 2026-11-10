@@ -115,3 +115,14 @@ async def test_admin_endpoints_are_off_without_a_token(monkeypatch: pytest.Monke
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/v1/admin/x402/clear-alerts", headers={"Authorization": "Bearer "})
     assert response.status_code == 401
+
+
+async def test_an_outflow_is_caught_before_it_finalizes() -> None:
+    # The audit reads at "confirmed" commitment: a theft pauses payments seconds after it lands, not after finality.
+    rpc = CountingRpc()
+    x402 = service(rpc)
+    assert await x402.audit_outflows() == []
+    rpc.signatures = ["theft"]
+    rpc.unfinalized = {"theft"}
+    rpc.transactions["theft"] = transfer(THIEF)
+    assert await x402.audit_outflows() == [f"system transfer to {THIEF}"]

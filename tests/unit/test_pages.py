@@ -1,7 +1,6 @@
 """The /connect and /checkout pages: a strict CSP, their assets load, and the JS sign-in text matches ours."""
 
 import json
-import shutil
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -71,7 +70,7 @@ def test_wallet_links_are_only_assigned_as_hrefs() -> None:
         assert f".href =\n  `{link}" in script  # assigned to a link the user clicks, not fetched
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.usefixtures("node")
 def test_js_sign_in_text_matches_the_server(tmp_path: Path) -> None:
     fields = siws.nonce_response("s", domain="unfret.kroshtan.com", uri="https://unfret.kroshtan.com", ttl_s=300)
     address = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"

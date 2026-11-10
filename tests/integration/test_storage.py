@@ -1,8 +1,8 @@
 """Migrations, the Postgres fact cache, price and shop stores against a real database."""
 
-import time
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 import numpy as np
@@ -231,28 +231,47 @@ async def test_image_index_holds_no_page_addresses_people_or_times(pool: asyncpg
     assert not [c for c in columns if "time" in c["data_type"]]
 
 
-async def test_fast_path_lookup_is_well_under_200_ms(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> None:
-    shops, verdicts = PostgresShopStore(pool), PostgresVerdictStore(pool)
-    shop_store.use_store(shops)
-    verdict_store.use_store(verdicts)
+class CountingPool:
+    """A pool that records every query sent through it."""
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self.pool = pool
+        self.queries: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        method = getattr(self.pool, name)
+        if name not in {"fetch", "fetchrow", "fetchval", "execute"}:
+            return method
+
+        async def counted(query: str, *args: Any) -> Any:
+            self.queries.append(query)
+            return await method(query, *args)
+
+        return counted
+
+
+async def test_the_fast_path_is_two_primary_key_lookups(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Its speed (well under 200 ms) follows from its shape: two round trips, each by primary key, and no writes.
+    counting = CountingPool(pool)
+    shop_store.use_store(PostgresShopStore(counting))
+    verdict_store.use_store(PostgresVerdictStore(counting))
     monkeypatch.setattr(shop_store, "today", lambda: TODAY)
     try:
         fingerprint = b"f" * 32
-        await shops.record(ShopRecord("glowlamp.shop", TODAY, fingerprint=fingerprint))
+        await PostgresShopStore(pool).record(ShopRecord("glowlamp.shop", TODAY, fingerprint=fingerprint))
         verdict = Verdict(action="allow", risk_score=0.2, confidence=0.8, flags=[], policy_applied="balanced",
                           tier="quick", checked_at="2026-11-09T09:00:00Z")  # type: ignore[arg-type]  # fmt: skip
         key = listing_key("https://glowlamp.shop/products/lamp")
         assert key is not None
-        await verdicts.put(key, "quick", Stored(TODAY, fingerprint, verdict.model_dump(mode="json")))
-        timings = []
-        for _ in range(50):
-            start = time.perf_counter()
-            served = await verdict_store.recall("https://glowlamp.shop/products/lamp", "quick", "strict")
-            timings.append(time.perf_counter() - start)
-            assert served is not None and served.source == "fingerprint"
-        p50 = sorted(timings)[25]
-        print(f"fast path p50 {p50 * 1000:.1f} ms")  # noqa: T201 - shown in the CI log
-        assert p50 < 0.2
+        await PostgresVerdictStore(pool).put(key, "quick", Stored(TODAY, fingerprint, verdict.model_dump(mode="json")))
+
+        served = await verdict_store.recall("https://glowlamp.shop/products/lamp", "quick", "strict")
+
+        assert served is not None and served.source == "fingerprint"
+        assert counting.queries == [
+            "SELECT day, shop_fingerprint, verdict FROM listing_verdicts WHERE listing_key = $1 AND tier = $2",
+            "SELECT fingerprint FROM shops WHERE domain = $1",
+        ]  # listing_verdicts' key is (listing_key, tier), shops' is domain
         row = await pool.fetchrow("SELECT * FROM listing_verdicts")
         assert set(row.keys()) == {"listing_key", "tier", "day", "shop_fingerprint", "verdict"}
         assert "glowlamp" not in row["verdict"]  # the answer holds no page address

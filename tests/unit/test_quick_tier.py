@@ -25,8 +25,7 @@ def _forbid(*_: Any, **__: Any) -> Any:
 @pytest.fixture
 def no_paid_work(monkeypatch: pytest.MonkeyPatch) -> None:
     quick = _LOAD_MODEL.__wrapped__(scoring.MODEL_QUICK_PATH)
-    if quick is None:
-        pytest.skip("no quick model shipped")
+    assert quick is not None, "the quick model ships in the repo"
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: quick)
     for module in (nodes, content, triage, llm):
         monkeypatch.setattr(module, "get_structured_llm", _forbid)
@@ -61,8 +60,7 @@ async def test_quick_does_not_ask_an_llm_what_a_page_without_a_price_is() -> Non
 
 def test_the_quick_model_reads_only_what_the_quick_tier_computes() -> None:
     quick = _LOAD_MODEL.__wrapped__(scoring.MODEL_QUICK_PATH)
-    if quick is None:
-        pytest.skip("no quick model shipped")
+    assert quick is not None, "the quick model ships in the repo"
     computed = {f"{s.name}.{f}" for s in skills_for("quick", SKILLS) for f in s.features}
     assert set(quick.features) <= computed
 

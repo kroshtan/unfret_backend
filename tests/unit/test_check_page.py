@@ -2,7 +2,6 @@
 
 import json
 import logging
-import shutil
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -110,7 +109,7 @@ async def test_home_and_extension_pages_link_to_the_checker(client: httpx.AsyncC
     assert 'href="/check"' in (STATIC_DIR / "extension.html").read_text()
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+@pytest.mark.usefixtures("node")
 def test_the_link_is_found_in_shared_text(tmp_path: Path) -> None:
     module = tmp_path / "check-core.mjs"
     module.write_text((STATIC_DIR / "check-core.js").read_text())

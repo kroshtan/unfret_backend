@@ -195,6 +195,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=xml",
     "--strict-markers",
+    "-rs",  # name every skipped test and why in the summary
 ]
 env = [
     "UNFRET_LLM_API_KEY=test-key",

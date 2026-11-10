@@ -109,6 +109,92 @@ def test_nonce_expires_and_resists_tampering() -> None:
         siws.check_nonce("other-secret", nonce, NOW)
 
 
+def test_an_oversized_message_is_refused_before_anything_else() -> None:
+    keypair = Keypair()
+    message, _ = signed(keypair)
+    huge = message + b"\nResources:\n- " + b"x" * 2048
+    with pytest.raises(siws.SignInError, match="too long"):
+        verify(keypair, huge, bytes(keypair.sign_message(huge)))
+
+
+@pytest.mark.parametrize("part", ["address", "signature", "message"])
+def test_malformed_parts_are_refused(part: str) -> None:
+    keypair = Keypair()
+    message, signature = signed(keypair)
+    address = str(keypair.pubkey())
+    if part == "address":
+        address = "not-base58!"
+    elif part == "signature":
+        signature = signature[:10]
+    else:
+        message = b"\xff\xfe" + message  # not UTF-8
+        signature = bytes(keypair.sign_message(message))
+    with pytest.raises(siws.SignInError, match="Malformed address, signature or message"):
+        siws.verify_sign_in(
+            SECRET, domain=DOMAIN, address=address, signed_message=message, signature=signature, now=NOW
+        )
+
+
+def test_a_pairing_sign_in_needs_its_own_statement() -> None:
+    keypair = Keypair()
+    message, signature = signed(keypair)  # the ordinary statement
+    with pytest.raises(siws.SignInError, match="another device"):
+        siws.verify_sign_in(
+            SECRET,
+            domain=DOMAIN,
+            address=str(keypair.pubkey()),
+            signed_message=message,
+            signature=signature,
+            statement="Pair this phone: 1234",
+            now=NOW,
+        )
+    paired, paired_signature = signed(keypair, statement="Pair this phone: 1234")
+    assert siws.verify_sign_in(
+        SECRET,
+        domain=DOMAIN,
+        address=str(keypair.pubkey()),
+        signed_message=paired,
+        signature=paired_signature,
+        statement="Pair this phone: 1234",
+        now=NOW,
+    ) == str(keypair.pubkey())
+
+
+def test_a_message_without_a_statement_has_none() -> None:
+    assert siws.statement_of(f"{DOMAIN} wants you to sign in with your Solana account:\nWallet111") == ""
+    assert siws.statement_of(signed(Keypair())[0].decode()) == siws.STATEMENT
+
+
+def test_a_message_without_a_nonce_is_refused() -> None:
+    keypair = Keypair()
+    message, _ = signed(keypair)
+    stripped = b"\n".join(line for line in message.split(b"\n") if not line.startswith(b"Nonce: "))
+    with pytest.raises(siws.SignInError, match="no nonce"):
+        verify(keypair, stripped, bytes(keypair.sign_message(stripped)))
+
+
+@pytest.mark.parametrize(
+    ("not_before", "error"),
+    [("2027-01-15T08:01:00Z", "not valid yet"), ("tomorrow", "Malformed time")],
+)
+def test_a_message_not_valid_yet_is_refused(not_before: str, error: str) -> None:
+    keypair = Keypair()
+    message, _ = signed(keypair)
+    later = message + f"\nNot Before: {not_before}".encode()  # NOW is 2027-01-15T08:00:00Z
+    with pytest.raises(siws.SignInError, match=error):
+        verify(keypair, later, bytes(keypair.sign_message(later)))
+    earlier = message + b"\nNot Before: 2020-01-01T00:00:00Z"
+    assert verify(keypair, earlier, bytes(keypair.sign_message(earlier))) == str(keypair.pubkey())
+
+
+@pytest.mark.parametrize("claims", [b"not json", b'{"a": "Wallet111"}', b'{"a": "W", "e": "soon"}', b"[1]"])
+def test_a_correctly_signed_but_malformed_session_is_invalid(claims: bytes) -> None:
+    body = siws._b64(claims)
+    token = f"{body}.{siws._mac(SECRET, 'session:' + body)}"
+    with pytest.raises(siws.SignInError, match="Invalid session"):
+        siws.check_token(SECRET, token, NOW)
+
+
 def test_session_tokens() -> None:
     token, expires = siws.issue_token(SECRET, "Wallet111", 3600, NOW)
     assert expires == NOW + 3600

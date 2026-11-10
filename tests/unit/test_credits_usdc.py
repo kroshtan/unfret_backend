@@ -64,7 +64,7 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
         "25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable"
         " · comes with 1 invite of 3 checks to give away"
     )
-    assert first["label"]["nl"].endswith(" · met 1 uitnodiging van 3 checks om weg te geven")
+    assert set(first["label"]) == {"en"}  # the app is in English; the map stays for clients that read it
     # 25 + 3 = 28 checks for the 25-pack, 56 for the 50-pack, 112 for the 100-pack.
     assert [p["invites"] for p in doc["packs"]] == [
         {"count": 1, "checks_each": 3, "checks": 3},

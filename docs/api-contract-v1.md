@@ -507,3 +507,12 @@ valid 7 days. Nothing is stored when a check runs.
 
 - `GET /v1/health` and `GET /v1/health/ready` add `commit`: the commit the running image was built from, or `null`
   outside a built image (local runs, tests).
+
+## Changes (English only, backwards-compatible)
+
+- The app writes everything in English. `POST /v1/analyze[/stream]` and `/v1/check` ignore **`Accept-Language`**:
+  `verdict` (label, headline, reasons, positives), `assessment.flags[].label` and the early-exit `explanation` are
+  always English, and `verdict.language` is always `"en"` (kept for clients that read it). The same input with
+  another `Accept-Language` is the same cached result.
+- `GET /v1/pricing`: each pack's `label` is `{"en": …}` only (no `nl`).
+- The extension keeps working unchanged: it may still send `Accept-Language` and its own interface is its own.

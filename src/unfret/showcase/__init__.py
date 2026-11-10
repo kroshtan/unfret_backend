@@ -44,7 +44,6 @@ PublicBand = Literal["reliable", "concerns", "careful", "warning"]
 MAX_SCREENSHOT_BYTES = 800_000
 MAX_TITLE_CHARS = 300
 MAX_URL_CHARS = 2000
-LANGUAGE = "en"  # the site's pages are in English
 
 # Per verdict band: the public band name, its symbol (the same as the extension and /check) and a sentence about
 # the listing, not the shop. The worst band's internal name is never shown.
@@ -131,7 +130,7 @@ async def analyse(graph: Any, url: str, *, timeout_s: float, title: str | None =
     """
     product_url = clean_url(url)
     html = await page_fetch.fetch_page(product_url)
-    state: dict[str, object] = {"page_content": html, "url": product_url, "flags": [], "language": LANGUAGE}
+    state: dict[str, object] = {"page_content": html, "url": product_url, "flags": []}
     async with asyncio.timeout(timeout_s):
         result: dict[str, Any] = await graph.ainvoke(state)
     if int(result["score"]) < 0:
@@ -436,7 +435,7 @@ def public_result(response: dict[str, Any], left_out: list[str] | None = None) -
     headline = _clean(verdict.get("headline"))
     if not headline:
         notes.append("headline")
-        headline = _clean(shopper.copy_for(LANGUAGE)["headlines"][internal]) or label + "."
+        headline = _clean(shopper.catalogue()["headlines"][internal]) or label + "."
     assessment = response.get("assessment") or {}
     flags = _flags(assessment.get("flags") or [], notes)
     shown: dict[str, Any] = {

@@ -76,7 +76,7 @@ const CLAIM_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // quotes are gone after about tw
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
 const KEY_ID_RE = /^[a-z2-7]{10}$/;
-// ISO 3166 alpha-2 codes, named in the visitor's language by Intl.DisplayNames.
+// ISO 3166 alpha-2 codes, named in English by Intl.DisplayNames.
 const COUNTRIES = (
   "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA " +
   "CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA " +
@@ -379,12 +379,12 @@ function inviteOffer(invites) {
 function renderCountries() {
   let names = null;
   try {
-    names = new Intl.DisplayNames([navigator.language, "en"], { type: "region" });
+    names = new Intl.DisplayNames(["en"], { type: "region" });
   } catch {
     // older browsers: codes only
   }
   const options = COUNTRIES.map((code) => ({ code, name: names?.of(code) ?? code })).sort((a, b) =>
-    a.name.localeCompare(b.name),
+    a.name.localeCompare(b.name, "en"),
   );
   const blank = new Option("Choose…", "");
   countryField.replaceChildren(blank, ...options.map(({ code, name }) => new Option(name, code)));

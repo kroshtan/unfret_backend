@@ -14,14 +14,6 @@ from unfret.schemas.requests import AnalyzeRequest
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports
-DUTCH_VERDICT = {
-    "band": "reliable",
-    "label": "Ziet er goed uit",
-    "headline": "Er viel niets zorgwekkends op aan deze pagina.",
-    "reasons": [],
-    "positives": [{"type": "nothing_found", "title": "Geen waarschuwingssignalen", "detail": "Niets verdachts."}],
-    "language": "nl",
-}
 
 
 async def balance(pool: asyncpg.Pool, address: str) -> int | None:
@@ -47,7 +39,7 @@ async def test_analysis_is_paid_from_the_balance(
         "balance_lamports": 2 * PRICE,
         "charged": True,
     }
-    assert graph.calls == [{**PAGE, "language": "en"}]
+    assert graph.calls == [PAGE]
     assert await balance(pool, address) == 2 * PRICE
 
 
@@ -255,17 +247,15 @@ async def test_cache_hit_needs_no_balance_and_streams_at_once(
     assert len(graph.calls) == 1
 
 
-async def test_language_follows_accept_language_and_has_its_own_cache_entry(
-    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
-) -> None:
+async def test_accept_language_changes_nothing(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
+    # The app is in English: the header picks no language, and the same page in another one is the same analysis.
     _, headers = await wallet(3 * PRICE)
-    graph.result = {**graph.result, "verdict": DUTCH_VERDICT}
 
     dutch = await client.post("/v1/analyze", json=PAGE, headers={**headers, "Accept-Language": "nl-NL,nl;q=0.9"})
-    await client.post("/v1/analyze", json=PAGE, headers={**headers, "Accept-Language": "en-GB,en"})
+    english = await client.post("/v1/analyze", json=PAGE, headers={**headers, "Accept-Language": "en-GB,en"})
 
-    assert [c["language"] for c in graph.calls] == ["nl", "en"]  # a different language is a new analysis
-    assert dutch.json()["verdict"] == DUTCH_VERDICT
+    assert graph.calls == [PAGE]  # one analysis, no language in its input; the second is the cached result
+    assert (dutch.json()["charged"], english.json()["charged"]) == (True, False)
 
 
 async def test_a_different_checkout_page_is_a_new_analysis(

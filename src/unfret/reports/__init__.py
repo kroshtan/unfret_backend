@@ -68,7 +68,7 @@ class ReportError(Exception):
 
 def input_hash(body: AnalyzeRequest) -> str:
     """
-    A hash of exactly what was analysed (the language of the verdict aside).
+    A hash of exactly what was analysed.
 
     :param body: The analysed request.
     :return: 32 hex characters.
@@ -78,7 +78,6 @@ def input_hash(body: AnalyzeRequest) -> str:
         page_content=body.page_content or "",
         page_facts_json=body.page_facts.model_dump_json() if body.page_facts else "",
         checkout_content=body.checkout_content or "",
-        language="",
         flags=body.flags,
     )
     return hashlib.sha256(key.encode()).hexdigest()[:32]

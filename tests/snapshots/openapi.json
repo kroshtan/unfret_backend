@@ -158,7 +158,7 @@
         "type": "null"
        }
       ],
-      "description": "For shoppers: the band in words, a headline and up to three plain reasons, in the language of the Accept-Language header (en, nl)."
+      "description": "For shoppers: the band in words, a headline and up to three plain reasons, in English."
      }
     },
     "required": [
@@ -2059,12 +2059,13 @@
       "type": "string"
      },
      "label": {
-      "description": "The band in words, in the requested language.",
+      "description": "The band in words.",
       "title": "Label",
       "type": "string"
      },
      "language": {
       "default": "en",
+      "description": "Always en (kept for clients that read it).",
       "title": "Language",
       "type": "string"
      },
@@ -2155,12 +2156,13 @@
       "type": "string"
      },
      "label": {
-      "description": "The band in words, in the requested language.",
+      "description": "The band in words.",
       "title": "Label",
       "type": "string"
      },
      "language": {
       "default": "en",
+      "description": "Always en (kept for clients that read it).",
       "title": "Language",
       "type": "string"
      },
@@ -2343,7 +2345,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``\nlets them make the verdict public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``\nlets them make the verdict public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {

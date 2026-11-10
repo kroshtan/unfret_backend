@@ -303,7 +303,6 @@ def test_young_linked_shops_are_a_reason_on_storefronts() -> None:
         findings=[finding],
         facts=PageFacts(),
         page_type="storefront",
-        language="nl",
     ).reasons
     (linked,) = [r for r in reasons if r.type == "linked_new_shops"]
-    assert linked.detail.endswith("met 2 winkels die in het afgelopen halfjaar zijn geregistreerd: a.shop, b.shop.")
+    assert linked.detail.endswith("with 2 shops registered in the last six months: a.shop, b.shop.")

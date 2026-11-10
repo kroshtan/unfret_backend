@@ -23,7 +23,6 @@ from unfret.credits import ledger
 from unfret.net import fetch_public
 from unfret.page_fetch import is_challenge_page
 from unfret.prices import format_usd
-from unfret.shopper import pick_language
 from unfret.visitors import RateLimit
 from unfret.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from unfret.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
@@ -399,10 +398,7 @@ async def _paid_check(  # noqa: PLR0911
         return 200, fast.model_dump(mode="json"), paid
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
-            language = pick_language(request.headers.get("accept-language"))
-            result = await graph.ainvoke(
-                {"page_content": html, "url": body.url, "flags": [], "language": language, "explain": False}
-            )
+            result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "explain": False})
     except Exception as exc:  # noqa: BLE001
         # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
         # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.

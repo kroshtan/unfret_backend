@@ -16,7 +16,7 @@ from unfret.config import Settings
 from unfret.credits import invites, vat
 from unfret.credits.packs import Pack, packs
 from unfret.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
-from unfret.shopper import LANGUAGES, copy_for
+from unfret.shopper import LANGUAGE, catalogue
 from unfret.x402.solana import MEMO_PROGRAM, associated_token_address, decimals, transfer_checked
 from unfret.x402.wallet import create_ata_idempotent
 
@@ -123,29 +123,24 @@ def purchase_transaction(
 
 def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
     """
-    How a pack is offered, per language: the card price as *the* price, crypto as the lower price, and its invites.
+    How a pack is offered: the card price as *the* price, crypto as the lower price, and its invites.
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
     discount for paying another way is fine. Invites are invites, never "free" or a "trial".
 
     :param pack: The pack.
     :param settings: The service settings (for the invites; without them, none are mentioned).
-    :return: Language → e.g. ``"25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable · comes with 1
-        invite of 3 checks to give away"``.
+    :return: ``{"en": …}`` (keyed by language for the clients that read it that way), e.g. ``"25 checks — $6.00 ·
+        pay with crypto: $5.00 + VAT where applicable · comes with 1 invite of 3 checks to give away"``.
     """
     count = invites.count_for(settings, pack.checks) if settings else 0
-    labels = {}
-    for language in LANGUAGES:
-        text = copy_for(language)["pricing"]
-        price, crypto = format_usd(pack.card_usd_micros), format_usd(pack.value_usd_micros)
-        if language == "nl":
-            price, crypto = price.replace(".", ","), crypto.replace(".", ",")
-        offer = text["pack"].format(checks=pack.checks, price=price)
-        labels[language] = f"{offer} · {text['crypto'].format(crypto=crypto)}"
-        if count and settings:
-            gift = text["invite_one" if count == 1 else "invite_many"]
-            labels[language] += f" · {gift.format(count=count, checks=settings.invite_checks)}"
-    return labels
+    text = catalogue()["pricing"]
+    price, crypto = format_usd(pack.card_usd_micros), format_usd(pack.value_usd_micros)
+    label = f"{text['pack'].format(checks=pack.checks, price=price)} · {text['crypto'].format(crypto=crypto)}"
+    if count and settings:
+        gift = text["invite_one" if count == 1 else "invite_many"]
+        label += f" · {gift.format(count=count, checks=settings.invite_checks)}"
+    return {LANGUAGE: label}
 
 
 def pack_invites(settings: Settings, pack: Pack) -> dict[str, int]:

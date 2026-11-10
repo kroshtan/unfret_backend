@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.8.0](https://github.com/kroshtan/unfret_backend/compare/0.7.0...0.8.0) (2026-11-10)
+
 ### ⚠ BREAKING CHANGES
 
 * **The Veridex name is gone**: the Python package is `unfret` (`src/unfret`, `python -m unfret.…`, `uvicorn unfret.main:app`), the settings are `UNFRET_*` (no `VERIDEX_*` aliases), payment memos are `unfret:quote:<id>` and `unfret:credit:<account>` (purchases are matched by their Solana Pay reference first, so quotes issued before still settle), and the MCP server is the `unfret_mcp` package with only the `unfret-mcp` command, reading `UNFRET_*` only. Deploys: one Kamal service `unfret` and image `kroshtan/unfret` for both destinations (containers `unfret-web-dev-<sha>` / `unfret-web-production-<sha>`, so production deploys dev's image as it is), databases `unfret-dev-db` / `unfret-prod-db` with user and database `unfret`, and the shared repo secret `LLM_API_KEY`. Each deploy job first frees its host on kamal-proxy from any other service (`scripts/deploy/free-host.sh`: route removed, old web containers stopped, not removed) and, once, copies the old database into the new empty one (`scripts/deploy/adopt-db.sh`: `pg_dump` in one transaction, old container stopped, not removed; production refuses to start on an empty database) ([docs/production-cutover.md](docs/production-cutover.md)). The web pages' session storage key is `unfret-session` (sign in again); `/extension` no longer serves `veridex-*` file names; the local admin-token file defaults to `~/kroshtan_secrets/unfret-prod-admin-token` and the corpus to `~/repos/unfret-corpus`. Repository links point at `kroshtan/unfret_backend`

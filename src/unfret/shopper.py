@@ -2,9 +2,9 @@
 The shopper-facing verdict: a band in words, at most three plain-language reasons and the things that look good.
 
 The scorer's ``assessment`` (risk, confidence, weighted feature flags) is for the details view and for agents; this
-module turns the same evidence into what a shopper reads. Every reason comes from a curated copy catalogue in the
-shopper's language (``copy/<language>.json``), fires only when a skill measured something concrete, and never shows
-a feature name or a raw value. Structural facts (is it a marketplace, is it on Shopify, does it have reviews)
+module turns the same evidence into what a shopper reads. Every reason comes from a curated copy catalogue
+(``copy/en.json``; the app is in English), fires only when a skill measured something concrete, and never shows a
+feature name or a raw value. Structural facts (is it a marketplace, is it on Shopify, does it have reviews)
 describe the page, not its reliability, so they never surface. The headline sentence is written separately (by the
 judge's LLM, or taken from the catalogue's template for the band).
 """
@@ -25,8 +25,7 @@ from unfret.graph.state import Finding
 
 Band = Literal["reliable", "concerns", "careful", "junk_or_scam"]
 Severity = Literal["high", "medium", "low"]
-LANGUAGES = ("en", "nl")
-DEFAULT_LANGUAGE = "en"
+LANGUAGE = "en"  # everything the app writes itself is in English
 COPY_DIR = Path(__file__).with_name("copy")
 
 # Severity per reason; the order is also the tie-break between reasons of equal severity.
@@ -156,23 +155,21 @@ class Verdict(BaseModel):
     """The shopper-facing result of an analysis."""
 
     band: Band
-    label: str = Field(description="The band in words, in the requested language.")
+    label: str = Field(description="The band in words.")
     headline: str = Field(description="One plain sentence explaining the verdict.")
     reasons: list[Reason] = Field(default_factory=list, max_length=3)
     positives: list[Positive] = Field(default_factory=list, max_length=3)
-    language: str = DEFAULT_LANGUAGE
+    language: str = Field(default=LANGUAGE, description="Always en (kept for clients that read it).")
 
 
 @cache
-def copy_for(language: str) -> dict[str, Any]:
+def catalogue() -> dict[str, Any]:
     """
-    The copy catalogue for a language (``copy/<language>.json``), English for unsupported languages.
+    The copy catalogue (``copy/en.json``).
 
-    :param language: A language code.
     :return: Labels, headline templates, reason and positive copy, and small phrases.
     """
-    lang = language if language in LANGUAGES else DEFAULT_LANGUAGE
-    data: dict[str, Any] = json.loads((COPY_DIR / f"{lang}.json").read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads((COPY_DIR / f"{LANGUAGE}.json").read_text(encoding="utf-8"))
     return data
 
 
@@ -186,7 +183,7 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
     :param band: The verdict band.
     :param fired: The keys of the reasons that fired, strongest first.
     :param reasons: The verdict's reasons (same order).
-    :param copy: The language's copy catalogue.
+    :param copy: The copy catalogue.
     :return: The headline.
     """
     sentence: str = copy["headlines"][band]
@@ -215,43 +212,18 @@ def fit_headline(text: str) -> str | None:
     return text
 
 
-def pick_language(accept_language: str | None) -> str:
-    """
-    Choose the response language from an ``Accept-Language`` header (supported: :data:`LANGUAGES`).
-
-    :param accept_language: The header value, e.g. ``"nl-NL,nl;q=0.9,en;q=0.8"``.
-    :return: A supported language code; English when nothing matches.
-    """
-    ranked: list[tuple[float, int, str]] = []
-    for i, part in enumerate((accept_language or "").split(",")):
-        tag, _, params = part.strip().partition(";")
-        q = 1.0
-        if params.strip().startswith("q="):
-            try:
-                q = float(params.strip()[2:])
-            except ValueError:
-                q = 0.0
-        if q > 0:  # q=0 (or an unreadable q) means "not acceptable"
-            ranked.append((-q, i, tag.strip().lower().split("-")[0]))
-    for _, _, lang in sorted(ranked):
-        if lang in LANGUAGES:
-            return lang
-    return DEFAULT_LANGUAGE
-
-
-def feature_label(name: str, language: str = DEFAULT_LANGUAGE) -> str:
+def feature_label(name: str) -> str:
     """
     The human label of a skill feature (``content.generic_brand`` → "Unknown brand").
 
     :param name: The prefixed feature name.
-    :param language: The shopper's language.
     :return: The label; a neutral fallback for a feature the catalogue doesn't know yet.
     """
-    labels: dict[str, str] = copy_for(language)["features"]
-    return labels.get(name) or copy_for(language)["labels"]["concerns"]
+    labels: dict[str, str] = catalogue()["features"]
+    return labels.get(name) or catalogue()["labels"]["concerns"]
 
 
-def label_flags(flags: list[dict[str, Any]], language: str = DEFAULT_LANGUAGE) -> list[dict[str, Any]]:
+def label_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Add ``label``, ``kind`` and ``severity`` to the scorer's flags, so no client shows a feature name.
 
@@ -259,7 +231,6 @@ def label_flags(flags: list[dict[str, Any]], language: str = DEFAULT_LANGUAGE) -
     otherwise; ``severity`` follows the flag's weight (its log-odds contribution).
 
     :param flags: The assessment's flags (``type``, ``evidence``, ``weight``).
-    :param language: The shopper's language.
     :return: The same flags with the human fields added.
     """
     labelled = []
@@ -270,7 +241,7 @@ def label_flags(flags: list[dict[str, Any]], language: str = DEFAULT_LANGUAGE) -
         labelled.append(
             flag
             | {
-                "label": feature_label(str(flag.get("type")), language),
+                "label": feature_label(str(flag.get("type"))),
                 "kind": "context" if context else "signal",
                 "severity": "low" if context else severity,
             }
@@ -300,7 +271,6 @@ class _Evidence:
     findings: dict[str, list[Finding]]
     facts: PageFacts
     page_type: str
-    language: str
     market: str = "eu"
 
     def f(self, name: str) -> float:
@@ -314,10 +284,10 @@ class _Evidence:
         return found[0] if found else None
 
     def phrase(self, key: str) -> str:
-        return str(copy_for(self.language)[key])
+        return str(catalogue()[key])
 
     def age(self, days: int) -> str:
-        units = copy_for(self.language)["age_units"]
+        units = catalogue()["age_units"]
         for limit, size, unit in ((14, 1, "day"), (60, 7, "week"), (730, 30, "month")):
             if days < limit:
                 n = max(1, round(days / size))
@@ -331,13 +301,10 @@ class _Evidence:
             text = f"{float(amount):,.2f}"
         except ValueError:
             return amount
-        if self.language == "nl":
-            text = text.replace(",", "_").replace(".", ",").replace("_", ".")
         return f"{symbol}{text}" if symbol else text
 
     def number(self, n: int) -> str:
-        text = f"{n:,}"
-        return text.replace(",", ".") if self.language == "nl" else text
+        return f"{n:,}"
 
     @property
     def storefront(self) -> bool:
@@ -388,7 +355,8 @@ def _pressure(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Fake discounts: implausible depth, reference-price anchors, endless sales, a 'was' price never charged."""
     if e.f("pricing.was_above_30d_low") >= 1 and (seen := e.first("was_never_charged")):
-        low, was = _NUMBERS_RE.findall(seen.evidence)[:2] or ("?", "?")
+        # "Lowest price in the last 30 days: 19.95; 'was' price: 79.95.": the prices are the last two numbers.
+        low, was = _NUMBERS_RE.findall(seen.evidence)[-2:] or ("?", "?")
         fired["was_never_charged"] = {"low": e.money(low), "was": e.money(was)}
     if e.f("pricing.implausible_discount") >= 1:
         fired["implausible_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}
@@ -559,8 +527,8 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     return fired
 
 
-def _reason(key: str, params: dict[str, str], language: str) -> Reason:
-    copy = copy_for(language)["reasons"][key]
+def _reason(key: str, params: dict[str, str]) -> Reason:
+    copy = catalogue()["reasons"][key]
     thumbnails = params.get("thumbnails", "").split()
     return Reason(
         type=key,
@@ -571,8 +539,8 @@ def _reason(key: str, params: dict[str, str], language: str) -> Reason:
     )
 
 
-def _positive(key: str, params: dict[str, str], language: str) -> Positive:
-    copy = copy_for(language)["positives"][key]
+def _positive(key: str, params: dict[str, str]) -> Positive:
+    copy = catalogue()["positives"][key]
     return Positive(type=key, title=copy["title"], detail=copy["detail"].format(**params))
 
 
@@ -583,7 +551,6 @@ def build(
     findings: list[Finding],
     facts: PageFacts,
     page_type: str,
-    language: str = DEFAULT_LANGUAGE,
     headline: str | None = None,
     market: str = "eu",
     confidence: float | None = None,
@@ -606,18 +573,16 @@ def build(
     :param findings: The skill findings.
     :param facts: The page facts.
     :param page_type: The classified page type.
-    :param language: The shopper's language (see :func:`pick_language`).
     :param headline: The headline sentence; the catalogue's template for the band when not given.
     :param market: The shop's market (:func:`unfret.market.shop_market`), for reasons that depend on its law.
     :param confidence: The scorer's confidence (:class:`unfret.scoring.Assessment`); ``None`` without a scorer.
     :param concrete_only: Never warn without a concrete reason, whatever the scorer's confidence.
     :return: The verdict.
     """
-    language = language if language in LANGUAGES else DEFAULT_LANGUAGE
     by_type: dict[str, list[Finding]] = {}
     for finding in findings:
         by_type.setdefault(finding.type, []).append(finding)
-    evidence = _Evidence(features, by_type, facts, page_type, language, market)
+    evidence = _Evidence(features, by_type, facts, page_type, market)
     band = band_for(score)
 
     fired: dict[str, dict[str, str]] = {}
@@ -631,22 +596,21 @@ def build(
         band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
     order = list(REASON_SEVERITY)
     keys = sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
-    reasons = [_reason(k, fired[k], language) for k in keys]
-    positives = [_positive(k, v, language) for k, v in _positive_params(evidence).items()]
+    reasons = [_reason(k, fired[k]) for k in keys]
+    positives = [_positive(k, v) for k, v in _positive_params(evidence).items()]
 
     if band == "reliable":
         reasons = reasons[:1]
-        positives = positives[:3] or [_positive("nothing_found", {}, language)]
+        positives = positives[:3] or [_positive("nothing_found", {})]
     else:
-        reasons = reasons[:3] or [_reason("overall", {}, language)]
+        reasons = reasons[:3] or [_reason("overall", {})]
         positives = positives[: 2 if band == "concerns" else 1]
 
-    copy = copy_for(language)
+    copy = catalogue()
     return Verdict(
         band=band,
         label=copy["labels"][band],
         headline=headline or template_headline(band, keys[:2], reasons, copy),
         reasons=reasons,
         positives=positives,
-        language=language,
     )

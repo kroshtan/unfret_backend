@@ -203,17 +203,10 @@ async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None) -> d
     return {"page_type": page_type, "skill_results": [finding]}
 
 
-_EARLY_EXIT_EXPLANATIONS: dict[str, dict[str, str]] = {
-    "en": {
-        "article": "Articles are not supported yet",
-        "non_product": "No product referenced on this page",
-        "other": "Page type is not supported",
-    },
-    "nl": {
-        "article": "Artikelen worden nog niet ondersteund",
-        "non_product": "Er staat geen product op deze pagina",
-        "other": "Dit soort pagina wordt niet ondersteund",
-    },
+_EARLY_EXIT_EXPLANATIONS: dict[str, str] = {
+    "article": "Articles are not supported yet",
+    "non_product": "No product referenced on this page",
+    "other": "Page type is not supported",
 }
 
 
@@ -227,8 +220,8 @@ def early_exit_node(state: AnalysisState) -> dict:
     :param state: Current graph state; uses ``page_type``.
     :return: ``score`` of ``-1`` and a short ``explanation``.
     """
-    texts = _EARLY_EXIT_EXPLANATIONS.get(state.get("language", "en"), _EARLY_EXIT_EXPLANATIONS["en"])
-    return {"score": -1, "explanation": texts.get(state["page_type"], texts["other"])}
+    explanation = _EARLY_EXIT_EXPLANATIONS.get(state["page_type"], _EARLY_EXIT_EXPLANATIONS["other"])
+    return {"score": -1, "explanation": explanation}
 
 
 class _JudgeOutput(BaseModel):
@@ -250,10 +243,8 @@ class _Explanation(BaseModel):
     explanation: str = Field(description="One sentence (at most 25 words) for a shopper")
 
 
-_LANGUAGE_NAMES = {"en": "English", "nl": "Dutch"}
-
 _EXPLAIN_SYSTEM = """\
-Write the headline of a shopping check for an ordinary shopper: ONE sentence of at most 25 words, in {language}.
+Write the headline of a shopping check for an ordinary shopper: ONE sentence of at most 25 words, in English.
 The verdict is "{label}". Base the sentence only on the verdict and the points below; don't invent anything.
 Use plain everyday words: no technical terms, model names, scores or percentages. Be calm and factual, and \
 consistent with the verdict: a reliable verdict is reassuring (mention a note only lightly), a low one is a clear \
@@ -281,7 +272,7 @@ async def _judge(state: AnalysisState, model_path: Path, *, concrete_only: bool 
         score = round(100 * (1 - assessment.risk_score))
         verdict = await _verdict(state, score, confidence=assessment.confidence, concrete_only=concrete_only)
         details = asdict(assessment)
-        details["flags"] = shopper.label_flags(details["flags"], verdict.language)
+        details["flags"] = shopper.label_flags(details["flags"])
         return {
             "score": score,
             "explanation": verdict.headline,
@@ -296,9 +287,8 @@ async def _judge(state: AnalysisState, model_path: Path, *, concrete_only: bool 
             HumanMessage(content=f"Skill findings:\n{findings}"),
         ]
     )
-    # Without a scorer the judge's own (English) sentence is the headline; other languages get one written.
-    english = state.get("language", shopper.DEFAULT_LANGUAGE) == "en"
-    verdict = await _verdict(state, judged.score, headline=judged.explanation if english else None)
+    # Without a scorer the judge's own sentence is the headline.
+    verdict = await _verdict(state, judged.score, headline=judged.explanation)
     return {"score": judged.score, "explanation": verdict.headline, "verdict": verdict.model_dump()}
 
 
@@ -322,14 +312,12 @@ async def _verdict(
     :param concrete_only: Warn only with a concrete reason (see :func:`shopper.build`).
     :return: The verdict.
     """
-    language = state.get("language", shopper.DEFAULT_LANGUAGE)
     verdict = shopper.build(
         score,
         features=state.get("features", {}),
         findings=state.get("findings", []),
         facts=state.get("facts") or PageFacts(),
         page_type=state.get("page_type", "storefront"),
-        language=language,
         headline=headline,
         market=shop_market(state.get("facts") or PageFacts(), state.get("url", ""), state.get("cleaned_content", "")),
         confidence=confidence,
@@ -341,11 +329,7 @@ async def _verdict(
     try:
         output: _Explanation = await get_structured_llm(_Explanation).ainvoke(
             [
-                SystemMessage(
-                    content=_EXPLAIN_SYSTEM.format(
-                        language=_LANGUAGE_NAMES.get(verdict.language, "English"), label=verdict.label
-                    )
-                ),
+                SystemMessage(content=_EXPLAIN_SYSTEM.format(label=verdict.label)),
                 HumanMessage(content="Points:\n" + ("\n".join(points) or "- (none)")),
             ]
         )

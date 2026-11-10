@@ -6,7 +6,7 @@ would be a log of what people checked, and payments on a public chain carry time
 against it. Expiry uses a monotonic clock, so no wall-clock time is stored with an entry. A restart empties it.
 
 The key covers everything the result depends on: the listing (URL without tracking parameters), a digest of the
-exact input that was analysed (page text and client-supplied facts), the tier, the language and the flags. Results
+exact input that was analysed (page text and client-supplied facts), the tier and the flags. Results
 built from what one caller sent are therefore only ever served for byte-identical input: someone who sends crafted
 "clean" facts for a scam shop's URL only poisons the entry for their own crafted input, never for other callers.
 """
@@ -106,7 +106,6 @@ def key_for(
     page_facts_json: str = "",
     checkout_content: str = "",
     tier: str = "full",
-    language: str = "en",
     flags: list[str] | None = None,
 ) -> str:
     """
@@ -117,13 +116,13 @@ def key_for(
     :param page_facts_json: The client-supplied facts, serialised (``model_dump_json``), if any.
     :param checkout_content: The checkout page, if supplied (it changes the drip-pricing result).
     :param tier: ``full`` (extension), ``quick`` or ``deep`` (x402): different skills, different results.
-    :param language: The verdict's language.
     :param flags: Extra skills requested.
     :return: The key.
     """
     analysed = "\x1e".join((page_content, page_facts_json, checkout_content))
     base = listing_key(url, analysed)
-    return f"{base}|{tier}|{language}|{','.join(sorted(flags or []))}"
+    # The empty field held the verdict's language; it stays so report tokens issued before still match.
+    return f"{base}|{tier}||{','.join(sorted(flags or []))}"
 
 
 def get(key: str) -> dict[str, Any] | None:

@@ -201,13 +201,10 @@ def test_scorer_reads_not_applicable_as_neutral() -> None:
     assert full is not None and full.confidence == pytest.approx(abs(2 * full.risk_score - 1))  # fully measured
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
-def test_a_us_shop_is_never_told_about_eu_withdrawal_law(language: str) -> None:
+def test_a_us_shop_is_never_told_about_eu_withdrawal_law() -> None:
     features = {"eu_registry.withdrawal_right": 0.0, "eu_registry.imprint": 1.0}
-    us = shopper.build(
-        40, features=features, findings=[], facts=US, page_type="storefront", market="us", language=language
-    )
-    eu = shopper.build(40, features=features, findings=[], facts=EU, page_type="storefront", language=language)
+    us = shopper.build(40, features=features, findings=[], facts=US, page_type="storefront", market="us")
+    eu = shopper.build(40, features=features, findings=[], facts=EU, page_type="storefront")
     assert [r.type for r in us.reasons] == ["no_return_policy"]
     assert [r.type for r in eu.reasons] == ["no_withdrawal"]
     assert "EU" not in us.reasons[0].detail
@@ -318,8 +315,7 @@ def test_sales_tax_wording_is_not_a_late_fee() -> None:
 # ── Shopper copy ──────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
-def test_us_reasons_and_positive_render(language: str) -> None:
+def test_us_reasons_and_positive_render() -> None:
     features = {
         "shop_policies.returns_abroad": 1.0,
         "shop_policies.restocking_fee_high": 1.0,
@@ -332,9 +328,7 @@ def test_us_reasons_and_positive_render(language: str) -> None:
         Finding(skill="shop_policies", type="long_delivery", evidence="Delivery can take up to 25 days."),
         Finding(skill="us_identity", type="business_entity", evidence="Company: Acme Outdoor Goods LLC"),
     ]
-    verdict = shopper.build(
-        40, features=features, findings=findings, facts=US, page_type="storefront", language=language
-    )
+    verdict = shopper.build(40, features=features, findings=findings, facts=US, page_type="storefront")
     reasons = {r.type: r.detail for r in verdict.reasons}
     assert "Shenzhen" in reasons["returns_abroad"]
     assert "25%" in reasons["restocking_fee"]

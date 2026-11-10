@@ -46,7 +46,6 @@ logger = structlog.get_logger("unfret")
 ID_RE = re.compile(r"^[a-z2-7]{26}$")
 MAX_TITLE_CHARS = 200
 MAX_OBJECTION_CHARS = 500
-LANGUAGE = showcase.LANGUAGE
 
 # A quotation of the page: “…” (how the verdict quotes it), "…", „…“ and «…».
 _QUOTE_RE = re.compile(r"“[^”]*”|\"[^\"]*\"|„[^“”]*[“”]|«[^»]*»")
@@ -220,7 +219,7 @@ def public_share_result(response: dict[str, Any]) -> dict[str, Any]:
     shown = showcase.public_result(response)
     verdict = shown["verdict"]
     if _QUOTE_RE.search(verdict["headline"]):
-        catalogue = str(shopper.copy_for(LANGUAGE)["headlines"][_INTERNAL_BAND[verdict["band"]]])
+        catalogue = str(shopper.catalogue()["headlines"][_INTERNAL_BAND[verdict["band"]]])
         verdict["headline"] = verdict["label"] + "." if showcase.FORBIDDEN_RE.search(catalogue) else catalogue
     for item in [*verdict["reasons"], *verdict["positives"]]:
         if _QUOTE_RE.search(item["detail"]):

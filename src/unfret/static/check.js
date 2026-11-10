@@ -92,7 +92,6 @@ function headers(json) {
   return {
     ...(json ? { "Content-Type": "application/json" } : {}),
     ...(account ? { Authorization: `Bearer ${account.token}` } : {}),
-    "Accept-Language": "en", // the verdict's language: this page is in English
   };
 }
 
@@ -107,7 +106,7 @@ async function failure(response) {
 
 async function getJson(path, withAccount = false) {
   const response = await fetch(path, {
-    headers: withAccount ? headers(false) : { "Accept-Language": "en" },
+    headers: withAccount ? headers(false) : {},
     cache: "no-store",
   });
   if (!response.ok) throw await failure(response);

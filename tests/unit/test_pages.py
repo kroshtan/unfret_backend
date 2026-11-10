@@ -24,7 +24,17 @@ async def test_privacy_statement_names_the_price_observations(client: httpx.Asyn
 
     assert response.status_code == 200
     assert "default-src 'none'" in response.headers["content-security-policy"]
-    assert "90 days" in response.text and "90 dagen" in response.text
+    assert "90 days" in response.text
+
+
+def test_pages_are_english_only() -> None:
+    # The app writes everything in English: no translated sections, and no page asks for a verdict in a language.
+    for page in STATIC_DIR.glob("*.html"):
+        text = page.read_text(encoding="utf-8")
+        assert '<html lang="en">' in text and 'lang="nl"' not in text, page.name
+    for script in STATIC_DIR.glob("*.js"):
+        text = script.read_text(encoding="utf-8")
+        assert "Accept-Language" not in text and "navigator.language" not in text, script.name
 
 
 @pytest.mark.parametrize(
@@ -124,12 +134,9 @@ def test_scripts_only_load_images_the_policy_allows() -> None:
         assert "createObjectURL" not in script.read_text(encoding="utf-8"), script.name
 
 
-async def test_privacy_statement_describes_invites_in_both_languages(client: httpx.AsyncClient) -> None:
+async def test_privacy_statement_describes_invites(client: httpx.AsyncClient) -> None:
     text = (await client.get("/privacy")).text
-    english, dutch = text.split('<h2 id="nl"', 1)
-    assert "<strong>Invites</strong>" in english and "nothing links the buyer to the person they invited" in english
-    assert "<strong>Uitnodigingen:</strong>" in dutch
-    assert "niets koppelt de koper aan degene die hij uitnodigde" in dutch
+    assert "<strong>Invites</strong>" in text and "nothing links the buyer to the person they invited" in text
 
 
 def test_pages_show_invites_and_offer_to_redeem_one() -> None:

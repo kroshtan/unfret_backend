@@ -1,4 +1,4 @@
-"""The shopper verdict: bands, plain-language reasons, coherence, languages and the copy catalogue."""
+"""The shopper verdict: bands, plain-language reasons, coherence and the copy catalogue."""
 
 import json
 import re
@@ -84,9 +84,8 @@ def test_bands(score: int, band: str) -> None:
     assert shopper.band_for(score) == band
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
-def test_catalogue_is_complete(language: str) -> None:
-    copy = json.loads((shopper.COPY_DIR / f"{language}.json").read_text(encoding="utf-8"))
+def test_catalogue_is_complete() -> None:
+    copy = json.loads((shopper.COPY_DIR / "en.json").read_text(encoding="utf-8"))
     assert set(copy["reasons"]) == set(shopper.REASON_SEVERITY)
     assert set(copy["positives"]) == set(shopper.POSITIVE_KEYS)
     for entry in [*copy["reasons"].values(), *copy["positives"].values()]:
@@ -97,12 +96,11 @@ def test_catalogue_is_complete(language: str) -> None:
     assert set(copy["age_units"]) == {"day", "week", "month", "year"}
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
 @pytest.mark.parametrize("page_type", ["storefront", "aggregate_listing"])
-def test_every_reason_renders_without_jargon(language: str, page_type: str) -> None:
-    verdict = build(10, ALL_REASON_FEATURES, page_type, findings=ALL_FINDINGS, facts=FACTS, language=language)
+def test_every_reason_renders_without_jargon(page_type: str) -> None:
+    verdict = build(10, ALL_REASON_FEATURES, page_type, findings=ALL_FINDINGS, facts=FACTS)
     for key in shopper.REASON_SEVERITY:
-        reason = shopper._reason(key, _params(key, language), language)
+        reason = shopper._reason(key, _params())
         assert not JARGON.search(reason.title + " " + reason.detail), (key, reason)
     for reason in verdict.reasons:
         assert not JARGON.search(f"{reason.title} {reason.detail}"), reason
@@ -110,7 +108,7 @@ def test_every_reason_renders_without_jargon(language: str, page_type: str) -> N
     assert len(verdict.reasons) <= 3
 
 
-def _params(key: str, language: str) -> dict[str, str]:
+def _params() -> dict[str, str]:
     # Fill every placeholder a reason may use.
     return {
         "app": "Hurrify",
@@ -135,8 +133,7 @@ def _params(key: str, language: str) -> dict[str, str]:
     }
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
-def test_fake_discount_reasons(language: str) -> None:
+def test_fake_discount_reasons() -> None:
     findings = [
         Finding(skill="pricing", type="reference_anchor", evidence='"adviesprijs"'),
         Finding(
@@ -151,12 +148,12 @@ def test_fake_discount_reasons(language: str) -> None:
         "pricing.reference_anchor": 1.0,
         "pricing.was_above_30d_low": 1.0,
     }
-    verdict = build(30, features, findings=findings, facts=PageFacts(currency="EUR"), language=language)
+    verdict = build(30, features, findings=findings, facts=PageFacts(currency="EUR"))
     types = [r.type for r in verdict.reasons]
 
     assert "was_never_charged" in types and "big_discount" not in types and "implausible_discount" not in types
     never = next(r for r in verdict.reasons if r.type == "was_never_charged")
-    assert ("€19,95" if language == "nl" else "€19.95") in never.detail
+    assert never.detail == "This product sold for €19.95 in the past 30 days, yet the 'was' price is €79.95."
 
 
 def test_strongest_reasons_first_and_groups_collapse() -> None:
@@ -209,8 +206,8 @@ def test_users_amazon_result_is_coherent() -> None:
         "content.implausible_claims": 0.7,
     }
     findings = [Finding(skill="content", type="implausible_claim", evidence="99% Minder bacterien")]
-    verdict = build(95, features, "aggregate_listing", findings=findings, language="nl")
-    assert verdict.band == "reliable" and verdict.label == "Ziet er goed uit"
+    verdict = build(95, features, "aggregate_listing", findings=findings)
+    assert verdict.band == "reliable" and verdict.label == "Looks fine"
     assert [r.type for r in verdict.reasons] == ["implausible_claims"]  # one note, no trust or timer reason
     assert verdict.positives
 
@@ -223,9 +220,9 @@ def test_no_trust_reason_on_marketplaces() -> None:
 
 def test_word_soup_and_generic_brand_surface_from_the_llm_judgement() -> None:
     features = {"content.title_word_soup": 0.85, "content.generic_brand": 0.8}
-    verdict = build(45, features, "aggregate_listing", facts=FACTS, language="nl")
+    verdict = build(45, features, "aggregate_listing", facts=FACTS)
     titles = [r.title for r in verdict.reasons]
-    assert titles == ["Titel vol zoekwoorden", "Onbekend merk"]
+    assert titles == ["Title full of search terms", "Unknown brand"]
     assert "“INSOON”" in verdict.reasons[1].detail
 
 
@@ -246,34 +243,14 @@ def test_sold_by_brand_is_good_news_only_for_a_real_brand() -> None:
 
 
 def test_review_velocity_reads_naturally() -> None:
-    verdict = build(20, {}, "aggregate_listing", findings=ALL_FINDINGS, facts=FACTS, language="nl")
+    verdict = build(20, {}, "aggregate_listing", findings=ALL_FINDINGS, facts=FACTS)
     reason = next(r for r in verdict.reasons if r.type == "review_velocity")
-    assert reason.detail == "4.800 beoordelingen voor een product dat pas 6 weken te koop staat."
-    en = build(20, {}, "aggregate_listing", findings=ALL_FINDINGS, facts=FACTS)
-    assert next(r for r in en.reasons if r.type == "review_velocity").detail.startswith("4,800 ratings")
+    assert reason.detail == "4,800 ratings for a product that's only been listed for 6 weeks."
 
 
-@pytest.mark.parametrize(
-    ("header", "language"),
-    [
-        ("nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7", "nl"),
-        ("en-GB,en;q=0.9,nl;q=0.8", "en"),
-        ("de-DE,de;q=0.9,nl;q=0.5", "nl"),
-        ("fr-FR", "en"),
-        ("en;q=0.2, nl;q=0.8", "nl"),
-        ("", "en"),
-        (None, "en"),
-        ("nl;q=abc", "en"),
-    ],
-)
-def test_accept_language(header: str | None, language: str) -> None:
-    assert shopper.pick_language(header) == language
-
-
-@pytest.mark.parametrize("language", ["en", "nl"])
-def test_template_headlines_fit_the_word_limit(language: str) -> None:
-    # The longest reason titles a low verdict can name, in each language.
-    copy = shopper.copy_for(language)
+def test_template_headlines_fit_the_word_limit() -> None:
+    # The longest reason titles a low verdict can name.
+    copy = shopper.catalogue()
     titles = sorted((r["title"] for r in copy["reasons"].values()), key=len, reverse=True)[:2]
     reasons = [shopper.Reason(type="x", title=t, detail="d", severity="high") for t in titles]
     for band in ("reliable", "concerns", "careful", "junk_or_scam"):
@@ -287,22 +264,23 @@ def test_written_headlines_are_capped() -> None:
     assert shopper.fit_headline("") is None
 
 
-def test_labels_and_headline_follow_the_language() -> None:
-    nl = build(10, {"dark_patterns.timer_resets": 1.0}, language="nl")
-    assert (nl.label, nl.reasons[0].title) == ("Veel waarschuwingssignalen", "Neppe afteltimer")
-    assert nl.headline == "Veel waarschuwingssignalen: neppe afteltimer."
-    assert build(10, {}, language="xx").language == "en"
+def test_labels_and_headline_are_english() -> None:
+    verdict = build(10, {"dark_patterns.timer_resets": 1.0})
+    assert (verdict.label, verdict.reasons[0].title) == ("Many warning signs", "Fake countdown")
+    assert verdict.headline == "Many warning signs: fake countdown."
+    assert verdict.language == "en"  # kept on the wire for clients that read it
+    assert sorted(p.name for p in shopper.COPY_DIR.iterdir()) == ["en.json"]  # no other catalogue
 
 
 def test_age_wording() -> None:
-    e = shopper._Evidence({}, {}, PageFacts(), "storefront", "nl")
-    assert [e.age(d) for d in (1, 9, 42, 200, 1100)] == ["1 dag", "9 dagen", "6 weken", "7 maanden", "3 jaar"]
+    e = shopper._Evidence({}, {}, PageFacts(), "storefront")
+    assert [e.age(d) for d in (1, 9, 42, 200, 1100)] == ["1 day", "9 days", "6 weeks", "7 months", "3 years"]
+    assert (e.number(4800), e.money("1234.5")) == ("4,800", "1,234.50")
     assert date.today()  # keep the import honest for type checkers
 
 
-@pytest.mark.parametrize("language", shopper.LANGUAGES)
-def test_every_feature_has_a_human_label(language: str) -> None:
-    labels = shopper.copy_for(language)["features"]
+def test_every_feature_has_a_human_label() -> None:
+    labels = shopper.catalogue()["features"]
     declared = {f"{s.name}.{f}" for s in SKILLS for f in s.features}
     assert declared <= set(labels), sorted(declared - set(labels))
     assert all(label and not JARGON.search(label) for label in labels.values())
@@ -316,12 +294,12 @@ def test_flags_get_labels_and_context_reads_neutral() -> None:
         {"type": "eu_registry.imprint", "evidence": "", "weight": 0.5},
         {"type": "reviews.duplicate_share", "evidence": "40% repeat", "weight": 0.2},
     ]
-    labelled = shopper.label_flags(flags, "nl")
+    labelled = shopper.label_flags(flags)
     assert [f["label"] for f in labelled] == [
-        "Titel vol zoekwoorden",
-        "Aanbod op een marktplaats",
-        "Bedrijfsgegevens vermeld",
-        "Gekopieerde reviews",
+        "Title full of search terms",
+        "Marketplace listing",
+        "Company details shown",
+        "Copy-paste reviews",
     ]
     assert [(f["kind"], f["severity"]) for f in labelled] == [
         ("signal", "high"),

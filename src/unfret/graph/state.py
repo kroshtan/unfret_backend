@@ -45,8 +45,6 @@ class AnalysisState(TypedDict):
     page_facts: NotRequired[PageFacts | None]
     # Optional checkout page HTML, to compare the final total with the listed price (drip pricing).
     checkout_content: NotRequired[str]
-    # The shopper's language for the verdict and headline ("en", "nl"); English when absent.
-    language: NotRequired[str]
     # Whether an LLM writes the headline (default). Agents (x402) read the flags, so they get the template and
     # save a model call.
     explain: NotRequired[bool]

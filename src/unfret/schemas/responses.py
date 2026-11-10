@@ -54,8 +54,7 @@ class AnalyzeResponse(BaseModel):
     )
     verdict: Verdict | None = Field(
         default=None,
-        description="For shoppers: the band in words, a headline and up to three plain reasons, in the language of "
-        "the Accept-Language header (en, nl).",
+        description="For shoppers: the band in words, a headline and up to three plain reasons, in English.",
     )
     share_token: str | None = Field(
         default=None,

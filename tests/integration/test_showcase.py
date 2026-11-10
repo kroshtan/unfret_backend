@@ -180,7 +180,11 @@ async def test_add_review_publish_and_remove_with_the_cli(  # noqa: PLR0917 - on
     assert "Draft #1 added" in out and "Unfret would warn you about this listing" in out
     assert "Left out of the public page" in out  # the headline and the quote
     assert shop["calls"] == ["https://shop.example/products/led-mask"]  # fetched by the server, fragment dropped
-    assert warned.calls[0]["page_content"] == PRODUCT_HTML and warned.calls[0]["language"] == "en"
+    assert warned.calls[0] == {
+        "page_content": PRODUCT_HTML,
+        "url": "https://shop.example/products/led-mask",
+        "flags": [],
+    }
     row = await pool.fetchrow("SELECT * FROM showcase_cases")
     assert row["status"] == "draft" and row["origin"] == "operator"
     assert row["title"] == "LED face mask, professional" and row["host"] == "shop.example"

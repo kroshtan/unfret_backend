@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from unfret import page_fetch, reports, result_cache, shares, shopper
+from unfret import page_fetch, reports, result_cache, shares
 from unfret.auth import require_account
 from unfret.config import settings
 from unfret.credits import ledger
@@ -56,7 +56,6 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
         "page_content": body.page_content or "",
         "url": body.url,
         "flags": body.flags,
-        "language": shopper.pick_language(request.headers.get("accept-language")),
     }
     if body.page_facts is not None:
         state["page_facts"] = body.page_facts
@@ -138,7 +137,7 @@ async def _balance(request: Request, address: str) -> int:
     return await ledger.balance(request.app.db_pool, address) or 0
 
 
-def _cache_key(body: AnalyzeRequest, language: str) -> str:
+def _cache_key(body: AnalyzeRequest) -> str:
     # Keyed on exactly what was sent (see unfret.result_cache): a result is only reused for identical input, so
     # one caller's crafted facts are never served to another.
     return result_cache.key_for(
@@ -147,7 +146,6 @@ def _cache_key(body: AnalyzeRequest, language: str) -> str:
         page_facts_json=body.page_facts.model_dump_json() if body.page_facts else "",
         checkout_content=body.checkout_content or "",
         tier="full",
-        language=language,
         flags=body.flags,
     )
 
@@ -225,7 +223,7 @@ async def analyze_page(
 
     Passes the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the
     facts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a
-    reliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis
+    reliability score, an explanation and the shopper verdict (in English). The analysis
     price is taken from the balance up front and refunded when the page can't be analysed (score -1) or the
     analysis fails. The same input analysed again within the hour is served from an in-memory cache, free of
     charge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong
@@ -249,7 +247,7 @@ async def analyze_page(
     :raises asyncio.CancelledError: If the client hung up (after the refund).
     """
     graph, state = _graph_input(body, request)
-    key = _cache_key(body, str(state["language"]))
+    key = _cache_key(body)
     cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")
@@ -340,7 +338,7 @@ async def analyze_page_stream(
     :return: A ``text/event-stream`` response.
     """
     graph, state = _graph_input(body, request)
-    key = _cache_key(body, str(state["language"]))
+    key = _cache_key(body)
     cached = result_cache.get(key)
     if cached is not None:
         logger.info("analysis_cache_hit")

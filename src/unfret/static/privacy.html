@@ -28,9 +28,12 @@
         have left. No name, email or password.</li>
       <li><strong>Or your API key and its balance</strong>: if you use a key instead of a wallet, a one-way hash of the
         key and of its recovery code, the key's public ID and its balance. The key itself is shown to you once and
-        never stored, so we can't recover it for you: keep the recovery code. A card payment, once available, is
-        handled by the payment provider, which keeps your payment details; we keep only the order number, the amount and
-        which key it topped up, for 180 days (for refunds and questions), never your name, e-mail or address.</li>
+        never stored, so we can't recover it for you: keep the recovery code. A card payment is handled by
+        <a href="https://polar.sh" rel="noopener">Polar</a>, which sells the pack to you as merchant of record: it
+        collects your payment details, e-mail and country, charges VAT and sends the receipt, under its own privacy
+        policy. We give Polar only the pack and the key's public ID, so the payment tops up the right key. We keep only
+        the order number, the amount and which key it topped up, for 180 days (for refunds and questions), never your
+        name, e-mail or address.</li>
       <li><strong>Invites</strong>: a pack comes with invite codes to give away. We keep only a one-way hash of each
         code, the day it was issued and the day it was used: not who bought it, not who used it, no IP address, so
         nothing links the buyer to the person they invited. The codes themselves are shown once, on your payment

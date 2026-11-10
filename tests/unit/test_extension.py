@@ -212,7 +212,7 @@ async def test_install_page_shows_the_release_and_policy_commands(client: httpx.
 def test_linux_policy_command_force_installs_from_this_server() -> None:
     command = linux_policy_command("abcdefghijklmnopabcdefghijklmnop")
     assert command == (
-        "sudo mkdir -p /etc/brave/policies/managed && sudo rm -f /etc/brave/policies/managed/veridex.json && echo "
+        "sudo mkdir -p /etc/brave/policies/managed && echo "
         '\'{"ExtensionInstallForcelist":["abcdefghijklmnopabcdefghijklmnop;'
         "https://unfret.kroshtan.com/extension/updates.xml\"]}' "
         "| sudo tee /etc/brave/policies/managed/unfret.json > /dev/null"

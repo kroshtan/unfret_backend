@@ -117,6 +117,9 @@ CONTEXT_FEATURES = frozenset(
 # Reasons that only say something is missing from the page (which a page fetched without its footer, or a shop
 # outside the EU, can lack without being any less reliable).
 ABSENCE_REASONS = ("no_withdrawal", "no_return_policy", "no_imprint", "missing_trust_info")
+# Not enough on its own for the quick tier: a countdown that doesn't restart is an ordinary promotion (Black Friday
+# banners) as often as pressure; one that restarts on reload is "timer_resets", which is.
+_QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
@@ -595,7 +598,8 @@ def build(
         for key in [k for k in group if k in fired][1:]:
             del fired[key]
     unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
-    if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= set(ABSENCE_REASONS):
+    not_enough = _QUICK_NOT_ENOUGH_ALONE if concrete_only else frozenset(ABSENCE_REASONS)
+    if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= not_enough:
         band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score

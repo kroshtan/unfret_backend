@@ -118,6 +118,10 @@ def test_absences_alone_never_make_a_page_careful_when_the_scorer_is_unsure(mark
     # The quick tier warns only on something concrete, however sure its scorer is.
     assert band(0.9, concrete_only=True) == "concerns"
     assert band(0.9, {"dark_patterns.preticked_addons": 1.0}, concrete_only=True) == "careful"
+    # A countdown that doesn't restart isn't enough for the quick tier; one that restarts on reload is.
+    assert band(0.9, {"dark_patterns.timer": 1.0}, concrete_only=True) == "concerns"
+    assert band(0.9, {"dark_patterns.timer": 1.0, "dark_patterns.timer_resets": 1.0}, concrete_only=True) == "careful"
+    assert band(0.19, {"dark_patterns.timer": 1.0}) == "careful"  # the deep tier still counts it
 
 
 async def test_the_quick_judge_warns_only_on_something_concrete(monkeypatch: pytest.MonkeyPatch) -> None:

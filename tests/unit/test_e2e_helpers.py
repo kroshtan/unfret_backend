@@ -207,7 +207,9 @@ def test_the_payment_header_carries_the_offered_requirement_and_the_transaction(
 
 def test_the_buyer_signs_the_purchase_transaction() -> None:
     buyer, hot = Keypair(), Keypair().pubkey()
-    raw = purchase_transaction(buyer.pubkey(), hot, 5_000_000, BLOCKHASH, "unfret:quote:x", mint=USDC_MINTS["solana-devnet"])
+    raw = purchase_transaction(
+        buyer.pubkey(), hot, 5_000_000, BLOCKHASH, "unfret:quote:x", mint=USDC_MINTS["solana-devnet"]
+    )
     signed = VersionedTransaction.from_bytes(sign_purchase(base64.b64encode(raw).decode(), buyer))
     assert signed.verify_with_results() == [True]
     with pytest.raises(E2EConfigError):
@@ -271,7 +273,9 @@ def provider() -> polar.PolarProvider:
 
 def test_the_made_up_orders_are_read_by_the_real_polar_provider() -> None:
     now = int(time.time())
-    body, headers = signed_webhook(SECRET, "order.paid", polar_order("e2e-1", "key:abcdefghij", PRODUCT, 600), timestamp=now)
+    body, headers = signed_webhook(
+        SECRET, "order.paid", polar_order("e2e-1", "key:abcdefghij", PRODUCT, 600), timestamp=now
+    )
     paid = provider().parse_webhook(headers, body, now)
     assert paid is not None
     assert (paid.kind, paid.order_id, paid.account, paid.amount_cents) == ("paid", "e2e-1", "key:abcdefghij", 600)

@@ -208,7 +208,9 @@ async def test_a_new_key_starts_empty_takes_a_grant_and_survives_recovery(
         assert empty.status_code == 402
         assert empty.json()["error_code"] == "INSUFFICIENT_CREDITS"
 
-        granted = await api.post(f"/v1/admin/keys/{issued['key_id']}/grant", json={"usd_micros": 400_000}, headers=admin)
+        granted = await api.post(
+            f"/v1/admin/keys/{issued['key_id']}/grant", json={"usd_micros": 400_000}, headers=admin
+        )
         assert granted.status_code == 200
         assert granted.json()["balance_usd_micros"] == 400_000
         assert await key_balance(api, issued["key"]) == 400_000
@@ -360,7 +362,9 @@ async def test_the_payer_signs_in_with_its_wallet(api: httpx.AsyncClient, payer:
 # ── x402 pay-per-check ─────────────────────────────────────────────────────────────────────────────────────────
 
 
-async def test_an_unpaid_check_asks_for_the_tier_price_in_usdc_and_wsol(api: httpx.AsyncClient, target: Target) -> None:
+async def test_an_unpaid_check_asks_for_the_tier_price_in_usdc_and_wsol(
+    api: httpx.AsyncClient, target: Target
+) -> None:
     prices = (await pricing(api))["x402"]
     for tier in ("quick", "deep"):
         accepts = await offered(api, page(target, PRODUCT_PAGE, f"unpaid-{tier}"), tier)
@@ -439,7 +443,9 @@ async def test_an_underpaid_check_is_refused_before_any_money_moves(
     requirement = choose_requirement({"accepts": await offered(api, url, "quick")}, DEVNET_CAIP2, ("USDC",))
     before = await usdc_of(rpc, payer.pubkey())
 
-    response, _ = await paid_check(api, url, "quick", requirement, payer, rpc, amount=str(int(requirement["amount"]) - 1))
+    response, _ = await paid_check(
+        api, url, "quick", requirement, payer, rpc, amount=str(int(requirement["amount"]) - 1)
+    )
 
     assert response.status_code == 402, response.text
     assert response.json()["error"] == "wrong_amount"
@@ -482,7 +488,13 @@ async def test_a_pack_bought_in_usdc_credits_exactly_its_price(
     before = await key_balance(api, account.key)
     response = await api.post(
         "/v1/credits/purchase-tx",
-        json={"address": str(payer.pubkey()), "currency": "USDC", "checks": PACK, "country": "US", "key_id": account.key_id},
+        json={
+            "address": str(payer.pubkey()),
+            "currency": "USDC",
+            "checks": PACK,
+            "country": "US",
+            "key_id": account.key_id,
+        },
     )
     assert response.status_code == 200, response.text
     purchase = response.json()
@@ -522,7 +534,9 @@ async def test_a_pack_paid_in_sol_by_its_solana_pay_reference_alone(
     # A wallet that drops the memo: only the reference names the quote.
     signature = await rpc.send_and_confirm(reference_only_transfer(request, payer, await rpc.latest_blockhash()))
 
-    assert (await quote_paid(api, qr.headers["x-unfret-quote"]))["paid"], f"not credited within {QUOTE_PAID_WITHIN_S} s"
+    assert (await quote_paid(api, qr.headers["x-unfret-quote"]))["paid"], (
+        f"not credited within {QUOTE_PAID_WITHIN_S} s"
+    )
     assert await confirmed_on_chain(rpc, signature)
     credited = await key_balance(api, account.key) - before
     expected = pack["credited_usd_micros"]

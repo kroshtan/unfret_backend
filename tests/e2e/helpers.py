@@ -37,7 +37,14 @@ FORGE_RAW = "https://git.kroshtan.com/kroshtan/unfret_backend/raw/commit"
 FIXTURES = "tests/fixtures/pages"
 SSH_OPTIONS = ("-o", "BatchMode=yes", "-o", "UpdateHostKeys=no", "-o", "CheckHostIP=no")
 # The dev containers on the server (config/deploy.dev.yml): Kamal labels the app's, the accessory has a fixed name.
-DEV_APP_FILTER = ("--filter", "label=service=unfret", "--filter", "label=destination=dev", "--filter", "label=role=web")
+DEV_APP_FILTER = (
+    "--filter",
+    "label=service=unfret",
+    "--filter",
+    "label=destination=dev",
+    "--filter",
+    "label=role=web",
+)
 DEV_DB_CONTAINER = "unfret-dev-db"
 
 LAMPORTS_PER_SOL = 1_000_000_000
@@ -333,7 +340,9 @@ def reference_only_transfer(request: SolanaPayRequest, payer: Keypair, blockhash
     if request.reference is None:
         raise E2EConfigError("the Solana Pay request carries no reference")
     if request.mint is None:
-        moved = transfer(TransferParams(from_pubkey=payer.pubkey(), to_pubkey=request.recipient, lamports=request.amount))
+        moved = transfer(
+            TransferParams(from_pubkey=payer.pubkey(), to_pubkey=request.recipient, lamports=request.amount)
+        )
     else:
         moved = transfer_checked(
             associated_token_address(payer.pubkey(), request.mint),
@@ -348,7 +357,9 @@ def reference_only_transfer(request: SolanaPayRequest, payer: Keypair, blockhash
     return bytes(VersionedTransaction(message, [payer]))
 
 
-def polar_order(order_id: str, account: str, product_id: str, net_cents: int, refunded_cents: int = 0) -> dict[str, Any]:
+def polar_order(
+    order_id: str, account: str, product_id: str, net_cents: int, refunded_cents: int = 0
+) -> dict[str, Any]:
     """
     A Polar order as its webhooks carry it, reduced to what the service reads (plus the shape around it).
 

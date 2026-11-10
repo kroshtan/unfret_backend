@@ -4,8 +4,8 @@ Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
 fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
 an API key (support, and test credits for a store reviewer), the quarterly export of crypto sales records for
-the bookkeeping, and the "Spotted recently" showcase (``python -m unfret.showcase``): operator-run checks, drafts
-until published.
+the bookkeeping, the "Spotted recently" showcase (``python -m unfret.showcase``): operator-run checks, drafts
+until published, and the review of shared results a shop owner objected to.
 """
 
 import json
@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import page_fetch, reports, shop_store, showcase
+from unfret import page_fetch, reports, shares, shop_store, showcase
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import keys, ledger, vat
@@ -386,3 +386,59 @@ async def showcase_screenshot(case_id: int, request: Request) -> dict[str, Any]:
     except showcase.ShowcaseError as exc:
         raise HTTPException(422, str(exc)) from exc
     return _operator_view(await _case_or_404(pool, case_id))
+
+
+# ── Shared results ───────────────────────────────────────────────────────────────────────────────────────────────
+
+
+def _share_for_operator(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **shares.public_view(row),
+        "checked_on": row["checked_on"].isoformat(),
+        "expires_at": row["expires_at"].isoformat(),
+        "hidden_reason": row["hidden_reason"],
+    }
+
+
+@router.get("/shares")
+async def share_list(request: Request, hidden: bool = True, limit: int = 100) -> dict[str, Any]:
+    """
+    Shared results for review: by default the ones hidden after an objection.
+
+    :param request: The incoming request.
+    :param hidden: Only hidden ones (``false``: all, hidden first).
+    :param limit: How many (at most 500).
+    :return: The shares, as the public would see them, with why they are hidden.
+    """
+    rows = await shares.listing(_pool(request), hidden_only=hidden, limit=min(max(limit, 1), 500))
+    return {"items": [_share_for_operator(row) for row in rows]}
+
+
+@router.post("/shares/{share_id}/unhide")
+async def share_unhide(share_id: str, request: Request) -> dict[str, Any]:
+    """
+    Put a hidden shared result back after review (the objection didn't hold).
+
+    :param share_id: The share.
+    :param request: The incoming request.
+    :return: ``{"unhidden": true}``.
+    :raises HTTPException: 404 if no hidden share has this id.
+    """
+    if not await shares.unhide(_pool(request), share_id):
+        raise HTTPException(404, "No hidden share with this id.")
+    return {"unhidden": True}
+
+
+@router.delete("/shares/{share_id}")
+async def share_delete(share_id: str, request: Request) -> dict[str, Any]:
+    """
+    Delete a shared result for good (after review of an objection).
+
+    :param share_id: The share.
+    :param request: The incoming request.
+    :return: ``{"deleted": true}``.
+    :raises HTTPException: 404 if there is none.
+    """
+    if not await shares.remove(_pool(request), share_id):
+        raise HTTPException(404, "No such share.")
+    return {"deleted": True}

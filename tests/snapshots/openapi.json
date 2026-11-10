@@ -137,6 +137,18 @@
       "title": "Score",
       "type": "integer"
      },
+     "share_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Pass to POST /v1/shares (without Authorization) with the url and this result to make the verdict public as a link (within 7 days; it names no account). Absent for pages that couldn't be analysed. A check that included checkout_content can't be shared.",
+      "title": "Share Token"
+     },
      "verdict": {
       "anyOf": [
        {
@@ -272,6 +284,38 @@
      "solution"
     ],
     "title": "CreateKeyRequest",
+    "type": "object"
+   },
+   "CreatedShare": {
+    "description": "A new share. The delete code is shown this once and stored only as a hash: keep it to delete the share.",
+    "properties": {
+     "delete_code": {
+      "description": "Send as X-Delete-Code to DELETE /v1/shares/<id>.",
+      "title": "Delete Code",
+      "type": "string"
+     },
+     "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "link": {
+      "description": "The share's page on this site, /r/<id>: the link to pass on.",
+      "title": "Link",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "link",
+     "delete_code",
+     "expires_at"
+    ],
+    "title": "CreatedShare",
     "type": "object"
    },
    "CreditsResponse": {
@@ -596,6 +640,20 @@
      "version"
     ],
     "title": "NonceResponse",
+    "type": "object"
+   },
+   "Objection": {
+    "description": "A shop owner's objection to a shared result.",
+    "properties": {
+     "reason": {
+      "default": "",
+      "description": "Why (optional).",
+      "maxLength": 500,
+      "title": "Reason",
+      "type": "string"
+     }
+    },
+    "title": "Objection",
     "type": "object"
    },
    "PageFacts": {
@@ -1309,6 +1367,257 @@
     "title": "SessionResponse",
     "type": "object"
    },
+   "SharePreview": {
+    "description": "Exactly what a share makes public.",
+    "properties": {
+     "band": {
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "warning"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "checked_on": {
+      "description": "The day of the check; the page may have changed since.",
+      "format": "date",
+      "title": "Checked On",
+      "type": "string"
+     },
+     "checked_on_text": {
+      "description": "The same day, in words.",
+      "title": "Checked On Text",
+      "type": "string"
+     },
+     "headline": {
+      "title": "Headline",
+      "type": "string"
+     },
+     "host": {
+      "description": "The shop or marketplace.",
+      "title": "Host",
+      "type": "string"
+     },
+     "label": {
+      "description": "What Unfret would tell a shopper about this listing.",
+      "title": "Label",
+      "type": "string"
+     },
+     "notice": {
+      "default": "Anyone with the link sees this verdict and the product link. It never says who checked.",
+      "description": "What to tell the sharer before they confirm.",
+      "title": "Notice",
+      "type": "string"
+     },
+     "product_url": {
+      "description": "The product page (without tracking parameters), linked nofollow.",
+      "title": "Product Url",
+      "type": "string"
+     },
+     "result": {
+      "additionalProperties": true,
+      "description": "verdict (band, label, symbol, headline, reasons, positives) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
+      "title": "Result",
+      "type": "object"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "description": "The product's title, as the page showed it (or the shop when it had none).",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "title",
+     "host",
+     "product_url",
+     "checked_on",
+     "checked_on_text",
+     "band",
+     "label",
+     "symbol",
+     "headline",
+     "result"
+    ],
+    "title": "SharePreview",
+    "type": "object"
+   },
+   "ShareRequest": {
+    "description": "A result to share, sent back with the check it came from.",
+    "properties": {
+     "result": {
+      "$ref": "#/components/schemas/SharedAnalysis",
+      "description": "The result, exactly as it was returned."
+     },
+     "share_token": {
+      "description": "The share_token from the analysis result.",
+      "maxLength": 2000,
+      "title": "Share Token",
+      "type": "string"
+     },
+     "url": {
+      "description": "The url that was checked, as it was sent.",
+      "maxLength": 4000,
+      "minLength": 8,
+      "title": "Url",
+      "type": "string"
+     }
+    },
+    "required": [
+     "share_token",
+     "url",
+     "result"
+    ],
+    "title": "ShareRequest",
+    "type": "object"
+   },
+   "SharedAnalysis": {
+    "description": "The analysis result, as ``POST /v1/analyze`` returned it (only these fields are read; others are ignored).",
+    "properties": {
+     "assessment": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Assessment"
+     },
+     "explanation": {
+      "maxLength": 4000,
+      "title": "Explanation",
+      "type": "string"
+     },
+     "score": {
+      "maximum": 100.0,
+      "minimum": -1.0,
+      "title": "Score",
+      "type": "integer"
+     },
+     "verdict": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Verdict-Input"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "score",
+     "explanation"
+    ],
+    "title": "SharedAnalysis",
+    "type": "object"
+   },
+   "SharedResult": {
+    "description": "A shared result.",
+    "properties": {
+     "band": {
+      "enum": [
+       "reliable",
+       "concerns",
+       "careful",
+       "warning"
+      ],
+      "title": "Band",
+      "type": "string"
+     },
+     "checked_on": {
+      "description": "The day of the check; the page may have changed since.",
+      "format": "date",
+      "title": "Checked On",
+      "type": "string"
+     },
+     "checked_on_text": {
+      "description": "The same day, in words.",
+      "title": "Checked On Text",
+      "type": "string"
+     },
+     "expires_at": {
+      "description": "When it is deleted.",
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+     },
+     "headline": {
+      "title": "Headline",
+      "type": "string"
+     },
+     "host": {
+      "description": "The shop or marketplace.",
+      "title": "Host",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "label": {
+      "description": "What Unfret would tell a shopper about this listing.",
+      "title": "Label",
+      "type": "string"
+     },
+     "link": {
+      "description": "The share's page on this site, /r/<id>.",
+      "title": "Link",
+      "type": "string"
+     },
+     "notice": {
+      "default": "Anyone with the link sees this verdict and the product link. It never says who checked.",
+      "description": "What to tell the sharer before they confirm.",
+      "title": "Notice",
+      "type": "string"
+     },
+     "product_url": {
+      "description": "The product page (without tracking parameters), linked nofollow.",
+      "title": "Product Url",
+      "type": "string"
+     },
+     "result": {
+      "additionalProperties": true,
+      "description": "verdict (band, label, symbol, headline, reasons, positives) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
+      "title": "Result",
+      "type": "object"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "description": "The product's title, as the page showed it (or the shop when it had none).",
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "title",
+     "host",
+     "product_url",
+     "checked_on",
+     "checked_on_text",
+     "band",
+     "label",
+     "symbol",
+     "headline",
+     "result",
+     "id",
+     "link",
+     "expires_at"
+    ],
+    "title": "SharedResult",
+    "type": "object"
+   },
    "ShowcaseCase": {
     "description": "A published case with its full result.",
     "properties": {
@@ -1915,7 +2224,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent.\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left and a\n    report token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in the ``Accept-Language`` language). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``\nlets them make the verdict public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param address: The account (injected by require_account).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {
@@ -2761,6 +3070,243 @@
     "summary": "Page Facts Schema",
     "tags": [
      "Credits"
+    ]
+   }
+  },
+  "/v1/shares": {
+   "post": {
+    "description": "Make a result public as a link: ``/r/<id>``, for 90 days. Send it without Authorization; it names no account.\n\nThe token must match the url and the result exactly (a share can only show a verdict Unfret gave for that page)\nand be under 7 days old. What is stored is what the preview shows: the verdict in the showcase's wording (no\nscore, never \"scam\" or \"fraud\"), the product's title and link, the shop and the day of the check; no quotes from\nthe page and nothing about who checked. A check that included checkout_content can't be shared. 20 shares per\nvisitor network per day.\n\n:param body: The share token, the checked url and the result.\n:param request: The incoming request.\n:return: The id, the link and the delete code (shown this once).\n:raises TooManyRequestsError: Over today's limit.",
+    "operationId": "create_share_v1_shares_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ShareRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CreatedShare"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Share",
+    "tags": [
+     "Shares"
+    ]
+   }
+  },
+  "/v1/shares/preview": {
+   "post": {
+    "description": "Exactly what ``POST /v1/shares`` would make public, without storing anything. Send it without Authorization.\n\n:param body: The share token, the checked url and the result.\n:param request: The incoming request.\n:return: The public fields and the notice to show the sharer.\n:raises TooManyRequestsError: Over 30 previews a minute from one visitor network.",
+    "operationId": "preview_share_v1_shares_preview_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ShareRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SharePreview"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Preview Share",
+    "tags": [
+     "Shares"
+    ]
+   }
+  },
+  "/v1/shares/{share_id}": {
+   "delete": {
+    "description": "Delete a shared result with its delete code (X-Delete-Code), for good.\n\n:param share_id: The share.\n:param request: The incoming request.\n:param x_delete_code: The delete code shown when it was shared.\n:return: 204.\n:raises BadRequestError: Without the code.\n:raises ForbiddenError: With a wrong code.\n:raises NotFoundError: For no such share.",
+    "operationId": "delete_share_v1_shares__share_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "required": true,
+      "schema": {
+       "title": "Share Id",
+       "type": "string"
+      }
+     },
+     {
+      "description": "The delete code.",
+      "in": "header",
+      "name": "x-delete-code",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 100,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The delete code.",
+       "title": "X-Delete-Code"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Delete Share",
+    "tags": [
+     "Shares"
+    ]
+   },
+   "get": {
+    "description": "A shared result: what a shopper's check of a product page showed that day.\n\n:param share_id: The share.\n:param request: The incoming request.\n:return: The shared result (404 once deleted, expired or hidden after an objection).",
+    "operationId": "get_share_v1_shares__share_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "required": true,
+      "schema": {
+       "title": "Share Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SharedResult"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Share",
+    "tags": [
+     "Shares"
+    ]
+   }
+  },
+  "/v1/shares/{share_id}/object": {
+   "post": {
+    "description": "Object to a shared result (a shop owner): it is hidden at once, and Unfret reviews it.\n\n:param share_id: The share.\n:param body: Why, optionally.\n:param request: The incoming request.\n:return: ``{\"hidden\": true}``.\n:raises NotFoundError: For no such (visible) share.\n:raises TooManyRequestsError: Over today's limit.",
+    "operationId": "object_to_share_v1_shares__share_id__object_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "share_id",
+      "required": true,
+      "schema": {
+       "title": "Share Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/Objection"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": {
+          "type": "boolean"
+         },
+         "title": "Response Object To Share V1 Shares  Share Id  Object Post",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Object To Share",
+    "tags": [
+     "Shares"
     ]
    }
   },

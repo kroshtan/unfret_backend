@@ -7,6 +7,7 @@ the same for everyone, so it may be cached briefly.
 
 import html
 import json
+import re
 from datetime import datetime
 from typing import Any, Literal
 
@@ -108,6 +109,25 @@ def _data_block(value: Any) -> str:
     return text.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
 
 
+_PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
+
+
+def fill_page(template: str, fields: dict[str, Any], data: Any, markup: dict[str, str] | None = None) -> str:
+    """
+    A result page from its template, in one pass (so text from a page can't bring in a placeholder of its own).
+
+    :param template: The template's file name in the static directory.
+    :param fields: Text for ``{{name}}`` placeholders, HTML-escaped.
+    :param data: The result, for the ``{{data}}`` block (JSON, made safe inside a script element).
+    :param markup: Trusted HTML for other placeholders.
+    :return: The page.
+    """
+    values = {name: html.escape(str(value)) for name, value in fields.items()} | (markup or {})
+    values["data"] = _data_block(data)
+    page = (STATIC_DIR / template).read_text(encoding="utf-8")
+    return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), page)
+
+
 def render_case_page(view: dict[str, Any]) -> str:
     """
     The case page: its facts and verdict in HTML (readable without scripts), the full result as a data block.
@@ -133,11 +153,7 @@ def render_case_page(view: dict[str, Any]) -> str:
         "label": view["label"],
         "headline": view["headline"],
     }
-    page = (STATIC_DIR / "showcase.html").read_text(encoding="utf-8")
-    for name, value in fields.items():
-        page = page.replace("{{" + name + "}}", html.escape(str(value)))
-    page = page.replace("{{screenshot}}", shot)
-    return page.replace("{{data}}", _data_block(view["result"]))
+    return fill_page("showcase.html", fields, view["result"], {"screenshot": shot})
 
 
 @router.get("/showcase/{case_id}", response_class=HTMLResponse, include_in_schema=False)

@@ -438,3 +438,35 @@ valid 7 days. Nothing is stored when a check runs.
   Polar can't start the checkout (unreachable, or the product's price doesn't match the pack).
 - `GET /v1/health/ready` adds `fiat`: `"off"`, or the provider and its environment (`"polar:production"`,
   `"polar:sandbox"`).
+
+## Changes (shared results, backwards-compatible)
+
+- `POST /v1/analyze` and the stream's `result` event add `share_token` (absent when the page wasn't assessed, the
+  request had no web `url`, or sign-in is off). It is an HMAC over the product address (fragment, credentials and
+  tracking parameters dropped), a hash of the result as a share would show it, whether `checkout_content` was sent,
+  the product title and an expiry (7 days). It names no account.
+- `POST /v1/shares/preview` and `POST /v1/shares`, **without `Authorization`** (a request carrying one is a `400
+  AUTHORIZATION_NOT_ALLOWED`): `{"share_token", "url": <the url that was analysed>, "result": {"score",
+  "explanation", "assessment"?, "verdict"?}}` (other result fields are ignored). The preview answers exactly what
+  would be public, stores nothing: `{"title", "host", "product_url", "checked_on": "YYYY-MM-DD", "checked_on_text",
+  "band", "label", "symbol", "headline", "result": {"verdict": {band, label, symbol, headline, reasons: [{title,
+  detail, severity, thumbnails}], positives: [{title, detail}]}, "assessment"?: {flags: [{label, evidence: "",
+  kind}], confidence, model_version}}, "notice"}`; show `notice` ("Anyone with the link sees this verdict and the
+  product link. It never says who checked.") before the sharer confirms. Wording as the showcase: no score, never
+  "scam" or "fraud"; a detail or headline quoting the page is left out (headline: the band's catalogue sentence),
+  flag evidence is always empty. `POST /v1/shares` → `201 {"id", "link": "/r/<id>", "delete_code", "expires_at"}`
+  (90 days; the delete code is shown only now). Errors: `400 BAD_SHARE_TOKEN` (forged, or doesn't match the url or
+  result), `422 SHARE_TOKEN_EXPIRED`, `422 CHECKOUT_NOT_SHAREABLE` (the check had `checkout_content`), `422
+  NOT_SHAREABLE`, `429` (20 shares per visitor network per day, `UNFRET_SHARES_PER_VISITOR_PER_DAY`, and
+  `UNFRET_SHARES_DAILY_CAP` in total; previews 30 a minute), `503` without database or session secret.
+- `GET /v1/shares/{id}` → the preview's fields (without `notice`) plus `id`, `link`, `expires_at`; `X-Robots-Tag:
+  noindex, nofollow`. 404 `NOT_FOUND` once deleted, expired or hidden.
+- `DELETE /v1/shares/{id}` with `X-Delete-Code: <code>` → 204; without it `400 DELETE_CODE_REQUIRED`, a wrong one
+  `403 WRONG_DELETE_CODE`.
+- `POST /v1/shares/{id}/object` `{"reason"?: str ≤ 500}` (a shop owner; no auth) → `{"hidden": true}`: hidden at once
+  until the operator reviews it (`GET /v1/admin/shares[?hidden=false]`, `POST /v1/admin/shares/{id}/unhide`,
+  `DELETE /v1/admin/shares/{id}`, admin token).
+- Page: `/r/{id}`, the result in the link checker's presentation, "Checked by an Unfret user on <day>; the page may
+  have changed", a `rel="nofollow noopener noreferrer"` product link, `noindex` (header and robots meta), and forms
+  to object or delete.
+- CORS: `DELETE` and the `X-Delete-Code` header are allowed.

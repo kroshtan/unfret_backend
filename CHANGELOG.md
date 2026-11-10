@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Features
+
+* **Share a result** (migration 16, `unfret.shares`; migration 15 is left free for the invites change): every assessed `POST /v1/analyze[/stream]` result carries a `share_token`, an HMAC over the product address (without fragment, credentials and tracking parameters), a hash of the result as a share shows it, whether `checkout_content` was sent, the product title and an expiry (7 days), naming no account. `POST /v1/shares/preview` shows exactly what would be public and `POST /v1/shares` stores it (`{id, link: "/r/<id>", delete_code, expires_at}`), both sent without `Authorization` (refused with `AUTHORIZATION_NOT_ALLOWED`); the token must match the url and result (`BAD_SHARE_TOKEN`, `SHARE_TOKEN_EXPIRED`), and a check that included the checkout page is never shared (`CHECKOUT_NOT_SHAREABLE`). Public: the showcase's wording (no score, never "scam" or "fraud") without the page's own words (quoting details and headlines left out, flags without evidence), title, shop, product link and the day of the check. Table `shared_results`: no account, wallet, IP, time of day or view count; the delete code only as a SHA-256 hash; expires after 90 days (`UNFRET_SHARE_DAYS`, deleted by the hourly housekeeping). 20 shares per visitor network per day (`UNFRET_SHARES_PER_VISITOR_PER_DAY`, in memory) and `UNFRET_SHARES_DAILY_CAP` (1000). `GET /v1/shares/{id}` and the page `/r/{id}` (the showcase renderer: "Checked by an Unfret user on …; the page may have changed", a nofollow product link, `X-Robots-Tag: noindex` and a robots meta tag); `DELETE /v1/shares/{id}` with `X-Delete-Code`; `POST /v1/shares/{id}/object` hides a share at once for review via `GET /v1/admin/shares`, `POST /v1/admin/shares/{id}/unhide` and `DELETE /v1/admin/shares/{id}`. CORS allows `DELETE` and `X-Delete-Code`. `/check` gains "Share this result": a preview with "Anyone with the link sees this verdict and the product link. It never says who checked.", then the phone's share sheet or the clipboard, and the delete code shown once. The privacy page (en/nl), `llms.txt`, the README and the API contract describe it
+* Result pages fill their template in one pass, so a title can't bring in a placeholder of its own
+
 ## [0.8.0](https://github.com/kroshtan/unfret_backend/compare/0.7.0...0.8.0) (2026-11-10)
 
 ### ⚠ BREAKING CHANGES

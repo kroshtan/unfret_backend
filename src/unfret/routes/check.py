@@ -608,6 +608,13 @@ Every error is JSON with `detail` and `error_code`.
 
 {_errors_table()}
 
+## Shared results (shoppers)
+
+A shopper's result from POST /v1/analyze carries a share_token. POST /v1/shares/preview, then POST /v1/shares,
+with {{"share_token", "url", "result"}} and without Authorization, make the verdict public at /r/<id> for 90 days
+(no score, no quotes from the page, nothing about who checked); DELETE /v1/shares/<id> with X-Delete-Code removes
+it. Shared pages are noindex. Don't present a shared result as Unfret's own judgement of the shop.
+
 ## Machine-readable
 
 {settings.public_base_url}/.well-known/x402

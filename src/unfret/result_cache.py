@@ -60,6 +60,17 @@ _TRACKING_PARAMS = frozenset(
 _entries: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 
 
+def is_tracking_param(name: str) -> bool:
+    """
+    Whether a query parameter tracks the visitor or the referral rather than naming the product.
+
+    :param name: The parameter's name.
+    :return: ``True`` for tracking and referral parameters (``utm_*``, ``gclid``, ``ref``, …).
+    """
+    lowered = name.lower()
+    return lowered in _TRACKING_PARAMS or lowered.startswith("utm_")
+
+
 def _listing(url: str) -> str:
     """
     The listing a URL points at: scheme, host and path, plus the query parameters that identify the product.
@@ -71,11 +82,7 @@ def _listing(url: str) -> str:
     :return: The normalised listing.
     """
     parts = urlsplit(url.strip())
-    query = sorted(
-        (k, v)
-        for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if k.lower() not in _TRACKING_PARAMS and not k.lower().startswith("utm_")
-    )
+    query = sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not is_tracking_param(k))
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), urlencode(query), ""))
 
 

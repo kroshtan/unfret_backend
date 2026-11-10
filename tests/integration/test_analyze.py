@@ -39,6 +39,7 @@ async def test_analysis_is_paid_from_the_balance(
     assert response.status_code == 200
     body = response.json()
     assert body.pop("report_token")  # lets this account report the result later; nothing is stored now
+    assert body.pop("share_token")  # lets whoever sees it share it later, anonymously
     assert body == {
         "score": 80,
         "explanation": "Looks legitimate.",
@@ -75,11 +76,13 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "image_prints",
         "listing_verdicts",
         "showcase_cases",
+        "shared_results",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales"):  # only a crypto purchase fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM showcase_cases") == 0  # only the operator adds cases
+    assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one
     for table in ("reports", "report_votes", "report_quota", "labelled_pages"):  # only a consented report fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
@@ -329,7 +332,7 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert '"type": "discount"' in events[1][1]
     assert "85% off" not in events[1][1]  # steps are progress only: the evidence comes with the charged result
     result = json.loads(events[2][1].removeprefix("data: "))
-    assert result.pop("report_token")
+    assert result.pop("report_token") and result.pop("share_token")
     assert result == {
         "score": 80,
         "explanation": "Looks legitimate.",

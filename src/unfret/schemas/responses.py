@@ -56,3 +56,9 @@ class AnalyzeResponse(BaseModel):
         description="For shoppers: the band in words, a headline and up to three plain reasons, in the language of "
         "the Accept-Language header (en, nl).",
     )
+    share_token: str | None = Field(
+        default=None,
+        description="Pass to POST /v1/shares (without Authorization) with the url and this result to make the "
+        "verdict public as a link (within 7 days; it names no account). Absent for pages that couldn't be analysed. "
+        "A check that included checkout_content can't be shared.",
+    )

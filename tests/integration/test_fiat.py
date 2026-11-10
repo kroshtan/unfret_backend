@@ -34,6 +34,11 @@ async def balance(pool: asyncpg.Pool, account: str) -> int | None:
     return None if value is None else int(value)
 
 
+def site_meta(account: str) -> dict[str, str]:
+    """The checkout metadata this site's checkouts carry."""
+    return {"account": account, "site": settings.public_base_url}
+
+
 def order(kind: str, order_id: str, **data: Any) -> dict[str, Any]:
     return {"type": kind, "data": {"id": order_id, "customer": BUYER, **data}}
 
@@ -99,16 +104,31 @@ async def test_metadata_alone_also_names_the_key(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    paid = order("order.paid", "ord_2", metadata={"account": issued.account}, total_amount=2200)
+    paid = order("order.paid", "ord_2", metadata=site_meta(issued.account), total_amount=2200)
     assert (await send(client, provider, paid)).json() == {"status": "credited"}
     assert await balance(pool, issued.account) == 20_000_000  # the 100-pack ($22 by card)
+
+
+@pytest.mark.parametrize("site", ["https://other.unfret.invalid", None])
+async def test_another_sites_order_credits_nothing_here(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, site: str | None
+) -> None:
+    # Dev and production share one Polar organisation, so each receives the other's orders. The metadata's key
+    # exists only on the site that made the checkout; elsewhere nothing is credited and no payment row is kept.
+    issued = await keys.create(pool)  # even a key with that id here
+    metadata = {"account": issued.account, **({"site": site} if site else {})}
+    paid = order("order.paid", "ord_other", metadata=metadata, total_amount=600)
+
+    assert (await send(client, provider, paid)).json() == {"status": "other_site"}
+    assert await balance(pool, issued.account) is None
+    assert await pool.fetchval("SELECT count(*) FROM fiat_payments") == 0
 
 
 async def test_partial_refunds_debit_pro_rata_and_may_go_negative(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, graph: FakeGraph
 ) -> None:
     issued = await keys.create(pool)
-    meta = {"metadata": {"account": issued.account}, "total_amount": 2200}
+    meta = {"metadata": site_meta(issued.account), "total_amount": 2200}
     await send(client, provider, order("order.paid", "ord_3", **meta))  # the 100-pack: $20 of credits
     await pool.execute("UPDATE wallets SET balance_usd_micros = 1_000_000 WHERE pubkey = $1", issued.account)  # spent
 
@@ -129,7 +149,7 @@ async def test_a_dispute_takes_back_the_whole_order(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    meta = {"metadata": {"account": issued.account}, "total_amount": 600}
+    meta = {"metadata": site_meta(issued.account), "total_amount": 600}
     await send(client, provider, order("order.paid", "ord_4", **meta))
     await send(client, provider, order("order.refunded", "ord_4", refunded_amount=300, **meta))
 
@@ -147,7 +167,7 @@ async def test_forged_stale_or_unplaceable_webhooks(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    paid = order("order.paid", "ord_5", metadata={"account": issued.account}, total_amount=1000)
+    paid = order("order.paid", "ord_5", metadata=site_meta(issued.account), total_amount=1000)
     body, headers = provider.webhook(paid)
 
     forged = await client.post("/v1/webhooks/fiat", content=body, headers={**headers, "webhook-signature": "v1,AAAA"})
@@ -170,7 +190,14 @@ async def test_forged_stale_or_unplaceable_webhooks(
 
 async def test_order_rows_are_deleted_after_retention(pool: asyncpg.Pool) -> None:
     issued = await keys.create(pool)
-    event = FiatEvent(kind="paid", provider="fake", order_id="ord_7", amount_cents=1000, account=issued.account)
+    event = FiatEvent(
+        kind="paid",
+        provider="fake",
+        order_id="ord_7",
+        amount_cents=1000,
+        account=issued.account,
+        site=settings.public_base_url,
+    )
     await fiat.apply_event(pool, event, settings)
 
     await fiat.purge(pool, 180, now=datetime.now(UTC) + timedelta(days=179))

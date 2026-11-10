@@ -160,6 +160,10 @@ jobs:
           UNFRET_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
           UNFRET_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
           UNFRET_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
+          # Card top-ups (Polar): all three or none.
+          UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.PROD_POLAR_ACCESS_TOKEN }}
+          UNFRET_POLAR_PRODUCTS: ${{ secrets.PROD_POLAR_PRODUCTS }}
+          UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.PROD_FIAT_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           missing=()
@@ -168,6 +172,13 @@ jobs:
             [[ -n "${!name}" ]] || missing+=("$name")
           done
           ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
+          polar=0
+          for name in UNFRET_POLAR_ACCESS_TOKEN UNFRET_POLAR_PRODUCTS UNFRET_FIAT_WEBHOOK_SECRET; do
+            [[ -n "${!name}" ]] && polar=$((polar + 1))
+          done
+          ((polar == 0 || polar == 3)) \
+            || { echo "::error::set all of PROD_POLAR_ACCESS_TOKEN, PROD_POLAR_PRODUCTS, PROD_FIAT_WEBHOOK_SECRET, or none"; exit 1; }
+          ((polar == 3)) && echo "card top-ups: on (Polar production)" || echo "card top-ups: off (no PROD_POLAR_* secrets)"
           [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
             || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
           # `details` echoes its docker ps command (which names the container), so match a running row instead.

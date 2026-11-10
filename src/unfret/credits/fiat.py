@@ -78,6 +78,7 @@ class FiatEvent:
     refunded_cents: int = 0  # refunded: the total refunded on the order so far
     checkout_id: str | None = None
     account: str | None = None  # from the checkout metadata, when the provider echoes it
+    site: str | None = None  # the site that made the checkout (checkout metadata), when the provider echoes it
 
 
 class FiatProvider(Protocol):
@@ -229,6 +230,7 @@ class FakeFiatProvider:
                 refunded_cents=int(data.get("refunded_amount") or 0),
                 checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
                 account=str(metadata["account"]) if metadata.get("account") else None,
+                site=str(metadata["site"]) if metadata.get("site") else None,
             )
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise FiatWebhookError("Unreadable event.") from exc
@@ -236,7 +238,9 @@ class FakeFiatProvider:
 
 # ── The ledger side ───────────────────────────────────────────────────────────────────────────────────────────────
 
-Outcome = Literal["credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account", "too_small"]
+Outcome = Literal[
+    "credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account", "too_small", "other_site"
+]
 
 
 async def remember_checkout(
@@ -270,7 +274,19 @@ async def remember_checkout(
     )
 
 
-async def _account_for(conn: asyncpg.Connection, event: FiatEvent) -> str | None:
+async def _account_for(conn: asyncpg.Connection, event: FiatEvent, site: str) -> str | Literal["other_site"] | None:
+    """
+    The account an order credits: our own checkout mapping first, else the checkout metadata, if this site made it.
+
+    Dev and production can share one provider account, whose webhooks then reach both. Only the site that made the
+    checkout may credit it: elsewhere the metadata's ``key:<id>`` names no key, and crediting it would create a balance
+    nobody holds and a payment row for an order that isn't this site's.
+
+    :param conn: A connection.
+    :param event: The paid order.
+    :param site: This site (``public_base_url``).
+    :return: The account; ``"other_site"`` for another site's order; ``None`` if nothing names one.
+    """
     if event.checkout_id:
         mapped = await conn.fetchval(
             "SELECT account FROM fiat_checkouts WHERE provider = $1 AND checkout_id = $2",
@@ -279,11 +295,15 @@ async def _account_for(conn: asyncpg.Connection, event: FiatEvent) -> str | None
         )
         if mapped is not None:
             return str(mapped)
-    return event.account if event.account and keys.is_key_account(event.account) else None
+    if not event.account or not keys.is_key_account(event.account):
+        return None
+    return event.account if event.site == site else "other_site"
 
 
 async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) -> Outcome:
-    account = await _account_for(conn, event)
+    account = await _account_for(conn, event, settings.public_base_url)
+    if account == "other_site":
+        return "other_site"
     if account is None or event.amount_cents <= 0:
         return "unknown_account"
     credits = card_credits(settings, event.amount_cents)

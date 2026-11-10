@@ -358,7 +358,7 @@ def reference_only_transfer(request: SolanaPayRequest, payer: Keypair, blockhash
 
 
 def polar_order(
-    order_id: str, account: str, product_id: str, net_cents: int, refunded_cents: int = 0
+    order_id: str, account: str, product_id: str, net_cents: int, refunded_cents: int = 0, *, site: str = DEV_URL
 ) -> dict[str, Any]:
     """
     A Polar order as its webhooks carry it, reduced to what the service reads (plus the shape around it).
@@ -370,6 +370,7 @@ def polar_order(
     :param product_id: The pack's Polar product.
     :param net_cents: The order's amount before tax (the pack's card price).
     :param refunded_cents: The amount refunded so far.
+    :param site: The site whose checkout it was, as the checkout's metadata carries it (only that site credits it).
     :return: The order.
     """
     return {
@@ -385,7 +386,7 @@ def polar_order(
         "billing_reason": "purchase",
         "product_id": product_id,
         "checkout_id": None,
-        "metadata": {"account": account},
+        "metadata": {"account": account, "site": site},
         "customer": {"id": "e2e", "email": "e2e@example.invalid", "name": "Unfret e2e sweep"},
     }
 

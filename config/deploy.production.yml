@@ -14,6 +14,7 @@ env:
     UNFRET_X402_ALLOW_MAINNET: "true"
     UNFRET_SIWS_DOMAIN: unfret.kroshtan.com
     UNFRET_PUBLIC_BASE_URL: https://unfret.kroshtan.com
+    UNFRET_POLAR_ENVIRONMENT: production  # real money; production never talks to Polar's sandbox
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI
@@ -22,6 +23,10 @@ env:
     - UNFRET_HOT_WALLET_KEY  # the mainnet hot wallet (fee payer and receiver)
     - UNFRET_COLD_ADDRESS  # the cold wallet (sweep destination)
     - UNFRET_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
+    # Card top-ups through Polar: all three or none (the deploy refuses a partial set); off while empty.
+    - UNFRET_POLAR_ACCESS_TOKEN
+    - UNFRET_POLAR_PRODUCTS
+    - UNFRET_FIAT_WEBHOOK_SECRET
 
 accessories:
   # Reached by the app as unfret-prod-db on the `kamal` network; never published. forge-infra's nightly backup

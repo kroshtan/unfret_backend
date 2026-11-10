@@ -3,6 +3,13 @@
 ## Unreleased
 
 ## [0.9.1](https://github.com/kroshtan/unfret_backend/compare/0.9.0...0.9.1) (2026-11-10)
+### Features
+
+* **Card payments in production**: the deploy-production workflow passes the optional repo secrets `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS` and `PROD_FIAT_WEBHOOK_SECRET` (all three or none, else it refuses) to the app, with `UNFRET_POLAR_ENVIRONMENT` fixed to `production` in `config/deploy.production.yml`. Without them card top-ups stay off, as before
+
+### Bug fixes
+
+* **A Polar order is credited only by the site that made its checkout.** Dev and production share one Polar organisation, so each receives the other's order webhooks; an order without our checkout record was credited to the `key:<id>` in its metadata, which on the other site names no key, creating a balance nobody holds and a payment row for someone else's order. Checkouts now carry the site's address (`UNFRET_PUBLIC_BASE_URL`) in their metadata, and an order for another site answers `{"status": "other_site"}` and changes nothing
 
 ### Removed
 

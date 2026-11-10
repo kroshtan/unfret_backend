@@ -222,7 +222,7 @@ async def test_checkout_is_the_packs_product_in_usd_with_our_account_only(enviro
     assert json.loads(request.content) == {
         "products": [PRODUCTS[25]],
         "currency": "usd",
-        "metadata": {"account": ACCOUNT},
+        "metadata": {"account": ACCOUNT, "site": settings().public_base_url},
         "success_url": SUCCESS_URL,
         "allow_discount_codes": False,
     }  # nothing about the buyer

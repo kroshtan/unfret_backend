@@ -4,8 +4,6 @@
 proxy:
   hosts:
     - dev.unfret.net
-    # The old name, until the forge's Caddy redirects it to dev.unfret.net (forge-infra); then remove it.
-    - dev.unfret.kroshtan.com
 
 env:
   clear:

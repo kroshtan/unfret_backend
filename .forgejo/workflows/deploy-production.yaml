@@ -1,15 +1,18 @@
 name: Deploy production
 
 # Production (unfret.kroshtan.com, Solana MAINNET) is deployed only by hand: Actions → "Deploy production" → Run
-# workflow, with a release tag. Nothing deploys here automatically. The workflow refuses unless the tag's commit is
-# on main, its CI passed and the SAME commit was deployed to dev successfully, and then it deploys the exact image
-# dev ran (tagged with the commit SHA): it never rebuilds.
+# workflow. Nothing deploys here automatically. Leave the input at `main` to release main's newest commit: it is tagged
+# v<version in pyproject.toml> (refused if that tag already names another commit, so bump the version first). Or give
+# an existing release tag, e.g. v0.7.0, to deploy that release again. Either way the workflow refuses unless the
+# commit is on main, its CI passed and the SAME commit was deployed to dev successfully, and then it deploys the exact
+# image dev ran (tagged with the commit SHA): it never rebuilds.
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Release tag to deploy, e.g. v0.6.0 (must point at a commit on main that ran green on dev)"
+        description: "main (release main's newest commit) or an existing release tag such as v0.7.0"
         required: true
+        default: main
         type: string
 
 concurrency:
@@ -31,14 +34,31 @@ jobs:
           API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
         run: |
           set -euo pipefail
-          [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
-            || { echo "::error::'$REF' is not a release tag like v0.6.0"; exit 1; }
-          git rev-parse -q --verify "refs/tags/$REF" > /dev/null \
-            || { echo "::error::tag $REF does not exist"; exit 1; }
-          sha="$(git rev-parse "$REF^{commit}")"
-          git fetch -q origin main
+          git fetch -q --tags origin main
+          if [[ "$REF" == main ]]; then
+            sha="$(git rev-parse origin/main)"
+            version="$(sed -nE 's/^version = "([^"]+)"$/\1/p' pyproject.toml | head -n 1)"
+            tag="v$version"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
+              || { echo "::error::pyproject.toml version '$version' is not a release version"; exit 1; }
+            if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+              [[ "$(git rev-parse "$tag^{commit}")" == "$sha" ]] \
+                || { echo "::error::$tag already names another commit: bump the version (make bump) first"; exit 1; }
+              echo "new_tag=" >> "$FORGEJO_OUTPUT"
+            else
+              echo "new_tag=$tag" >> "$FORGEJO_OUTPUT"
+            fi
+          else
+            tag="$REF"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]] \
+              || { echo "::error::'$tag' is not main or a release tag like v0.7.0"; exit 1; }
+            git rev-parse -q --verify "refs/tags/$tag" > /dev/null \
+              || { echo "::error::tag $tag does not exist"; exit 1; }
+            sha="$(git rev-parse "$tag^{commit}")"
+            echo "new_tag=" >> "$FORGEJO_OUTPUT"
+          fi
           git merge-base --is-ancestor "$sha" origin/main \
-            || { echo "::error::$REF ($sha) is not on main"; exit 1; }
+            || { echo "::error::$tag ($sha) is not on main"; exit 1; }
           # The repository is public, so its commit statuses can be read without a token.
           curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
             statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
@@ -47,7 +67,21 @@ jobs:
             abort("::error::not green on main/dev for this commit: " + bad.map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) unless bad.empty?
             puts "check and deploy-dev succeeded for this commit"'
           echo "sha=$sha" >> "$FORGEJO_OUTPUT"
-          echo "Deploying $REF ($sha) to production"
+          echo "tag=$tag" >> "$FORGEJO_OUTPUT"
+          echo "Deploying $tag ($sha) to production"
+      - name: Tag the release
+        if: steps.release.outputs.new_tag != ''
+        env:
+          TAG: ${{ steps.release.outputs.new_tag }}
+          SHA: ${{ steps.release.outputs.sha }}
+          TOKEN: ${{ forgejo.token }}
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          body="$(ruby -rjson -e 'puts JSON.generate(tag_name: ENV["TAG"], target: ENV["SHA"], message: "Release #{ENV["TAG"]}")')"
+          curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "$body" "$API/tags" && echo "tagged $TAG" \
+            || echo "::warning::could not create tag $TAG (the deploy goes ahead); tag $SHA by hand"
       - name: Load the deploy credentials
         run: |
           set -euo pipefail
@@ -57,6 +91,23 @@ jobs:
           value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
           [[ -n "$value" ]] && echo "::add-mask::$value"
           printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
+      - name: Retire the pre-split service (first deploy only)
+        # Until the first production deploy, unfret.kroshtan.com is routed to the pre-split devnet service
+        # `veridex-web`, and kamal-proxy won't give a host to a second service. Take its route off and stop (never
+        # remove) its containers, so docs/production-cutover.md's rollback still works. Downtime lasts until
+        # veridex-prod passes its readiness check. Later deploys find no such route and skip this.
+        run: |
+          set -euo pipefail
+          remote() { ssh -o BatchMode=yes kamal@git.kroshtan.com "$@"; }
+          if remote docker exec kamal-proxy kamal-proxy list | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $1}' \
+            | grep -qx veridex-web; then
+            echo "::notice::taking unfret.kroshtan.com off the pre-split service (veridex-web) for production"
+            remote docker ps --filter label=service=veridex --format '{{.Names}}'
+            remote docker exec kamal-proxy kamal-proxy remove veridex-web
+            remote 'docker stop $(docker ps -q --filter label=service=veridex)'
+          else
+            echo "no pre-split route: nothing to retire"
+          fi
       - name: Deploy to production
         # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
         # production never starts with a feature silently off or pointing at the wrong network.

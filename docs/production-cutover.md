@@ -18,11 +18,16 @@ pulling the image and booting `veridex-prod-db` the first time).
 - [ ] **The mainnet hot wallet is funded:** `GzcZjcsVr6XGypgEaBxtHHgqKMbMqXN5QBfZ3rNDPYnL`, ≥ 0.02 SOL (the reserve plus
   two token-account rents).
 - [ ] **The release tested on dev:** the release commit is on `main`, deployed and tested on dev.unfret.kroshtan.com.
-- [ ] **Tagged:** `git tag v0.6.0 <sha> && git push origin v0.6.0`.
 - [ ] **Backups armed:** `/etc/forge/backup.env`. The production database holds customers' balances from the first
   purchase on.
 
-## Cut-over (on the server, as `admin` with sudo)
+## Cut-over
+
+**Automatic:** run **Actions → Deploy production → Run workflow** with `ref` = `main`. Its step "Retire the pre-split
+service" does steps 1–2 below (only while `veridex-web` still holds the host) and then deploys. The manual steps stay
+here for reference and for the rollback.
+
+**By hand** (on the server, as `admin` with sudo):
 
 1. **See what's routed.** The old route is `veridex-web`:
    ```bash
@@ -36,7 +41,7 @@ pulling the image and booting `veridex-prod-db` the first time).
    sudo docker stop $(sudo docker ps -q --filter label=service=veridex)
    ```
    This stops both `veridex-web-<sha>` and `veridex-db`.
-3. **Deploy production.** In Forgejo: **Actions → Deploy production → Run workflow**, `ref` = the tag. It boots
+3. **Deploy production.** In Forgejo: **Actions → Deploy production → Run workflow**, `ref` = `main`. It boots
    `veridex-prod-db` (empty) and deploys `veridex-prod` with the image dev already ran. kamal-proxy routes
    `unfret.kroshtan.com` to it once `/v1/health/ready` passes (downtime ends).
 4. **Verify:**

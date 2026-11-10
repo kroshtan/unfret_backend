@@ -12,104 +12,103 @@
     <h1>Privacy</h1>
     <p><em>Last updated: 10 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
 
-    <h2>When anything is sent</h2>
-    <p>Only when you click <strong>Check this page</strong> in the extension (or an agent asks <code>/v1/check</code>). Then
-      the page address, the product facts (title, brand, seller, price, ratings, review texts, shop policies) and the
-      cleaned visible text go to this server, in the EU. Account menus, addresses, forms and anything you typed are
-      removed in your browser first. Nothing is sent while you browse.</p>
-    <p>On the <a href="/check">link checker</a> only the link goes to this server, when you tap <strong>Check</strong>;
-      the server then fetches that page from the shop itself (the shop sees this server, not you) and checks it like
-      above. The page keeps no history; only your sign-in or API key is kept in your browser, until you sign out. A link
-      shared to Unfret from another app stays in your browser until you tap Check.</p>
+    <h2>What a check sends</h2>
+    <p>Nothing leaves your browser until you click <strong>Check this page</strong> in the extension (or an agent calls
+      <code>/v1/check</code>). Then the page address, the product facts (title, brand, seller, price, ratings, reviews,
+      shop policies) and the page's visible text go to our server in the EU. Account menus, addresses, forms and
+      anything you typed are removed in your browser first.</p>
+    <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
+      fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
+      your browser until you tap Check. The page keeps no history; only your sign-in or API key stays in your browser,
+      until you sign out.</p>
 
-    <h2>What this server keeps</h2>
+    <h2>What we keep</h2>
     <ul>
       <li><strong>Your wallet and its balance</strong>: the Solana address you signed in with and how many checks you
-        have left. No name, email or password.</li>
-      <li><strong>Or your API key and its balance</strong>: if you use a key instead of a wallet, a one-way hash of the
-        key and of its recovery code, the key's public ID and its balance. The key itself is shown to you once and
-        never stored, so we can't recover it for you: keep the recovery code. A card payment is handled by
-        <a href="https://polar.sh" rel="noopener">Polar</a>, which sells the pack to you as merchant of record: it
-        collects your payment details, e-mail and country, charges VAT and sends the receipt, under its own privacy
-        policy. We give Polar only the pack and the key's public ID, so the payment tops up the right key. We keep only
-        the order number, the amount and which key it topped up, for 180 days (for refunds and questions), never your
-        name, e-mail or address.</li>
-      <li><strong>Invites</strong>: a pack comes with invite codes to give away. We keep only a one-way hash of each
-        code, the day it was issued and the day it was used: not who bought it, not who used it, no IP address, so
-        nothing links the buyer to the person they invited. The codes themselves are shown once, on your payment
-        confirmation, and wiped from the server when they are shown (or, if never shown, with the purchase's record
-        after at most a week); the checkout page keeps a random claim token for them in your browser for up to three
-        days, until they are shown. An account that used an invite is marked as having used one, not which.</li>
-      <li><strong>Not the pages you check.</strong> Page addresses and contents are not stored and are never linked to
-        your wallet. A result is kept in memory for up to an hour so the same page checked again is free; a restart
-        clears it. Only a result you choose to share is kept, without any link to you (below).</li>
-      <li><strong>Anonymous price observations</strong>: for product pages with a public product number (an Amazon
-        ASIN, a bol.com ID or a barcode), the day, the price and the claimed "was" price, under a one-way hash of the
-        shop's domain and that number. No address, wallet, IP address or time of day. They're kept 90 days and show
-        whether a "was" price was ever really charged.</li>
-      <li><strong>Facts about shops</strong>: a shop domain's registration date, first certificate and VAT check, for a
-        week, so they aren't looked up again for every shopper.</li>
-      <li><strong>Shop fingerprints</strong>: for web shops (not marketplaces), what their pages show about the
-        business behind them: the first and last day a check saw the shop, its platform and apps, the shape of its
-        template, and the account IDs on its pages (analytics, advertising pixels, payment accounts), so shops run by
-        the same operator can be recognized. Never who checked the shop, which page, or our verdict. Kept 400 days
-        after the shop was last seen.</li>
-      <li><strong>Product photo fingerprints</strong>: of the main photo of a checked product, its fingerprints
-        (computed on this server; the photo goes to no one else), the photo's own address on the shop, the shop and a
-        one-way hash of the listing, so the same photo on another shop can be recognised. Kept 400 days after last
-        seen. Matching photos are shown as small thumbnails served by this server, so your browser never contacts the
-        other shop.</li>
-      <li><strong>Recent answers for agents</strong>: the answer of a paid check of a page this server fetched itself,
-        under a one-way hash of the listing, for one day, so the same listing can be answered again quickly while the
-        shop is unchanged. No address, caller or payment details.</li>
-      <li><strong>"Spotted recently" examples</strong>: checks Unfret ran itself on public product pages, to show what
-        a check finds. For each: the product's title, the shop, the page's address, the day it was checked, the result
-        and sometimes a screenshot of the page. Only pages we chose and checked ourselves, never a shopper's own check,
-        and nothing about who checks what. Each one is reviewed before it is published and can be taken down (see
-        below, for shop owners).</li>
+        have left. No name, e-mail or password.</li>
+      <li><strong>Or your API key and its balance</strong>: the key's public ID, its balance, and one-way hashes of the
+        key and its recovery code. We show you the key once and never store it, so keep the recovery code: we can't
+        recover the key for you.</li>
+      <li><strong>Card payments</strong>: <a href="https://polar.sh" rel="noopener">Polar</a> sells the pack to you as
+        merchant of record. It collects your payment details, e-mail and country, charges VAT and sends the receipt,
+        under its own privacy policy. We tell Polar only the pack and the key's public ID. We keep the order number,
+        the amount and the key it topped up for 180 days, for refunds and questions; never your name, e-mail or
+        address.</li>
+      <li><strong>Invites</strong>: for each invite code that comes with a pack, a one-way hash, the day it was issued
+        and the day it was used. Not who bought it, not who used it, no IP address: nothing links the buyer to the
+        person they invited. The codes are shown once, on your payment confirmation, and wiped from our server as they
+        are shown (unshown codes go with the purchase record within a week). Until then the checkout page keeps a
+        random claim token for them in your browser, for up to three days. An account that used an invite is marked
+        as having used one, not which.</li>
+      <li><strong>Not the pages you check.</strong> Page addresses and contents aren't stored and are never linked to
+        your wallet or key. A result stays in memory for up to an hour, so checking the same page again is free; a
+        restart clears it. The only results we keep are ones you choose to share, without any link to you
+        (below).</li>
+      <li><strong>Price history</strong>: for product pages with a public product number (an Amazon ASIN, a bol.com
+        ID, a barcode), the day, the price and the claimed "was" price, under a one-way hash of the shop's domain and
+        that number. No address, wallet, IP address or time of day. Kept 90 days, to show whether a "was" price was
+        ever really charged.</li>
+      <li><strong>Shop facts</strong>: a shop domain's registration date, first certificate and VAT check, kept a week
+        so they aren't looked up again for every shopper.</li>
+      <li><strong>Shop fingerprints</strong>: for web shops (not marketplaces), what their pages reveal about the
+        business behind them: the first and last day we saw the shop, its platform and apps, the shape of its template,
+        and the account IDs on its pages (analytics, ad pixels, payment accounts). This recognises shops run by the
+        same operator. Never who checked the shop, which page, or our verdict. Kept 400 days after we last saw the
+        shop.</li>
+      <li><strong>Product photo fingerprints</strong>: for the main photo of a checked product, its fingerprints
+        (computed on our server; the photo goes to no one else), the photo's address on the shop, the shop and a
+        one-way hash of the listing, to spot the same photo on another shop. Kept 400 days after last seen. Matching
+        photos are shown as small thumbnails from our server, so your browser never contacts the other shop.</li>
+      <li><strong>Recent answers for agents</strong>: the answer to a paid check of a page our server fetched itself,
+        under a one-way hash of the listing, for one day, so the same unchanged listing can be answered quickly. No
+        address, caller or payment details.</li>
+      <li><strong>"Spotted recently" examples</strong>: checks we ran ourselves on public product pages, to show what a
+        check finds. Each has the product's title, the shop, the page address, the day, the result and sometimes a
+        screenshot. Never a shopper's own check, nothing about who checks what. Each is reviewed before it is published
+        and can be taken down (see "For shop owners").</li>
       <li><strong>Results you share</strong>: only if you tap <strong>Share this result</strong> and confirm the
-        preview. Then the verdict in our public wording (no score and no quotes from the page), the product's title,
-        the shop, the product link (without tracking parameters) and the day of the check are public to anyone with
-        the link, for 90 days, after which they are deleted. Nothing about who shared it: the share is sent without
-        your sign-in, and we keep no wallet, key, IP address, time of day or view count with it. You get a delete code
-        once (we keep only a one-way hash of it) to delete it sooner. Shared pages ask search engines not to list
-        them.</li>
+        preview. Anyone with the link then sees the verdict in our public wording (no score, no quotes from the page),
+        the product's title, the shop, the product link (without tracking parameters) and the day of the check, for 90
+        days; then it is deleted. Nothing about who shared it: the share is sent without your sign-in, and we keep no
+        wallet, key, IP address, time of day or view count with it. You get a delete code once (we keep only its hash)
+        to delete it sooner. Shared pages ask search engines not to list them.</li>
     </ul>
-    <p><strong>For shop owners:</strong> contact e-mail addresses and phone numbers shown on a shop's pages are
-      stored only as a keyed one-way hash, never shown to anyone, used only to tell whether two shops share them
-      (our legitimate interest in warning shoppers about networks of fake shops), and deleted 180 days after they were
-      last seen. To object or have a shop or contact detail removed, use the contact details at kroshtan.com. The same
-      goes for a "Spotted recently" example of your shop's page: tell us and we'll look at it again or take it
-      down. A shared result about your page can be taken down from the page itself: it is hidden at once, and we
-      review it; what you write with the objection is kept only until then.</p>
 
-    <h2>When you report a wrong result</h2>
-    <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that one check's page
-      facts, page text and result are shared for review. Personal details are removed in your browser and again on the
-      server: greetings with your name, delivery addresses, e-mail addresses, phone numbers, bank and card numbers, and
-      everything after the <code>?</code> in links. The checkout page is never kept. While the report waits for review
-      it is linked to your wallet or key, only so a good report can be rewarded with free checks; we also count your
-      reports per month (as a keyed hash). After review the report is deleted and the page, with its label, stays as
-      an example for improving the checks, without any link to you. Reports nobody got to are deleted after 30
-      days. If the result was right, we may check the same public page again ourselves and, after review, show that
-      new check as a "Spotted recently" example; it carries nothing from your report and no link to you.</p>
+    <h2>For shop owners</h2>
+    <p>Contact e-mail addresses and phone numbers on a shop's pages are stored only as a keyed one-way hash, never shown
+      to anyone, and used only to tell whether two shops share them (our legitimate interest in warning shoppers about
+      networks of fake shops). They are deleted 180 days after we last saw them. To object, or to have a shop or
+      contact detail removed, use the contact details at kroshtan.com; the same goes for a "Spotted recently" example
+      of your page, which we'll look at again or take down. A shared result about your page can be reported from the
+      page itself: it is hidden at once until we review it, and what you write is kept only until then.</p>
+
+    <h2>Reporting a wrong result</h2>
+    <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that check's page facts,
+      page text and result are shared for review. Personal details are removed in your browser and again on our
+      server: greetings with your name, delivery and e-mail addresses, phone numbers, bank and card numbers, and
+      everything after the <code>?</code> in links. The checkout page is never kept.</p>
+    <p>Until it is reviewed, a report is linked to your wallet or key, only so a good report can earn free checks, and
+      we count your reports per month (as a keyed hash). After review the report is deleted; the page and its label
+      stay, without any link to you, as an example for improving the checks. Reports not reviewed within 30 days are
+      deleted. If the result was right, we may check the same public page again ourselves and, after review, show that
+      as a "Spotted recently" example; it carries nothing from your report.</p>
 
     <h2>Who else sees what</h2>
     <ul>
-      <li>The page text is read by a language model hosted by Scaleway in the EU; Unfret sends it nothing that
-        identifies you.</li>
-      <li>Public registries answer the shop lookups (RDAP registries, crt.sh, the EU VIES service). They see the shop's
-        domain or VAT number, not you.</li>
-      <li>Payments are Solana transactions: public on the blockchain, like any payment there.</li>
-      <li>When you buy credits with SOL or USDC you choose your country, for VAT. It may be prefilled from the country
-        Cloudflare sees your connection coming from; your IP address is never stored. For our tax records we keep, per
-        purchase, the day, that country, the amount, the VAT and the transaction's signature, for ten years, as the law
+      <li>A language model hosted by Scaleway in the EU reads the page text. We send it nothing that identifies
+        you.</li>
+      <li>Public registries (RDAP, crt.sh, the EU's VIES) answer the shop lookups. They see the shop's domain or VAT
+        number, not you.</li>
+      <li>Crypto payments are Solana transactions, public on the blockchain like any other.</li>
+      <li>When you pay with SOL or USDC you choose your country, for VAT. It may be prefilled from the country Cloudflare
+        sees your connection coming from; your IP address is never stored. For our tax records we keep the day, the
+        country, the amount, the VAT and the transaction signature of each purchase for ten years, as the law
         requires.</li>
     </ul>
-    <p>Nothing is sold. There are no affiliate links, trackers or advertising.</p>
+    <p>Nothing is sold. No affiliate links, trackers or ads.</p>
 
     <h2>Your choices</h2>
-    <p>Sign out in the extension's settings to remove the session from your browser; uninstalling removes everything
+    <p>Signing out in the extension's settings removes the session from your browser; uninstalling removes everything
       the extension stored. Questions: see the contact details at kroshtan.com.</p>
   </main>
 </body>

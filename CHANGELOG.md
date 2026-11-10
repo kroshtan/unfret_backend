@@ -4,6 +4,14 @@
 
 ## [0.9.1](https://github.com/kroshtan/unfret_backend/compare/0.9.0...0.9.1) (2026-11-10)
 
+### Features
+
+* **Card payments in production**: the deploy-production workflow passes the optional repo secrets `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS` and `PROD_FIAT_WEBHOOK_SECRET` (all three or none, else it refuses) to the app, with `UNFRET_POLAR_ENVIRONMENT` fixed to `production` in `config/deploy.production.yml`. Without them card top-ups stay off, as before
+
+### Bug fixes
+
+* **A Polar order is credited only by the site that made its checkout.** Dev and production share one Polar organisation, so each receives the other's order webhooks; an order without our checkout record was credited to the `key:<id>` in its metadata, which on the other site names no key, creating a balance nobody holds and a payment row for someone else's order. Checkouts now carry the site's address (`UNFRET_PUBLIC_BASE_URL`) in their metadata, and an order for another site answers `{"status": "other_site"}` and changes nothing
+
 ### Removed
 
 * The last of the rename's one-time machinery: the deploy jobs no longer run `free-host.sh` or `adopt-db.sh` (both scripts and the cutover runbook are gone; the services and databases from before the rename are removed from the server), and `/extension`'s install command no longer deletes a `veridex.json` policy file. The connect page's message types keep their names until the extensions in use understand the new ones

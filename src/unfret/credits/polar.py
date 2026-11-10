@@ -3,8 +3,8 @@ Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`P
 
 Each pack is a one-time Polar product priced at the pack's card price in US dollars (``polar_products`` maps pack
 sizes to product ids). A checkout is created for the pack's product, in USD, with discount codes off and our account
-id in its metadata; nothing about the buyer is sent. The API calls need an Organization Access Token with the
-``checkouts:write`` scope only.
+id and this site's address (``public_base_url``) in its metadata; nothing about the buyer is sent. The API calls need
+an Organization Access Token with the ``checkouts:write`` scope only.
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 
@@ -56,6 +56,7 @@ class PolarProvider:
         environment: Literal["sandbox", "production"],
         products: Mapping[Pack, str],
         webhook_secret: str,
+        site: str = "",
         tolerance_s: float = 300,
         timeout_s: float = 15.0,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -67,6 +68,8 @@ class PolarProvider:
         :param environment: ``sandbox`` or ``production``: which Polar API to call.
         :param products: The Polar product id of each pack.
         :param webhook_secret: The endpoint's ``whsec_…`` secret.
+        :param site: This site (``public_base_url``), put in each checkout's metadata so that only this site credits
+            its orders when dev and production share a Polar organisation (:func:`unfret.credits.fiat.apply_event`).
         :param tolerance_s: The webhooks' replay window.
         :param timeout_s: Timeout of calls to Polar's API.
         :param transport: An httpx transport (tests).
@@ -74,7 +77,7 @@ class PolarProvider:
         self.environment = environment
         self.products = {pack.checks: product for pack, product in products.items()}
         self.packs_by_product = {product: pack for pack, product in products.items()}
-        self.secret, self.tolerance_s = webhook_secret, tolerance_s
+        self.secret, self.tolerance_s, self.site = webhook_secret, tolerance_s, site
         self.http = httpx.AsyncClient(
             base_url=BASE_URLS[environment],
             headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
@@ -107,7 +110,7 @@ class PolarProvider:
         payload = {
             "products": [product],
             "currency": "usd",  # the product's USD price, whatever other currencies it carries
-            "metadata": {"account": account},
+            "metadata": {"account": account, "site": self.site},
             "success_url": return_url,
             "allow_discount_codes": False,  # every order must pay exactly the pack's card price
         }
@@ -192,6 +195,7 @@ class PolarProvider:
             amount_cents=net,
             checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
             account=str(metadata["account"]) if metadata.get("account") else None,
+            site=str(metadata["site"]) if metadata.get("site") else None,
         )
 
     async def aclose(self) -> None:
@@ -215,6 +219,7 @@ def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None
         environment=settings.polar_environment,
         products={pack: ids[pack.checks] for pack in packs(settings)},
         webhook_secret=settings.fiat_webhook_secret.get_secret_value(),
+        site=settings.public_base_url,
         tolerance_s=settings.fiat_webhook_tolerance_s,
         timeout_s=settings.polar_timeout_s,
         transport=transport,

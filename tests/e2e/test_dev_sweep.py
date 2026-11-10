@@ -592,7 +592,10 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
     before = await key_balance(api, account.key)
 
     body, headers = signed_webhook(
-        secret, "order.paid", polar_order(order_id, account_id, product, cents), timestamp=int(time.time())
+        secret,
+        "order.paid",
+        polar_order(order_id, account_id, product, cents, site=config.base_url),
+        timestamp=int(time.time()),
     )
     paid = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
     assert paid.status_code == 200, paid.text
@@ -603,7 +606,7 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
     assert resent.json() == {"status": "duplicate"}
     assert await key_balance(api, account.key) == before + pack["credited_usd_micros"]
 
-    refund = polar_order(order_id, account_id, product, cents, refunded_cents=cents)
+    refund = polar_order(order_id, account_id, product, cents, refunded_cents=cents, site=config.base_url)
     body, headers = signed_webhook(secret, "order.refunded", refund, timestamp=int(time.time()))
     refunded = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
     assert refunded.json() == {"status": "debited"}
@@ -616,7 +619,7 @@ async def test_a_forged_or_stale_card_webhook_is_refused(
     skip_without_fiat(config)
     secret = config.need("fiat_webhook_secret")
     product = config.polar_products.get(PACK, "unknown")
-    order = polar_order(f"e2e-{secrets.token_hex(12)}", f"key:{account.key_id}", product, 600)
+    order = polar_order(f"e2e-{secrets.token_hex(12)}", f"key:{account.key_id}", product, 600, site=config.base_url)
     forger = "whsec_" + base64.b64encode(secrets.token_bytes(32)).decode()
     before = await key_balance(api, account.key)
 

@@ -175,7 +175,7 @@ are set:
 
 **In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax ($6.00, $11.50,
 $22.00 at $0.20 a check). A checkout is created for the pack's product with `currency: "usd"`, discount codes off,
-our account id (`key:<id>`) in its metadata and `/checkout?paid=1` as the success URL; nothing about the buyer is
+our account id (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and `/checkout?paid=1` as the success URL; nothing about the buyer is
 sent. If Polar answers with another currency or price, the checkout is refused (503) before anyone pays.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
@@ -185,6 +185,10 @@ and only if it is in USD, for a configured pack's product, at exactly that pack'
 amount; never the buyer) for a person to sort out in Polar. Refunds take back the refunded share of the credits
 (`refunded_amount`, before tax); a refund that settles a dispute Polar lost takes back the whole order. Polar has no
 webhook for disputes themselves. Other events are acknowledged and ignored.
+
+**Dev and production in one Polar organisation:** each site gets its own webhook endpoint (and secret), and Polar
+sends every order to both. A site credits only orders whose checkout it made (its own checkout record, or the
+metadata's site); another site's order answers `other_site` and leaves no trace (no balance, no payment row).
 
 ### "Spotted recently": the showcase
 
@@ -467,7 +471,7 @@ wallet and session secret:
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
-| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required) |
+| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
 
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).

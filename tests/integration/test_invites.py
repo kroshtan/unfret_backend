@@ -195,7 +195,10 @@ async def test_an_odd_card_amount_or_a_checkout_without_a_claim_issues_none(
     status = f"/v1/credits/fiat-checkouts/{started['checkout_id']}"
     shown = (await client.get(status, headers={"X-Unfret-Claim": started["claim"]})).json()
     assert shown == {"paid": True, "checks": 25, "invites": []}
-    metadata_only = {"type": "order.paid", "data": {"id": "ord_m", "metadata": {"account": issued.account}}}
+    metadata_only = {
+        "type": "order.paid",
+        "data": {"id": "ord_m", "metadata": {"account": issued.account, "site": settings.public_base_url}},
+    }
     metadata_only["data"]["total_amount"] = 600  # type: ignore[index]
     assert (await send(client, provider, metadata_only)).json() == {"status": "credited"}
     assert await pool.fetchval("SELECT COUNT(*) FROM invites") == 0

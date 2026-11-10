@@ -98,7 +98,12 @@ jobs:
         # veridex-prod passes its readiness check. Later deploys find no such route and skip this.
         run: |
           set -euo pipefail
-          remote() { ssh -o BatchMode=yes kamal@git.kroshtan.com "$@"; }
+          # Never write known_hosts: OpenSSH would add the server's other host keys there, and kamal's Net::SSH then
+          # refuses the file as a host key mismatch (the first production deploy failed that way).
+          remote() {
+            ssh -o BatchMode=yes -o UpdateHostKeys=no -o CheckHostIP=no -o StrictHostKeyChecking=yes \
+              kamal@git.kroshtan.com "$@"
+          }
           if remote docker exec kamal-proxy kamal-proxy list | sed 's/\x1b\[[0-9;]*m//g' | awk '{print $1}' \
             | grep -qx veridex-web; then
             echo "::notice::taking unfret.kroshtan.com off the pre-split service (veridex-web) for production"

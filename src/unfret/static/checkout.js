@@ -58,6 +58,7 @@ const keyInput = document.getElementById("key-input");
 const keyStatus = document.getElementById("key-status");
 const keyReveal = document.getElementById("key-reveal");
 const saved = document.getElementById("saved");
+const cardPay = document.getElementById("card-pay");
 const card = document.getElementById("card");
 
 let pricing = null;
@@ -97,6 +98,11 @@ function keyId() {
 }
 
 // Paying needs a target (the paying wallet, or a valid key whose new codes are saved first) and a country.
+// Paying by card needs a valid key whose new codes are saved first (no country: the provider asks for it).
+function cardReady() {
+  return forKey && Boolean(pack) && Boolean(keyId()) && (keyReveal.hidden || saved.checked);
+}
+
 function ready() {
   if (!countryField.value) return false;
   if (!forKey) return true;
@@ -109,7 +115,9 @@ function refreshTarget() {
   const ok = ready();
   list.querySelectorAll("button").forEach((button) => (button.disabled = !ok));
   qrShow.disabled = !ok;
+  cardPay.disabled = !cardReady();
   if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an API key or key ID.", "error");
+  else if (forKey && !keyId()) setStatus(keyStatus, "Enter your API key or its ID, or create a new key, to pay.");
   else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save both codes, then tick the box.");
   else setStatus(keyStatus, "");
   describe();
@@ -273,10 +281,10 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
   }
 });
 
-document.getElementById("card-pay").addEventListener("click", async (event) => {
+cardPay.addEventListener("click", async () => {
   const id = keyId();
-  if (!id || !pack || !forKey || (!keyReveal.hidden && !saved.checked)) return refreshTarget();
-  const payButton = event.currentTarget;
+  if (!id || !cardReady()) return refreshTarget();
+  const payButton = cardPay;
   payButton.disabled = true;
   try {
     const started = await api("/v1/credits/fiat-checkout", {

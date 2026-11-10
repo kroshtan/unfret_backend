@@ -12,7 +12,7 @@ from unfret.graph.nodes import classify_node
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill, checkout_tax
 from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.shop_policies import ShopPoliciesSkill, longest_delivery_days
-from unfret.graph.skills.us_identity import UsIdentitySkill
+from unfret.graph.skills.us_identity import UsIdentitySkill, find_identity
 from unfret.graph.state import Finding
 from unfret.market import shop_market
 from unfret.price_store import product_id
@@ -243,6 +243,77 @@ async def test_us_identity_mailbox_only_and_nothing_found() -> None:
 async def test_us_identity_only_runs_on_us_shops() -> None:
     out = await UsIdentitySkill().run(state(EU, "Acme LLC, 1200 Main Street, Austin, TX 78701"))
     assert out["features"] == {"us_identity.not_applicable": 1.0}
+
+
+@pytest.mark.parametrize(
+    ("text", "entity"),
+    [
+        # The copyright line of a footer, in the forms shops write it: the name, never the year, © or "Copyright".
+        ("© 2026 Acme Outdoor LLC. All rights reserved.", "Acme Outdoor LLC"),
+        ("Copyright © 2024-2026 Acme Goods, Inc.", "Acme Goods, Inc."),
+        ("©2025 ACME LLC", "ACME LLC"),
+        ("Copyright 2026, Blue Ridge Supply Co. LLC", "Blue Ridge Supply Co. LLC"),
+        ("COPYRIGHT © 2026 SMITH & SONS LLC", "SMITH & SONS LLC"),
+        ("© 2026 Smith & Sons LLC", "Smith & Sons LLC"),
+        ("Copyright Acme Outdoor LLC", "Acme Outdoor LLC"),
+        ("(c) 2026 Acme Outdoor L.L.C.", "Acme Outdoor L.L.C."),
+        ("© 2020 5econds Pte. Ltd.", "5econds Pte. Ltd."),
+        # The page text puts a line break around every inline tag: "©<span>2026</span>, <a>Acme <b>Outdoor</b></a>".
+        ("©\n2026\n, \nAcme \nOutdoor\n \nLLC", "Acme Outdoor LLC"),
+        # The shop's own name wins over the platform and payment companies a footer credits, wherever they stand.
+        ("Powered by Shopify Inc. © 2026 Acme Outdoor LLC", "Acme Outdoor LLC"),
+        ("© 2026 Acme Outdoor LLC. Payments are processed by Square, Inc.", "Acme Outdoor LLC"),
+        # Outside a copyright line: no menu items, sentence words or labels in front of the name.
+        ("Home\nShop\nAbout Us\nAcme Outdoor LLC", "Acme Outdoor LLC"),
+        ("Sold By Acme Outdoor LLC", "Acme Outdoor LLC"),
+        ("Manufacturer\nKao USA Inc.", "Kao USA Inc."),
+        ("The Acme Company LLC, 1200 Main Street", "The Acme Company LLC"),
+    ],
+)
+def test_find_identity_names_the_company(text: str, entity: str) -> None:
+    assert find_identity(text).entity == entity
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "© 2026 Shopify",  # a copyright line without a company form
+        "© 2026, Acme Outdoor. Powered by Shopify Inc.",  # the platform is not the shop
+        "Powered by Shopify Inc.",
+        "Built with Wix.com Ltd.",
+        "Payments by Square, Inc. and PayPal, Inc.",
+        "Google Analytics\n\nAnbieter\n\nGoogle LLC",
+        "Verarbeitende Firma: Google Ireland Ltd, Gordon House",  # a cookie notice names the service's subsidiary
+        "© 2026 LLC",  # a year is no name
+        "Website by Pixel Studio LLC",  # the web agency, not the shop
+        "We are not an LLC.",
+        "Note: We Are Not An LLC.",
+        "Why Choose An LLC For Your Business",
+        "Our Company LLC",
+        "Instagram\nTikTok\nInc",
+    ],
+)
+def test_find_identity_ignores_what_is_not_the_shop(text: str) -> None:
+    assert find_identity(text).entity == ""
+
+
+FOOTER_PAGE = """
+<html><body><main><h1>Trail Jacket</h1><p>$120.00</p></main>
+<footer><nav><a href="/">Home</a><a href="/pages/about">About Us</a></nav>
+<div class="copyright">©<span>2026</span>, <a href="/">Acme <b>Outdoor</b></a> <span>LLC</span>. All rights reserved.
+<a href="https://www.shopify.com">Powered by Shopify</a></div></footer></body></html>
+"""
+
+
+async def test_the_copyright_line_in_a_footer_names_the_company() -> None:
+    # The page text the LLM sees has no footer, so the copyright line has to reach the skill through the facts.
+    facts, text = parse_page(FOOTER_PAGE, "https://acme-outdoor.example.com/products/trail-jacket")
+    assert "Acme" not in text
+    out = await UsIdentitySkill().run(state(facts, text))
+    assert out["features"]["us_identity.business_entity"] == 1.0
+    assert {x.type: x.evidence for x in out["findings"]}["business_entity"] == "Company: Acme Outdoor LLC"
+    imprint = await EuRegistrySkill(vies=False).run(state(facts, text))
+    assert imprint["features"]["eu_registry.imprint"] == 1.0
 
 
 # ── Shipping and return terms ─────────────────────────────────────────────────

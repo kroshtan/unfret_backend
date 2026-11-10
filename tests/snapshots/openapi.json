@@ -786,7 +786,7 @@
       "type": "array"
      },
      "legal_mentions": {
-      "description": "Imprint, company register and withdrawal-right text.",
+      "description": "Imprint, company register, withdrawal-right and copyright text.",
       "items": {
        "type": "string"
       },

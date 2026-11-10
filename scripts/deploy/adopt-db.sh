@@ -23,7 +23,7 @@ ssh -o BatchMode=yes -o UpdateHostKeys=no -o CheckHostIP=no -o StrictHostKeyChec
 set -euo pipefail
 old="$1"
 new="$2"
-require_data="$3"
+require_data="${3:-}"  # ssh drops an empty argument, so it may be missing
 
 env_of() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" | sed -n "s/^$2=//p"; }
 tables_in() {

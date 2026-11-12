@@ -11,7 +11,7 @@ import pytest
 from unfret.config import settings
 from unfret.main import app
 from unfret.routes import extension
-from unfret.routes.extension import RELEASE_DIR, current_release, linux_policy_command
+from unfret.routes.extension import RELEASE_DIR, current_release
 
 # DigestInfo prefix for SHA-256 in EMSA-PKCS1-v1_5 (RFC 8017, section 9.2).
 _SHA256_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -193,9 +193,7 @@ async def test_other_names_are_not_found(client: httpx.AsyncClient, name: str) -
     assert (await client.get(f"/extension/{name}")).status_code == 404
 
 
-async def test_install_page_shows_the_release_and_policy_commands(client: httpx.AsyncClient) -> None:
-    release = current_release()
-    assert release is not None
+async def test_install_page_points_to_the_chrome_web_store(client: httpx.AsyncClient) -> None:
     response = await client.get("/extension")
 
     assert response.status_code == 200
@@ -203,20 +201,8 @@ async def test_install_page_shows_the_release_and_policy_commands(client: httpx.
     assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp
     assert "<script" not in response.text
     assert "{{" not in response.text
-    assert release.extension_id in response.text
-    assert f'href="/extension/{release.crx}"' in response.text
-    assert "/etc/brave/policies/managed/unfret.json" in response.text
-    assert "http://" not in response.text.replace("http://test", "")
-
-
-def test_linux_policy_command_force_installs_from_this_server() -> None:
-    command = linux_policy_command("abcdefghijklmnopabcdefghijklmnop")
-    assert command == (
-        "sudo mkdir -p /etc/brave/policies/managed && echo "
-        '\'{"ExtensionInstallForcelist":["abcdefghijklmnopabcdefghijklmnop;'
-        "https://unfret.net/extension/updates.xml\"]}' "
-        "| sudo tee /etc/brave/policies/managed/unfret.json > /dev/null"
-    )
+    assert f'href="{settings.chrome_store_url}"' in response.text
+    assert "policies/managed" not in response.text  # the self-hosted install is no longer offered
 
 
 async def test_connect_links_to_the_install_page(client: httpx.AsyncClient) -> None:
@@ -240,8 +226,7 @@ async def test_without_a_release_everything_is_404_and_the_page_says_so(
     assert (await client.get("/extension/updates.xml")).status_code == 404
     assert (await client.get("/extension/unfret-0.1.0.crx")).status_code == 404
     page = await client.get("/extension")
-    assert page.status_code == 200
-    assert "No release is published yet" in page.text
+    assert page.status_code == 200  # the store link doesn't depend on a self-hosted release
     assert re.search(r"\{\{\w+\}\}", page.text) is None
 
 

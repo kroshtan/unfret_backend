@@ -1,7 +1,9 @@
 """
-The self-hosted channel for the browser extension.
+The browser extension's install page and its self-hosted update channels.
 
-``/extension`` is the install page, ``/extension/updates.xml`` the update manifest Chromium polls, and
+``/extension`` points to the Chrome Web Store listing. ``/extension/updates.xml`` is the update manifest that copies
+installed by browser policy before the store listing (the self-hosted production channel, no longer offered) still
+poll,
 ``/extension/<file>`` the release files themselves. ``/extension/updates-dev.xml`` is the manifest of "Unfret Dev", a
 separate extension (own key and ID) that only talks to the dev deployment, for testing.
 
@@ -94,49 +96,15 @@ def current_release(release_dir: Path | None = None, manifest: str = "updates.xm
     )
 
 
-def linux_policy_command(extension_id: str, policy_dir: str = "/etc/brave/policies/managed") -> str:
-    """
-    The one-line command that force-installs the extension in a Chromium browser on Linux.
-
-    :param extension_id: The extension ID.
-    :param policy_dir: The browser's managed-policy directory.
-    :return: A shell command.
-    """
-    policy = f'{{"ExtensionInstallForcelist":["{extension_id};{_public_base()}/updates.xml"]}}'
-    return f"sudo mkdir -p {policy_dir} && echo '{policy}' | sudo tee {policy_dir}/unfret.json > /dev/null"
-
-
 @router.get("/extension", response_class=HTMLResponse)
 def install_page() -> HTMLResponse:
     """
-    How to install the extension from this server, filled in for the current release.
+    Where to install the extension: its Chrome Web Store listing.
 
     :return: The page.
     """
     template = (STATIC_DIR / "extension.html").read_text(encoding="utf-8")
-    release = current_release()
-    if release is None:
-        values = {"release": "<p>No release is published yet.</p>"}
-    else:
-        downloads = f'<li><a href="/extension/{release.crx}">{release.crx}</a> (signed package)</li>'
-        if release.zip:
-            downloads += f'<li><a href="/extension/{release.zip}">{release.zip}</a> (for developer mode)</li>'
-        values = {
-            "release": (
-                f"<p>Version <strong>{html.escape(release.version)}</strong>, extension ID "
-                f"<code>{html.escape(release.extension_id)}</code>.</p><ul>{downloads}</ul>"
-                f"<details><summary>SHA-256 checksums</summary><pre>{html.escape(release.checksums)}</pre></details>"
-            )
-        }
-        values["brave"] = html.escape(linux_policy_command(release.extension_id))
-        values["chromium"] = html.escape(linux_policy_command(release.extension_id, "/etc/chromium/policies/managed"))
-        values["chrome"] = html.escape(linux_policy_command(release.extension_id, "/etc/opt/chrome/policies/managed"))
-        values["crx_url"] = html.escape(f"{_public_base()}/{release.crx}")
-    for key in ("brave", "chromium", "chrome", "crx_url"):
-        values.setdefault(key, "(no release yet)")
-    page = template
-    for key, value in values.items():
-        page = page.replace(f"{{{{{key}}}}}", value)
+    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
     return HTMLResponse(page, headers=PAGE_HEADERS)
 
 

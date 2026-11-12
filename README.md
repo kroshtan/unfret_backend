@@ -13,10 +13,10 @@ reliability score; an LLM writes the one-line explanation from the signals that 
 POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sourced images and templated 5-star reviews." }
 ```
 
-> **Project status: prototype.** Unfret is an exploratory prototype, not a finished product. It was built to try out
-> what an agentic LLM pipeline can do for shopping-fraud detection, and to put a modern Python stack to work
-> (FastAPI, LangGraph, structured LLM output, asyncpg, uv). Payment is SOL-native: wallets sign in with Solana and
-> spend prepaid credits, and agents pay per check over x402. It is not maintained for production use.
+> **Project status: live, run by one person.** Unfret runs at [unfret.net](https://unfret.net) with the
+> [Chrome extension](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo), prepaid checks
+> (card via Polar, or USDC/SOL with a Solana wallet) and pay-per-check x402 for AI agents. It is a side project: no
+> SLA, and scores are a signal, not a verdict (see [Limitations](#limitations-and-responsible-use)).
 
 ## How it works
 
@@ -364,7 +364,8 @@ the logged transactions (and rotated the hot wallet if it was real), clears them
 The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
-spend cap.
+spend cap: `uvx unfret-mcp` from PyPI, listed in the MCP Registry as `net.unfret/mcp`, released by the manual
+"Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
 
 ## Running it
 
@@ -560,4 +561,7 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 
 ## License
 
-[MIT](LICENSE)
+The code is [MIT](LICENSE): this backend (including the trained scorers in `src/unfret/scoring/`), the MCP server in
+[`mcp/`](mcp/) and the [browser extension](https://git.kroshtan.com/kroshtan/unfret_extension). Not published: the
+labelled training corpus (scraped pages and third-party review data that can't be redistributed) and the image
+index seed, so the scorers can be inspected and run but not retrained from this repository alone.

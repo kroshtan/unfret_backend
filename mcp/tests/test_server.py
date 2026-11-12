@@ -1,7 +1,9 @@
 import pytest
+from solders.keypair import Keypair
 
 from unfret_mcp import server as server_module
 from unfret_mcp.server import explain_flag, server
+from unfret_mcp.solana import CAIP2
 
 
 async def test_tools_are_registered() -> None:
@@ -22,3 +24,18 @@ def test_settings_read_the_unfret_names(monkeypatch: pytest.MonkeyPatch) -> None
     assert server_module._api_url() == "https://unfret.net"
     monkeypatch.setenv("UNFRET_API_URL", "https://new.example/")
     assert server_module._api_url() == "https://new.example"
+
+
+def test_the_payer_defaults_to_mainnet(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("UNFRET_MCP_NETWORK", "UNFRET_MCP_RPC_URL", "UNFRET_MCP_KEYPAIR"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("UNFRET_MCP_SECRET_KEY", str(Keypair()))
+    monkeypatch.setattr(server_module, "_payer", None)
+    assert server_module.payer().network == CAIP2["solana-mainnet"]
+
+
+def test_an_unknown_network_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UNFRET_MCP_NETWORK", "solana-testnet")
+    monkeypatch.setattr(server_module, "_payer", None)
+    with pytest.raises(RuntimeError, match="UNFRET_MCP_NETWORK"):
+        server_module.payer()

@@ -4,7 +4,7 @@ MCP server exposing Unfret's pay-per-check store risk API as tools for AI shoppi
 Configuration (environment):
     UNFRET_API_URL                    default https://unfret.net
     UNFRET_MCP_KEYPAIR                path to the agent's Solana CLI keypair JSON (or UNFRET_MCP_SECRET_KEY, base58)
-    UNFRET_MCP_NETWORK                solana-devnet (default) or solana-mainnet
+    UNFRET_MCP_NETWORK                solana-mainnet (default) or solana-devnet (for https://dev.unfret.net)
     UNFRET_MCP_RPC_URL                defaults to the public RPC of that network
     UNFRET_MCP_PAY_WITH               USDC (default: USDC when offered and held, else SOL) or SOL (always SOL)
     UNFRET_MCP_MAX_PRICE_USD          refuse any single check worth more than this many dollars (default 0.25)
@@ -77,7 +77,9 @@ def payer() -> Payer:
     """
     global _payer  # noqa: PLW0603
     if _payer is None:
-        network = _env("MCP_NETWORK", "solana-devnet") or "solana-devnet"
+        network = _env("MCP_NETWORK") or "solana-mainnet"
+        if network not in _DEFAULT_RPC:
+            raise RuntimeError(f"UNFRET_MCP_NETWORK must be one of {', '.join(_DEFAULT_RPC)}, not {network!r}")
         _payer = Payer(
             api_url=_api_url(),
             agent=_load_agent(),
@@ -102,7 +104,12 @@ async def check_store(
     url: Annotated[str, Field(description="The store or product page URL (https).")],
     tier: Annotated[
         Literal["quick", "deep"],
-        Field(description="quick: page and domain checks, $0.01. deep: all checks, reverse image search too, $0.20."),
+        Field(
+            description=(
+                "quick: rule checks on the page itself, $0.01. deep: everything, including an LLM reading of "
+                "the page, reviews, domain age and reverse image search, $0.20."
+            )
+        ),
     ] = "quick",
     policy: Annotated[
         Literal["strict", "balanced", "lenient"],

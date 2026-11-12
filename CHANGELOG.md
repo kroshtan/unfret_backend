@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### Features
+
+* **The MCP server is ready for publishing** as `unfret-mcp` on PyPI and `net.unfret/mcp` in the official MCP Registry (`mcp/server.json`, an `mcp-name` marker in its README, PyPI metadata, `py.typed`, its own `mcp/CHANGELOG.md`), released by the new manual workflow "Publish MCP server" (`.forgejo/workflows/publish-mcp.yaml`): it refuses unless CI passed on main's newest commit and the versions agree, builds the package, smoke-tests it in a clean environment, publishes to PyPI (`PYPI_TOKEN`) and then to the registry with DNS authentication on unfret.net (`MCP_REGISTRY_KEY`), and tags `mcp-v<version>`; each publish step skips a version that is already out
+
 ### Changed
 
+* **The MCP server defaults to mainnet** (`UNFRET_MCP_NETWORK=solana-mainnet`), matching https://unfret.net, its default API; devnet is for `UNFRET_API_URL=https://dev.unfret.net`. An unknown network is refused at start, and a payment offer on the wrong network names the setting to fix
+* The README's status note describes the live service instead of "prototype, not maintained for production use", and its License section says what is open (all code, the trained scorers) and what isn't (the training corpus, the image seed)
 * **`/extension` points to the Chrome Web Store listing** (`UNFRET_CHROME_STORE_URL`, default the Unfret listing): one "Get Unfret from the Chrome Web Store" link, for every Chromium browser, plus the link checker for phones. The self-hosted install (browser-policy commands, CRX download, ungoogled-chromium and developer-mode instructions) is no longer offered; `updates.xml` and its release files are still served for copies already installed by policy, and Unfret Dev's channel is unchanged
 
 ### Removed

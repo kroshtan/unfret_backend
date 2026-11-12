@@ -1,5 +1,7 @@
 # unfret-mcp
 
+<!-- mcp-name: net.unfret/mcp -->
+
 An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents ask
 [Unfret](https://unfret.net) whether a store or product listing shows signs of scams, dropshipping of
 generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
@@ -33,16 +35,35 @@ fetches.
 | Variable | Default | |
 | --- | --- | --- |
 | `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58) |
-| `UNFRET_MCP_NETWORK` | `solana-devnet` | `solana-mainnet` once Unfret accepts mainnet payments |
-| `UNFRET_MCP_RPC_URL` | the network's public RPC | |
+| `UNFRET_MCP_NETWORK` | `solana-mainnet` | `solana-devnet` to try it with test money against `https://dev.unfret.net` |
+| `UNFRET_MCP_RPC_URL` | the network's public RPC | The public RPCs are rate-limited; use your own for anything busy |
+| `UNFRET_MCP_PAY_WITH` | USDC when offered and held, else SOL | `SOL` to always pay in wSOL |
 | `UNFRET_MCP_MAX_PRICE_USD` | `0.25` | Refuse any single check worth more than this many dollars |
 | `UNFRET_MCP_SESSION_CAP_USD` | `2.50` | Refuse once the session has spent this many dollars |
 | `UNFRET_MCP_PRICE_RPC_URL` | mainnet's public RPC | Where the agent reads Pyth SOL/USD to value wSOL payments |
 | `UNFRET_API_URL` | `https://unfret.net` | |
+
+## Install
+
+Needs [uv](https://docs.astral.sh/uv/) (Python 3.12 or newer) and a Solana wallet holding a little USDC or SOL. Give
+the agent a wallet of its own with only what it may spend, never your main wallet: the caps above are the server's,
+the wallet balance is the real limit.
 
 ```json
 {"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],
   "env": {"UNFRET_MCP_KEYPAIR": "~/.config/solana/agent.json"}}}}
 ```
 
+To try it without real money, use devnet (free test SOL from `solana airdrop`, test USDC from
+[faucet.circle.com](https://faucet.circle.com)):
+
+```json
+{"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],
+  "env": {"UNFRET_MCP_KEYPAIR": "~/.config/solana/devnet-agent.json", "UNFRET_MCP_NETWORK": "solana-devnet",
+          "UNFRET_API_URL": "https://dev.unfret.net"}}}}
+```
+
 Deep checks are synchronous today, so there is no polling tool yet.
+
+Source: [git.kroshtan.com/kroshtan/unfret_backend](https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/mcp)
+(mirror on [GitHub](https://github.com/kroshtan/unfret_backend/tree/main/mcp)). MIT licensed.

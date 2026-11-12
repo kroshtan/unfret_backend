@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "net.unfret/mcp",
+  "title": "Unfret",
+  "description": "Check a store or product page for scam, dropshipping and dark-pattern signals, paid per check",
+  "version": "0.1.0",
+  "websiteUrl": "https://unfret.net",
+  "repository": {
+    "url": "https://github.com/kroshtan/unfret_backend",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "icons": [
+    {"src": "https://unfret.net/static/icons/icon.svg", "mimeType": "image/svg+xml"},
+    {"src": "https://unfret.net/static/icons/icon-192.png", "mimeType": "image/png", "sizes": ["192x192"]}
+  ],
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "unfret-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {"type": "stdio"},
+      "environmentVariables": [
+        {
+          "name": "UNFRET_MCP_KEYPAIR",
+          "description": "Path to the agent's Solana CLI keypair JSON, the wallet that pays for checks (or set UNFRET_MCP_SECRET_KEY)",
+          "isRequired": true,
+          "format": "filepath"
+        },
+        {
+          "name": "UNFRET_MCP_MAX_PRICE_USD",
+          "description": "Refuse any single check worth more than this many dollars",
+          "default": "0.25"
+        },
+        {
+          "name": "UNFRET_MCP_SESSION_CAP_USD",
+          "description": "Refuse once the session has spent this many dollars",
+          "default": "2.50"
+        },
+        {
+          "name": "UNFRET_MCP_NETWORK",
+          "description": "solana-mainnet, or solana-devnet together with UNFRET_API_URL=https://dev.unfret.net",
+          "default": "solana-mainnet",
+          "choices": ["solana-mainnet", "solana-devnet"]
+        }
+      ]
+    }
+  ]
+}

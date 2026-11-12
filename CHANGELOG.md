@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* **`/extension` points to the Chrome Web Store listing** (`UNFRET_CHROME_STORE_URL`, default the Unfret listing): one "Get Unfret from the Chrome Web Store" link, for every Chromium browser, plus the link checker for phones. The self-hosted install (browser-policy commands, CRX download, ungoogled-chromium and developer-mode instructions) is no longer offered; `updates.xml` and its release files are still served for copies already installed by policy, and Unfret Dev's channel is unchanged
+
 ### Removed
 
 * Kamal no longer routes the old names (`unfret.kroshtan.com`, `dev.unfret.kroshtan.com`): the forge's Caddy redirects them to unfret.net and dev.unfret.net (308, any path and method)

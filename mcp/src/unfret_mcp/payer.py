@@ -166,7 +166,10 @@ def choose_requirement(
                 and (option.get("extra") or {}).get("feePayer")
             ):
                 return dict(option)
-    raise PaymentFailedError(f"no acceptable payment option (exact, {'/'.join(currencies)}, on this network)")
+    raise PaymentFailedError(
+        f"no acceptable payment option (exact, {'/'.join(currencies)}, on this network): check that "
+        "UNFRET_MCP_NETWORK matches UNFRET_API_URL (solana-mainnet for unfret.net, solana-devnet for dev.unfret.net)"
+    )
 
 
 def build_payment(requirement: dict[str, Any], agent: Keypair, blockhash: str) -> VersionedTransaction:

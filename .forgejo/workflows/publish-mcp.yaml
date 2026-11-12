@@ -1,0 +1,134 @@
+name: Publish MCP server
+
+# Publishes mcp/ (the unfret-mcp package) to PyPI and then to the official MCP Registry as net.unfret/mcp. Manual
+# only: Actions → "Publish MCP server" → Run workflow, on main. It publishes main's newest commit at the version in
+# mcp/pyproject.toml and tags it mcp-v<version>; it refuses if that tag exists (bump the version in
+# mcp/pyproject.toml, mcp/server.json (twice) and mcp/CHANGELOG.md first), or if CI didn't pass for the commit.
+#
+# Repo secrets (Settings → Actions → Secrets):
+#   PYPI_TOKEN        a PyPI API token (pypi-…), scoped to the unfret-mcp project after the first upload
+#   MCP_REGISTRY_KEY  hex Ed25519 private key whose public half is the "v=MCPv1; k=ed25519; p=…" TXT record on
+#                     unfret.net's apex (DNS authentication for the net.unfret/* namespace)
+# Either step can be rerun on its own: a version already on PyPI is skipped, and so is one already in the registry.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: publish-unfret-mcp
+  cancel-in-progress: false
+
+env:
+  # https://github.com/modelcontextprotocol/registry/releases (registry_<v>_checksums.txt)
+  MCP_PUBLISHER_VERSION: 1.8.9
+  MCP_PUBLISHER_SHA256: 4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8
+
+jobs:
+  publish:
+    runs-on: kroshtan-deploy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Check the release
+        id: release
+        env:
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          git fetch -q --tags origin main
+          sha="$(git rev-parse origin/main)"
+          version="$(sed -nE 's/^version = "([^"]+)"$/\1/p' mcp/pyproject.toml | head -n 1)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::mcp version '$version' is not X.Y.Z"; exit 1; }
+          ruby -rjson -e '
+            d = JSON.parse(File.read("mcp/server.json")); v = ARGV[0]
+            bad = [d["version"], *d["packages"].map { |p| p["version"] }].reject { |x| x == v }
+            abort("::error::mcp/server.json versions #{bad} differ from mcp/pyproject.toml #{v}") unless bad.empty?' "$version"
+          grep -q "^## \[$version\]" mcp/CHANGELOG.md || { echo "::error::mcp/CHANGELOG.md has no ## [$version]"; exit 1; }
+          tag="mcp-v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            [[ "$(git rev-parse "$tag^{commit}")" == "$sha" ]] \
+              || { echo "::error::$tag already names another commit: bump the MCP version first"; exit 1; }
+            echo "new_tag=" >> "$FORGEJO_OUTPUT"
+          else
+            echo "new_tag=$tag" >> "$FORGEJO_OUTPUT"
+          fi
+          # The repository is public, so its commit statuses can be read without a token.
+          curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
+            statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
+            abort("::error::CI / check (push) is #{statuses["CI / check (push)"] || "missing"} for this commit") \
+              unless statuses["CI / check (push)"] == "success"
+            puts "CI passed for this commit"'
+          echo "sha=$sha" >> "$FORGEJO_OUTPUT"
+          echo "version=$version" >> "$FORGEJO_OUTPUT"
+          echo "Publishing unfret-mcp $version ($sha)"
+      - name: Build and smoke-test the package
+        run: |
+          set -euo pipefail
+          rm -rf mcp/dist
+          uv build --project mcp --out-dir mcp/dist
+          ls -l mcp/dist
+          wheel="$(ls mcp/dist/*.whl)"
+          # The registry checks PyPI's description (the README) for the mcp-name marker.
+          uv run --isolated --no-project python -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); print(z.read(next(n for n in z.namelist() if n.endswith(".dist-info/METADATA"))).decode())' "$wheel" \
+            | grep -q 'mcp-name: net.unfret/mcp' \
+            || { echo "::error::the package README has no 'mcp-name: net.unfret/mcp'"; exit 1; }
+          # Installs exactly as uvx would, in a clean environment, and lists the tools without a wallet.
+          uv run --isolated --no-project --with "$wheel" python -c '
+          import asyncio
+          from unfret_mcp.server import server
+          names = sorted(t.name for t in asyncio.run(server.list_tools()))
+          assert names == ["check_store", "explain_flag", "get_pricing"], names
+          print("tools:", names)'
+      - name: Publish to PyPI
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          set -euo pipefail
+          if curl -fsS -o /dev/null "https://pypi.org/pypi/unfret-mcp/$VERSION/json"; then
+            echo "unfret-mcp $VERSION is already on PyPI: skipped"
+            exit 0
+          fi
+          [[ -n "$UV_PUBLISH_TOKEN" ]] || { echo "::error::repo secret PYPI_TOKEN is not set"; exit 1; }
+          uv publish mcp/dist/*
+          for _ in $(seq 30); do
+            curl -fsS -o /dev/null "https://pypi.org/pypi/unfret-mcp/$VERSION/json" && { echo "on PyPI"; exit 0; }
+            sleep 10
+          done
+          echo "::error::unfret-mcp $VERSION did not show up on PyPI within 5 minutes"; exit 1
+      - name: Publish to the MCP Registry
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          MCP_REGISTRY_KEY: ${{ secrets.MCP_REGISTRY_KEY }}
+        run: |
+          set -euo pipefail
+          if curl -fsS -o /dev/null "https://registry.modelcontextprotocol.io/v0/servers/net.unfret%2Fmcp/versions/$VERSION"; then
+            echo "net.unfret/mcp $VERSION is already in the registry: skipped"
+            exit 0
+          fi
+          [[ -n "$MCP_REGISTRY_KEY" ]] || { echo "::error::repo secret MCP_REGISTRY_KEY is not set"; exit 1; }
+          tmp="$(mktemp -d)"
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL -o "$tmp/$archive" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v$MCP_PUBLISHER_VERSION/$archive"
+          echo "$MCP_PUBLISHER_SHA256  $tmp/$archive" | sha256sum -c -
+          tar -xzf "$tmp/$archive" -C "$tmp" mcp-publisher
+          cd mcp
+          "$tmp/mcp-publisher" login dns --domain unfret.net --private-key "$MCP_REGISTRY_KEY"
+          "$tmp/mcp-publisher" publish
+          "$tmp/mcp-publisher" logout || true
+      - name: Tag the release
+        if: steps.release.outputs.new_tag != ''
+        env:
+          TAG: ${{ steps.release.outputs.new_tag }}
+          SHA: ${{ steps.release.outputs.sha }}
+          TOKEN: ${{ forgejo.token }}
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+        run: |
+          set -euo pipefail
+          body="$(ruby -rjson -e 'puts JSON.generate(tag_name: ENV["TAG"], target: ENV["SHA"], message: "unfret-mcp #{ENV["TAG"]}")')"
+          curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "$body" "$API/tags" && echo "tagged $TAG" \
+            || echo "::warning::could not create tag $TAG (the package is published); tag $SHA by hand"

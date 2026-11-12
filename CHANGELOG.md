@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.10.0](https://github.com/kroshtan/unfret_backend/compare/0.9.3...0.10.0) (2026-11-12)
+
 ### Features
 
 * **The MCP server is ready for publishing** as `unfret-mcp` on PyPI and `net.unfret/mcp` in the official MCP Registry (`mcp/server.json`, an `mcp-name` marker in its README, PyPI metadata, `py.typed`, its own `mcp/CHANGELOG.md`), released by the new manual workflow "Publish MCP server" (`.forgejo/workflows/publish-mcp.yaml`): it refuses unless CI passed on main's newest commit and the versions agree, builds the package, smoke-tests it in a clean environment, publishes to PyPI (`PYPI_TOKEN`) and then to the registry with DNS authentication on unfret.net (`MCP_REGISTRY_KEY`), and tags `mcp-v<version>`; each publish step skips a version that is already out

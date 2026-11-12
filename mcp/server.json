@@ -3,7 +3,7 @@
   "name": "net.unfret/mcp",
   "title": "Unfret",
   "description": "Check a store or product page for scam, dropshipping and dark-pattern signals, paid per check",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "websiteUrl": "https://unfret.net",
   "repository": {
     "url": "https://github.com/kroshtan/unfret_backend",
@@ -18,7 +18,7 @@
     {
       "registryType": "pypi",
       "identifier": "unfret-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "runtimeHint": "uvx",
       "transport": {"type": "stdio"},
       "environmentVariables": [

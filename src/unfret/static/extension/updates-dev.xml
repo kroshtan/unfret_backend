@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
   <app appid='phokojgbhkfcejnnocokabdjoljdfgpl'>
-    <updatecheck codebase='https://dev.unfret.net/extension/unfret-dev-0.9.1.40.crx' version='0.9.1.40' prodversionmin='116' />
+    <updatecheck codebase='https://dev.unfret.net/extension/unfret-dev-0.9.1.43.crx' version='0.9.1.43' prodversionmin='116' />
   </app>
 </gupdate>

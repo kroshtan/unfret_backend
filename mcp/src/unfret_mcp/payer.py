@@ -321,8 +321,8 @@ class Payer:
         timeout, a 5xx or an unreadable answer) the money may have moved, so it stays counted.
 
         :param body: The ``/v1/check`` request body.
-        :return: ``{"status": ok|not_paid|pending|unknown, "ok", "http_status", "verdict" or "error", "transaction",
-            "paid", "paid_lamports", "next_step"?}``.
+        :return: ``{"status": ok|refunded|not_paid|pending|unknown, "ok", "http_status", "verdict" or "error",
+            "transaction", "paid", "paid_lamports", "next_step"?}``.
         :raises PaymentFailedError: If the API doesn't ask for payment as expected.
         """
         async with httpx.AsyncClient(timeout=_TIMEOUT, transport=self._transport) as client:
@@ -373,17 +373,18 @@ class Payer:
         if unanswered or (not receipt and response is not None and response.status_code >= 500):
             status = "unknown"
         elif settled:
-            status = "ok"
+            # Paid: a verdict, or (any non-200) Unfret's analysis failed and it credited the price back.
+            status = "ok" if response is not None and response.status_code == 200 else "refunded"
         elif receipt.get("transaction") and receipt.get("errorReason") != "settlement_failed":
             status = "pending" if receipt.get("errorReason") == "settlement_pending" else "unknown"
         else:
             status = "not_paid"  # refused before any money moved
         if status == "not_paid":
             self.guard.release(usd_micros)
-        charged = settled or status in {"pending", "unknown"}
+        charged = settled or status in {"pending", "unknown"}  # "refunded" is settled
         result: dict[str, Any] = {
             "status": status,
-            "ok": status == "ok" and response is not None and response.status_code == 200,
+            "ok": status == "ok",
             "http_status": response.status_code if response is not None else None,
             "transaction": receipt.get("transaction") or None,
             "payment": payment,

@@ -280,6 +280,20 @@ async def test_a_timeout_is_retried_with_the_same_payment() -> None:
     assert (result["status"], result["ok"], guard.spent) == ("ok", True, 10_000)
 
 
+async def test_a_paid_check_whose_analysis_failed_says_refunded() -> None:
+    guard = SpendGuard(250_000, 2_500_000)
+    failed = httpx.Response(
+        500,
+        headers={"PAYMENT-RESPONSE": b64({"success": True, "transaction": "5ig"})},
+        json={"error_code": "INTERNAL_ERROR", "refunded_usd_micros": 10_000},
+    )
+    result = await flaky_payer(guard, [failed]).check({"url": "u"})
+    assert (result["status"], result["ok"], result["http_status"]) == ("refunded", False, 500)
+    assert result["error"]["refunded_usd_micros"] == 10_000
+    assert result["paid"]["usd_micros"] == 10_000  # it was paid; the refund is in credits
+    assert "refunded as Unfret credits" in result["next_step"]
+
+
 @pytest.mark.parametrize(
     "answers",
     [

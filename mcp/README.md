@@ -21,7 +21,8 @@ price. Unfret pays the network fee, so the agent pays only the price. The server
 | `explain_flag` | `flag_type` | A one-paragraph explanation for the end user |
 | `get_pricing` | — | The current prices (free): tiers in dollars, live USDC and SOL amounts |
 
-Every result has `status` and `ok`: `ok` (a verdict), `not_paid` (refused before any money moved), `unavailable`
+Every result has `status` and `ok`: `ok` (a verdict), `refunded` (paid, but Unfret's analysis failed: the price is
+credited back to the paying wallet as Unfret credits), `not_paid` (refused before any money moved), `unavailable`
 (Unfret is paused or rate-limiting; retry later), `pending` or `unknown` (the payment may have been taken: don't pay
 again for that page; if it landed without a verdict Unfret credits its price to the paying wallet). A `next_step`
 says what to do whenever there is something to do.

@@ -1,5 +1,11 @@
 # Changelog (unfret-mcp)
 
+## [0.1.1]
+
+* A check that was paid but whose analysis failed on Unfret's side now has `status: "refunded"` (was `"ok"` with
+  `ok: false`): the price was credited back to the paying wallet as Unfret credits, and `error` says how much.
+  `status: "ok"` now always means a verdict.
+
 ## [0.1.0]
 
 First public release, on PyPI as `unfret-mcp` and in the MCP Registry as `net.unfret/mcp`.

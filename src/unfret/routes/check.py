@@ -10,6 +10,7 @@ about the payment or the page is stored.
 import asyncio
 import json
 import time
+import traceback
 from typing import Any
 
 import structlog
@@ -402,7 +403,7 @@ async def _paid_check(  # noqa: PLR0911
     except Exception as exc:  # noqa: BLE001
         # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
         # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.
-        logger.warning("check_analysis_failed_after_payment", error=type(exc).__name__)
+        logger.warning("check_analysis_failed_after_payment", error=type(exc).__name__, where=_failure_site(exc))
         timed_out = isinstance(exc, TimeoutError)
         content: dict[str, Any] = {
             "detail": "Payment settled, but the analysis " + ("timed out." if timed_out else "failed."),
@@ -419,6 +420,21 @@ async def _paid_check(  # noqa: PLR0911
     else:
         await verdict_store.remember(body.url, result, answer, fetched_by_us=not body.page_content)
     return 200, verdict, paid
+
+
+def _failure_site(exc: BaseException, frames: int = 6) -> list[str]:
+    """
+    Say where an exception was raised, without its message.
+
+    Messages can carry the analysed URL (HTTP errors name the request), which must never be logged; the innermost
+    frames' file, line and function are enough to find the cause.
+
+    :param exc: The exception.
+    :param frames: How many of the innermost frames to keep.
+    :return: ``file:line:function`` for each, outermost first.
+    """
+    stack = traceback.extract_tb(exc.__traceback__)[-frames:]
+    return [f"{f.filename.rsplit('/site-packages/', 1)[-1].rsplit('/src/', 1)[-1]}:{f.lineno}:{f.name}" for f in stack]
 
 
 def _add_refund(content: dict[str, Any], refunded: int, payer: str) -> None:

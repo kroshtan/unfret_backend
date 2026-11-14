@@ -4,7 +4,7 @@
 
 ### Development
 
-* The evals find the private corpus next to this checkout (`../unfret-corpus`) instead of at a fixed `~/repos/unfret-corpus`; `UNFRET_CORPUS_DIR` still overrides it. `.gitignore` also covers `venv/` and `node_modules/`
+* The evals find the private corpus next to this checkout (`../unfret-corpus`) instead of at a fixed `~/repos/unfret-corpus`; `UNFRET_CORPUS_DIR` still overrides it. `.gitignore` also covers `venv/`, `node_modules/` and `coverage/`
 
 ### Features
 

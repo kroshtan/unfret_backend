@@ -16,6 +16,7 @@ node_modules/
 # Coverage
 .coverage*
 coverage.xml
+coverage/
 htmlcov/
 
 # Editors / OS

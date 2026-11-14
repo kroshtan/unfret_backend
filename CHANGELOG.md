@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.10.1](https://github.com/kroshtan/unfret_backend/compare/0.10.0...0.10.1) (2026-11-14)
+
 ### Bug fixes
 
 * **unfret-mcp 0.1.1**: a paid check whose analysis failed reported `status: "ok"` with `ok: false`; it is now `status: "refunded"`, and `ok` always means a verdict

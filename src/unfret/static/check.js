@@ -139,7 +139,7 @@ function renderAccount() {
   }
   $("sign-in-note").textContent = expired
     ? "Your sign-in expired; your checks are still there. Sign in again to use them."
-    : "Sign in with a Solana wallet, or use an API key. Your link stays here while you do.";
+    : "Use an API key, or sign in with a Solana wallet. Your link stays here while you do.";
   $("buy-crypto").href = buyPath();
   $("buy-card-note").hidden = account?.kind === "key";
   const card = Boolean(pricing?.fiat?.available);

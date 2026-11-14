@@ -33,7 +33,11 @@ async def test_the_page_is_served_with_a_strict_policy(client: httpx.AsyncClient
     assert response.headers["referrer-policy"] == "no-referrer"
     assert '<script type="module" src="/static/check.js">' in response.text
     assert '<link rel="manifest" href="/manifest.webmanifest">' in response.text
-    assert "http://" not in response.text and "https://" not in response.text.replace("https://shop.example", "")
+    # Nothing from elsewhere: the only outside addresses are the shared footer's links (the source code, the maker).
+    page = response.text.replace("https://shop.example", "")
+    for footer_link in ('href="https://git.kroshtan.com/kroshtan/unfret_backend"', 'href="https://kroshtan.com"'):
+        page = page.replace(footer_link, "")
+    assert "http://" not in page and "https://" not in page
 
 
 async def test_a_shared_link_is_never_put_into_the_page_by_the_server(client: httpx.AsyncClient) -> None:

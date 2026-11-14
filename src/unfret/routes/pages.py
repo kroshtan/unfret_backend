@@ -9,11 +9,13 @@ Static HTML and vanilla JS from ``unfret/static``, no framework and no third-par
 Policy lets them load only their own scripts and talk only to this API.
 """
 
+import html
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from unfret.config import settings
 from unfret.credits import invites
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -46,7 +48,9 @@ def home() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("index.html")
+    template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
+    return HTMLResponse(page, headers=PAGE_HEADERS)
 
 
 def _page(name: str) -> HTMLResponse:

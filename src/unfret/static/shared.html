@@ -15,19 +15,22 @@
   <script type="module" src="/static/shared.js"></script>
 </head>
 <body class="app">
-  <main>
-    <header class="brand small">
-      <a href="/" class="home" aria-label="Unfret home">
-        <svg class="logo" viewBox="0 0 128 128" width="36" height="36" aria-hidden="true">
-          <rect x="4" y="4" width="120" height="120" rx="30" fill="#1f8a70"/>
-          <circle cx="45" cy="44" r="7.5" fill="#fff"/>
-          <circle cx="79" cy="44" r="7.5" fill="#fff"/>
-          <path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5"
-            stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+  <header class="site-header">
+    <div class="inner">
+      <a class="wordmark" href="/" aria-label="Unfret home">
+        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Unfret</span>
       </a>
-      <p class="kicker">A shared check</p>
-    </header>
+      <nav class="site-nav" aria-label="Main">
+        <a class="optional" href="/check">Check a link</a>
+        <a href="/checkout">Buy checks</a>
+        <a class="optional" href="/connect">Sign in</a>
+        <a class="cta" href="/extension">Get Unfret</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <p class="kicker">A shared check</p>
 
     <article class="case">
       <h1 class="case-title">{{title}}</h1>
@@ -64,7 +67,34 @@
 
     <p class="buttons"><a class="button primary" href="/check">Check a link yourself</a></p>
 
-    <footer><a href="/">About Unfret</a> · <a href="/check">Check a link</a> · <a href="/privacy">Privacy</a></footer>
   </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <div class="about">
+        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
+        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
+      </div>
+      <div>
+        <h2>Use Unfret</h2>
+        <ul>
+          <li><a href="/extension">Get the extension</a></li>
+          <li><a href="/check">Check a link</a></li>
+          <li><a href="/checkout">Buy checks</a></li>
+          <li><a href="/connect">Sign in</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About</h2>
+        <ul>
+          <li><a href="/privacy">Privacy</a></li>
+          <li><a href="/llms.txt">For AI agents</a></li>
+          <li><a href="/docs">API reference</a></li>
+          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
+        </ul>
+      </div>
+      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
+    </div>
+  </footer>
 </body>
 </html>

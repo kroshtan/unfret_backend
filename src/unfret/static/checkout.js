@@ -263,11 +263,13 @@ async function collectClaim(entry) {
 {
   const shared = new URLSearchParams(window.location.search).get("code");
   if (shared && INVITE_RE.test(shared.trim().toLowerCase())) {
-    document.getElementById("invite-input").value = shared.trim().toUpperCase();
+    const typed = shared.trim();
+    const shown = typed.toLowerCase().startsWith("ufi_") ? typed.toLowerCase() : typed.toUpperCase();
+    document.getElementById("invite-input").value = shown;
     document.getElementById("invite-key").open = true;
     setStatus(
       document.getElementById("invite-status"),
-      `Your code ${shared.trim().toUpperCase()} is filled in: create a new key above, save it, then press "Use code".`,
+      `Your code ${shown} is filled in: create a new key above, save it, then press "Use code".`,
     );
   }
 }

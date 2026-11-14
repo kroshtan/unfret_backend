@@ -30,10 +30,10 @@
         <h2 id="for-heading">2. Where should the checks go?</h2>
         <fieldset class="choices" id="beneficiary">
           <legend class="visually-hidden">Where the checks go</legend>
-          <label><input type="radio" name="for" value="wallet" checked> To my wallet
-            <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
-          <label><input type="radio" name="for" value="key"> To an API key
+          <label><input type="radio" name="for" value="key" checked> To an API key
             <span class="muted">No wallet needed: in the Unfret extension, choose API key and paste it (or use it in scripts).</span></label>
+          <label><input type="radio" name="for" value="wallet"> To my wallet
+            <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
         </fieldset>
         <div id="key-panel" hidden>
           <label class="custom">Top up a key you have: paste the key or its ID
@@ -71,6 +71,14 @@
 
       <section aria-labelledby="pay-heading">
         <h2 id="pay-heading">3. Pay</h2>
+        <div id="card" hidden>
+          <h3>By card</h3>
+          <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
+            <span id="card-tax"></span>.</p>
+          <button id="card-pay" type="button">Pay by card</button>
+          <h3>Or with crypto</h3>
+        </div>
+
         <div id="pay-setup">
           <fieldset class="currency" id="currency">
             <legend>Pay with</legend>
@@ -100,12 +108,6 @@
           <p id="phone-help">Scan with Phantom, Solflare or any wallet that supports Solana Pay.</p>
           <button id="qr-show" type="button">Show the QR code</button>
 
-          <div id="card" hidden>
-            <h3>By card</h3>
-            <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
-              <span id="card-tax"></span>.</p>
-            <button id="card-pay" type="button">Pay by card</button>
-          </div>
         </div>
       </section>
     </div>

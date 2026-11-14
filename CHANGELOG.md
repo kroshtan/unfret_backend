@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.10.2](https://github.com/kroshtan/unfret_backend/compare/0.10.1...0.10.2) (2026-11-14)
+
 ### Bug fixes
 
 * **A "Looks fine" result with a note no longer contradicts itself**: it showed "No warning signs: Nothing suspicious found" (the fallback for a reliable page with no positives) right next to its note, e.g. "Hard-to-believe claims". That fallback now appears only when there is nothing to note, and the template headline names the note ("Looks fine, but one thing to note: hard-to-believe claims.") instead of "Nothing worrying stood out on this page."

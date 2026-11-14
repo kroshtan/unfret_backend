@@ -320,6 +320,7 @@
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
+  "headline_reliable_note": "{label}, but one thing to note: {reason}.",
   "and": "and",
   "pricing": {
     "pack": "{checks} checks — {price}",

@@ -177,6 +177,18 @@ def test_reliable_without_anything_says_nothing_was_found() -> None:
     assert ([p.type for p in verdict.positives], verdict.reasons) == (["nothing_found"], [])
 
 
+def test_reliable_with_a_note_never_also_says_no_warning_signs() -> None:
+    features = {"content.implausible_claims": 0.7}
+    claim = Finding(
+        skill="content", type="implausible_claim", evidence="moeilijk te bereiken met een gewone powerbank"
+    )
+    verdict = build(90, features, findings=[claim])
+    assert verdict.band == "reliable"
+    assert [r.type for r in verdict.reasons] == ["implausible_claims"]
+    assert "nothing_found" not in [p.type for p in verdict.positives]
+    assert "Nothing worrying" not in verdict.headline
+
+
 def test_low_score_without_a_single_reason_is_honest() -> None:
     verdict = build(30, {"listing.title_length": 80.0})
     assert [r.type for r in verdict.reasons] == ["overall"]
@@ -209,7 +221,9 @@ def test_users_amazon_result_is_coherent() -> None:
     verdict = build(95, features, "aggregate_listing", findings=findings)
     assert verdict.band == "reliable" and verdict.label == "Looks fine"
     assert [r.type for r in verdict.reasons] == ["implausible_claims"]  # one note, no trust or timer reason
-    assert verdict.positives
+    # Coherent: no "No warning signs" next to the note, and a headline that names it.
+    assert "nothing_found" not in [p.type for p in verdict.positives]
+    assert verdict.headline == "Looks fine, but one thing to note: hard-to-believe claims."
 
 
 def test_no_trust_reason_on_marketplaces() -> None:

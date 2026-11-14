@@ -59,6 +59,15 @@
       <h2 id="sign-in-heading">Sign in to check links</h2>
       <p id="sign-in-note" class="muted small"></p>
 
+      <details class="choice" id="choice-key">
+        <summary>Use an API key</summary>
+        <p class="small">An API key holds checks without a wallet. You get one when you buy checks by card.</p>
+        <label for="key">API key</label>
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+        <button id="key-use" type="button" class="secondary">Use this key</button>
+        <p id="key-status" class="small" role="status" aria-live="polite"></p>
+      </details>
+
       <details class="choice" id="choice-wallet">
         <summary>Solana wallet</summary>
         <p class="small">Approve a sign-in message in your wallet. It is not a transaction: it costs nothing and gives
@@ -71,19 +80,10 @@
         <p id="wallet-status" class="small" role="status" aria-live="polite"></p>
       </details>
 
-      <details class="choice" id="choice-key">
-        <summary>Use an API key</summary>
-        <p class="small">An API key holds checks without a wallet. You get one when you buy checks by card.</p>
-        <label for="key">API key</label>
-        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ufk_…">
-        <button id="key-use" type="button" class="secondary">Use this key</button>
-        <p id="key-status" class="small" role="status" aria-live="polite"></p>
-      </details>
-
       <p class="choice-link"><a href="/checkout?for=key">Buy checks</a> <span class="muted small">by card or crypto;
         no wallet needed.</span></p>
-      <p class="muted small">Have an invite or intro code? Sign in with a new wallet, or make a new API key on the
-        <a href="/checkout?for=key">checkout page</a>, then enter it here.</p>
+      <p class="muted small">Have an invite or intro code? Make a new API key on the
+        <a href="/checkout?for=key">checkout page</a> (or sign in with a new wallet), then enter it here.</p>
     </section>
 
     <section id="progress" class="panel" aria-labelledby="progress-status" hidden>

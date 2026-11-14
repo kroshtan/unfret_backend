@@ -70,11 +70,13 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "showcase_cases",
         "shared_results",
         "invites",
+        "intro_codes",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites"):  # only a purchase fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM showcase_cases") == 0  # only the operator adds cases
+    assert await pool.fetchval("SELECT COUNT(*) FROM intro_codes") == 0  # only the operator makes codes
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one
     for table in ("reports", "report_votes", "report_quota", "labelled_pages"):  # only a consented report fills them
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608

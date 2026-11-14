@@ -320,7 +320,7 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
     )
     if not fresh:
         return "duplicate"
-    await ledger.credit(conn, account, credits)
+    await ledger.credit(conn, account, credits, purchase=True)
     if event.checkout_id:  # marks the checkout paid; invites only for exactly a pack's card price
         matched = pack_for_card(settings, event.amount_cents)
         checks = matched.checks if matched else 0

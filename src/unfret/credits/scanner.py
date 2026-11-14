@@ -341,7 +341,7 @@ class CreditScanner:
                     logger.warning("credits_scanner_raced", expected=cursor, found=current)
                     return made  # another scanner moved on; it credits from here
                 for account, (amount, sale) in sales.items():
-                    await ledger.credit(conn, account, sale.net_usd_micros)
+                    await ledger.credit(conn, account, sale.net_usd_micros, purchase=True)
                     await vat.record_sale(conn, sale, self.currency, amount, signature=signature)
                 if quote is not None and sales and await vat.mark_paid(conn, quote.id):  # the checkout polls this
                     paid_net = sum(sale.net_usd_micros for _, sale in sales.values())

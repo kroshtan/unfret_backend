@@ -148,7 +148,7 @@ def test_pages_show_invites_and_offer_to_redeem_one() -> None:
     assert "to give away" in checkout  # each pack's offer
     for page in ("checkout", "connect", "check"):
         html = (STATIC_DIR / f"{page}.html").read_text()
-        assert "Have an invite?" in html and 'id="invite-redeem"' in html, page
+        assert "Have an invite or intro code?" in html and 'id="invite-redeem"' in html, page
     for name in ("index.html", "checkout.html", "checkout.js", "wallet.js", "connect.html", "check.html"):
         text = (STATIC_DIR / name).read_text().lower()
         assert "free invite" not in text and "trial" not in text, name  # an invite, never "free" or a "trial"

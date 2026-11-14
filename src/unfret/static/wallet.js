@@ -185,7 +185,9 @@ export function setStatus(element, text, kind = "info") {
 
 // ── Invites: codes a pack comes with, to give to someone who hasn't tried Unfret ───────────────────────────────
 
-export const INVITE_RE = /^ufi_[a-z2-7]{32}$/;
+// An invite (ufi_…, from a pack) or an intro code (FRIENDS, DEV, …: 3 to 24 letters or digits), lower-cased first.
+export const INVITE_RE = /^(ufi_[a-z2-7]{32}|[a-z0-9]{3,24})$/;
+export const NOT_A_CODE = "That isn't an invite (ufi_…) or an intro code.";
 export const INVITE_LINE =
   "Give this to someone who hasn't tried Unfret: it adds 3 checks to a new wallet or a new API key.";
 

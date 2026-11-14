@@ -4,7 +4,8 @@ Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
 fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
 an API key (support, and test credits for a store reviewer) and taking it back, the quarterly export of crypto
-sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), the "Spotted recently"
+sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), intro codes
+(``python -m unfret.credits.codes``: make, list, switch off, more uses), the "Spotted recently"
 showcase (``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared
 results a shop owner objected to.
 """
@@ -225,6 +226,70 @@ async def invites_summary(request: Request) -> dict[str, int]:
     if request.app.db_pool is None:
         raise HTTPException(503, "Database not ready.")
     return await invites.summary(request.app.db_pool, settings)
+
+
+# ── Intro codes ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+class IntroCreate(BaseModel):
+    """A new intro code."""
+
+    code: str = Field(min_length=3, max_length=24, description="3 to 24 letters or digits (stored upper case).")
+    checks: int = Field(default=5, gt=0, le=20)
+    max_uses: int = Field(gt=0, le=10_000)
+
+
+class IntroUpdate(BaseModel):
+    """Switch a code on or off, or change its number of uses."""
+
+    active: bool | None = None
+    add_uses: int = Field(default=0, ge=-10_000, le=10_000)
+
+
+@router.get("/codes")
+async def codes_list(request: Request) -> dict[str, Any]:
+    """
+    Every intro code with its uses, today's checks given against the cap, and buyers by how they came.
+
+    :param request: The incoming request.
+    :return: The codes and counts.
+    """
+    return await invites.list_intros(_pool(request), settings)
+
+
+@router.post("/codes", status_code=201)
+async def codes_create(body: IntroCreate, request: Request) -> dict[str, Any]:
+    """
+    Make an intro code.
+
+    :param body: Its name, checks per use and number of uses.
+    :param request: The incoming request.
+    :return: The code.
+    :raises HTTPException: 400 for a malformed name, 409 if it exists.
+    """
+    try:
+        made = await invites.create_intro(_pool(request), body.code, body.checks, body.max_uses)
+    except invites.InviteError as exc:
+        raise HTTPException(400 if exc.kind == "invalid" else 409, str(exc)) from exc
+    logger.info("intro_code_created", checks=made.checks, max_uses=made.max_uses)
+    return made.__dict__
+
+
+@router.post("/codes/{code}")
+async def codes_update(code: str, body: IntroUpdate, request: Request) -> dict[str, Any]:
+    """
+    Switch an intro code on or off, or change its number of uses.
+
+    :param code: The name.
+    :param body: What to change.
+    :param request: The incoming request.
+    :return: The code.
+    :raises HTTPException: 404 for an unknown code.
+    """
+    changed = await invites.update_intro(_pool(request), code, active=body.active, add_uses=body.add_uses)
+    if changed is None:
+        raise HTTPException(404, "No such code.")
+    return changed.__dict__
 
 
 # ── Showcase ("Spotted recently") ─────────────────────────────────────────────────────────────────────────────────

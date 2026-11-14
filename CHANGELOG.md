@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* **Intro codes**: named codes per channel (`FRIENDS`, `DEV`, one per newsletter) worth 5 checks each to a new account, usable a set number of times, redeemed wherever invites are ("Have an invite or intro code?" on checkout, sign-in and /check). Same rule as an invite: new accounts only, one invite or code per account, the same `invite_redeemed` flag and never which code. All codes together give at most `UNFRET_INTRO_DAILY_CHECKS_CAP` checks a UTC day (default 100; then "back tomorrow"). The operator makes and watches them with `make codes` (`list`, `create CODE --uses N`, `off`, `on`, `add CODE N`, `link CODE`), and the list counts accounts that came through an invite or code, how many of those bought, and organic buyers (new `wallets.purchased` flag; card buyers backfilled, earlier crypto buyers can't be). Share links: `unfret.net/key?code=FRIENDS` opens checkout for a new key with the code filled in
+
 ### Changed
 
 * `/checkout` puts the API key first and picks it by default (a wallet when the link says `?for=wallet` or a wallet is signed in on the page), and "Pay by card" comes first under "3. Pay", above the crypto options ("Or with crypto"); the card option hides while a crypto payment is under way

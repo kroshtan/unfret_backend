@@ -27,13 +27,14 @@ async def balance(db: Executor, pubkey: str) -> int | None:
     return None if value is None else int(value)
 
 
-async def credit(db: Executor, pubkey: str, amount: int) -> int:
+async def credit(db: Executor, pubkey: str, amount: int, *, purchase: bool = False) -> int:
     """
     Add to a wallet's balance, creating the row if needed.
 
     :param db: A pool or connection.
     :param pubkey: The wallet (base58).
     :param amount: The micro-dollars to add (positive).
+    :param purchase: The account bought these checks (sets its ``purchased`` flag; refunds and rewards don't).
     :return: The new balance.
     :raises ValueError: If ``amount`` is not positive.
     """
@@ -41,11 +42,13 @@ async def credit(db: Executor, pubkey: str, amount: int) -> int:
         raise ValueError("credit must be positive")
     return int(
         await db.fetchval(
-            "INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2) ON CONFLICT (pubkey) "
-            "DO UPDATE SET balance_usd_micros = wallets.balance_usd_micros + EXCLUDED.balance_usd_micros "
+            "INSERT INTO wallets (pubkey, balance_usd_micros, purchased) VALUES ($1, $2, $3) ON CONFLICT (pubkey) "
+            "DO UPDATE SET balance_usd_micros = wallets.balance_usd_micros + EXCLUDED.balance_usd_micros, "
+            "purchased = wallets.purchased OR EXCLUDED.purchased "
             "RETURNING balance_usd_micros",
             pubkey,
             amount,
+            purchase,
         )
     )
 

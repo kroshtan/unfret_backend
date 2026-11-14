@@ -8,7 +8,7 @@
 //   collects it; this page keeps nothing.
 // After a same-browser sign-in the page offers "Have an invite?": a code someone gave the user, redeemed for this
 // (new) wallet with the session it just got.
-import { INVITE_RE, api, discoverWallets, redeemInvite, setStatus, signIn, walletButton } from "./wallet.js";
+import { INVITE_RE, NOT_A_CODE, api, discoverWallets, redeemInvite, setStatus, signIn, walletButton } from "./wallet.js";
 
 const list = document.getElementById("wallets");
 const empty = document.getElementById("no-wallets");
@@ -113,7 +113,7 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
   const inviteStatus = document.getElementById("invite-status");
   const input = document.getElementById("invite-input");
   const code = input.value.trim().toLowerCase();
-  if (!INVITE_RE.test(code)) return setStatus(inviteStatus, "That isn't an invite code (it starts with ufi_).", "error");
+  if (!INVITE_RE.test(code)) return setStatus(inviteStatus, NOT_A_CODE, "error");
   if (!signedIn) return setStatus(inviteStatus, "Sign in first.", "error");
   const button = event.currentTarget;
   button.disabled = true;
@@ -122,7 +122,7 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
     input.value = "";
     setStatus(inviteStatus, `✓ ${added.checks_added} checks added to this wallet.`, "ok");
   } catch (error) {
-    setStatus(inviteStatus, error.message || "That invite didn't work.", "error");
+    setStatus(inviteStatus, error.message || "That code didn't work.", "error");
   } finally {
     button.disabled = false;
   }

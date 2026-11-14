@@ -12,6 +12,7 @@
 // round trip doesn't lose them; each is dropped once its purchase is paid.
 import {
   INVITE_RE,
+  NOT_A_CODE,
   api,
   chainOf,
   discoverWallets,
@@ -258,12 +259,25 @@ async function collectClaim(entry) {
 
 // ── Have an invite? (for an API key: it needs the whole key, which proves the key is yours) ────────────────────
 
+// A shared intro-code link (/key?code=FRIENDS → /checkout?for=key&code=FRIENDS): open the box with the code filled in.
+{
+  const shared = new URLSearchParams(window.location.search).get("code");
+  if (shared && INVITE_RE.test(shared.trim().toLowerCase())) {
+    document.getElementById("invite-input").value = shared.trim().toUpperCase();
+    document.getElementById("invite-key").open = true;
+    setStatus(
+      document.getElementById("invite-status"),
+      `Your code ${shared.trim().toUpperCase()} is filled in: create a new key above, save it, then press "Use code".`,
+    );
+  }
+}
+
 document.getElementById("invite-redeem").addEventListener("click", async (event) => {
   const status = document.getElementById("invite-status");
   const input = document.getElementById("invite-input");
   const code = input.value.trim().toLowerCase();
   keyId(); // sets fullKey from the key field
-  if (!INVITE_RE.test(code)) return setStatus(status, "That isn't an invite code (it starts with ufi_).", "error");
+  if (!INVITE_RE.test(code)) return setStatus(status, NOT_A_CODE, "error");
   if (!fullKey) {
     return setStatus(
       status,
@@ -282,7 +296,7 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
       "ok",
     );
   } catch (error) {
-    setStatus(status, error.message || "That invite didn't work.", "error");
+    setStatus(status, error.message || "That code didn't work.", "error");
   } finally {
     redeemButton.disabled = false;
   }

@@ -409,6 +409,28 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX shared_results_expires_at_idx ON shared_results (expires_at);
         """,
     ),
+    (
+        17,
+        "intro codes",
+        """
+        -- Intro codes (unfret.credits.invites): named codes the operator hands out per channel (FRIENDS, DEV, a
+        -- newsletter), each usable max_uses times, for new accounts only, like an invite. Counts only: nothing says
+        -- who used a code; the account keeps the same invite_redeemed flag an invite sets.
+        CREATE TABLE intro_codes (
+            code        TEXT PRIMARY KEY CHECK (code ~ '^[A-Z0-9]{3,24}$'),
+            checks      INTEGER NOT NULL CHECK (checks > 0),
+            max_uses    INTEGER NOT NULL CHECK (max_uses >= 0),
+            uses        INTEGER NOT NULL DEFAULT 0 CHECK (uses >= 0),
+            active      BOOLEAN NOT NULL DEFAULT TRUE,
+            created_on  DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        -- Whether an account ever bought checks (crypto or card), so the operator can count buyers who came
+        -- through an invite or code against organic ones. Card buyers are known from fiat_payments; earlier crypto
+        -- buyers can't be (crypto_sales names no wallet) and start as false.
+        ALTER TABLE wallets ADD COLUMN purchased BOOLEAN NOT NULL DEFAULT FALSE;
+        UPDATE wallets SET purchased = TRUE WHERE pubkey IN (SELECT account FROM fiat_payments);
+        """,
+    ),
 ]
 
 

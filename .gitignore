@@ -5,6 +5,8 @@ __pycache__/
 build/
 dist/
 .venv/
+venv/
+node_modules/
 
 # Tooling caches
 .mypy_cache/
@@ -14,6 +16,7 @@ dist/
 # Coverage
 .coverage*
 coverage.xml
+coverage/
 htmlcov/
 
 # Editors / OS

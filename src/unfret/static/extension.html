@@ -5,20 +5,89 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Install the extension · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
-  <main>
-    <h1>Install the Unfret extension</h1>
-    <p>Unfret is in the Chrome Web Store. It works in Chrome, Brave, Edge, Vivaldi, Opera and other Chromium
-      browsers, and updates itself from there.</p>
-    <p><a class="button primary" href="{{store_url}}" rel="noopener">Get Unfret from the Chrome Web Store</a></p>
-    <p>On a phone, or a computer where you can't install extensions? <a href="/check">Check a link</a> on the web
-      instead (some shops block those checks; the extension isn't affected).</p>
-    <p class="muted">The code is open source. Firefox isn't supported yet.</p>
-
-    <footer><a href="/check">Check a link</a> · <a href="/connect">Sign in</a> · <a href="/checkout">Buy checks</a> · <a href="/llms.txt">For AI
-      agents</a></footer>
+  <header class="site-header">
+    <div class="inner">
+      <a class="wordmark" href="/" aria-label="Unfret home">
+        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Unfret</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="optional" href="/check">Check a link</a>
+        <a href="/checkout">Buy checks</a>
+        <a class="optional" href="/connect">Sign in</a>
+        <a class="cta" href="/extension">Get Unfret</a>
+      </nav>
+    </div>
+  </header>
+  <main class="install">
+    <div class="install-grid">
+      <div>
+        <p class="eyebrow">Free to install</p>
+        <h1>Get Unfret for your browser</h1>
+        <p class="lead">Unfret is in the Chrome Web Store. It works in Chrome, Brave, Edge, Vivaldi, Opera and other
+          Chromium browsers, and keeps itself up to date.</p>
+        <p class="buttons"><a class="button primary large" href="{{store_url}}" rel="noopener">Add Unfret to Chrome</a></p>
+        <h2>After installing</h2>
+        <ol class="howto">
+          <li><b>Pin it.</b> Click the puzzle piece in your browser's toolbar and pin Unfret, so it's one click away.</li>
+          <li><b>Get some checks.</b> <a href="/checkout">Buy a pack</a> by card or crypto, or use an intro code if
+            someone shared one with you.</li>
+          <li><b>Click Unfret on a product page.</b> It reads that page, only when you click, and answers in plain
+            words.</li>
+        </ol>
+        <p class="muted small">On a phone, or a computer where you can't add extensions? <a href="/check">Check a
+          link</a> on the web instead; a few shops block those checks, the extension isn't affected. Firefox is on its
+          way. The code is open source.</p>
+      </div>
+      <div class="demo solo" role="img" aria-label="An example of Unfret's answer: Looks fine, with what looks good.">
+          <div class="popup" aria-hidden="true">
+            <div class="top">
+              <svg viewBox="0 0 128 128" width="22" height="22"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Unfret
+            </div>
+            <div class="badge"><span class="symbol">✓</span> Looks fine</div>
+            <p class="said">Nothing worrying stood out on this page.</p>
+            <h3>What looks good</h3>
+            <ul>
+              <li><div><b>Known brand</b><span>Philips is an established brand.</span></div></li>
+              <li><div><b>Sold by the brand</b><span>The brand sells this itself.</span></div></li>
+              <li><div><b>Established shop</b><span>This web shop has been around for 12 years.</span></div></li>
+            </ul>
+          </div>
+      </div>
+    </div>
   </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <div class="about">
+        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
+        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
+      </div>
+      <div>
+        <h2>Use Unfret</h2>
+        <ul>
+          <li><a href="/extension">Get the extension</a></li>
+          <li><a href="/check">Check a link</a></li>
+          <li><a href="/checkout">Buy checks</a></li>
+          <li><a href="/connect">Sign in</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About</h2>
+        <ul>
+          <li><a href="/privacy">Privacy</a></li>
+          <li><a href="/llms.txt">For AI agents</a></li>
+          <li><a href="/docs">API reference</a></li>
+          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
+        </ul>
+      </div>
+      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
+    </div>
+  </footer>
 </body>
 </html>

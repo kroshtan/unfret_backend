@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* **A fresh, calmer website.** One design for every page (`site.css` rewritten: mint-tinted surfaces, deep green ink, soft result tones instead of alarm colours, light and dark, phone first, still system fonts under the same strict CSP), with a shared header (Check a link · Buy checks · Sign in · Get Unfret) and footer on every page. The home page is new: "Shop without the worry", the product drawn in HTML (a shop page with Unfret's "Looks fine" answer, no images), how it works in three steps, what Unfret looks at for you, live pack prices from `/v1/pricing` (card first, crypto as the discount), an intro-code box that opens checkout with the code filled in, privacy promises, "Checked by us recently", and a section for developers and agents (new `home.js`; the home page now gets the store link from `UNFRET_CHROME_STORE_URL` like `/extension`). `/extension` shows the answer and how to get started after installing; checkout's "Pay by card" is the primary button with "Or with crypto" below it
+
 ## [0.10.2](https://github.com/kroshtan/unfret_backend/compare/0.10.1...0.10.2) (2026-11-14)
 
 ### Bug fixes

@@ -5,9 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Privacy · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
+  <header class="site-header">
+    <div class="inner">
+      <a class="wordmark" href="/" aria-label="Unfret home">
+        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Unfret</span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="optional" href="/check">Check a link</a>
+        <a href="/checkout">Buy checks</a>
+        <a class="optional" href="/connect">Sign in</a>
+        <a class="cta" href="/extension">Get Unfret</a>
+      </nav>
+    </div>
+  </header>
   <main>
     <h1>Privacy</h1>
     <p><em>Last updated: 10 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
@@ -111,5 +126,33 @@
     <p>Signing out in the extension's settings removes the session from your browser; uninstalling removes everything
       the extension stored. Questions: see the contact details at kroshtan.com.</p>
   </main>
+
+  <footer class="site-footer">
+    <div class="inner">
+      <div class="about">
+        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
+        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
+      </div>
+      <div>
+        <h2>Use Unfret</h2>
+        <ul>
+          <li><a href="/extension">Get the extension</a></li>
+          <li><a href="/check">Check a link</a></li>
+          <li><a href="/checkout">Buy checks</a></li>
+          <li><a href="/connect">Sign in</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About</h2>
+        <ul>
+          <li><a href="/privacy">Privacy</a></li>
+          <li><a href="/llms.txt">For AI agents</a></li>
+          <li><a href="/docs">API reference</a></li>
+          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
+        </ul>
+      </div>
+      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
+    </div>
+  </footer>
 </body>
 </html>

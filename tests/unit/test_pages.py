@@ -118,12 +118,15 @@ def test_sign_in_never_asks_the_wallet_for_a_chain_id() -> None:
 async def test_home_page_introduces_unfret_without_third_party_requests(client: httpx.AsyncClient) -> None:
     response = await client.get("/")
     assert response.status_code == 200
-    assert "<h1>Unfret</h1>" in response.text
+    assert "Shop without" in response.text and "<span>Unfret</span>" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
-    # Its only script fills in "Spotted recently" from this server's /v1/showcase.
+    assert (
+        "{{" not in response.text and 'href="https://chromewebstore.google.com/' in response.text
+    )  # store link filled in
+    # Its only script fills in "Checked by us recently" (/v1/showcase), the prices (/v1/pricing) and the code box.
     assert response.text.count("<script") == 1
-    assert '<script type="module" src="/static/showcase-list.js"></script>' in response.text
+    assert '<script type="module" src="/static/home.js"></script>' in response.text
     assert 'id="spotted"' in response.text
 
 

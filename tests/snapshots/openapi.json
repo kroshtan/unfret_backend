@@ -1292,7 +1292,7 @@
     "description": "An invite code.",
     "properties": {
      "code": {
-      "description": "The invite code (ufi_\u2026), as given.",
+      "description": "The invite code (ufi_\u2026) or intro code (e.g. FRIENDS), as given.",
       "maxLength": 100,
       "title": "Code",
       "type": "string"
@@ -3092,7 +3092,7 @@
   },
   "/v1/invites/redeem": {
    "post": {
-    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nOnly for an account that never had any checks: a wallet we've never credited (no purchase, refund or reward) or\nan API key that was never topped up, and only once per account. Each code works once. Nothing about the code's\nbuyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400\n``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``\n(the account has had checks, or already redeemed an invite).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.",
+    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nThe code is an invite (``ufi_\u2026``) or an intro code (``FRIENDS``; its own number of checks). Only for an account\nthat never had any checks: a wallet we've never credited (no purchase, refund or reward) or\nan API key that was never topped up, and only once per account. Each code works once. Nothing about the code's\nbuyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400\n``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``\n(the account has had checks, or already redeemed an invite or code), 410 ``INVITE_ENDED`` (an intro code switched\noff), 429 ``INTRO_DAILY_CAP`` (today's checks from intro codes are gone; back the next UTC day).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.",
     "operationId": "redeem_v1_invites_redeem_post",
     "requestBody": {
      "content": {

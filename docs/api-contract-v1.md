@@ -454,6 +454,15 @@ valid 7 days. Nothing is stored when a check runs.
   each code works once. Errors: 400 `INVALID_INVITE`, 404 `UNKNOWN_INVITE`, 409 `INVITE_USED`, 403
   `INVITE_NOT_FOR_THIS_ACCOUNT`, 401 without a valid sign-in. Codes are case-insensitive; surrounding spaces are
   ignored.
+- The same endpoint takes **intro codes**: named codes the operator makes per channel (`FRIENDS`, `DEV`, a
+  newsletter; 3 to 24 letters or digits, case-insensitive), each worth its own number of checks (5 by default) and
+  usable `max_uses` times, under the same rule (new accounts only; one invite or code per account; the same
+  `invite_redeemed` flag, never which code). All codes together give at most `UNFRET_INTRO_DAILY_CHECKS_CAP` checks a
+  UTC day (default 100). Extra errors: 409 `INVITE_USED` (the code's uses are gone), 410 `INVITE_ENDED` (switched
+  off), 429 `INTRO_DAILY_CAP` (back the next UTC day). Storage: `intro_codes (code, checks, max_uses, uses, active,
+  created_on)`, a daily counter in `usage_counters`, and `wallets.purchased` (an account ever bought checks; for
+  counting buyers who came through an invite or code against organic ones). `/key?code=CODE` redirects to
+  `/checkout?for=key&code=CODE`, which fills the code in.
 - No issue for a transfer without a quote, a quote made without a claim (older clients), a payment worth less than
   90% of the pack, a quote's second payment, or a card order whose amount isn't exactly a pack's card price.
 - CORS allows the `X-Unfret-Claim` request header.

@@ -2,7 +2,8 @@
 Invites: ``POST /v1/invites/redeem``.
 
 A pack comes with invite codes to give away (:mod:`unfret.credits.invites`); whoever gets one redeems it here with
-their own new account, a wallet's session or an API key, for ``invite_checks`` checks.
+their own new account, a wallet's session or an API key, for ``invite_checks`` checks. Intro codes (named codes the
+operator hands out, e.g. ``FRIENDS``) are redeemed here too, under the same rule, for that code's number of checks.
 """
 
 from typing import NoReturn
@@ -18,8 +19,10 @@ from unfret.schemas.errors import (
     ConflictError,
     CustomAPIError,
     ForbiddenError,
+    GoneError,
     NotFoundError,
     ServiceUnavailableError,
+    TooManyRequestsError,
 )
 
 router = APIRouter(prefix="/v1/invites", tags=["Credits"])
@@ -28,7 +31,7 @@ router = APIRouter(prefix="/v1/invites", tags=["Credits"])
 class RedeemRequest(BaseModel):
     """An invite code."""
 
-    code: str = Field(max_length=100, description="The invite code (ufi_…), as given.")
+    code: str = Field(max_length=100, description="The invite code (ufi_…) or intro code (e.g. FRIENDS), as given.")
 
 
 class RedeemResponse(BaseModel):
@@ -48,6 +51,10 @@ def _refuse(exc: invites.InviteError) -> NoReturn:
         error = NotFoundError(str(exc), error_code="UNKNOWN_INVITE")
     elif exc.kind == "used":
         error = ConflictError(str(exc), error_code="INVITE_USED")
+    elif exc.kind == "ended":
+        error = GoneError(str(exc), error_code="INVITE_ENDED")
+    elif exc.kind == "daily_cap":
+        error = TooManyRequestsError(str(exc), error_code="INTRO_DAILY_CAP")
     else:
         error = ForbiddenError(str(exc), error_code="INVITE_NOT_FOR_THIS_ACCOUNT")
     raise error from exc
@@ -58,11 +65,13 @@ async def redeem(body: RedeemRequest, request: Request, account: str = Depends(r
     """
     Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).
 
-    Only for an account that never had any checks: a wallet we've never credited (no purchase, refund or reward) or
+    The code is an invite (``ufi_…``) or an intro code (``FRIENDS``; its own number of checks). Only for an account
+    that never had any checks: a wallet we've never credited (no purchase, refund or reward) or
     an API key that was never topped up, and only once per account. Each code works once. Nothing about the code's
     buyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400
     ``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``
-    (the account has had checks, or already redeemed an invite).
+    (the account has had checks, or already redeemed an invite or code), 410 ``INVITE_ENDED`` (an intro code switched
+    off), 429 ``INTRO_DAILY_CAP`` (today's checks from intro codes are gone; back the next UTC day).
 
     :param body: The code.
     :param request: The incoming request.

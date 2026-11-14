@@ -64,6 +64,9 @@ reports:  ## Label reported results from the live service into the corpus (UNFRE
 showcase:  ## Review the "Spotted recently" showcase: ARGS="add URL | list | show ID | publish ID | remove ID --reason TEXT | screenshot ID FILE"
 	uv run python -m unfret.showcase $(ARGS)
 
+codes:  ## Intro codes: ARGS="list | create CODE --uses N [--checks 5] | off CODE | on CODE | add CODE N | link CODE"
+	uv run python -m unfret.credits.codes $(ARGS)
+
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)
 

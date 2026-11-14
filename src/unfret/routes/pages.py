@@ -12,7 +12,9 @@ Policy lets them load only their own scripts and talk only to this API.
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+
+from unfret.credits import invites
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -49,6 +51,18 @@ def home() -> HTMLResponse:
 
 def _page(name: str) -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / name).read_text(encoding="utf-8"), headers=PAGE_HEADERS)
+
+
+@router.get("/key", include_in_schema=False)
+def key_link(code: str = "") -> RedirectResponse:
+    """
+    The link an intro code is shared as (``/key?code=FRIENDS``): checkout for an API key, the code filled in.
+
+    :param code: The intro code; anything else is dropped.
+    :return: A redirect to ``/checkout?for=key`` (with ``&code=`` for a valid code).
+    """
+    name = invites.normalise_intro(code)
+    return RedirectResponse(f"/checkout?for=key&code={name}" if name else "/checkout?for=key", status_code=302)
 
 
 @router.get("/connect", response_class=HTMLResponse)

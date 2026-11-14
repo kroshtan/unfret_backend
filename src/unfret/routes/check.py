@@ -9,6 +9,7 @@ about the payment or the page is stored.
 
 import asyncio
 import json
+import re
 import time
 import traceback
 from typing import Any
@@ -422,19 +423,38 @@ async def _paid_check(  # noqa: PLR0911
     return 200, verdict, paid
 
 
-def _failure_site(exc: BaseException, frames: int = 6) -> list[str]:
+def _failure_site(exc: BaseException, frames: int = 4) -> dict[str, Any]:
     """
-    Say where an exception was raised, without its message.
+    Say where an exception was raised, without anything that could carry the analysed URL.
 
-    Messages can carry the analysed URL (HTTP errors name the request), which must never be logged; the innermost
-    frames' file, line and function are enough to find the cause.
+    Exception messages can name the request (HTTP errors do), so they are never logged. Kept: our own innermost
+    frames (which step failed) and the innermost frame overall, as ``file:line:function``; for an API error from
+    the LLM provider, its status and error code/type, and its message with any URL removed.
 
     :param exc: The exception.
-    :param frames: How many of the innermost frames to keep.
-    :return: ``file:line:function`` for each, outermost first.
+    :param frames: How many of our own innermost frames to keep.
+    :return: ``{"ours": [...], "raised_in": ..., "provider": {...}?}``.
     """
-    stack = traceback.extract_tb(exc.__traceback__)[-frames:]
-    return [f"{f.filename.rsplit('/site-packages/', 1)[-1].rsplit('/src/', 1)[-1]}:{f.lineno}:{f.name}" for f in stack]
+    stack = traceback.extract_tb(exc.__traceback__)
+
+    def site(f: traceback.FrameSummary) -> str:
+        return f"{f.filename.rsplit('/site-packages/', 1)[-1].rsplit('/src/', 1)[-1]}:{f.lineno}:{f.name}"
+
+    ours = [site(f) for f in stack if "/unfret/" in f.filename and "/site-packages/" not in f.filename]
+    found: dict[str, Any] = {"ours": ours[-frames:], "raised_in": site(stack[-1]) if stack else None}
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        body = getattr(exc, "body", None)
+        error = body.get("error", body) if isinstance(body, dict) else None
+        error = error if isinstance(error, dict) else {}
+        message = str(error.get("message") or (body if isinstance(body, str) else ""))
+        found["provider"] = {
+            "status": status,
+            "code": error.get("code"),
+            "type": error.get("type"),
+            "message": re.sub(r"(?:https?://|www\.)\S+", "<url>", message)[:200],
+        }
+    return found
 
 
 def _add_refund(content: dict[str, Any], refunded: int, payer: str) -> None:

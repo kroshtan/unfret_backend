@@ -8,7 +8,7 @@
 
 ### Changed
 
-* A paid check whose analysis fails now logs where it failed (`where`: file, line and function of the innermost frames) next to the exception type, never the exception's message, which can carry the analysed URL
+* A paid check whose analysis fails now logs where it failed (`where`: our own innermost frames and the frame that raised, as file:line:function) and, for an LLM provider error, its status, code, type and message with URLs removed; never the exception's own message, which can carry the analysed URL
 
 ## [0.10.0](https://github.com/kroshtan/unfret_backend/compare/0.9.3...0.10.0) (2026-11-12)
 

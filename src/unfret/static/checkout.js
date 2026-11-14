@@ -3,7 +3,7 @@
 // request by QR code. Either way the purchase has a quote, and the page polls /v1/credits/quotes/<id> to show the
 // payment arriving (no sign-in needed for that). Prices come from /v1/pricing, all derived from the price of one check: each pack has a price
 // (by card) and a lower crypto price, plus VAT for the buyer's country (prefilled from where the request comes from).
-// Checks can go to an API key instead (?for=key): a new one (made here after a small proof of work), an existing
+// Checks go to an API key by default (?for=key; ?for=wallet or a wallet signed in on /connect picks the wallet): a new one (made here after a small proof of work), an existing
 // one, or one recovered with its recovery code. The purchase's quote then names the key's public ID; the key itself
 // never leaves this page except to check its balance (and to redeem an invite for it, "Have an invite?").
 // Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on chain,
@@ -66,7 +66,9 @@ let pack = null; // the chosen pack from /v1/pricing
 let currency = "SOL";
 // Signed in on /connect in this tab: phone payments credit that wallet, whoever pays.
 const signedIn = recallAny();
-let forKey = new URLSearchParams(window.location.search).get("for") === "key";
+// API key is the default (it can pay by card); a wallet when asked for (?for=wallet) or already signed in here.
+const forParam = new URLSearchParams(window.location.search).get("for");
+let forKey = forParam === "key" || (forParam !== "wallet" && !signedIn);
 let fullKey = null; // the whole key, when typed or made here: lets the page show the balance
 let watch = null; // the purchase being waited for (see watchQuote)
 
@@ -103,6 +105,11 @@ function cardReady() {
   return forKey && Boolean(pack) && Boolean(keyId()) && (keyReveal.hidden || saved.checked);
 }
 
+// The card option is for API keys, when the card provider is configured.
+function cardOffered() {
+  return forKey && Boolean(pricing?.fiat?.available);
+}
+
 function ready() {
   if (!countryField.value) return false;
   if (!forKey) return true;
@@ -111,7 +118,7 @@ function ready() {
 
 function refreshTarget() {
   keyPanel.hidden = !forKey;
-  card.hidden = !(forKey && pricing?.fiat?.available);
+  card.hidden = !cardOffered();
   const ok = ready();
   list.querySelectorAll("button").forEach((button) => (button.disabled = !ok));
   qrShow.disabled = !ok;
@@ -436,6 +443,7 @@ function showPanel(state, ...nodes) {
   const busy = ["waiting", "ok", "timeout"].includes(state);
   payOptions.hidden = busy;
   paySetup.hidden = busy;
+  card.hidden = busy || !cardOffered();
 }
 
 function showMessage(state, text) {
@@ -456,6 +464,7 @@ function clearPanel() {
   payLink.hidden = true;
   payOptions.hidden = false;
   paySetup.hidden = false;
+  card.hidden = !cardOffered();
 }
 
 function stopWatching() {

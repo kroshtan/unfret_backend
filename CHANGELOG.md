@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* `/checkout` puts the API key first and picks it by default (a wallet when the link says `?for=wallet` or a wallet is signed in on the page), and "Pay by card" comes first under "3. Pay", above the crypto options ("Or with crypto"); the card option hides while a crypto payment is under way
+
 ## [0.10.1](https://github.com/kroshtan/unfret_backend/compare/0.10.0...0.10.1) (2026-11-14)
 
 ### Bug fixes

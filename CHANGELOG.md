@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+* **A "Looks fine" result with a note no longer contradicts itself**: it showed "No warning signs: Nothing suspicious found" (the fallback for a reliable page with no positives) right next to its note, e.g. "Hard-to-believe claims". That fallback now appears only when there is nothing to note, and the template headline names the note ("Looks fine, but one thing to note: hard-to-believe claims.") instead of "Nothing worrying stood out on this page."
+
 ### Development
 
 * The evals find the private corpus next to this checkout (`../unfret-corpus`) instead of at a fixed `~/repos/unfret-corpus`; `UNFRET_CORPUS_DIR` still overrides it. `.gitignore` also covers `venv/`, `node_modules/` and `coverage/`

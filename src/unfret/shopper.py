@@ -183,6 +183,8 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
     """
     The headline without an LLM: the verdict label and its (up to two) strongest concerns, else the band's sentence.
 
+    A reliable page names its one note ("Looks fine, but one thing to note: …") rather than saying nothing stood out.
+
     :param band: The verdict band.
     :param fired: The keys of the reasons that fired, strongest first.
     :param reasons: The verdict's reasons (same order).
@@ -190,6 +192,10 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
     :return: The headline.
     """
     sentence: str = copy["headlines"][band]
+    if band == "reliable" and fired and reasons and reasons[0].title:
+        # A reliable page that still has a note: "nothing worrying" would contradict it.
+        reason = reasons[0].title[0].lower() + reasons[0].title[1:]
+        return str(copy["headline_reliable_note"].format(label=copy["labels"][band], reason=reason))
     if band == "reliable" or not fired:
         return sentence
     titles = [r.title[0].lower() + r.title[1:] for r in reasons[: len(fired)] if r.title]
@@ -610,7 +616,8 @@ def build(
 
     if band == "reliable":
         reasons = reasons[:1]
-        positives = positives[:3] or [_positive("nothing_found", {})]
+        # "No warning signs" only when there is truly nothing to note: next to a reason it would contradict it.
+        positives = positives[:3] or ([] if reasons else [_positive("nothing_found", {})])
     else:
         reasons = reasons[:3] or [_reason("overall", {})]
         positives = positives[: 2 if band == "concerns" else 1]

@@ -148,3 +148,6 @@ def test_source_leakage_spots_a_feature_that_names_the_source() -> None:
     assert by_source[("scam", "dataset")]["top"][0][0] == "listing.is_shopify"
     assert report["applicability"]["us_identity"] > 0.6  # applies to every scam but not to the live legit shops
     assert "wayback" in report["within_source"]
+    # Knowing only the source says a lot (dataset is all scam, live all legit), the origin dataset the same here.
+    assert report["grouping"]["source"] > 0.7
+    assert set(report["grouping"]) == {"source", "origin_dataset"}

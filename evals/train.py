@@ -443,13 +443,29 @@ def _standardise(x: np.ndarray) -> np.ndarray:
     return np.asarray((x - means) / scales)
 
 
+def label_auc_by_group(records: Sequence[LabelRecord]) -> dict[str, float]:
+    """
+    The label AUC of knowing only a page's source, or only its origin dataset (scored by the group's unreliable share).
+
+    :param records: Labelled records holding both labels.
+    :return: AUC by grouping (``source``, ``origin_dataset``).
+    """
+    y = np.array([1 if r.label in UNRELIABLE else 0 for r in records])
+    out: dict[str, float] = {}
+    for key in ("source", "origin_dataset"):
+        groups = [str(getattr(r, key)) for r in records]
+        share = {g: float(y[[x == g for x in groups]].mean()) for g in set(groups)}
+        out[key] = round(float(roc_auc_score(y, [share[g] for g in groups])), 3)
+    return out
+
+
 def source_leakage(
     records: Sequence[LabelRecord], features: dict[str, dict[str, float]], names: list[str], model: Model
 ) -> dict[str, Any]:
     """
     The source-prediction leakage test: whether the features say where a page came from rather than what it is.
 
-    Three checks over the storefront pages (the marketplace pages all come from one source):
+    Four checks over the storefront pages (the marketplace pages all come from one source):
 
     - **source**: within one label, how well a logistic regression on the features tells each source from the
       others (cross-validated AUC; 0.5 = not at all), with its strongest features. A source holding only one label
@@ -458,13 +474,15 @@ def source_leakage(
       shop, no US identity on an EU one), the label AUC of "it applied" alone. A high one means the market itself
       predicts the label in this corpus, and a fit can rebuild it from near-empty columns (their means differ from
       zero only where the skill ran).
+    - **grouping**: the label AUC of knowing only a page's source, or only its origin dataset (each group scored by
+      its share of unreliable pages): how much the way the corpus was collected says about the label by itself.
     - **within source**: the model's TEST AUC on each source holding both labels, where the source can't help.
 
     :param records: The labelled TRAIN and TEST records.
     :param features: Features by record id.
     :param names: The feature columns.
     :param model: The model to check within each source.
-    :return: The three checks.
+    :return: The checks.
     """
     stores = [r for r in records if r.page_type == "storefront" and r.id in features]
     by_label: dict[str, list[LabelRecord]] = {}
@@ -505,6 +523,7 @@ def source_leakage(
         )
         if 0 < measured.sum() < len(measured) and len(set(y_label.tolist())) == 2:
             applicability[skill] = round(float(roc_auc_score(y_label, measured)), 3)
+    grouping = label_auc_by_group(stores) if len(set(y_label.tolist())) == 2 else {}
     within: dict[str, Any] = {}
     test = [r for r in records if r.split == "test" and r.id in features]
     for src in sorted({r.source for r in test}):
@@ -514,7 +533,7 @@ def source_leakage(
                 "pages": len(group),
                 "roc_auc": roc_auc(outcomes(model, build(group, features, names), names)),
             }
-    return {"source": source, "applicability": applicability, "within_source": within}
+    return {"source": source, "applicability": applicability, "grouping": grouping, "within_source": within}
 
 
 def top_coefficients(model: Model, n: int = 12) -> list[tuple[str, float]]:
@@ -555,6 +574,26 @@ def write_artifact(model: Model, path: Path, *, features_file: str, train_n: int
     path.write_text(json.dumps(artifact, indent=1) + "\n")
 
 
+def leakage_lines(leakage: dict[str, Any]) -> list[str]:
+    """
+    The leakage test's lines of the training report.
+
+    :param leakage: The output of :func:`source_leakage`.
+    :return: Markdown list items.
+    """
+    lines = [
+        f"- {row_['label']}: {row_['source']} (pages {row_['pages']}): source AUC {row_['auc']}; top {row_['top']}"
+        for row_ in leakage.get("source", [])
+    ]
+    if leakage.get("applicability"):
+        lines.append(f"- label AUC of a skill applying at all (market proxy): {leakage['applicability']}")
+    if leakage.get("grouping"):
+        lines.append(f"- label AUC of the source or origin dataset alone: {leakage['grouping']}")
+    if leakage.get("within_source"):
+        lines.append(f"- TEST AUC within one source: {leakage['within_source']}")
+    return lines
+
+
 def to_markdown(report: dict[str, Any]) -> str:
     """
     Render the training report.
@@ -592,16 +631,7 @@ def to_markdown(report: dict[str, Any]) -> str:
             f"- **{name}**: {variant['description']}; train n={variant['train_n']}, "
             f"GBM AUC {variant['gbm_auc']}; top coefficients {variant['top']}"
         )
-    lines += ["", "## Source-prediction leakage test (storefronts)", ""]
-    leakage = report.get("leakage", {})
-    for row_ in leakage.get("source", []):
-        lines.append(
-            f"- {row_['label']}: {row_['source']} (pages {row_['pages']}): source AUC {row_['auc']}; top {row_['top']}"
-        )
-    if leakage.get("applicability"):
-        lines.append(f"- label AUC of a skill applying at all (market proxy): {leakage['applicability']}")
-    if leakage.get("within_source"):
-        lines.append(f"- TEST AUC within one source: {leakage['within_source']}")
+    lines += ["", "## Source-prediction leakage test (storefronts)", "", *leakage_lines(report.get("leakage", {}))]
     lines += ["", f"Shipped: {report['shipped']}"]
     return "\n".join(lines) + "\n"
 

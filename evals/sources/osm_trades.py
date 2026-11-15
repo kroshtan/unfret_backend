@@ -27,7 +27,7 @@ import structlog
 
 from evals.corpus import Corpus, LabelRecord, page_id
 from evals.sources._http import PoliteClient
-from evals.sources.wayback import CDX_URL, closest_snapshot, fetch_snapshot
+from evals.sources.wayback import closest_snapshot, fetch_snapshot, first_capture
 from unfret.html_cleaner import clean_html
 
 logger = structlog.get_logger("unfret.evals")
@@ -129,33 +129,6 @@ async def fetch_trades(client: PoliteClient, country: str) -> list[Trade]:
             await asyncio.sleep(10 * (attempt + 1))
         logger.info("osm_area", country=country, area=area, total=len(found))
     return list(found.values())
-
-
-async def first_capture(client: PoliteClient, domain: str) -> str | None:
-    """
-    The timestamp of the Internet Archive's earliest 200-status capture of a domain's pages.
-
-    :param client: A rate-limited client.
-    :param domain: The domain.
-    :return: ``YYYYMMDDhhmmss``, or ``None`` when it was never archived.
-    """
-    response = await client.get(
-        CDX_URL,
-        params={
-            "url": domain,
-            "filter": "statuscode:200",
-            "fl": "timestamp",
-            "output": "json",
-            "limit": "1",
-        },
-    )
-    if response is None or response.status_code != 200:
-        return None
-    try:
-        rows = response.json()
-    except ValueError:
-        return None
-    return str(rows[1][0]) if len(rows) > 1 else None
 
 
 async def collect(client: PoliteClient, trade: Trade) -> tuple[LabelRecord, str] | None:

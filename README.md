@@ -91,9 +91,29 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `eu_registry` | Storefronts and service sites: VAT ID checked against the EU VIES register (name match) and its check digit (a number that can't exist earns no credit and makes the verdict "careful" at best; a bank account that starts like a VAT ID is ignored), withdrawal right and imprint; outside the EU (a US shop, or one on a non-European country domain or currency) a named company or US business address counts as its imprint, and a missing imprint, VAT ID or return policy is not applicable (neutral), since no law there requires them |
 | `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
-| `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs |
+| `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs; a "since 1998" / "founded 20 years ago" claim about the shop itself on a domain younger than a year by both measures (claims vs facts) |
 | `shop_links` | Storefronts and service sites (looked up; only shops are recorded): other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
+| `payment_methods` | Storefronts: only payments that can't be reversed (bank transfer, crypto, Western Union, MoneyGram; gift cards don't count alone) and no card, PayPal, iDEAL, Klarna or other protected method in the text, logo alt texts or a payment provider's script (Shopify shops never: their checkout takes cards); protected methods offered (a positive). Not in the scorer yet |
+| `claims` | Storefronts: claims against the facts: "a Dutch company", "family business in Amsterdam", "based in Germany" while every address the shop gives is in another country (told from the address text: country names, Dutch postcodes, US state and ZIP, UK postcodes; no geocoding); "visit our showroom" with no address, postcode or phone number anywhere. Not in the scorer yet |
+| `market_price` | Product pages with a barcode (GTIN/EAN): the price against each other shop's median price for the same barcode over 90 days, from Unfret's own anonymous observations (`unfret.market_prices`); far below means at most 40% of the median of at least three other shops in the same currency. Off in evaluation; not in the scorer yet |
+| `review_copies` | Product pages: the longer reviews (60+ characters, 10+ words) whose normalised text other shops show too, from the review fingerprint store (`unfret.review_store`: hashes only). Told to the shopper only for an unknown brand with other resale signs, since brands syndicate reviews to their resellers. Off in evaluation; not in the scorer yet |
+| `brand_presence` | Product pages: the brand on Wikidata (a business or brand item with that label or alias) and its own `<brand>.com`/`.nl` in RDAP (registered, and how long ago), both cached as store-level facts. "No presence" is told to the shopper only on marketplace listings with other white-label signs. A network lookup: off in evaluation; not in the scorer yet |
+| `safety_gate` | Product pages: the product in the EU Safety Gate alerts (dangerous non-food products), from the vendored index: the barcode exactly, or the brand and a whole model number (5+ characters with a letter and a digit, or 6+ digits) in the title, model, MPN or SKU. Local; not in the scorer yet |
 | `reverse_image` | Every class (outside products only when asked for): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
+
+The skills from `payment_methods` on (and `domain_age`'s founding claim, `shop_links`'s shared address) report new
+features that the shipped scorer doesn't use: they reach the shopper as reasons and positives, and the scores stay
+exactly as they were until the scorer is retrained with them (`evals.train` already reads them; the store and lookup
+skills stay out of training, like `domain_age`).
+
+**EU Safety Gate data.** `src/unfret/safety_gate_index.json.gz` is a compact index of the alerts in the Commission's
+Safety Gate weekly reports ([XML list](https://ec.europa.eu/safety-gate-alerts/api/download/weeklyReport/list/xml/en),
+the "Weekly Reports - XML format" distribution of the data.europa.eu dataset
+[rapex-rapid-alert-system-non-food](https://data.europa.eu/data/datasets/rapex-rapid-alert-system-non-food),
+licence CC0 1.0, published by DG Justice and Consumers): alert number, case number, date, brand, product name, model,
+barcodes, kind of product, risk type and level, for the alerts a page can be matched on (2005 to now). `make
+safety-gate` adds the weekly reports it lacks (reports never change once published); the monthly "Vendored data"
+workflow runs `make safety-gate-check`, which fails once a new report is out, so the refresh lands as a PR.
 
 ### Adding a skill
 
@@ -443,8 +463,8 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_LLM_BASE_URL` | `https://api.scaleway.ai/v1` | Any OpenAI-compatible chat completions API |
 | `UNFRET_LLM_MODEL` | `mistral-small-3.2-24b-instruct-2506` | Used by every node and skill; must support tool calling |
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
-| `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop |
-| `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop fingerprint store; the key for contact hashes (no key and no session secret: contacts aren't stored) |
+| `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
+| `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
 | `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `UNFRET_SKILL_TIMEOUT_S` / `UNFRET_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
@@ -474,6 +494,7 @@ make test              # unit + integration tests against a throwaway Postgres c
 make e2e               # the end-to-end sweep against dev (devnet; needs the UNFRET_E2E_* settings, see Deploying)
 make audit             # pip-audit over the locked dependencies
 make vat-rates-check   # vendored EU VAT rates and Cloudflare ranges vs their sources (CI runs it monthly)
+make safety-gate       # add the EU Safety Gate's new weekly reports to the vendored index (safety-gate-check: CI, monthly)
 make run               # uvicorn with auto-reload
 ```
 

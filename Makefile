@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -25,6 +25,12 @@ vat-rates-check:  ## Compare the vendored EU VAT rates and Cloudflare ranges wit
 		uv run scripts/update_vat_rates.py --check || status=1; \
 		uv run scripts/update_cloudflare_ips.py --check || status=1; \
 		exit $$status
+
+safety-gate:  ## Add the EU Safety Gate's new weekly reports to the vendored index (review the diff, then commit)
+	uv run scripts/update_safety_gate.py
+
+safety-gate-check:  ## Exit 1 when the Commission published Safety Gate reports the vendored index lacks (monthly)
+	uv run scripts/update_safety_gate.py --check
 
 test-unit:  ## Run unit tests (no external services needed)
 	uv run pytest tests/unit

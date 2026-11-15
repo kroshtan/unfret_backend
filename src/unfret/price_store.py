@@ -69,17 +69,23 @@ def valid_gtin(digits: str) -> bool:
     return (10 - total % 10) % 10 == check
 
 
-def _gtins(node: object) -> list[str]:
+def gtins(node: object) -> list[str]:
+    """
+    The valid GTINs in Product JSON-LD (the product and its offers), as 14 digits.
+
+    :param node: A JSON-LD node or list of nodes.
+    :return: The GTINs, in document order.
+    """
     found: list[str] = []
     if isinstance(node, dict):
         for key in _GTIN_KEYS:
             value = str(node.get(key) or "").strip().replace(" ", "")
             if valid_gtin(value):
                 found.append(value.zfill(14))
-        found += _gtins(node.get("offers"))
+        found += gtins(node.get("offers"))
     elif isinstance(node, list):
         for item in node[:10]:
-            found += _gtins(item)
+            found += gtins(item)
     return found
 
 
@@ -98,8 +104,8 @@ def product_id(url: str, facts: PageFacts) -> str | None:
         return f"bol:{m.group(1)}"
     if facts.platform == "walmart" and (m := _WALMART_RE.search(path)):
         return f"walmart:{m.group(1)}"
-    gtins = _gtins(facts.json_ld)
-    return f"gtin:{gtins[0]}" if gtins else None
+    found = gtins(facts.json_ld)
+    return f"gtin:{found[0]}" if found else None
 
 
 def product_key(url: str, facts: PageFacts) -> bytes | None:

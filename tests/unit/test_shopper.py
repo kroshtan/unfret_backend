@@ -130,6 +130,10 @@ def _params() -> dict[str, str]:
         "listings": "listings",
         "days": "30",
         "company": "“Acme Goods LLC”",
+        "alert": "SR/03208/26 of 2026-11-10: Children's jacket, Jojo Maman Bébé; risk: Chemical (serious risk).",
+        "methods": "bank transfer and crypto",
+        "copied": "3",
+        "checked": "12",
     }
 
 

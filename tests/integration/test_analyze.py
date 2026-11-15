@@ -71,6 +71,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "shared_results",
         "invites",
         "intro_codes",
+        "market_prices",
+        "review_fingerprints",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites"):  # only a purchase fills them
@@ -83,6 +85,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
     # Price observations are keyed by a product hash and hold no URL; this page has no public product ID anyway.
     assert await pool.fetchval("SELECT COUNT(*) FROM price_observations") == 0
+    assert await pool.fetchval("SELECT COUNT(*) FROM market_prices") == 0  # no barcode either
+    assert await pool.fetchval("SELECT COUNT(*) FROM review_fingerprints") == 0  # hashes only, and no reviews here
     # Shop fingerprints hold facts about web shops, never the page or the caller (test_storage greps them).
 
 

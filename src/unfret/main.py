@@ -21,8 +21,10 @@ from unfret import (
     fact_cache,
     image_store,
     log,
+    market_prices,
     price_store,
     reports,
+    review_store,
     scoring,
     shares,
     shop_store,
@@ -70,7 +72,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
 
 def use_postgres_stores(pool: asyncpg.Pool) -> None:
     """
-    Keep store-level facts, prices, shop fingerprints, image prints and kept verdicts in Postgres.
+    Keep store-level facts, prices, shop and review fingerprints, image prints and kept verdicts in Postgres.
 
     They are then shared across restarts and workers (each defaults to an in-memory store).
 
@@ -78,6 +80,8 @@ def use_postgres_stores(pool: asyncpg.Pool) -> None:
     """
     fact_cache.use_store(PostgresFactStore(pool))
     price_store.use_store(price_store.PostgresPriceStore(pool))
+    market_prices.use_store(market_prices.PostgresMarketStore(pool))
+    review_store.use_store(review_store.PostgresReviewStore(pool))
     shop_store.use_store(shop_store.PostgresShopStore(pool))
     reverse_image.use_store(image_store.PostgresImageStore(pool))
     verdict_store.use_store(verdict_store.PostgresVerdictStore(pool))

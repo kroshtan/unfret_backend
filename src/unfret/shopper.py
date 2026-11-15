@@ -70,6 +70,15 @@ REASON_SEVERITY: dict[str, Severity] = {
     "origin_doubt": "medium",
     "long_delivery": "low",
     "mailbox_address": "low",
+    "safety_gate_alert": "high",
+    "irreversible_payment_only": "high",
+    "founded_contradicted": "high",
+    "far_below_market": "high",
+    "origin_contradicted": "medium",
+    "copied_reviews_elsewhere": "medium",
+    "brand_no_presence": "medium",
+    "store_without_address": "low",
+    "shared_address": "low",
     "hidden_ai_text": "high",
     "ai_text": "medium",
     "overall": "low",
@@ -82,6 +91,7 @@ POSITIVE_KEYS = (
     "established_domain",
     "trust_info_present",
     "natural_reviews",
+    "protected_payment",
     "nothing_found",
 )
 # Features that describe the page rather than judge it (what kind of page, how many ratings, whether a policy is
@@ -123,7 +133,7 @@ _QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
-    ("generic_brand", "generic_product"),
+    ("brand_no_presence", "generic_brand", "generic_product"),
     ABSENCE_REASONS,
     ("hidden_ai_text", "ai_text"),
     ("was_never_charged", "implausible_discount", "big_discount"),
@@ -497,6 +507,67 @@ def _policies(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["mailbox_address"] = {}
 
 
+_SAYS_RE = re.compile(r'^Says "(?P<claim>[^"]{1,150})"; (?P<fact>.*)$')
+
+
+def _claims(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """What a web shop says about itself against the facts: founding year, origin, a physical store."""
+    if not e.storefront:
+        return
+    founded = e.first("founded_contradicted")
+    if e.f("domain_age.founded_contradicted") >= 1 and founded and (m := _SAYS_RE.match(founded.evidence)):
+        days = int((_NUMBERS_RE.findall(m.group("fact")) or ["1"])[0])
+        fired["founded_contradicted"] = {"claim": _quote(m.group("claim")), "age": e.age(max(days, 1))}
+    origin = e.first("origin_contradicted")
+    if e.f("claims.origin_contradicted") >= 1 and origin and (m := _SAYS_RE.match(origin.evidence)):
+        place = m.group("fact").rpartition(" is in ")[2].rstrip(".")
+        fired["origin_contradicted"] = {"claim": _quote(m.group("claim")), "place": place[:80]}
+    store = e.first("store_without_address")
+    if e.f("claims.store_without_address") >= 1 and store and (m := _SAYS_RE.match(store.evidence)):
+        fired["store_without_address"] = {"claim": _quote(m.group("claim"))}
+
+
+def _payment_and_market(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Irreversible payment only, a price far below other shops', reviews copied from other shops, shared address."""
+    only = e.first("irreversible_payment_only")
+    if e.storefront and e.f("payment_methods.irreversible_only") >= 1 and only:
+        methods = only.evidence.removeprefix("Payment methods mentioned: ").partition(";")[0]
+        fired["irreversible_payment_only"] = {"methods": methods[:80]}
+    if e.f("market_price.far_below") >= 1 and e.first("far_below_market"):
+        count = int(e.f("market_price.other_shops"))
+        fired["far_below_market"] = {
+            "pct": _pct(e.f("market_price.below_market")),
+            "count": e.number(count),
+            "shops": e.phrase("shop_one" if count == 1 else "shop_many"),
+        }
+    copied, share = e.f("review_copies.copied"), e.f("review_copies.copied_share")
+    unknown_brand = e.f("content.brand_recognized") < 1 and e.f("brand_presence.wikidata") < 1
+    if e.storefront and copied >= 2 and share >= 0.2 and unknown_brand and _resale_context(e):
+        count = int(e.f("review_copies.other_shops"))
+        fired["copied_reviews_elsewhere"] = {
+            "copied": e.number(int(copied)),
+            "checked": e.number(int(e.f("review_copies.checked"))),
+            "count": e.number(count),
+            "shops": e.phrase("shop_one" if count == 1 else "shop_many"),
+        }
+    if e.storefront and (shared := int(e.f("shop_links.shared_address_shops"))) >= SHARED_ADDRESS_MIN:
+        fired["shared_address"] = {"count": e.number(shared)}
+
+
+# This many unrelated shops at one postal address is a virtual office or a mail-forwarding service.
+SHARED_ADDRESS_MIN = 5
+
+
+def _product_facts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """A Safety Gate alert for the product, and a brand that exists nowhere but here."""
+    alert = e.first("safety_gate_alert")
+    if alert and (e.f("safety_gate.barcode_match") >= 1 or e.f("safety_gate.model_match") >= 1):
+        fired["safety_gate_alert"] = {"alert": alert.evidence.removeprefix("Safety Gate alert ")[:400]}
+    # Like "unknown brand": only on marketplace listings, and only with other signs of white-label goods.
+    if e.marketplace and e.f("brand_presence.no_presence") >= 1 and _resale_context(e):
+        fired["brand_no_presence"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
+
+
 def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools, hidden or visible."""
     if e.f("injection.instruction_hidden") >= 1:
@@ -508,7 +579,8 @@ def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     fired: dict[str, dict[str, str]] = {}
     generic = e.f("content.generic_brand") >= 0.4 or e.first("brand_name") is not None
-    if e.f("content.brand_recognized") >= 1 and not generic and e.facts.brand:
+    known = e.f("content.brand_recognized") >= 1 or e.f("brand_presence.wikidata") >= 1
+    if known and not generic and e.facts.brand:
         fired["known_brand"] = {"brand": _quote(e.facts.brand)}
     # A white-label seller is "the brand" too, so that only counts as good news for a real brand.
     sold_by_brand = e.marketplace and e.facts.brand and e.facts.seller and e.has("listing.seller_not_brand")
@@ -534,6 +606,10 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     )
     if natural:
         fired["natural_reviews"] = {}
+    protected = e.first("protected_payment")
+    if e.storefront and e.f("payment_methods.protected") >= 1 and e.f("payment_methods.irreversible_only") < 1:
+        methods = protected.evidence.removeprefix("Payment methods mentioned: ").rstrip(".") if protected else ""
+        fired["protected_payment"] = {"methods": methods[:80] or e.phrase("protected_methods")}
     return fired
 
 
@@ -598,7 +674,19 @@ def build(
     band = band_for(score)
 
     fired: dict[str, dict[str, str]] = {}
-    for rules in (_pressure, _reviews, _product, _supply, _network, _shop, _manipulation):
+    rules_in_order = (
+        _pressure,
+        _reviews,
+        _product,
+        _supply,
+        _network,
+        _shop,
+        _claims,
+        _payment_and_market,
+        _product_facts,
+        _manipulation,
+    )
+    for rules in rules_in_order:
         rules(evidence, fired)
     for group in _GROUPS:
         for key in [k for k in group if k in fired][1:]:

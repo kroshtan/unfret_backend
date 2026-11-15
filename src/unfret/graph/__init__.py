@@ -25,6 +25,8 @@ from unfret.graph.nodes import (
 )
 from unfret.graph.placeholder import make_interim_judge
 from unfret.graph.skills import Skill, SkillOutput
+from unfret.graph.skills.brand_presence import BrandPresenceSkill
+from unfret.graph.skills.claims import ClaimsSkill
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
 from unfret.graph.skills.domain_age import DomainAgeSkill
@@ -32,9 +34,13 @@ from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.html_source_signals import HtmlSourceSignalsSkill
 from unfret.graph.skills.injection import InjectionSkill
 from unfret.graph.skills.listing import ListingSkill
+from unfret.graph.skills.market_price import MarketPriceSkill
+from unfret.graph.skills.payment_methods import PaymentMethodsSkill
 from unfret.graph.skills.pricing import PricingSkill
 from unfret.graph.skills.reverse_image import ReverseImageSkill
+from unfret.graph.skills.review_copies import ReviewCopiesSkill
 from unfret.graph.skills.reviews import ReviewsSkill
+from unfret.graph.skills.safety_gate import SafetyGateSkill
 from unfret.graph.skills.shop_links import ShopLinksSkill
 from unfret.graph.skills.shop_policies import ShopPoliciesSkill
 from unfret.graph.skills.us_identity import UsIdentitySkill
@@ -57,6 +63,14 @@ SKILLS: list[Skill] = [
     ShopPoliciesSkill(),
     DomainAgeSkill(),
     ShopLinksSkill(),
+    # Product-page upgrades (2026-11): new features the shipped scorer doesn't use until it is retrained; their
+    # signals reach the shopper as reasons and positives (unfret.shopper).
+    PaymentMethodsSkill(),
+    ClaimsSkill(),
+    MarketPriceSkill(),
+    ReviewCopiesSkill(),
+    BrandPresenceSkill(),
+    SafetyGateSkill(),
     ReverseImageSkill(),
 ]
 

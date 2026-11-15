@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import os
+import re
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -146,6 +147,9 @@ app.add_middleware(
 )
 
 
+_BUILD_FOLDER_RE = re.compile(r"^v-[0-9A-Za-z.]+/")
+
+
 class RevalidatedStaticFiles(StaticFiles):
     """
     The pages' scripts, styles and images, which caches must check with us before reusing (``no-cache``).
@@ -167,8 +171,28 @@ class RevalidatedStaticFiles(StaticFiles):
         :return: The response, with ``Cache-Control: no-cache``.
         """
         response = super().file_response(full_path, stat_result, scope, status_code)
-        response.headers["Cache-Control"] = "no-cache"
+        # A file asked for under a build folder never changes at that address; any other is checked first.
+        built = "/v-" in scope["path"] and _BUILD_FOLDER_RE.match(self.get_raw_path(scope)) is not None
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if built else "no-cache"
         return response
+
+    def get_raw_path(self, scope: Scope) -> str:
+        """
+        The path a request names within the static directory, build folder included.
+
+        :param scope: The request scope.
+        :return: For instance ``v-1a2b3c/site.css``.
+        """
+        return super().get_path(scope)
+
+    def get_path(self, scope: Scope) -> str:
+        """
+        The file a request names, without the build folder pages put in front (``v-<commit>/site.css``).
+
+        :param scope: The request scope.
+        :return: The path within the static directory.
+        """
+        return _BUILD_FOLDER_RE.sub("", super().get_path(scope), count=1)
 
 
 # Include API routes, and the scripts and styles of the /connect and /checkout pages

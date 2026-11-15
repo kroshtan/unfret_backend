@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from unfret import showcase
-from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR
+from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned
 from unfret.schemas.errors import NotFoundError
 
 router = APIRouter(tags=["Showcase"])
@@ -124,7 +124,7 @@ def fill_page(template: str, fields: dict[str, Any], data: Any, markup: dict[str
     """
     values = {name: html.escape(str(value)) for name, value in fields.items()} | (markup or {})
     values["data"] = _data_block(data)
-    page = (STATIC_DIR / template).read_text(encoding="utf-8")
+    page = versioned((STATIC_DIR / template).read_text(encoding="utf-8"))
     return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), page)
 
 

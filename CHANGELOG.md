@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+* **Pages always get the stylesheet and scripts of their own build**: every page now names its static files under a folder for the running commit (`/static/v-<commit>/site.css`), which the static server ignores when it finds the file, so each deploy uses addresses no cache has seen. Cloudflare overrides the `no-cache` header from 0.10.4 (a Cache Rule or Browser Cache TTL keeps `/static/` for 4 hours), and 0.10.4's new price tiles came out with 0.10.3's styles. Files under a build folder are served as immutable; the old addresses still work and are revalidated
+
 ## [0.10.4](https://github.com/kroshtan/unfret_backend/compare/0.10.3...0.10.4) (2026-11-15)
 
 ### Changed

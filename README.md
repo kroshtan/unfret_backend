@@ -199,8 +199,8 @@ or USDC costs less, just the pack's value ($5, $10, $20) plus VAT where it appli
 price and crypto as the discount, never as a card surcharge (EU rules forbid surcharging consumer card payments).
 Either way the account is credited the pack's value, so a check costs the same in credits however it was bought.
 Visitors from the euro area (Cloudflare's country hint) pay by card in **euros** instead: €5.50, €10, €19
-(`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted, before VAT like the dollar prices). A euro checkout is
-what makes Polar offer **iDEAL | Wero** to Dutch buyers next to cards.
+(`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted, before VAT like the dollar prices). Dutch visitors
+also get a **"Pay with iDEAL | Wero"** button above the card one (see *Local payment methods* below).
 
 **VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
 from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come from Cloudflare's edge (it forwards
@@ -270,8 +270,20 @@ keep USD as the organisation's default currency). A checkout is created for the 
 (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and `/checkout?paid=1` as the success
 URL; nothing about the buyer is sent. If Polar answers with another currency or price, the checkout is refused before
 anyone pays; a refused euro checkout falls back to the dollar one (logged as `fiat_checkout_eur_fallback`), so a
-product still missing its euro price costs euro-area buyers iDEAL | Wero, not the sale. Polar shows iDEAL | Wero by
-itself on EUR checkouts from the Netherlands; there is nothing to switch on.
+product still missing its euro price costs euro-area buyers iDEAL | Wero, not the sale.
+
+**Local payment methods** (`src/unfret/credits/local_methods.py`). Polar picks the methods its checkout shows from
+the checkout's currency and the buyer's billing country, and with no country it shows cards only: iDEAL | Wero
+appears only on a EUR checkout whose billing country is the Netherlands. So a visitor whose country has an entry in
+`LOCAL_METHODS` (today only `NL` → `wero`, "iDEAL | Wero", billing country `NL`, `eur`) gets a second button on
+`/checkout`, and its checkout is created in that currency with `customer_billing_address: {"country": "NL"}`
+prefilled (Polar's `AddressInput` needs only the country; with a preset address Polar asks the buyer for the full
+billing address). The buyer can still change the country on Polar's page. Nothing else differs: the same products,
+prices, metadata, crediting and refunds. `/v1/pricing` says which method a visitor gets (`local_payment_method`), so
+the page has no country list of its own. **To add a country**, add one entry to `LOCAL_METHODS` (visitor country →
+method id, button label, billing country, currency), but first check by hand that Polar really offers that method:
+create a checkout in that currency, set that billing country on Polar's page and look. An entry for a method Polar
+doesn't show there would only put a card form behind a button that promises something else.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
 **`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,

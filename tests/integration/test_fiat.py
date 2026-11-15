@@ -216,9 +216,16 @@ async def test_order_rows_are_deleted_after_retention(pool: asyncpg.Pool) -> Non
 
 
 @pytest.fixture
-async def polar_provider(client: httpx.AsyncClient) -> AsyncIterator[PolarProvider]:
+def polar_sent() -> list[dict[str, Any]]:
+    """The checkout requests the mocked Polar API received."""
+    return []
+
+
+@pytest.fixture
+async def polar_provider(client: httpx.AsyncClient, polar_sent: list[dict[str, Any]]) -> AsyncIterator[PolarProvider]:
     def api(request: httpx.Request) -> httpx.Response:
         sent = json.loads(request.content)
+        polar_sent.append(sent)
         prices = {
             "usd": {test_polar.PRODUCTS[25]: 600, test_polar.PRODUCTS[100]: 2200},
             "eur": {test_polar.PRODUCTS[25]: 550},
@@ -256,6 +263,7 @@ async def test_polar_checkout_then_paid_order_credits_the_key(
         "checkout_url": "https://buy.polar.sh/c",
         "provider": "polar",
         "currency": "usd",
+        "payment_method": "card",
         "checkout_id": test_polar.CHECKOUT_ID,
     }
     status = f"/v1/credits/fiat-checkouts/{test_polar.CHECKOUT_ID}"
@@ -386,6 +394,84 @@ async def test_no_euro_checkout_while_euro_prices_are_off(
     assert dutch.json()["currency"] == "usd"
 
 
+# ── Local payment methods (iDEAL | Wero in the Netherlands) ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(("country", "method"), [("NL", "wero"), ("BE", None), ("US", None), (None, None)])
+async def test_pricing_names_the_visitors_local_payment_method(
+    client: httpx.AsyncClient, country: str | None, method: str | None
+) -> None:
+    body = (await client.get("/v1/pricing", headers=from_country(country) if country else {})).json()
+    expected = {"id": "wero", "label": "iDEAL | Wero", "currency": "eur"} if method else None
+    assert body["local_payment_method"] == expected
+
+
+async def test_no_local_method_while_its_currency_is_off(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "card_prices_eur", "")
+    assert (await client.get("/v1/pricing", headers=from_country("NL"))).json()["local_payment_method"] is None
+
+
+async def test_wero_is_a_euro_checkout_with_the_netherlands_prefilled(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
+) -> None:
+    issued = await keys.create(pool)
+
+    async def start(headers: dict[str, str], **extra: Any) -> httpx.Response:
+        body = {"key_id": issued.key_id, "checks": 25, **extra}
+        return await client.post("/v1/credits/fiat-checkout", json=body, headers=headers)
+
+    wero = (await start(from_country("NL"), payment_method="wero", currency="eur")).json()
+    assert (wero["currency"], wero["payment_method"]) == ("eur", "wero")
+    assert "amount=550&currency=eur&" in wero["checkout_url"] and wero["checkout_url"].endswith("&country=NL")
+    anywhere = (await start({}, payment_method="Wero")).json()  # its currency by default, from any country
+    assert anywhere["currency"] == "eur" and "country=NL" in anywhere["checkout_url"]
+    card = (await start(from_country("NL"), payment_method="card")).json()
+    assert (card["currency"], card["payment_method"]) == ("eur", "card") and "country=" not in card["checkout_url"]
+    assert "country=" not in (await start(from_country("NL"))).json()["checkout_url"]  # card by default
+
+    dollars = await start(from_country("NL"), payment_method="wero", currency="usd")
+    assert (dollars.status_code, dollars.json()["detail"]) == (400, "iDEAL | Wero is paid in EUR.")
+    assert (await start({}, payment_method="paypal")).status_code == 422
+
+
+async def test_no_wero_while_euro_prices_are_off(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "card_prices_eur", "")
+    issued = await keys.create(pool)
+    asked = await client.post(
+        "/v1/credits/fiat-checkout",
+        json={"key_id": issued.key_id, "checks": 25, "payment_method": "wero"},
+        headers=from_country("NL"),
+    )
+    assert asked.status_code == 400
+    assert asked.json()["detail"] == "iDEAL | Wero isn't available: card payments are in US dollars only."
+
+
+async def test_polar_wero_checkout_sends_the_billing_country_and_credits_as_usual(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, polar_provider: PolarProvider, polar_sent: list[dict[str, Any]]
+) -> None:
+    issued = await keys.create(pool)
+    for method in ("wero", "card"):
+        started = await client.post(
+            "/v1/credits/fiat-checkout",
+            json={"key_id": issued.key_id, "checks": 25, "payment_method": method},
+            headers=from_country("NL"),
+        )
+        assert (started.json()["currency"], started.json()["payment_method"]) == ("eur", method)
+    wero, card = polar_sent
+    assert wero["customer_billing_address"] == {"country": "NL"} and wero["currency"] == "eur"
+    assert wero["metadata"] == site_meta(issued.account) and wero["allow_discount_codes"] is False
+    assert {k: v for k, v in wero.items() if k != "customer_billing_address"} == card
+
+    euro = {"currency": "eur", "subtotal_amount": 550, "net_amount": 550, "tax_amount": 116, "total_amount": 666}
+    paid = test_polar.order(metadata={}, **euro)
+    assert (await polar_send(client, "order.paid", paid)).json() == {"status": "credited"}
+    assert await balance(pool, issued.account) == 5_000_000
+
+
 async def test_a_euro_order_credits_the_packs_value_and_its_invites(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
@@ -468,15 +554,17 @@ async def test_polar_euro_checkout_then_order_refund_and_dispute(
     assert await balance(pool, issued.account) == 0
 
 
+@pytest.mark.parametrize("method", ["card", "wero"])
 async def test_polar_refusing_euros_falls_back_to_a_dollar_checkout(
-    client: httpx.AsyncClient, pool: asyncpg.Pool
+    client: httpx.AsyncClient, pool: asyncpg.Pool, method: str
 ) -> None:
-    # E.g. a product whose euro price isn't in the Polar dashboard yet: a dollar checkout beats none.
-    seen: list[str] = []
+    # E.g. a product whose euro price isn't in the Polar dashboard yet: a dollar card checkout beats none.
+    seen: list[tuple[str, str | None]] = []
 
     def api(request: httpx.Request) -> httpx.Response:
-        currency = json.loads(request.content)["currency"]
-        seen.append(currency)
+        sent = json.loads(request.content)
+        currency = sent["currency"]
+        seen.append((currency, (sent.get("customer_billing_address") or {}).get("country")))
         if currency == "eur":
             return httpx.Response(422, json={"error": "no price in eur"})
         body = {"id": test_polar.CHECKOUT_ID, "url": "https://buy.polar.sh/c", "currency": "usd", "amount": 600}
@@ -486,12 +574,15 @@ async def test_polar_refusing_euros_falls_back_to_a_dollar_checkout(
     try:
         issued = await keys.create(pool)
         response = await client.post(
-            "/v1/credits/fiat-checkout", json={"key_id": issued.key_id, "checks": 25}, headers=from_country("NL")
+            "/v1/credits/fiat-checkout",
+            json={"key_id": issued.key_id, "checks": 25, "payment_method": method},
+            headers=from_country("NL"),
         )
     finally:
         app.fiat = None
-    assert response.status_code == 200 and response.json()["currency"] == "usd"
-    assert seen == ["eur", "usd"]
+    assert response.status_code == 200, response.text
+    assert (response.json()["currency"], response.json()["payment_method"]) == ("usd", "card")
+    assert seen == [("eur", "NL" if method == "wero" else None), ("usd", None)]
 
 
 async def test_migration_21_marks_earlier_card_orders_as_dollars(pool: asyncpg.Pool) -> None:

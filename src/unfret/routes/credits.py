@@ -21,7 +21,7 @@ from solders.pubkey import Pubkey
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import fiat, invites, keys, ledger, vat
+from unfret.credits import fiat, invites, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from unfret.credits.packs import CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
@@ -148,6 +148,11 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     document["vat"]["country_hint"] = country
     # The card currency this visitor gets by default: euros from the euro area, dollars elsewhere.
     document["card_currency"] = card_currency(settings, country)
+    # A local way to pay for this visitor's country (iDEAL | Wero in the Netherlands), offered next to the card.
+    method = local_methods.local_method(settings, country)
+    document["local_payment_method"] = (
+        {"id": method.id, "label": method.label, "currency": method.currency} if method else None
+    )
     document["api_keys"] = door.sign_in_enabled
     smallest = packs(settings)[0]
     document["fiat"] = {
@@ -406,19 +411,41 @@ class FiatCheckoutRequest(BaseModel):
     currency: CardCurrency | None = Field(
         default=None,
         description="usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to "
-        "Dutch buyers). Default: /v1/pricing's card_currency for this visitor (eur from the euro area).",
+        "Dutch buyers once they choose the Netherlands as billing country). Default: /v1/pricing's card_currency for "
+        "this visitor (eur from the euro area), or the payment method's currency.",
+    )
+    payment_method: str = Field(
+        default=local_methods.CARD,
+        max_length=32,
+        description="card (default: the buyer picks their country on the provider's page), or a local method's id "
+        "from /v1/pricing's local_payment_method (e.g. wero: iDEAL | Wero, a EUR checkout with the Netherlands "
+        "prefilled as billing country). A local method is charged in its own currency.",
     )
 
-    @field_validator("currency", mode="before")
+    @field_validator("currency", "payment_method", mode="before")
     @classmethod
     def _lower(cls, value: Any) -> Any:
         """
-        Accept ``EUR`` as well as ``eur``.
+        Accept ``EUR`` as well as ``eur`` (and ``Wero`` as ``wero``).
 
         :param value: The raw value.
         :return: The value, lower case if it is a string.
         """
         return value.lower() if isinstance(value, str) else value
+
+    @field_validator("payment_method")
+    @classmethod
+    def _known_method(cls, value: str) -> str:
+        """
+        Only ``card`` or a listed local method.
+
+        :param value: The method id.
+        :return: The id.
+        :raises ValueError: For an unknown method.
+        """
+        if value not in local_methods.method_ids():
+            raise ValueError(f"payment_method must be one of {', '.join(local_methods.method_ids())}")
+        return value
 
 
 class FiatCheckoutResponse(BaseModel):
@@ -427,6 +454,10 @@ class FiatCheckoutResponse(BaseModel):
     checkout_url: str
     provider: str
     currency: CardCurrency = Field(description="The checkout's currency: usd or eur.")
+    payment_method: str = Field(
+        description="The checkout's method: the one asked for, or card if the provider refused it and the dollar "
+        "card checkout was made instead."
+    )
     checkout_id: str = Field(description="Poll GET /v1/credits/fiat-checkouts/{checkout_id} (with the claim) for it.")
     claim: str = Field(
         description="Send as X-Unfret-Claim with that poll: the first one after payment returns the pack's invite "
@@ -469,36 +500,48 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     The provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns
     that the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.
 
-    In euros for ``currency: "eur"`` (by default for visitors from the euro area), in dollars otherwise. Should the
-    provider refuse a euro checkout (e.g. a product without its euro price yet), the buyer gets the dollar checkout
-    instead of none; ``currency`` in the response says which it is.
+    In euros for ``currency: "eur"`` (by default for visitors from the euro area), in dollars otherwise. A local
+    payment method (``payment_method``, e.g. ``wero``) is a checkout in its currency with its billing country
+    prefilled, which is what makes the provider show it. Should the provider refuse a euro checkout (e.g. a product
+    without its euro price yet), the buyer gets the dollar card checkout instead of none; ``currency`` and
+    ``payment_method`` in the response say which it is.
 
-    :param body: The key, the pack and the currency.
+    :param body: The key, the pack, the currency and the payment method.
     :param request: The incoming request.
     :return: The checkout URL.
     :raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.
-    :raises BadRequestError: For euros while euro prices are off.
+    :raises BadRequestError: For euros while euro prices are off, or a method in another currency than asked for.
     """
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
     chosen = _pack(body.checks)
-    currency = body.currency or card_currency(
-        settings, vat.edge_country({k.lower(): v for k, v in request.headers.items()})
-    )
+    method = local_methods.method_by_id(body.payment_method)  # None: card
+    if method is not None:
+        if not local_methods.offered(settings, method):
+            raise BadRequestError(f"{method.label} isn't available: card payments are in US dollars only.")
+        if body.currency not in (None, method.currency):
+            raise BadRequestError(f"{method.label} is paid in {method.currency.upper()}.")
+        currency: CardCurrency = method.currency
+    else:
+        currency = body.currency or card_currency(
+            settings, vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+        )
     if currency == "eur" and not euros_on(settings):
         raise BadRequestError("Card payments are in US dollars only.")
     account = await _key_account(request, body.key_id)
     return_url = f"{settings.public_base_url}/checkout?paid=1"
-    checkout = None
-    for attempt in dict.fromkeys([currency, "usd"]):  # euros first, then dollars rather than no checkout
+    checkout, paid_with = None, body.payment_method
+    # As asked first, then a dollar card checkout rather than no checkout.
+    attempts = {(currency, method.billing_country if method else None): body.payment_method, ("usd", None): "card"}
+    for (attempt, billing_country), attempt_method in attempts.items():
         try:
-            checkout = await provider.create_checkout(account, chosen, return_url, attempt)
+            checkout = await provider.create_checkout(account, chosen, return_url, attempt, billing_country)
         except FiatProviderError:
-            if attempt == "eur":
-                logger.warning("fiat_checkout_eur_fallback", checks=chosen.checks)
+            if attempt != "usd" or billing_country:
+                logger.warning("fiat_checkout_eur_fallback", checks=chosen.checks, payment_method=attempt_method)
             continue
-        currency = attempt
+        currency, paid_with = attempt, attempt_method
         break
     if checkout is None:
         raise ServiceUnavailableError(
@@ -512,6 +555,7 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
         checkout_url=checkout.url,
         provider=provider.name,
         currency=currency,
+        payment_method=paid_with,
         checkout_id=checkout.checkout_id,
         claim=claim,
     )

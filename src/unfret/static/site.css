@@ -914,6 +914,7 @@ h2.step { margin: 1.5rem 0 0.75rem; font-size: 1.1rem; border: 0; padding: 0; }
 #panel-code { margin-top: 0; }
 #panel-code h2.step { margin-top: 0; }
 button.wide { width: 100%; }
+.pay-buttons { display: grid; gap: 0.6rem; }
 .reassure-line { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.92rem; text-align: center; }
 label.field { display: grid; gap: 0.15rem; margin-bottom: 0.4rem; color: var(--ink); font-weight: 600; }
 label.field .small { font-weight: 400; }

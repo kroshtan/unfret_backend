@@ -53,6 +53,8 @@ const savedRow = $("saved-row");
 const saved = $("saved");
 const newPay = $("new-pay");
 const topupPay = $("topup-pay");
+const newLocal = $("new-local");
+const topupLocal = $("topup-local");
 const topupKey = $("topup-key");
 
 const MODES = ["new", "code", "topup", "crypto"];
@@ -297,55 +299,71 @@ function cardAvailable() {
   return Boolean(pricing?.fiat?.available);
 }
 
-// Card prices are in euros for visitors from the euro area (/v1/pricing's card_currency), in dollars elsewhere. A
-// euro checkout is what offers "iDEAL | Wero" to Dutch buyers at Polar, next to cards.
+// Card prices are in euros for visitors from the euro area (/v1/pricing's card_currency), in dollars elsewhere.
 function cardCurrency() {
   return pricing?.card_currency === "eur" && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
 }
 
+function priceIn(currency, option) {
+  return currency === "eur" ? option.price_eur : option.price_usd;
+}
+
 function cardPrice(option) {
-  return cardCurrency() === "eur" ? option.price_eur : option.price_usd;
+  return priceIn(cardCurrency(), option);
 }
 
-function cardMethods() {
-  return cardCurrency() === "eur" && pricing?.vat?.country_hint === "NL" ? "by card or iDEAL | Wero" : "by card";
+// The visitor's local way to pay (/v1/pricing's local_payment_method, e.g. iDEAL | Wero in the Netherlands), shown
+// as its own button above the card one; null for everyone else. The server decides which country gets which method.
+function localMethod() {
+  const method = pricing?.local_payment_method;
+  if (!method?.id || !method.label) return null;
+  return pricing.packs.every((p) => priceIn(method.currency, p)) ? method : null;
 }
 
-async function startCardCheckout(keyId) {
+// method: a local method from localMethod(), or null for a card checkout (the buyer picks their country at Polar).
+async function startCardCheckout(keyId, method = null) {
+  const choice = method
+    ? { currency: method.currency, payment_method: method.id }
+    : { currency: cardCurrency() };
   const started = await api("/v1/credits/fiat-checkout", {
     method: "POST",
-    body: JSON.stringify({ key_id: keyId, checks: pack.checks, currency: cardCurrency() }),
+    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice }),
   });
   // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
   rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
   window.location.assign(started.checkout_url);
 }
 
-newPay.addEventListener("click", async () => {
+async function payNew(method) {
   if (!pack || !cardAvailable()) return;
   const status = $("new-status");
-  newPay.disabled = true;
+  newPay.disabled = newLocal.disabled = true;
   try {
     setStatus(status, "Getting your checkout ready…");
     const issued = await unfundedKey();
-    await startCardCheckout(issued.key_id);
+    await startCardCheckout(issued.key_id, method);
   } catch (error) {
     setStatus(status, error.message || "Card payment isn't available right now; please try again.", "error");
-    newPay.disabled = false;
+    newPay.disabled = newLocal.disabled = false;
   }
-});
+}
 
-topupPay.addEventListener("click", async () => {
+async function payTopup(method) {
   const id = keyIdOf(topupKey.value);
   if (!pack || !id || !cardAvailable()) return refreshTarget();
-  topupPay.disabled = true;
+  topupPay.disabled = topupLocal.disabled = true;
   try {
-    await startCardCheckout(id);
+    await startCardCheckout(id, method);
   } catch (error) {
     setStatus($("topup-status"), error.message || "Card payment isn't available right now.", "error");
-    topupPay.disabled = false;
+    topupPay.disabled = topupLocal.disabled = false;
   }
-});
+}
+
+newPay.addEventListener("click", () => payNew(null));
+newLocal.addEventListener("click", () => payNew(localMethod()));
+topupPay.addEventListener("click", () => payTopup(null));
+topupLocal.addEventListener("click", () => payTopup(localMethod()));
 topupKey.addEventListener("input", refreshTarget);
 
 // Lost key: the recovery code gets a new key with the same balance (the old key stops working).
@@ -447,14 +465,24 @@ function ready() {
 }
 
 function refreshTarget() {
-  // Card buttons: the price on the button; a key to top up.
+  // Card buttons: the price on the button; a key to top up. With a local method, its button comes first and the
+  // card one steps back to a plain button.
   const cardOn = cardAvailable();
-  const label = `Pay${pack ? ` ${cardPrice(pack)}` : ""} ${cardMethods()}`;
-  newPay.textContent = cardOn ? label : "Card payments are unavailable right now";
-  topupPay.textContent = cardOn ? label : "Card payments are unavailable right now";
-  newPay.disabled = !cardOn || !pack;
+  const local = cardOn ? localMethod() : null;
+  const label = `Pay${pack ? ` ${cardPrice(pack)}` : ""} by card`;
+  const localLabel = local ? `Pay${pack ? ` ${priceIn(local.currency, pack)}` : ""} with ${local.label}` : "";
   const topupId = keyIdOf(topupKey.value);
-  topupPay.disabled = !cardOn || !pack || !topupId;
+  for (const [cardButton, localButton, ok] of [
+    [newPay, newLocal, Boolean(pack)],
+    [topupPay, topupLocal, Boolean(pack && topupId)],
+  ]) {
+    cardButton.textContent = cardOn ? label : "Card payments are unavailable right now";
+    cardButton.classList.toggle("primary", !local);
+    cardButton.disabled = !cardOn || !ok;
+    localButton.hidden = !local;
+    localButton.textContent = localLabel;
+    localButton.disabled = !local || !ok;
+  }
   const topupStatus = $("topup-status");
   if (topupKey.value.trim() && !topupId) setStatus(topupStatus, "That doesn't look like an Unfret key.", "error");
   else setStatus(topupStatus, "");

@@ -351,6 +351,28 @@ async def test_a_euro_checkout_is_the_packs_product_in_eur_with_the_same_metadat
     }
 
 
+async def test_a_wero_checkout_prefills_only_the_billing_country() -> None:
+    # Polar shows iDEAL | Wero only for a EUR checkout whose billing country is NL; AddressInput needs only country.
+    seen: list[httpx.Request] = []
+    built = provider(polar_api(seen, amount=550))
+    chosen = pack(settings(), 25)
+    assert chosen is not None
+
+    await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur", "NL")
+    await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")
+
+    with_country, without = (json.loads(r.content) for r in seen)
+    assert with_country == {
+        "products": [PRODUCTS[25]],
+        "currency": "eur",
+        "metadata": {"account": ACCOUNT, "site": settings().public_base_url},
+        "success_url": SUCCESS_URL,
+        "allow_discount_codes": False,
+        "customer_billing_address": {"country": "NL"},
+    }
+    assert "customer_billing_address" not in without  # a card checkout leaves the country to the buyer
+
+
 @pytest.mark.parametrize(
     "reply",
     [

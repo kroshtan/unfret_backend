@@ -4,6 +4,10 @@
 
 ### Changed
 
+* Intro codes give at most 250 free checks a UTC day across all codes (`UNFRET_INTRO_DAILY_CHECKS_CAP`, was 100): 25 people a day at 10 checks each
+
+### Changed
+
 * The home page's price tiles are links: each opens checkout with that pack selected (`/checkout?checks=25`), with a "Choose →" line and a hover state
 
 ### Bug fixes

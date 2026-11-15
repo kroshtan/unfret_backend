@@ -458,7 +458,7 @@ valid 7 days. Nothing is stored when a check runs.
   newsletter; 3 to 24 letters or digits, case-insensitive), each worth its own number of checks (5 by default) and
   usable `max_uses` times, under the same rule (new accounts only; one invite or code per account; the same
   `invite_redeemed` flag, never which code). All codes together give at most `UNFRET_INTRO_DAILY_CHECKS_CAP` checks a
-  UTC day (default 100). Extra errors: 409 `INVITE_USED` (the code's uses are gone), 410 `INVITE_ENDED` (switched
+  UTC day (default 250). Extra errors: 409 `INVITE_USED` (the code's uses are gone), 410 `INVITE_ENDED` (switched
   off), 429 `INTRO_DAILY_CAP` (back the next UTC day). Storage: `intro_codes (code, checks, max_uses, uses, active,
   created_on)`, a daily counter in `usage_counters`, and `wallets.purchased` (an account ever bought checks; for
   counting buyers who came through an invite or code against organic ones). `/key?code=CODE` redirects to

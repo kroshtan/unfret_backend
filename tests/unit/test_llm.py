@@ -1,11 +1,13 @@
 """The provider-call limit: concurrency, jittered retries on rate limits, and pass-through of other errors."""
 
 import asyncio
+import os
 
 import httpx2
 import openai
 import pytest
 from langchain_core.runnables import RunnableLambda
+from langsmith import utils as langsmith_utils
 
 from unfret import llm
 from unfret.config import settings
@@ -107,3 +109,9 @@ async def test_wrapped_runnables_go_through_the_limit(monkeypatch: pytest.Monkey
 
     assert await wrapped.ainvoke(21) == 42
     assert seen == ["limited"]
+
+
+def test_langsmith_tracing_is_always_off() -> None:
+    # Set when unfret.llm is imported, whatever the environment said.
+    assert all(os.environ[v] == "false" for v in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"))
+    assert not langsmith_utils.tracing_is_enabled()

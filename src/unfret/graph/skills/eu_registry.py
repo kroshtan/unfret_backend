@@ -25,7 +25,7 @@ import httpx
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
 from unfret.facts.vat_ids import check_digits_ok, is_iban_at
-from unfret.graph.skills import NOT_APPLICABLE, STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills import NOT_APPLICABLE, SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.skills.us_identity import find_identity, names_any_company
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
@@ -128,7 +128,8 @@ class EuRegistrySkill(Skill):
 
     name = "eu_registry"
     description = "Checks the shop's VAT ID against EU VIES and the presence of legally required information."
-    page_types = STOREFRONTS
+    page_types = STOREFRONTS | SERVICE_SITES
+    retry = True
     features = ("vat_present", "vat_valid", "vat_name_match", "withdrawal_right", "imprint")
 
     def __init__(self, *, vies: bool = True) -> None:

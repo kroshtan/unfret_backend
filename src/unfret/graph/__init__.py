@@ -1,12 +1,17 @@
 import asyncio
+import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
+import openai
 import structlog
-from langgraph.graph import END, StateGraph
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Send
+from langgraph.runtime import Runtime
+from langgraph.types import RetryPolicy, Send
 
 from unfret import scoring, shop_store
 from unfret.config import settings
@@ -18,6 +23,7 @@ from unfret.graph.nodes import (
     make_judge_node,
     preprocess_node,
 )
+from unfret.graph.placeholder import make_interim_judge
 from unfret.graph.skills import Skill, SkillOutput
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
@@ -32,7 +38,7 @@ from unfret.graph.skills.reviews import ReviewsSkill
 from unfret.graph.skills.shop_links import ShopLinksSkill
 from unfret.graph.skills.shop_policies import ShopPoliciesSkill
 from unfret.graph.skills.us_identity import UsIdentitySkill
-from unfret.graph.state import AnalysisState
+from unfret.graph.state import P2P_TYPES, PRODUCT_TYPES, SERVICE_TYPES, AnalysisState, PageType
 
 logger = structlog.get_logger("unfret")
 
@@ -54,25 +60,71 @@ SKILLS: list[Skill] = [
     ReverseImageSkill(),
 ]
 
+# The page classes, each analysed by its own subgraph: (node name, page types it handles).
+PAGE_CLASSES: dict[str, frozenset[PageType]] = {
+    "product": PRODUCT_TYPES,
+    "p2p": P2P_TYPES,
+    "service": SERVICE_TYPES,
+}
+
+
+def transient(exc: BaseException) -> bool:
+    """
+    Whether an error is worth another attempt: a dropped connection, a provider's 5xx, a rate limit.
+
+    A timeout of the whole skill is not: another attempt would take as long again.
+
+    :param exc: The error.
+    :return: ``True`` when the graph's RetryPolicy should run the node again.
+    """
+    if isinstance(exc, openai.APIConnectionError | openai.RateLimitError | openai.InternalServerError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500 or exc.response.status_code == 429
+    return isinstance(exc, httpx.TransportError | ConnectionError)
+
+
+def retry_policy() -> RetryPolicy:
+    """
+    LangGraph's retry policy for the nodes that call the LLM or fetch outside data.
+
+    :return: Up to ``settings.graph_retry_attempts`` attempts on :func:`transient` errors, with jittered backoff.
+    """
+    return RetryPolicy(max_attempts=settings.graph_retry_attempts, initial_interval=0.5, retry_on=transient)
+
+
+def _attempt(runtime: Runtime[Any] | None) -> int:
+    info = runtime.execution_info if runtime is not None else None
+    return info.node_attempt if info is not None else settings.graph_retry_attempts
+
+
+def _retrying(exc: Exception, runtime: Runtime[Any] | None) -> bool:
+    # Raise again (so the RetryPolicy runs the node once more) while attempts are left; degrade after the last one.
+    return transient(exc) and _attempt(runtime) < settings.graph_retry_attempts
+
 
 def _isolated(skill: Skill) -> Callable[..., Awaitable[SkillOutput]]:
     """
     Wrap a skill so that a failure or timeout degrades to an "unavailable" finding.
 
     One flaky skill (an upstream API error, a slow registry) should cost the analysis one piece of evidence,
-    not fail the whole analysis.
+    not fail the whole analysis. A skill marked ``retry`` gets another attempt first when the error is transient:
+    the error is raised again for the node's RetryPolicy while attempts are left.
 
     :param skill: The skill to wrap.
     :return: An async graph node with the same input and output as ``skill.run``.
     """
 
-    async def run(state: AnalysisState) -> SkillOutput:
+    async def run(state: AnalysisState, runtime: Runtime[Any]) -> SkillOutput:
         try:
             async with asyncio.timeout(settings.skill_timeout_s):
                 return await skill.run(state)
         except TimeoutError:
             logger.warning("skill_timed_out", skill=skill.name, timeout_s=settings.skill_timeout_s)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
+            if skill.retry and _retrying(exc, runtime):
+                logger.info("skill_retrying", skill=skill.name, error=type(exc).__name__)
+                raise
             logger.warning("skill_failed", skill=skill.name, error=type(exc).__name__)
         return skill.unavailable()
 
@@ -99,12 +151,14 @@ def active_skills(skills: list[Skill], state: AnalysisState) -> list[Skill]:
 def _triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, object]]]:
     expensive = {s.name: s for s in skills if s.tier == "expensive"}
 
-    async def triage_node(state: AnalysisState) -> dict[str, object]:
+    async def triage_node(state: AnalysisState, runtime: Runtime[Any]) -> dict[str, object]:
         """
         Decide which expensive skills to run next (see :mod:`unfret.graph.triage`).
 
         :param state: The graph state after a round of skills.
+        :param runtime: The LangGraph runtime (the attempt number, for the retry policy).
         :return: The next round number, the planned skills, and their record in ``expensive_runs``.
+        :raises Exception: A transient error of the triage's LLM call, while attempts are left.
         """
         round_ = state.get("triage_round", 0)
         done = state.get("expensive_runs", [])
@@ -118,11 +172,32 @@ def _triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, objec
         else:
             try:
                 decided = await triage.plan(state, applicable)
-            except Exception as exc:  # noqa: BLE001 - a failed triage only means no expensive checks
+            except Exception as exc:  # a failed triage only means no expensive checks
+                if _retrying(exc, runtime):
+                    raise
                 logger.warning("triage_failed", error=type(exc).__name__)
                 decided = triage.TriagePlan((), "Triage failed.")
             run = decided.run
             logger.info("triage", round=round_, run=run, reason=decided.reason)
+        return {"triage_round": round_ + 1, "next_skills": list(run), "expensive_runs": list(run)}
+
+    return triage_node
+
+
+def _requested_only_triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, object]]]:
+    expensive = {s.name for s in skills if s.tier == "expensive"}
+
+    async def triage_node(state: AnalysisState) -> dict[str, object]:
+        """
+        For the classes without triage rules yet: run an expensive skill only when the caller asked for it.
+
+        :param state: The graph state after the cheap skills.
+        :return: The next round number, the planned skills, and their record in ``expensive_runs``.
+        """
+        round_ = state.get("triage_round", 0)
+        done = state.get("expensive_runs", [])
+        flagged = [n for n in state["flags"] if n in expensive and n not in done]
+        run = (flagged[0],) if round_ == 0 and flagged and len(done) < settings.triage_max_expensive_runs else ()
         return {"triage_round": round_ + 1, "next_skills": list(run), "expensive_runs": list(run)}
 
     return triage_node
@@ -150,6 +225,84 @@ def _recording(
 MAX_TRIAGE_ROUNDS = 2
 
 
+def _class_graph(
+    skills: list[Skill],
+    triage_node: Callable[..., Awaitable[dict[str, object]]],
+    judge: Callable[..., Awaitable[dict[str, Any]]],
+) -> CompiledStateGraph:
+    """
+    One page class's subgraph: its cheap skills in parallel, then the triage (and what it plans), then the judge.
+
+    :param skills: The skills that handle at least one of the class's page types.
+    :param triage_node: The class's triage.
+    :param judge: The class's judge.
+    :return: The compiled subgraph.
+    """
+    builder = StateGraph(AnalysisState)
+    for skill in skills:
+        builder.add_node(skill.name, _isolated(skill), retry_policy=retry_policy() if skill.retry else None)
+    builder.add_node("triage", triage_node, retry_policy=retry_policy())
+    builder.add_node("judge", judge, retry_policy=retry_policy())
+
+    def _fan_out(state: AnalysisState) -> list[Send] | str:
+        return [Send(s.name, state) for s in active_skills(skills, state)] or "triage"
+
+    def _route_after_triage(state: AnalysisState) -> list[Send] | str:
+        return [Send(name, state) for name in state.get("next_skills", [])] or "judge"
+
+    builder.add_conditional_edges(START, _fan_out)
+    builder.add_conditional_edges("triage", _route_after_triage)
+    for skill in skills:
+        builder.add_edge(skill.name, "triage")
+    builder.add_edge("judge", END)
+    return builder.compile()
+
+
+# Each compiled graph's class subgraphs (they run inside function nodes, so LangGraph doesn't list them).
+_CLASS_GRAPHS: weakref.WeakKeyDictionary[CompiledStateGraph, dict[str, CompiledStateGraph]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def node_names(graph: CompiledStateGraph) -> set[str]:
+    """
+    Every node of a graph built by :func:`build_graph`, its class subgraphs' nodes (the skills) included.
+
+    :param graph: The compiled graph.
+    :return: The node names.
+    """
+    names = set(graph.nodes)
+    for subgraph in _CLASS_GRAPHS.get(graph, {}).values():
+        names |= set(subgraph.nodes)
+    return names
+
+
+# Accumulated state the subgraph hands back: only what it added (the parent's reducers append it).
+_APPENDED = ("skill_results", "findings", "expensive_runs")
+_REPLACED = ("features", "triage_round", "next_skills", "score", "explanation", "verdict", "assessment")
+
+
+def _subgraph_node(subgraph: CompiledStateGraph) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """
+    Run a class's subgraph as one node of the main graph.
+
+    Its steps still stream (``astream(..., subgraphs=True)``), and the update it returns holds only what the
+    subgraph added, so the main graph's list reducers don't repeat the classification.
+
+    :param subgraph: The compiled subgraph.
+    :return: The node.
+    """
+
+    async def node(state: AnalysisState, config: RunnableConfig) -> dict[str, Any]:
+        out = await subgraph.ainvoke(state, config)
+        before: dict[str, Any] = dict(state)
+        update: dict[str, Any] = {k: out[k][len(before.get(k) or []) :] for k in _APPENDED if k in out}
+        update |= {k: out[k] for k in _REPLACED if k in out}
+        return update
+
+    return node
+
+
 def build_graph(
     skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH, *, llm: bool = True
 ) -> CompiledStateGraph:
@@ -158,20 +311,25 @@ def build_graph(
 
     The graph flows as follows::
 
-        preprocess → classify ─┬→ [cheap skills] (parallel) → triage ─┬→ [expensive skill] → triage (once more)
-                               │                                       └→ judge → END
+        preprocess → classify ─┬→ product: [cheap skills] (parallel) → triage ─┬→ [expensive skill] → triage
+                               │                                                └→ judge → END
+                               ├→ p2p:     [cheap skills] → triage (requested only) → interim judge → END
+                               ├→ service: [cheap skills] → triage (requested only) → interim judge → END
                                └→ early_exit → END
 
-    ``classify`` determines the page type. Marketplace listings and storefronts
-    fan out to the cheap skills that handle that page type; articles and
-    non-product pages exit early with a score of ``-1``. The triage then decides,
-    rules first, whether an expensive skill (a paid reverse image search) is
-    worth it, within a per-analysis budget, with one re-triage after it. The
-    graph is stream-capable: ``graph.astream(..., stream_mode="updates")``
-    yields each skill's findings as it finishes.
+    ``preprocess`` and ``classify`` are shared; each page class then has its own subgraph. Marketplace listings
+    and storefronts go to the product subgraph: the cheap skills that handle that page type, then the triage, which
+    decides, rules first, whether an expensive skill (a reverse image search) is worth it, within a per-analysis
+    budget, with one re-triage after it, then the scorer's judge. Peer-to-peer ads and service providers (only
+    while ``settings.expansion_classes`` is on) go to their own subgraphs, whose interim judge gives a cautious
+    verdict (:mod:`unfret.graph.placeholder`). Articles and non-product pages exit early with a score of ``-1``.
 
-    To extend: add a :class:`~unfret.graph.skills.Skill` subclass and register
-    an instance in :data:`SKILLS`.
+    Nodes that call the LLM or fetch outside data have LangGraph's RetryPolicy (:func:`retry_policy`). The graph
+    is stream-capable: ``graph.astream(..., stream_mode="updates", subgraphs=True)`` yields each skill's findings
+    as it finishes.
+
+    To extend: add a :class:`~unfret.graph.skills.Skill` subclass and register an instance in :data:`SKILLS`; its
+    ``page_types`` decide which subgraphs it joins.
 
     :param skills: List of skill instances to wire into the graph.
     :param model_path: The scorer artifact the judge uses (the quick tier has its own).
@@ -179,34 +337,34 @@ def build_graph(
         Which skills run is the caller's choice.
     :return: A compiled LangGraph ``StateGraph``.
     """
+    product = _class_graph(
+        [s for s in skills if s.page_types & PRODUCT_TYPES],
+        _triage_node(skills),
+        _recording(make_judge_node(model_path, llm=llm)),
+    )
+    judges = {"product": product}
+    for name in ("p2p", "service"):
+        handled = [s for s in skills if s.page_types & PAGE_CLASSES[name]]
+        judges[name] = _class_graph(handled, _requested_only_triage_node(handled), make_interim_judge())
+
     builder = StateGraph(AnalysisState)
-
-    # Nodes
     builder.add_node("preprocess", preprocess_node)
-    builder.add_node("classify", classify_node if llm else classify_by_rules_node)
+    builder.add_node("classify", classify_node if llm else classify_by_rules_node, retry_policy=retry_policy())
     builder.add_node("early_exit", early_exit_node)
-    for skill in skills:
-        builder.add_node(skill.name, _isolated(skill))
-    builder.add_node("triage", _triage_node(skills))
-    builder.add_node("judge", _recording(make_judge_node(model_path, llm=llm)))
+    for name, subgraph in judges.items():
+        builder.add_node(name, _subgraph_node(subgraph))
 
-    # Edges
-    builder.set_entry_point("preprocess")
+    builder.add_edge(START, "preprocess")
     builder.add_edge("preprocess", "classify")
 
-    def _route_after_classify(state: AnalysisState) -> list[Send] | str:
-        if state["page_type"] not in {"aggregate_listing", "storefront"}:
-            return "early_exit"
-        return [Send(s.name, state) for s in active_skills(skills, state)] or "triage"
+    def _route_after_classify(state: AnalysisState) -> str:
+        page_type = state["page_type"]
+        return next((name for name, types in PAGE_CLASSES.items() if page_type in types), "early_exit")
 
-    def _route_after_triage(state: AnalysisState) -> list[Send] | str:
-        return [Send(name, state) for name in state.get("next_skills", [])] or "judge"
-
-    builder.add_conditional_edges("classify", _route_after_classify)
-    builder.add_conditional_edges("triage", _route_after_triage)
+    builder.add_conditional_edges("classify", _route_after_classify, [*PAGE_CLASSES, "early_exit"])
     builder.add_edge("early_exit", END)
-    for skill in skills:
-        builder.add_edge(skill.name, "triage")
-    builder.add_edge("judge", END)
-
-    return builder.compile()
+    for name in PAGE_CLASSES:
+        builder.add_edge(name, END)
+    graph = builder.compile()
+    _CLASS_GRAPHS[graph] = judges
+    return graph

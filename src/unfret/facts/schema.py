@@ -1,9 +1,15 @@
 """
-``PageFacts``: the structured facts about a product page that the analysis runs on.
+``PageFacts``: the structured facts about a page that the analysis runs on.
 
 The server extracts them from raw HTML (:mod:`unfret.facts.extract`); a browser extension can send them
 directly, extracted from the rendered page, which also sees things raw HTML can't (computed styles, timers that
 reset). Every list is capped, so a client-supplied object stays small.
+
+Product pages came first; the business fields (contacts, identity statements, payment methods) serve shops and
+service companies alike, and :class:`ListingDetails` and :class:`SellerProfile` describe peer-to-peer ads and
+platform profiles. Nothing about the person viewing the page belongs here: the extractors skip forms, account menus
+and checkout or delivery areas. A private seller's name is never kept, and their contact details only for the
+check itself.
 """
 
 from datetime import date
@@ -11,7 +17,40 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-Platform = Literal["amazon", "bol.com", "walmart", "shopify", "woocommerce", "generic"]
+Platform = Literal[
+    # Product marketplaces and shop systems
+    "amazon",
+    "bol.com",
+    "walmart",
+    "shopify",
+    "woocommerce",
+    # Peer-to-peer marketplaces (eBay also has business sellers)
+    "ebay",
+    "marktplaats",
+    "2dehands",
+    "vinted",
+    "craigslist",
+    "facebook",
+    # Platforms where service providers have a profile
+    "werkspot",
+    "thumbtack",
+    "angi",
+    "homeadvisor",
+    "checkatrade",
+    "taskrabbit",
+    "bark",
+    "houzz",
+    "myhammer",
+    "generic",
+]
+# Platforms where the seller is usually a private person: their name is never kept.
+P2P_PLATFORMS: frozenset[str] = frozenset({"marktplaats", "2dehands", "vinted", "craigslist", "facebook"})
+# Platforms where the seller may be a private person: only product IDs and payment methods are read as business
+# facts there (the rest, contact areas and links, would describe the platform or name the seller).
+PRIVATE_SELLER_PLATFORMS: frozenset[str] = P2P_PLATFORMS | {"ebay"}
+PhoneKind = Literal["mobile", "local", "national", "toll_free", "premium", "unknown"]
+EmailKind = Literal["own_domain", "webmail", "other"]
+SellerType = Literal["", "business", "private"]
 
 _SHORT = 300
 _LONG = 2_000
@@ -35,8 +74,81 @@ class Checkbox(BaseModel):
     checked: bool = False
 
 
+class Phone(BaseModel):
+    """A phone number the business publishes (``tel:`` links, contact areas, structured data)."""
+
+    number: str = Field(default="", max_length=20, description="+ and digits when the country is known, else digits.")
+    kind: PhoneKind = Field(
+        default="unknown",
+        description="mobile, local (geographic), national (non-geographic), toll_free, premium (NL and US numbers).",
+    )
+    country: str = Field(default="", max_length=2, description="ISO country code from the number, when known.")
+
+
+class Email(BaseModel):
+    """An e-mail address the business publishes."""
+
+    address: str = Field(default="", max_length=254)
+    kind: EmailKind = Field(
+        default="other", description="own_domain (same domain as the page), webmail (Gmail, Hotmail, …) or other."
+    )
+
+
+class Licence(BaseModel):
+    """A (US) licence number the page states, with its state when given ("CA Lic. #1234567")."""
+
+    number: str = Field(default="", max_length=40)
+    state: str = Field(default="", max_length=2)
+
+
+class Link(BaseModel):
+    """A link to another page on the same site."""
+
+    text: str = Field(default="", max_length=_SHORT)
+    url: str = Field(default="", max_length=500)
+
+
+class SellerProfile(BaseModel):
+    """
+    The seller (peer-to-peer) or provider (service platform) as the platform shows them: never their name.
+
+    Used during the check only.
+    """
+
+    seller_type: SellerType = Field(default="", description="business or private, as the platform labels them.")
+    member_since: date | None = None
+    rating: float | None = Field(default=None, ge=0, le=5)
+    rating_count: int | None = Field(default=None, ge=0)
+    badges: list[str] = Field(default_factory=list, max_length=20, description="Verified ID, Top seller, …")
+    other_listings: int | None = Field(default=None, ge=0)
+    response_time: str = Field(default="", max_length=100)
+    response_rate: float | None = Field(default=None, ge=0, le=100, description="In percent.")
+    jobs_completed: int | None = Field(default=None, ge=0)
+
+
+class ListingDetails(BaseModel):
+    """A peer-to-peer ad: the item and the deal as the platform shows them (price: ``PageFacts.price``)."""
+
+    negotiable: bool | None = None
+    bidding: bool | None = None
+    condition: str = Field(default="", max_length=100)
+    category: str = Field(default="", max_length=_SHORT)
+    listed: date | None = None
+    location: str = Field(default="", max_length=_SHORT)
+    delivery: list[Literal["shipping", "pickup"]] = Field(default_factory=list, max_length=2)
+    payment_protection: bool | None = Field(
+        default=None, description="The platform's own payment or buyer protection."
+    )
+    contact_methods: list[str] = Field(
+        default_factory=list, max_length=10, description="Ways to reach the seller the ad text mentions (whatsapp, …)."
+    )
+    payment_requests: list[str] = Field(
+        default_factory=list, max_length=10, description="Payment the ad text asks for (bank_transfer, deposit, …)."
+    )
+
+
 class PageFacts(BaseModel):
-    """Structured facts about one product page. Absent facts are ``None`` or empty, never guessed."""
+    """Structured facts about one page. Absent facts are ``None`` or empty, never guessed."""
 
     platform: Platform = "generic"
     url: str = Field(default="", max_length=_LONG)
@@ -79,3 +191,44 @@ class PageFacts(BaseModel):
         default_factory=dict, description="Kind (refund, terms, privacy, contact, imprint, shipping) to URL."
     )
     image_urls: list[str] = Field(default_factory=list, max_length=50)
+
+    # ── Business facts: what a shop or service company publishes about itself ────────────────────────────────
+    product_ids: dict[str, str] = Field(
+        default_factory=dict, description="Public product IDs by kind: gtin, gtin8/12/13/14, mpn, asin."
+    )
+    payment_methods: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description="Payment methods the page mentions (paypal, ideal, crypto, …).",
+    )
+    phones: list[Phone] = Field(default_factory=list, max_length=20)
+    emails: list[Email] = Field(default_factory=list, max_length=20)
+    addresses: list[str] = Field(
+        default_factory=list, max_length=20, description="Postal addresses from structured data and contact areas."
+    )
+    founded_claims: list[str] = Field(
+        default_factory=list, max_length=10, description='"Since 1998", "opgericht in 2004", a foundingDate.'
+    )
+    business_name: str = Field(default="", max_length=_SHORT, description="From Organization/LocalBusiness data.")
+    legal_form: str = Field(default="", max_length=20, description="BV, VOF, LLC, Inc, GmbH, … as stated.")
+    kvk_numbers: list[str] = Field(default_factory=list, max_length=10, description="Dutch Chamber of Commerce.")
+    licences: list[Licence] = Field(default_factory=list, max_length=10)
+    certifications: list[str] = Field(
+        default_factory=list, max_length=20, description="Licence, insurance and certification claims (snippets)."
+    )
+    cities_served: list[str] = Field(default_factory=list, max_length=100)
+    internal_links: list[Link] = Field(default_factory=list, max_length=100)
+    pricing_terms: list[str] = Field(
+        default_factory=list, max_length=20, description="Call-out fees, quotes, deposits, hourly rates (snippets)."
+    )
+    promises: list[str] = Field(
+        default_factory=list, max_length=20, description='"24/7", "within 30 minutes", same-day (snippets).'
+    )
+    testimonials: list[str] = Field(default_factory=list, max_length=50)
+    organization_ld: list[dict[str, Any]] = Field(
+        default_factory=list, max_length=10, description="Organization/LocalBusiness JSON-LD, trimmed."
+    )
+
+    # ── Peer-to-peer ads and platform profiles (filled by the platform extractors) ──────────────────────────
+    seller_profile: SellerProfile | None = None
+    listing: ListingDetails | None = None

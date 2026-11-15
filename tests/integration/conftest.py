@@ -42,14 +42,23 @@ class FakeGraph:
         return self.result
 
     async def astream(
-        self, state: dict[str, Any], config: dict[str, Any] | None = None, stream_mode: str = "updates"
-    ) -> AsyncIterator[dict[str, Any]]:
+        self,
+        state: dict[str, Any],
+        config: dict[str, Any] | None = None,
+        stream_mode: str = "updates",
+        subgraphs: bool = False,
+    ) -> AsyncIterator[tuple[tuple[str, ...], dict[str, Any]]]:
+        # As the real graph streams with subgraphs=True: (namespace, update); the skills run in a class subgraph.
+        assert subgraphs
         self.calls.append(state)
-        yield {"classify": {"page_type": "storefront"}}
-        yield {"listing": {"findings": [Finding(skill="listing", type="discount", evidence="85% off.")]}}
+        product = ("product:1",)
+        yield (), {"classify": {"page_type": "storefront"}}
+        yield product, {"listing": {"findings": [Finding(skill="listing", type="discount", evidence="85% off.")]}}
         if self.error:
             raise self.error
-        yield {"judge": {"score": self.result["score"], "explanation": self.result["explanation"]}}
+        result = {"score": self.result["score"], "explanation": self.result["explanation"]}
+        yield product, {"judge": result}
+        yield (), {"product": {**result, "findings": [Finding(skill="listing", type="discount", evidence="85% off.")]}}
 
 
 @pytest.fixture

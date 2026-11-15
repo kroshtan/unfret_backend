@@ -3,7 +3,7 @@ from typing import Any, ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
-from unfret.graph.state import AnalysisState, Finding, PageType
+from unfret.graph.state import P2P_TYPES, PRODUCT_TYPES, SERVICE_TYPES, AnalysisState, Finding, PageType
 
 Tier = Literal["cheap", "expensive"]
 
@@ -12,9 +12,14 @@ UNAVAILABLE = "unavailable"
 # Feature suffix a skill reports when its rules don't apply to this shop (see Skill.not_applicable).
 NOT_APPLICABLE = "not_applicable"
 
-PRODUCT_PAGES: frozenset[PageType] = frozenset({"aggregate_listing", "storefront"})
+PRODUCT_PAGES: frozenset[PageType] = PRODUCT_TYPES
 STOREFRONTS: frozenset[PageType] = frozenset({"storefront"})
 MARKETPLACES: frozenset[PageType] = frozenset({"aggregate_listing"})
+P2P_PAGES: frozenset[PageType] = P2P_TYPES
+SERVICE_PAGES: frozenset[PageType] = SERVICE_TYPES
+SERVICE_SITES: frozenset[PageType] = frozenset({"service_site"})
+# Every page that gets analysed: products, peer-to-peer listings and service providers.
+ANALYSED_PAGES: frozenset[PageType] = PRODUCT_PAGES | P2P_PAGES | SERVICE_PAGES
 
 
 class SkillOutput(TypedDict):
@@ -50,6 +55,8 @@ class Skill(ABC):
 
     ``page_types`` limits which pages it runs on; ``tier`` tells the triage whether it costs money or time
     (``expensive``) or not; skills with ``always_run = False`` only run when their name is in ``state["flags"]``.
+    ``retry`` marks a skill that calls the LLM or fetches outside data: a transient error (a dropped connection, a
+    provider's 5xx or rate limit) is retried by the graph's RetryPolicy before the skill counts as unavailable.
     """
 
     name: str
@@ -57,6 +64,7 @@ class Skill(ABC):
     always_run: bool = True
     tier: Tier = "cheap"
     page_types: ClassVar[frozenset[PageType]] = PRODUCT_PAGES
+    retry: ClassVar[bool] = False
     # Feature names this skill reports. Missing ones are filled with 0, so the scorer sees a fixed vector.
     features: ClassVar[tuple[str, ...]] = ()
 

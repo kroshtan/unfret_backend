@@ -16,7 +16,7 @@ import httpx
 
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
-from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.net import fetch_public, hostname
 
@@ -138,7 +138,8 @@ class DomainAgeSkill(Skill):
 
     name = "domain_age"
     description = "Checks domain registration (RDAP) and first certificate (CT logs) for pop-up store signals."
-    page_types = STOREFRONTS
+    page_types = STOREFRONTS | SERVICE_SITES
+    retry = True
     features = ("known", "age_years", "under_6_months", "term_years", "redacted", "cert_age_years")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

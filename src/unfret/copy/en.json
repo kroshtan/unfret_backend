@@ -332,5 +332,19 @@
     "invite_many": "comes with {count} invites of {checks} checks to give away"
   },
   "shop_one": "shop",
-  "shop_many": "shops"
+  "shop_many": "shops",
+  "class_headlines": {
+    "p2p_listing": {
+      "concerns": "Checks for private sellers' ads are new, so there is no full rating yet: look at the points below, and pay only through the platform.",
+      "careful": "Something on this ad needs a close look before you pay: see the points below, and pay only through the platform."
+    },
+    "service_listing": {
+      "concerns": "Checks for service providers are new, so there is no full rating yet: look at the points below and ask for a written quote.",
+      "careful": "Something on this profile needs a close look before you hire: see the points below and ask for a written quote."
+    },
+    "service_site": {
+      "concerns": "Checks for service companies are new, so there is no full rating yet: look at the points below and ask for a written quote.",
+      "careful": "Something on this site needs a close look before you hire: see the points below and ask for a written quote."
+    }
+  }
 }

@@ -52,8 +52,8 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     def structured(schema: type) -> RunnableLambda:
         def answer(messages: Any) -> Any:
             prompts.append((schema, messages))
-            if schema is nodes._ClassifyOutput:
-                return nodes._ClassifyOutput(page_type="storefront", platform="", reasoning="r")
+            if schema in {nodes._ClassifyOutput, nodes._ClassifyOutputExpanded}:  # the expansion classes off or on
+                return schema(page_type="storefront", platform="", reasoning="r")
             if schema is nodes._JudgeOutput:
                 return nodes._JudgeOutput(score=40, explanation="x")
             return triage._TriageAnswer(run_reverse_image=True, reason="Generic lamp.")

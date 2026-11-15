@@ -14,7 +14,7 @@ share-alike open-data projects (its data is ODbL), and a commercial service need
 import re
 from dataclasses import dataclass
 
-from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
 
@@ -184,7 +184,7 @@ class UsIdentitySkill(Skill):
 
     name = "us_identity"
     description = "Checks whether a US shop names its company and a physical US business address."
-    page_types = STOREFRONTS
+    page_types = STOREFRONTS | SERVICE_SITES
     features = ("us_address", "mailbox_only", "business_entity", "us_phone")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

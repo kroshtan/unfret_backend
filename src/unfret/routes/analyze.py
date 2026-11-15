@@ -388,7 +388,9 @@ async def _live_events(
     try:
         try:
             async with asyncio.timeout(settings.analysis_timeout_s):
-                async for update in graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates"):
+                # subgraphs=True: each page class runs in its own subgraph, whose skill steps stream as they finish.
+                stream = graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates", subgraphs=True)
+                async for _namespace, update in stream:
                     for event in _update_events(update, final):
                         yield event
         except TimeoutError:

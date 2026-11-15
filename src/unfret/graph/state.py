@@ -5,7 +5,15 @@ from typing_extensions import TypedDict
 
 from unfret.facts import PageFacts
 
-PageType = Literal["aggregate_listing", "storefront", "article", "non_product"]
+PageType = Literal[
+    "aggregate_listing", "storefront", "p2p_listing", "service_listing", "service_site", "article", "non_product"
+]
+# The page classes, each analysed by its own subgraph (see :mod:`unfret.graph`). The p2p and service classes exist
+# only while ``settings.expansion_classes`` is on; with it off, classification never returns them.
+PRODUCT_TYPES: frozenset[PageType] = frozenset({"aggregate_listing", "storefront"})
+P2P_TYPES: frozenset[PageType] = frozenset({"p2p_listing"})
+SERVICE_TYPES: frozenset[PageType] = frozenset({"service_listing", "service_site"})
+EXPANSION_TYPES: frozenset[PageType] = P2P_TYPES | SERVICE_TYPES
 
 
 class Finding(BaseModel):
@@ -57,7 +65,8 @@ class AnalysisState(TypedDict):
     findings: Annotated[list[Finding], _append_findings]
 
     # ── Classification (set by classify_node) ───────────────────────────────
-    # One of: "aggregate_listing", "storefront", "article", "non_product"
+    # One of: "aggregate_listing", "storefront", "article", "non_product"; with the expansion classes on, also
+    # "p2p_listing", "service_listing" and "service_site".
     page_type: PageType
 
     # ── Triage (set by the triage node) ──────────────────────────────────────

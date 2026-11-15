@@ -34,6 +34,8 @@ jobs:
         run: uv run pytest
         env:
           UNFRET_TEST_POSTGRES_URI: postgresql://unfret:unfret@postgres:5432/unfret
+      - name: Run unit tests with the expansion classes on
+        run: make test-expansion
       - name: MCP server (mcp/, its own environment)
         run: |
           uv sync --project mcp --all-groups --frozen

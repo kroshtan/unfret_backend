@@ -7,7 +7,7 @@ the ``hidden`` attribute in raw HTML, or from computed styles when the browser e
 
 import re
 
-from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 
 # Text that unmistakably addresses an AI or overrides its instructions: suspicious anywhere, also in visible text.
@@ -48,6 +48,7 @@ class InjectionSkill(Skill):
 
     name = "injection"
     description = "Flags hidden text and attempts to instruct an AI that is assessing the page."
+    page_types = ANALYSED_PAGES
     features = ("hidden_chars", "instruction_hidden", "instruction_visible")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

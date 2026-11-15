@@ -16,7 +16,7 @@ import structlog
 
 from unfret import image_index, image_store, shop_store
 from unfret.config import settings
-from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
@@ -120,6 +120,8 @@ class ReverseImageSkill(Skill):
 
     name = "reverse_image"
     description = "Looks the main product photo up in Unfret's own index of shop and catalogue photos."
+    page_types = ANALYSED_PAGES
+    retry = True
     features = ("searched", "other_shops", "catalogue_matches")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

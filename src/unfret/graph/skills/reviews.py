@@ -123,6 +123,7 @@ class ReviewsSkill(Skill):
 
     name = "reviews"
     description = "Checks whether the review record is plausible for the listing's age and content."
+    retry = True
     features = (
         "has_reviews",
         "log_reviews_per_day",

@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from unfret import shop_store
 from unfret.config import settings
-from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 
 YOUNG_DAYS = 180  # a linked shop registered (or first certified) this recently is a young shop
@@ -44,7 +44,7 @@ class ShopLinksSkill(Skill):
 
     name = "shop_links"
     description = "Finds other web shops using the same analytics, pixel, payment or contact identifiers."
-    page_types = STOREFRONTS
+    page_types = STOREFRONTS | SERVICE_SITES
     features = ("linked_shops", "linked_young_shops", "shared_payment", "shared_contact")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

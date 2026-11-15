@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.
     analyze_fetch_per_minute: int = Field(default=10, ge=1)
+    # Attempts (including the first) for graph nodes that call the LLM or fetch outside data, when they fail with a
+    # transient error (dropped connection, provider 5xx, rate limit): LangGraph's RetryPolicy. 1 turns retries off.
+    graph_retry_attempts: int = Field(default=2, ge=1, le=5)
+
+    # The page classes beyond product pages: peer-to-peer listings (Marktplaats, Vinted, eBay private sellers),
+    # service providers on a platform (Werkspot, Thumbtack) and service companies' own sites. Off: classification
+    # behaves exactly as before, and those pages are treated as they always were (as a product page, or not analysed).
+    expansion_classes: bool = False
 
     # Shopper verdict bands (0–100 reliability score): reliable ≥ this, concerns ≥, careful ≥, else junk_or_scam
     verdict_reliable_min: int = 80

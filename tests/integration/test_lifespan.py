@@ -19,7 +19,7 @@ from unfret.config import Settings
 from unfret.credits import CreditsDoor
 from unfret.credits.polar import PolarProvider
 from unfret.db import PostgresFactStore
-from unfret.graph import SKILLS
+from unfret.graph import SKILLS, node_names
 from unfret.image_store import PostgresImageStore
 from unfret.migrations import MIGRATIONS
 from unfret.price_store import PostgresPriceStore
@@ -79,7 +79,7 @@ def started(pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def nodes(graph: Any) -> set[str]:
-    return set(graph.nodes)
+    return node_names(graph)  # the skills run inside the page classes' subgraphs
 
 
 async def test_lifespan_wires_a_configured_service(

@@ -4,6 +4,7 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from os import PathLike
 
 import asyncpg
 import structlog
@@ -11,6 +12,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from unfret import (
     __version__,
@@ -143,9 +146,34 @@ app.add_middleware(
 )
 
 
+class RevalidatedStaticFiles(StaticFiles):
+    """
+    The pages' scripts, styles and images, which caches must check with us before reusing (``no-cache``).
+
+    Without it Cloudflare keeps a file for hours after a deploy: a new page then gets an old stylesheet, or a mix of
+    old and new scripts. The ETag still lets a cache reuse an unchanged file after a quick check (304).
+    """
+
+    def file_response(
+        self, full_path: str | PathLike[str], stat_result: os.stat_result, scope: Scope, status_code: int = 200
+    ) -> Response:
+        """
+        Serve a file as Starlette does, marked to be revalidated.
+
+        :param full_path: The file.
+        :param stat_result: Its stat.
+        :param scope: The request scope.
+        :param status_code: The status.
+        :return: The response, with ``Cache-Control: no-cache``.
+        """
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Include API routes, and the scripts and styles of the /connect and /checkout pages
 app.include_router(router)
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
 # Add custom exception handlers
 app.add_exception_handler(CustomAPIError, CustomAPIError.handle)

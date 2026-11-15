@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.10.5](https://github.com/kroshtan/unfret_backend/compare/0.10.4...0.10.5) (2026-11-15)
+
 ### Bug fixes
 
 * Hidden buttons stayed visible: the new button style (`display: inline-flex`) beat the `hidden` attribute, so checkout showed "Pay in your wallet app" above a card or code result. `[hidden]` now always hides

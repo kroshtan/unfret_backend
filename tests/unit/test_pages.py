@@ -51,11 +51,13 @@ async def test_pages_are_served_with_a_strict_policy(client: httpx.AsyncClient, 
     assert "http://" not in response.text.replace("http://test", "")  # nothing loaded from elsewhere
 
 
-@pytest.mark.parametrize("asset", ["wallet.js", "connect.js", "checkout.js", "site.css"])
+@pytest.mark.parametrize("asset", ["wallet.js", "connect.js", "checkout.js", "site.css", "home.js"])
 async def test_assets_are_served(client: httpx.AsyncClient, asset: str) -> None:
     response = await client.get(f"/static/{asset}")
     assert response.status_code == 200
     assert response.headers["content-type"].split(";")[0] in {"text/javascript", "application/javascript", "text/css"}
+    # Caches (Cloudflare) must check before reusing, or a deploy serves a new page with an old stylesheet or script.
+    assert response.headers["cache-control"] == "no-cache"
 
 
 # Links the user may click to reopen /connect inside a wallet app's browser: navigations, never requests.

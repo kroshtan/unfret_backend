@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+* **A deploy no longer shows a new page with an old stylesheet**: files under `/static/` are now served with `Cache-Control: no-cache`, so Cloudflare and browsers check with the server before reusing them (an unchanged file is still reused after a quick ETag check). Before, Cloudflare kept them for up to 4 hours, and 0.10.3's new home page came out with 0.10.2's styles
+
 ## [0.10.3](https://github.com/kroshtan/unfret_backend/compare/0.10.2...0.10.3) (2026-11-15)
 
 ### Changed

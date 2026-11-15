@@ -3,10 +3,13 @@ Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`P
 
 Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the
 same product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_eur`` sets the euro prices).
-A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area (Polar then offers
-"iDEAL | Wero" to Dutch buyers next to cards), with discount codes off and our account id and this site's address
-(``public_base_url``) in its metadata; nothing about the buyer is sent. The API calls need an Organization Access
-Token with the ``checkouts:write`` scope only.
+A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area, with discount
+codes off and our account id and this site's address (``public_base_url``) in its metadata; nothing about the buyer
+is sent, except the billing country of a local payment method (:mod:`unfret.credits.local_methods`): Polar shows
+iDEAL | Wero only for a checkout in EUR whose billing country is the Netherlands, so that checkout has
+``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it; with a preset address Polar asks
+for the full billing address). The API calls need an Organization Access Token with the ``checkouts:write`` scope
+only.
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 
@@ -96,7 +99,12 @@ class PolarProvider:
         return f"{self.name}:{self.environment}"
 
     async def create_checkout(
-        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+        self,
+        account: str,
+        pack: Pack,
+        return_url: str,
+        currency: CardCurrency = "usd",
+        billing_country: str | None = None,
     ) -> FiatCheckout:
         """
         Create a Polar checkout session for the pack's product, in USD or EUR (:meth:`FiatProvider.create_checkout`).
@@ -105,6 +113,8 @@ class PolarProvider:
         :param pack: The pack.
         :param return_url: The success URL.
         :param currency: ``usd``, or ``eur`` for the pack's euro price (the product needs a EUR price too).
+        :param billing_country: Prefill the buyer's billing country (ISO 3166 alpha-2), for a local payment method;
+            ``None`` leaves it to the buyer (cards only until they pick a country).
         :return: The checkout.
         :raises FiatProviderError: If Polar refuses or can't be reached, or the checkout isn't the pack's price in
             that currency.
@@ -120,6 +130,9 @@ class PolarProvider:
             "success_url": return_url,
             "allow_discount_codes": False,  # every order must pay exactly the pack's card price
         }
+        if billing_country:
+            # Polar's AddressInput needs only the country; it decides which payment methods the checkout shows.
+            payload["customer_billing_address"] = {"country": billing_country}
         try:
             response = await self.http.post("/v1/checkouts/", json=payload)
             response.raise_for_status()

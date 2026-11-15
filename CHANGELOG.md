@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+* **"Pay with iDEAL | Wero" as its own button for Dutch visitors.** Polar shows iDEAL | Wero only when the buyer's billing country is the Netherlands, and with no country it shows cards only, so Dutch buyers rarely saw it. `/checkout` now gives Dutch visitors two buttons in "Buy checks" and "Top up my key": "Pay €5.50 with iDEAL | Wero" (first) and "Pay €5.50 by card", priced for the selected pack; it replaces the single "Pay … by card or iDEAL | Wero" label. Everyone else keeps the one card button. The Wero checkout is a EUR checkout with `customer_billing_address: {"country": "NL"}` prefilled; metadata, claim, crediting and refunds are unchanged. Table-driven so more countries can follow with one entry each (`unfret.credits.local_methods.LOCAL_METHODS`, after checking at Polar that the method really shows for that country). API: `/v1/pricing` adds `local_payment_method` (`{id, label, currency}` or `null`); `POST /v1/credits/fiat-checkout` takes an optional `payment_method` (`card` | `wero`; `wero` is a 400 while euro prices are off or with `currency: "usd"`) and answers with the checkout's `payment_method` (`card` when Polar refused the euro checkout and the dollar one was made instead).
+
 ### Changed
 
 * **dev.unfret.net runs with the new page classes on** (`UNFRET_EXPANSION_CLASSES: "true"` in `config/deploy.dev.yml`), so peer-to-peer ads and service providers get their own checks and verdicts there; production keeps them off

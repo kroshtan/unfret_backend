@@ -91,7 +91,12 @@ class FiatProvider(Protocol):
     name: str
 
     async def create_checkout(
-        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+        self,
+        account: str,
+        pack: Pack,
+        return_url: str,
+        currency: CardCurrency = "usd",
+        billing_country: str | None = None,
     ) -> FiatCheckout:
         """
         Start a hosted checkout.
@@ -100,6 +105,8 @@ class FiatProvider(Protocol):
         :param pack: The pack bought, charged its card price in ``currency``.
         :param return_url: Where the provider sends the buyer afterwards.
         :param currency: ``usd``, or ``eur`` for the pack's euro price.
+        :param billing_country: The buyer's billing country to prefill (ISO 3166 alpha-2), which is what makes the
+            provider offer a local payment method (:mod:`unfret.credits.local_methods`); ``None``: the buyer picks.
         :return: The checkout's id and page. Raises :class:`FiatProviderError` if the provider can't start one.
         """
         ...
@@ -193,14 +200,20 @@ class FakeFiatProvider:
         self.secret, self.tolerance_s = secret, tolerance_s
 
     async def create_checkout(
-        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+        self,
+        account: str,
+        pack: Pack,
+        return_url: str,
+        currency: CardCurrency = "usd",
+        billing_country: str | None = None,
     ) -> FiatCheckout:
         """See :meth:`FiatProvider.create_checkout`."""
         checkout_id = str(uuid.uuid4())
         amount = pack.card_cents(currency)
         if amount is None:
             raise FiatProviderError(f"No {currency} price for this pack.")
-        query = urlencode({"id": checkout_id, "amount": amount, "currency": currency, "return": return_url})
+        fields = {"id": checkout_id, "amount": amount, "currency": currency, "return": return_url}
+        query = urlencode(fields | ({"country": billing_country} if billing_country else {}))
         return FiatCheckout(checkout_id, f"https://fiat.invalid/checkout?{query}")
 
     async def aclose(self) -> None:

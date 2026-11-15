@@ -402,13 +402,20 @@
         "type": "null"
        }
       ],
-      "description": "usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to Dutch buyers). Default: /v1/pricing's card_currency for this visitor (eur from the euro area).",
+      "description": "usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to Dutch buyers once they choose the Netherlands as billing country). Default: /v1/pricing's card_currency for this visitor (eur from the euro area), or the payment method's currency.",
       "title": "Currency"
      },
      "key_id": {
       "description": "The API key's id (or the key itself: only the id is used).",
       "maxLength": 120,
       "title": "Key Id",
+      "type": "string"
+     },
+     "payment_method": {
+      "default": "card",
+      "description": "card (default: the buyer picks their country on the provider's page), or a local method's id from /v1/pricing's local_payment_method (e.g. wero: iDEAL | Wero, a EUR checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
+      "maxLength": 32,
+      "title": "Payment Method",
       "type": "string"
      }
     },
@@ -445,6 +452,11 @@
       "title": "Currency",
       "type": "string"
      },
+     "payment_method": {
+      "description": "The checkout's method: the one asked for, or card if the provider refused it and the dollar card checkout was made instead.",
+      "title": "Payment Method",
+      "type": "string"
+     },
      "provider": {
       "title": "Provider",
       "type": "string"
@@ -454,6 +466,7 @@
      "checkout_url",
      "provider",
      "currency",
+     "payment_method",
      "checkout_id",
      "claim"
     ],
@@ -3283,7 +3296,7 @@
   },
   "/v1/credits/fiat-checkout": {
    "post": {
-    "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\nIn euros for ``currency: \"eur\"`` (by default for visitors from the euro area), in dollars otherwise. Should the\nprovider refuse a euro checkout (e.g. a product without its euro price yet), the buyer gets the dollar checkout\ninstead of none; ``currency`` in the response says which it is.\n\n:param body: The key, the pack and the currency.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.\n:raises BadRequestError: For euros while euro prices are off.",
+    "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\nIn euros for ``currency: \"eur\"`` (by default for visitors from the euro area), in dollars otherwise. A local\npayment method (``payment_method``, e.g. ``wero``) is a checkout in its currency with its billing country\nprefilled, which is what makes the provider show it. Should the provider refuse a euro checkout (e.g. a product\nwithout its euro price yet), the buyer gets the dollar card checkout instead of none; ``currency`` and\n``payment_method`` in the response say which it is.\n\n:param body: The key, the pack, the currency and the payment method.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.\n:raises BadRequestError: For euros while euro prices are off, or a method in another currency than asked for.",
     "operationId": "fiat_checkout_v1_credits_fiat_checkout_post",
     "requestBody": {
      "content": {

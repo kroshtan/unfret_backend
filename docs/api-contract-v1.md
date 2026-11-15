@@ -638,3 +638,23 @@ valid 7 days. Nothing is stored when a check runs.
   `unknown_currency`. Refunds and lost disputes take back credits pro rata in the order's own currency, as for
   dollars. Storage: `fiat_payments.currency` (`usd` for every earlier order).
 - Setting: `UNFRET_CARD_PRICES_EUR` (default `25=5.50,50=10.00,100=19.00`; one per pack, or empty for dollars only).
+
+## Changes (local payment methods: iDEAL | Wero as its own button; backwards-compatible)
+
+- `GET /v1/pricing` adds a top-level `local_payment_method`: `{"id": "wero", "label": "iDEAL | Wero", "currency":
+  "eur"}` for a visitor whose `vat.country_hint` has a local method (today only `NL`, and only while euro prices are
+  on), else `null`. Show it as its own button ("Pay €5.50 with iDEAL | Wero") next to the card button, priced in
+  its `currency` (`price_eur` for `eur`). Which countries get which method is decided by the server's table
+  (`unfret.credits.local_methods.LOCAL_METHODS`), so a client needs no country list.
+- `POST /v1/credits/fiat-checkout` takes an optional `payment_method`: `"card"` (default, as before: the buyer picks
+  their country on Polar's page, cards until they do) or a local method's `id` (case-insensitive; an unknown id is a
+  422). For `"wero"` the checkout is in EUR with the billing country prefilled as `NL`
+  (`customer_billing_address: {"country": "NL"}`, [Polar: create checkout session](https://polar.sh/docs/api-reference/checkouts/create-session)),
+  which is what makes Polar show iDEAL | Wero; the buyer can still change it. The method's currency is used when
+  `currency` is left out; another `currency` is a 400 (`"iDEAL | Wero is paid in EUR."`), and so is `"wero"` while
+  euro prices are off. Any visitor may ask for it (the country hint only decides what `/v1/pricing` offers).
+- The response adds `payment_method`: the method asked for, or `"card"` when Polar refused the euro checkout and the
+  dollar card checkout was made instead (`currency` is then `"usd"`). Metadata, claim, crediting, refunds and
+  disputes are exactly those of a euro card checkout.
+- Adding a country is one entry in that table (visitor country → method id, label, billing country, currency), after
+  checking by hand that Polar really shows that method for that billing country and currency.

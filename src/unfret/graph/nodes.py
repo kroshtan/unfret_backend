@@ -23,7 +23,7 @@ def _facts_text(facts: PageFacts) -> str:
     Plain text for the LLM steps when a client sent page facts but no page text.
 
     :param facts: The supplied facts.
-    :return: Title, brand, seller, prices and review texts, one per line.
+    :return: Title, brand, seller, prices, an ad's own text and review texts, one per line.
     """
     price = f"{facts.price} {facts.currency}".strip() if facts.price is not None else ""
     was = f"was {facts.list_price}" if facts.list_price is not None else ""
@@ -36,6 +36,8 @@ def _facts_text(facts: PageFacts) -> str:
         f"Price: {price} {was}".strip() if price else "",
         f"Ships from: {facts.ships_from}" if facts.ships_from else "",
     ]
+    if facts.listing is not None and facts.listing.description:
+        lines.append(f"Ad text: {facts.listing.description}")
     lines += [f"Review: {r.title} {r.body}".strip() for r in facts.reviews]
     return "\n".join(line for line in lines if line)
 

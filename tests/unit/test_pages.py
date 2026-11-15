@@ -20,6 +20,15 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield client
 
 
+async def test_privacy_statement_covers_private_sellers_ads(client: httpx.AsyncClient) -> None:
+    text = " ".join((await client.get("/privacy")).text.split())
+
+    assert "Never the seller's name." in text
+    assert "Ad fingerprints" in text and "keyed one-way hash" in text
+    assert "Kept 90 days after we last saw the ad." in text
+    assert "For private sellers" in text
+
+
 async def test_privacy_statement_names_the_price_observations(client: httpx.AsyncClient) -> None:
     response = await client.get("/privacy")
 

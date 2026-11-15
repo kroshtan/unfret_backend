@@ -138,6 +138,14 @@ def _params() -> dict[str, str]:
         "methods": "bank transfer and crypto",
         "copied": "3",
         "checked": "12",
+        "quote": "“Betaling vooraf via overboeking”",
+        "method": "gift cards",
+        "channel": "WhatsApp",
+        "ads": "ads",
+        "platforms": "Marktplaats, Facebook Marketplace",
+        "evidence": "Asking €120 for an iPhone 15: honest ads for one rarely go under €250.",
+        "rating": "2.5 out of 5 from 8 ratings",
+        "said": "“Responds within a few days”",
     }
 
 

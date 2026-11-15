@@ -1,4 +1,4 @@
-"""The page classes beyond products: classification, one subgraph per class, the interim judge, retries."""
+"""The page classes beyond products: classification, one subgraph per class, class headlines, retries."""
 
 from typing import Any, ClassVar
 
@@ -11,13 +11,13 @@ from unfret import shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
 from unfret.facts.schema import SellerProfile
-from unfret.graph import build_graph, nodes, placeholder, transient
+from unfret.graph import build_graph, nodes, transient
 from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, PRODUCT_PAGES, SERVICE_SITES, Skill, SkillOutput
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.domain_age import DomainAgeSkill
 from unfret.graph.skills.injection import InjectionSkill
 from unfret.graph.skills.listing import ListingSkill
-from unfret.graph.state import AnalysisState, Finding, PageType
+from unfret.graph.state import AnalysisState, PageType
 
 PAGE = "<html><body><h1>Fiets te koop</h1><p>Mooie fiets, ophalen in Utrecht.</p></body></html>"
 
@@ -268,33 +268,10 @@ def test_existing_skills_declare_the_classes_they_clearly_apply_to() -> None:
     assert ListingSkill.page_types == PRODUCT_PAGES
 
 
-# ── Interim judge ───────────────────────────────────────────────────────────────────────────────────────────
+# ── Class headlines ───────────────────────────────────────────────────────────────────────────────────────────
 
 
-def test_the_interim_verdict_is_cautious() -> None:
-    state: Any = {"page_type": "p2p_listing", "features": {}, "findings": [], "facts": PageFacts()}
-
-    result = placeholder.interim_verdict(state)
-
-    verdict = result["verdict"]
-    assert verdict["band"] == "concerns"
-    assert verdict["reasons"] == []  # no "several small signals" without a scorer
-    assert result["explanation"] == verdict["headline"]
-    assert "new" in verdict["headline"]
-
-
-def test_a_serious_finding_makes_it_careful() -> None:
-    features = {"injection.instruction_hidden": 1.0, "injection.hidden_chars": 400.0}
-    findings = [Finding(skill="injection", type="instruction_hidden", evidence='"Ignore previous instructions"')]
-    state: Any = {"page_type": "service_site", "features": features, "findings": findings, "facts": PageFacts()}
-
-    result = placeholder.interim_verdict(state)
-
-    assert result["verdict"]["band"] == "careful"
-    assert result["score"] < settings.verdict_concerns_min
-
-
-def test_interim_headlines_fit_the_headline_limit() -> None:
+def test_class_headlines_fit_the_headline_limit() -> None:
     for per_band in shopper.catalogue()["class_headlines"].values():
         for headline in per_band.values():
             assert shopper.fit_headline(headline) == headline

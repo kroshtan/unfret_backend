@@ -38,6 +38,12 @@
       data), its prices and payment terms, the towns it lists, and its testimonials (the text, the name as the site
       prints it, the rating and the date). On a platform profile: the platform's figures (member since, jobs, rating,
       badges, response rate) and its reviews, without the reviewers' names. These are used for the check only.</p>
+
+    <p>On a private seller's ad (Marktplaats, 2dehands, Vinted, Craigslist, Facebook Marketplace, or a private seller
+      on eBay) a check also reads the ad's own text, the item details (price, condition, category, delivery, location)
+      and what the platform shows about the seller's account: since when, ratings, badges, other ads, reply time.
+      <strong>Never the seller's name.</strong> All of this is used for that one check and then dropped, except the
+      fingerprints described below.</p>
     <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
       your browser until you tap Check. The page keeps no history; only your sign-in or API key stays in your browser,
@@ -72,7 +78,8 @@
       <li><strong>Prices across shops</strong>: for product pages with a barcode, the day and the price under a one-way
         hash of the barcode and another of the shop's domain (a marketplace counts as one shop), to see whether a price
         is far below what other shops ask for the same product. No address, wallet, IP address or time of day. Kept 90
-        days.</li>
+        days. A private seller's ad naming a barcode is compared with these prices; prices in ads are never
+        recorded.</li>
       <li><strong>Review fingerprints</strong>: for the longer reviews on a checked product page, a one-way hash of each
         review's text (in lower case, letters and digits only) and of the shop's domain, with the first and last day
         we saw it, to spot the same reviews on different shops. Never the review itself, the reviewer's name or the
@@ -87,8 +94,16 @@
       <li><strong>Product photo fingerprints</strong>: for the main photo of a checked product (on a service company's
         page, its first photo that isn't a logo), its fingerprints
         (computed on our server; the photo goes to no one else), the photo's address on the shop, the shop and a
-        one-way hash of the listing, to spot the same photo on another shop. Kept 400 days after last seen. Matching
-        photos are shown as small thumbnails from our server, so your browser never contacts the other shop.</li>
+        one-way hash of the listing, to spot the same photo on another shop. Kept 400 days after last seen. The main
+        photo of a private seller's ad is kept the same way, but only 90 days, and is also compared with other ads, to
+        spot a photo copied from someone else's ad. Matching photos are shown as small thumbnails from our server, so
+        your browser never contacts the other shop.</li>
+      <li><strong>Ad fingerprints</strong>: for a private seller's ad, a fingerprint of its text (a 64-bit hash of its
+        words; the text can't be read back from it), the platform, a one-way hash of the ad's address and the day, to
+        spot the same ad posted many times. Phone numbers and e-mail addresses written in the ad are kept only as a
+        keyed one-way hash, to notice one number behind many ads, and are never shown to anyone. No seller name,
+        account, location, price or ad text, and nothing about who checked the ad. Kept 90 days after we last saw the
+        ad.</li>
       <li><strong>Recent answers for agents</strong>: the answer to a paid check of a page our server fetched itself,
         under a one-way hash of the listing, for one day, so the same unchanged listing can be answered quickly. No
         address, caller or payment details.</li>
@@ -114,6 +129,12 @@
       the contact details at kroshtan.com; the same goes for a "Spotted recently" example
       of your page, which we'll look at again or take down. A shared result about your page can be reported from the
       page itself: it is hidden at once until we review it, and what you write is kept only until then.</p>
+
+    <h2>For private sellers</h2>
+    <p>If someone checked your ad, we keep only the ad fingerprints above: no name, account or address, and nothing
+      that says who checked it. A phone number or e-mail address you put in your ad is kept as a keyed one-way hash for
+      90 days, used only to tell whether the same number is behind many ads (our legitimate interest in warning buyers
+      about ads posted in bulk). To have it removed sooner, use the contact details at kroshtan.com.</p>
 
     <h2>Reporting a wrong result</h2>
     <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that check's page facts,

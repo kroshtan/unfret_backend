@@ -231,6 +231,29 @@ def use_store(store: MarketStore) -> None:
     _store, _purged_on = store, None
 
 
+# The shop key of a peer-to-peer ad: its own price is never recorded, so it excludes nobody.
+_AD_SHOP = hashlib.sha256(b"ad:peer-to-peer").digest()
+
+
+async def for_ad(facts: PageFacts) -> Market | None:
+    """
+    What shops charge for the product a peer-to-peer ad names by its barcode, without recording the ad. Never raises.
+
+    :param facts: The ad's facts.
+    :return: The market (every shop counts), or ``None`` without a barcode or price, or when the store failed.
+    """
+    gtin = barcode(facts)
+    if gtin is None or not facts.price:
+        return None
+    since = today() - timedelta(days=WINDOW_DAYS)
+    try:
+        prices = await _store.others(product_key(gtin), _AD_SHOP, since, (facts.currency or "").upper()[:3])
+    except Exception as exc:  # noqa: BLE001 - optional signal
+        logger.warning("market_store_failed", error=type(exc).__name__)
+        return None
+    return Market(len(prices), statistics.median(prices) if prices else None)
+
+
 def today() -> date:
     """
     Today in UTC, the only time stored.

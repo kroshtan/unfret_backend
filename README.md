@@ -33,7 +33,7 @@ flowchart LR
         T --> J[judge<br/><sub>scorer + LLM headline</sub>]
     end
     subgraph PP [p2p subgraph]
-        S2[skills for ads] --> J2[interim judge]
+        S2[skills for ads] --> T2{photo check} --> J2[ad rules]
     end
     subgraph SV [service subgraph]
         S3[skills for service providers] --> T3{triage<br/><sub>rules</sub>} --> J3[judge<br/><sub>hand-written rules</sub>]
@@ -62,19 +62,24 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
   or a private seller on eBay) and **service** (`service_listing`: a provider's profile on Werkspot, Thumbtack, Angi,
   HomeAdvisor, …; `service_site`: a service company's own website). These exist only while
   `UNFRET_EXPANSION_CLASSES` is on (default **off**: classification is then exactly as before, and such pages are
-  treated as they always were). No scorer is trained for them yet. The ads' judge is an interim one: never "looks
-  fine", only "a few things to check" (or "some warning signs" when a skill found something serious), with a
-  headline that says the checks are new; expensive skills run there only when the caller asks for them. The service
-  providers get a full verdict from cautious hand-written rules (`graph/services.py`), for the Netherlands and the
-  US: "many warning signs" only for the combinations behind fake local businesses (town landing pages without an
-  address plus links to other sites with the same phone numbers or tracking IDs; a premium-rate number plus payment
-  up front or cash only; copied photos plus one of those or a brand-new site), "some warning signs" for one serious
-  or two medium signals, "looks fine" only with concrete positives (an established domain, a complete identity
-  with KvK or licence number, a street address, no doorway pattern, no upfront or cash-only terms; on a platform,
-  two years and twenty reviews averaging four stars), and "a few things to check" otherwise. Their triage runs the
-  photo search, by rules, when the cheap skills found something copied photos would confirm. No register is looked
-  up (no KvK API, Companies House or state licence boards): the signals come from the page itself, the
-  fingerprint store and the photo index, plus VIES for a VAT number. Their results carry no share token.
+  treated as they always were). No scorer is trained for them yet:
+  - **ads** get a full verdict from cautious hand-written rules (`src/unfret/shopper_p2p.py`): "Looks fine" only
+    when nothing fired and the positives are concrete (an account of two years or more, well rated, and the
+    platform's payment protection, pickup or a checked normal price); "many warning signs" only for strong
+    combinations (payment pushed off the platform with a new or copied seller, or a bait price; a photo from other
+    ads with a bait price); "some warning signs" for one serious sign or two middling ones; "a few things to check"
+    otherwise. The photo check (reverse image) runs whenever the ad has a photo, within the per-analysis budget.
+  - **service providers** get a full verdict from cautious hand-written rules (`graph/services.py`), for the
+    Netherlands and the US: "many warning signs" only for the combinations behind fake local businesses (town
+    landing pages without an address plus links to other sites with the same phone numbers or tracking IDs; a
+    premium-rate number plus payment up front or cash only; copied photos plus one of those or a brand-new site),
+    "some warning signs" for one serious or two medium signals, "looks fine" only with concrete positives (an
+    established domain, a complete identity with KvK or licence number, a street address, no doorway pattern, no
+    upfront or cash-only terms; on a platform, two years and twenty reviews averaging four stars), and "a few things
+    to check" otherwise. Their triage runs the photo search, by rules, when the cheap skills found something copied
+    photos would confirm. No register is looked up (no KvK API, Companies House or state licence boards): the
+    signals come from the page itself, the fingerprint store and the photo index, plus VIES for a VAT number. Their
+    results carry no share token.
 
 Classification is rules first. A known marketplace's product page (Amazon, bol.com, Walmart) or a page with a
 product and a price is settled from the facts. With the expansion classes on, a host and path table
@@ -115,7 +120,11 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `service_terms` | Service sites and profiles: payment in full or a deposit of half or more before the work, cash only, a call-out fee of (almost) nothing, a price set only on the doorstep, prices only on request, "24/7, there within 30 minutes", a premium-rate (0900, 1-900) number; a written quote or fixed price as the positive |
 | `testimonials` | Service sites and profiles: testimonials (on a platform, its reviews) that repeat each other with a town or name swapped, all 5 stars, repeated or placeholder names, dates within a week |
 | `platform_profile` | Platform profiles (Werkspot, Thumbtack, Angi, …): member since, jobs completed, rating and count, badges, response rate, as the platform shows them |
-| `reverse_image` | Every class (p2p only when asked for; service providers when their triage's rules call for it, on the first photo that isn't a logo): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
+| `seller_profile` | Ads: the seller's account as the platform shows it (never the name): a new account (under 90 days), no ratings, low ratings, no verification on a new account, many ads on a young account, slow replies; and the positives (two years or more, well rated, verified) |
+| `off_platform` | Ads: wording that takes the deal off the platform, in Dutch and English, over the ad's own text (not the platform's safety tips): contact by WhatsApp, Telegram, phone or e-mail; payment by bank transfer or payment link (not when paid at pickup), gift cards, crypto, money transfer or payment apps; a deposit or payment up front; "shipping only, no pickup"; "I'm abroad / on a ship"; refusing the platform's payment. Payments the ad rules out ("never pay in advance") don't count. Each finding quotes the ad; the content read adds its own judgement (`content.off_platform_push`) |
+| `price_outlier` | Ads: the asking price against the same product new (an ad naming a barcode: the median shop price in `market_prices` over 90 days, at least two shops) or against a conservative floor for the goods non-delivery ads use most (recent phones, consoles, laptops, graphics cards) and rentals; accessories, broken items, swaps, wanted ads and starting bids are never compared |
+| `duplicate_ads` | Ads: the same ad text (a simhash of its words) or the same phone number or e-mail address (keyed hash) in other ads checked in the last 90 days, from the ad store (`src/unfret/ad_store.py`: hashes, the platform and the day only; no seller, text or URL) |
+| `reverse_image` | Every class (ads whenever they have a photo; service providers when their triage's rules call for it, on the first photo that isn't a logo): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue; for an ad also in other ads (a copied ad, or someone else's photo of the item). pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
 
 The skills from `payment_methods` on (and `domain_age`'s founding claim, `shop_links`'s shared address) report new
 features that the shipped scorer doesn't use: they reach the shopper as reasons and positives, and the scores stay

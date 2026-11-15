@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from unfret.config import settings
-from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
+from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
 
@@ -93,6 +93,35 @@ class _Signals(BaseModel):
         return min(max(value, 0.0), 1.0) if isinstance(value, int | float) and not isinstance(value, bool) else value
 
 
+class _AdSignals(_Signals):
+    """The same read for a private seller's ad, with the off-platform judgement (only asked of ads)."""
+
+    off_platform_push: float = Field(default=0.0, ge=0, le=1)
+    off_platform_quote: str = Field(
+        default="", description="The verbatim sentence that moves the deal off the platform."
+    )
+
+    @field_validator("off_platform_push", mode="before")
+    @classmethod
+    def _clamp_push(cls, value: object) -> object:
+        return min(max(value, 0.0), 1.0) if isinstance(value, int | float) and not isinstance(value, bool) else value
+
+    @field_validator("off_platform_quote", mode="before")
+    @classmethod
+    def _cap_quote(cls, value: object) -> object:
+        return str(value)[:_QUOTE_CHARS] if value is not None else ""
+
+
+_AD_ADDENDUM = """
+For a private seller's ad, also score:
+- off_platform_push: the ad moves the deal off the platform and its payment protection: contact by WhatsApp, \
+phone, e-mail or other apps; payment by bank transfer, payment links, gift cards, crypto, money transfer services \
+or payment apps; a deposit or payment before the buyer sees the item; "shipping only"; the seller is abroad or \
+away; refusing the platform's payment. 0 when the ad keeps everything on the platform or offers pickup with \
+payment on the spot. Quote the sentence in off_platform_quote.
+"""
+
+
 class ContentSkill(Skill):
     """LLM analysis of the listing text: scam copy, white-label branding, implausible claims, missing info."""
 
@@ -126,9 +155,11 @@ class ContentSkill(Skill):
         if settings.content_policy_links and page == "shop's own page" and facts.policy_links:
             # The page text has its footer stripped, so say which policy pages the page links to (not what they say).
             header += f"Links to: {', '.join(_POLICY_NAMES.get(k, k) for k in sorted(facts.policy_links))}\n"
-        signals: _Signals = await get_structured_llm(_Signals).ainvoke(
+        ad = state.get("page_type") in P2P_PAGES
+        schema: type[_Signals] = _AdSignals if ad else _Signals
+        signals: _Signals = await get_structured_llm(schema).ainvoke(
             [
-                SystemMessage(content=_SYSTEM),
+                SystemMessage(content=_SYSTEM + _AD_ADDENDUM if ad else _SYSTEM),
                 HumanMessage(content=untrusted(header + "\n" + state["cleaned_content"][:_MAX_CHARS])),
             ]
         )
@@ -136,6 +167,11 @@ class ContentSkill(Skill):
         observations += [Observation(type="implausible_claim", evidence=c) for c in signals.implausible_claim_examples]
         if signals.addresses_the_reader_ai:
             observations.append(Observation(type="addresses_ai", evidence="The page text addresses an AI or bot."))
+        extra: dict[str, float] = {}
+        if isinstance(signals, _AdSignals):
+            extra["off_platform_push"] = signals.off_platform_push
+            if signals.off_platform_quote:
+                observations.append(Observation(type="off_platform_quote", evidence=signals.off_platform_quote))
         return self.output(
             {
                 "scam_copy": signals.scam_copy,
@@ -146,6 +182,7 @@ class ContentSkill(Skill):
                 "addresses_ai": signals.addresses_the_reader_ai,
                 "title_word_soup": signals.title_word_soup,
                 "generic_brand": signals.generic_brand,
+                **extra,
             },
             observations,
         )

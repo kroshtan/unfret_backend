@@ -18,6 +18,7 @@ from starlette.types import Scope
 
 from unfret import (
     __version__,
+    ad_store,
     fact_cache,
     image_store,
     log,
@@ -82,6 +83,7 @@ def use_postgres_stores(pool: asyncpg.Pool) -> None:
     price_store.use_store(price_store.PostgresPriceStore(pool))
     market_prices.use_store(market_prices.PostgresMarketStore(pool))
     review_store.use_store(review_store.PostgresReviewStore(pool))
+    ad_store.use_store(ad_store.PostgresAdStore(pool))
     shop_store.use_store(shop_store.PostgresShopStore(pool))
     reverse_image.use_store(image_store.PostgresImageStore(pool))
     verdict_store.use_store(verdict_store.PostgresVerdictStore(pool))

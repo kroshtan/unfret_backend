@@ -73,6 +73,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "intro_codes",
         "market_prices",
         "review_fingerprints",
+        "ad_prints",
+        "ad_contacts",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites"):  # only a purchase fills them
@@ -88,6 +90,9 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
     assert await pool.fetchval("SELECT COUNT(*) FROM market_prices") == 0  # no barcode either
     assert await pool.fetchval("SELECT COUNT(*) FROM review_fingerprints") == 0  # hashes only, and no reviews here
     # Shop fingerprints hold facts about web shops, never the page or the caller (test_storage greps them).
+    # Ad fingerprints are hashes of peer-to-peer ads only (a text hash, a listing hash, keyed contact hashes).
+    for table in ("ad_prints", "ad_contacts"):
+        assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
 
 
 async def test_insufficient_credits(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:

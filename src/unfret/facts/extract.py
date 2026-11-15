@@ -3,7 +3,8 @@ Extract :class:`~unfret.facts.schema.PageFacts` from raw HTML.
 
 One parse per page: :func:`parse_page` reads the facts from the soup first and then strips it down to the plain
 text the LLM sees, so the HTML is parsed once however many skills look at it. Platform-specific extractors
-(Amazon, bol.com, Walmart) fill in what generic markup (JSON-LD, microdata, Open Graph) doesn't carry.
+(Amazon, bol.com, Walmart) fill in what generic markup (JSON-LD, microdata, Open Graph) doesn't carry; on
+peer-to-peer platforms (and eBay) :mod:`unfret.facts.p2p` reads the ad and the seller's account.
 """
 
 import json
@@ -14,7 +15,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, business, service_platforms, testimonials, walmart
+from unfret.facts import amazon, bolcom, business, p2p, service_platforms, testimonials, walmart
 from unfret.facts._parse import parse_date, parse_number, parse_rating
 from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
@@ -147,6 +148,8 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")
     if not facts.image_urls and (image := _meta(soup, "og:image")):
         facts.image_urls = [urljoin(url, image)]
+    if facts.platform in PRIVATE_SELLER_PLATFORMS:
+        p2p.extract(soup, facts)  # the ad and the seller's account, never their name
     if facts.platform in P2P_PLATFORMS:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)

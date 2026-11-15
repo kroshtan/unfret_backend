@@ -9,6 +9,9 @@ what it found, and the shopper verdict calls it a warning only in a suspicious c
 On a service company's site or profile the photo is the first one that isn't a logo or an icon (its work, its
 van, its team): the same photo on other sites means it was copied from elsewhere.
 
+On a peer-to-peer ad the photo is also compared with the other ads (:func:`unfret.image_store.lookup_ad`): the
+same photo in another ad is a copied ad, or someone else's photo of the item.
+
 After the lookup the photo is added to the index, in the background (off with ``fingerprints``).
 """
 
@@ -21,7 +24,8 @@ import structlog
 from unfret import image_index, image_store, shop_store
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
-from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
+from unfret.graph.platforms import PLATFORMS
+from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import SERVICE_TYPES, AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
@@ -136,6 +140,21 @@ def _evidence(matches: list[StoredPrint], *, service: bool = False) -> list[Obse
     return observations
 
 
+def _ad_evidence(ads: list[StoredPrint]) -> list[Observation]:
+    if not ads:
+        return []
+    names = list(dict.fromkeys(PLATFORMS[m.domain].name for m in ads if m.domain in PLATFORMS))
+    where = f" ({', '.join(names)})" if names else ""
+    count = f"{len(ads)} other ad{'s' if len(ads) != 1 else ''}"
+    return [
+        Observation(
+            type="photo_in_other_ads",
+            evidence=f"The same photo is in {count} checked in the last {image_store.AD_RETENTION_DAYS} days{where}.",
+            thumbnails=[thumbnail_url(m.id) for m in ads[:_SHOWN]],
+        )
+    ]
+
+
 class ReverseImageSkill(Skill):
     """The main product photo, looked up in Unfret's own image index."""
 
@@ -143,7 +162,7 @@ class ReverseImageSkill(Skill):
     description = "Looks the main product photo up in Unfret's own index of shop and catalogue photos."
     page_types = ANALYSED_PAGES
     retry = True
-    features = ("searched", "other_shops", "catalogue_matches")
+    features = ("searched", "other_shops", "catalogue_matches", "other_ads")
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -169,16 +188,20 @@ class ReverseImageSkill(Skill):
             return self.output({"searched": False}, note="The main image couldn't be read.")
 
         where = image_store.listing(state.get("url", ""), facts)
-        found = await image_store.lookup(_store, fp, where)
+        ad = state.get("page_type") in P2P_PAGES
+        found = await (image_store.lookup_ad if ad else image_store.lookup)(_store, fp, where)
         if where is not None:
             _record_later(where, fp, image_url, shop_store.today())
         if found.stop:
             return self.output({"searched": True}, note="The photo is a stock image found on many shops.")
+        ads = [m for m in found.matches if image_store.is_ad(m)]
+        others = [m for m in found.matches if not image_store.is_ad(m)]
         return self.output(
             {
                 "searched": True,
-                "other_shops": sum(1 for m in found.matches if m.source == "seen"),
-                "catalogue_matches": sum(1 for m in found.matches if m.source != "seen"),
+                "other_shops": sum(1 for m in others if m.source == "seen"),
+                "catalogue_matches": sum(1 for m in others if m.source != "seen"),
+                **({"other_ads": len(ads)} if ad else {}),
             },
-            _evidence(found.matches, service=state.get("page_type") in SERVICE_TYPES),
+            _ad_evidence(ads) + _evidence(others, service=state.get("page_type") in SERVICE_TYPES),
         )

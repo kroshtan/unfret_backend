@@ -51,6 +51,7 @@ PRIVATE_SELLER_PLATFORMS: frozenset[str] = P2P_PLATFORMS | {"ebay"}
 PhoneKind = Literal["mobile", "local", "national", "toll_free", "premium", "unknown"]
 EmailKind = Literal["own_domain", "webmail", "other"]
 SellerType = Literal["", "business", "private"]
+Delivery = Literal["shipping", "pickup"]
 
 _SHORT = 300
 _LONG = 2_000
@@ -149,15 +150,25 @@ class ListingDetails(BaseModel):
     category: str = Field(default="", max_length=_SHORT)
     listed: date | None = None
     location: str = Field(default="", max_length=_SHORT)
-    delivery: list[Literal["shipping", "pickup"]] = Field(default_factory=list, max_length=2)
+    delivery: list[Delivery] = Field(default_factory=list, max_length=2)
     payment_protection: bool | None = Field(
         default=None, description="The platform's own payment or buyer protection."
     )
     contact_methods: list[str] = Field(
-        default_factory=list, max_length=10, description="Ways to reach the seller the ad text mentions (whatsapp, …)."
+        default_factory=list,
+        max_length=10,
+        description="Ways to reach the seller the ad text mentions: whatsapp, telegram, phone, email.",
     )
     payment_requests: list[str] = Field(
-        default_factory=list, max_length=10, description="Payment the ad text asks for (bank_transfer, deposit, …)."
+        default_factory=list,
+        max_length=10,
+        description="Payment the ad text asks for: bank_transfer, payment_link, deposit, gift_card, crypto, "
+        "money_transfer, payment_app.",
+    )
+    description: str = Field(
+        default="",
+        max_length=5_000,
+        description="The ad's own text as the seller wrote it (not the platform's), for the check only.",
     )
 
 

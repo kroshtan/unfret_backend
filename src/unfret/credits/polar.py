@@ -1,19 +1,21 @@
 """
 Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`PolarProvider`.
 
-Each pack is a one-time Polar product priced at the pack's card price in US dollars (``polar_products`` maps pack
-sizes to product ids). A checkout is created for the pack's product, in USD, with discount codes off and our account
-id and this site's address (``public_base_url``) in its metadata; nothing about the buyer is sent. The API calls need
-an Organization Access Token with the ``checkouts:write`` scope only.
+Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the
+same product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_eur`` sets the euro prices).
+A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area (Polar then offers
+"iDEAL | Wero" to Dutch buyers next to cards), with discount codes off and our account id and this site's address
+(``public_base_url``) in its metadata; nothing about the buyer is sent. The API calls need an Organization Access
+Token with the ``checkouts:write`` scope only.
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 
 - ``order.paid`` → ``paid``, for the order's ``net_amount`` (after discounts, before sales tax/VAT). Credited only if
-  the order is in USD, for a configured pack's product, and its ``net_amount`` is exactly that pack's card price;
-  anything else (another currency, a zero or changed price, an unknown product) credits nothing and is logged as
-  ``polar_order_not_credited`` for a person to look at.
-- ``order.refunded`` → ``refunded``, with the order's ``refunded_amount`` (the total refunded so far, before tax;
-  Polar reports the refunded tax separately in ``refunded_tax_amount``).
+  the order is for a configured pack's product and its ``net_amount`` is exactly that pack's card price in the
+  order's currency (USD, or EUR for a pack with a euro price); anything else (another currency, a zero or changed
+  price, an unknown product) credits nothing and is logged as ``polar_order_not_credited`` for a person to look at.
+- ``order.refunded`` → ``refunded``, with the order's ``refunded_amount`` (the total refunded so far, before tax, in
+  the order's currency; Polar reports the refunded tax separately in ``refunded_tax_amount``).
 - ``refund.created`` / ``refund.updated`` → ``disputed`` when the refund carries a dispute Polar lost; other refunds
   are already covered by ``order.refunded``. Polar has no webhook of its own for disputes (chargebacks): a dispute it
   prevents by refunding arrives as an ordinary refund.
@@ -30,14 +32,13 @@ import structlog
 
 from unfret.config import Settings
 from unfret.credits.fiat import (
-    USD_MICROS_PER_CENT,
     FiatCheckout,
     FiatEvent,
     FiatProviderError,
     FiatWebhookError,
     verify_standard_webhook,
 )
-from unfret.credits.packs import Pack, packs
+from unfret.credits.packs import CardCurrency, Pack, packs
 
 logger = structlog.get_logger("unfret")
 
@@ -94,22 +95,27 @@ class PolarProvider:
         """
         return f"{self.name}:{self.environment}"
 
-    async def create_checkout(self, account: str, pack: Pack, return_url: str) -> FiatCheckout:
+    async def create_checkout(
+        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+    ) -> FiatCheckout:
         """
-        Create a Polar checkout session for the pack's product, in USD (see :meth:`FiatProvider.create_checkout`).
+        Create a Polar checkout session for the pack's product, in USD or EUR (:meth:`FiatProvider.create_checkout`).
 
         :param account: The account to credit, for the checkout's metadata.
         :param pack: The pack.
         :param return_url: The success URL.
+        :param currency: ``usd``, or ``eur`` for the pack's euro price (the product needs a EUR price too).
         :return: The checkout.
-        :raises FiatProviderError: If Polar refuses or can't be reached, or the checkout isn't the pack's USD price.
+        :raises FiatProviderError: If Polar refuses or can't be reached, or the checkout isn't the pack's price in
+            that currency.
         """
         product = self.products.get(pack.checks)
-        if product is None:
-            raise FiatProviderError("No Polar product for this pack.")
+        expected = pack.card_cents(currency)
+        if product is None or expected is None:
+            raise FiatProviderError(f"No Polar product or {currency} price for this pack.")
         payload = {
             "products": [product],
-            "currency": "usd",  # the product's USD price, whatever other currencies it carries
+            "currency": currency,  # the product's price in this currency, whatever other currencies it carries
             "metadata": {"account": account, "site": self.site},
             "success_url": return_url,
             "allow_discount_codes": False,  # every order must pay exactly the pack's card price
@@ -120,19 +126,21 @@ class PolarProvider:
             checkout = response.json()
             checkout_id, url = str(checkout["id"]), str(checkout["url"])
         except httpx.HTTPStatusError as exc:
-            logger.warning("polar_checkout_failed", status=exc.response.status_code, checks=pack.checks)
+            logger.warning(
+                "polar_checkout_failed", status=exc.response.status_code, checks=pack.checks, currency=currency
+            )
             raise FiatProviderError("Polar refused the checkout.") from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-            logger.warning("polar_checkout_failed", error=type(exc).__name__, checks=pack.checks)
+            logger.warning("polar_checkout_failed", error=type(exc).__name__, checks=pack.checks, currency=currency)
             raise FiatProviderError("Polar could not be reached.") from exc
-        expected = pack.card_usd_micros // USD_MICROS_PER_CENT
-        currency, amount = str(checkout.get("currency", "")).lower(), checkout.get("amount")
-        if currency != "usd" or amount != expected:
+        charged, amount = str(checkout.get("currency", "")).lower(), checkout.get("amount")
+        if charged != currency or amount != expected:
             # A product priced differently from the pack: refuse before anyone pays.
             logger.warning(
                 "polar_checkout_price_mismatch",
                 checks=pack.checks,
-                currency=currency,
+                currency=charged,
+                expected_currency=currency,
                 amount_cents=amount,
                 expected_cents=expected,
             )
@@ -175,9 +183,9 @@ class PolarProvider:
         order_id = str(data["id"])
         product, currency, net = data.get("product_id"), str(data["currency"]).lower(), int(data["net_amount"])
         pack = self.packs_by_product.get(str(product)) if product else None
-        expected = pack.card_usd_micros // USD_MICROS_PER_CENT if pack else None
-        if pack is None or currency != "usd" or net != expected:
-            reason = "unknown_product" if pack is None else "currency" if currency != "usd" else "amount"
+        expected = pack.card_cents(currency) if pack else None
+        if pack is None or expected is None or net != expected:
+            reason = "unknown_product" if pack is None else "currency" if expected is None else "amount"
             logger.warning(
                 "polar_order_not_credited",
                 order_id=order_id,
@@ -193,6 +201,7 @@ class PolarProvider:
             provider=self.name,
             order_id=order_id,
             amount_cents=net,
+            currency=currency,
             checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
             account=str(metadata["account"]) if metadata.get("account") else None,
             site=str(metadata["site"]) if metadata.get("site") else None,

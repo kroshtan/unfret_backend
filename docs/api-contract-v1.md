@@ -620,3 +620,21 @@ valid 7 days. Nothing is stored when a check runs.
   same as for products, so clients render them unchanged. `score` is the band's representative value. New stream
   `step` events come from the ad skills `seller_profile`, `off_platform`, `price_outlier` and `duplicate_ads`, and
   from `reverse_image` (now run for every ad with a photo).
+
+## Changes (card payments in euros, iDEAL | Wero; backwards-compatible; migration 21)
+
+- `GET /v1/pricing` adds, per pack, `price_eur_cents` and `price_eur` (e.g. `550`, `"€5.50"`; before the provider's
+  sales tax/VAT like `price_usd`; both `null` while euro prices are off), a top-level `card_currency` (`"eur"` for a
+  visitor whose `vat.country_hint` is in the euro area, else `"usd"`), and `fiat.currencies` (`["usd", "eur"]`, or
+  `["usd"]`) and `fiat.min_eur_cents`. Every existing field is unchanged; `label` stays in dollars. Show a euro-area
+  visitor the euro price as the card price (crypto stays in dollars, as the discount).
+- `POST /v1/credits/fiat-checkout` takes an optional `currency`: `"usd"` or `"eur"` (case-insensitive; anything else
+  422). Without it the visitor gets `card_currency`, so a client that sends nothing from the euro area now gets a
+  euro checkout. `"eur"` while euro prices are off is a 400. The response adds `currency`, the checkout's actual
+  currency: if Polar refuses the euro checkout (e.g. a product without its euro price), the dollar one is returned
+  instead. On a euro checkout Polar offers iDEAL | Wero to buyers in the Netherlands next to cards.
+- A paid euro order credits the same pack value as the dollar one, only at exactly the pack's euro price before tax;
+  any other euro amount credits nothing (`too_small`), and a currency other than USD or EUR answers
+  `unknown_currency`. Refunds and lost disputes take back credits pro rata in the order's own currency, as for
+  dollars. Storage: `fiat_payments.currency` (`usd` for every earlier order).
+- Setting: `UNFRET_CARD_PRICES_EUR` (default `25=5.50,50=10.00,100=19.00`; one per pack, or empty for dollars only).

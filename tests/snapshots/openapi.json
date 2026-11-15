@@ -384,10 +384,26 @@
     "description": "Which key to top up with which pack.",
     "properties": {
      "checks": {
-      "description": "The pack: one of the pack sizes in /v1/pricing (charged its price_usd).",
+      "description": "The pack: one of the pack sizes in /v1/pricing.",
       "exclusiveMinimum": 0.0,
       "title": "Checks",
       "type": "integer"
+     },
+     "currency": {
+      "anyOf": [
+       {
+        "enum": [
+         "usd",
+         "eur"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to Dutch buyers). Default: /v1/pricing's card_currency for this visitor (eur from the euro area).",
+      "title": "Currency"
      },
      "key_id": {
       "description": "The API key's id (or the key itself: only the id is used).",
@@ -420,6 +436,15 @@
       "title": "Claim",
       "type": "string"
      },
+     "currency": {
+      "description": "The checkout's currency: usd or eur.",
+      "enum": [
+       "usd",
+       "eur"
+      ],
+      "title": "Currency",
+      "type": "string"
+     },
      "provider": {
       "title": "Provider",
       "type": "string"
@@ -428,6 +453,7 @@
     "required": [
      "checkout_url",
      "provider",
+     "currency",
      "checkout_id",
      "claim"
     ],
@@ -3257,7 +3283,7 @@
   },
   "/v1/credits/fiat-checkout": {
    "post": {
-    "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\n:param body: The key and the pack.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.",
+    "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\nIn euros for ``currency: \"eur\"`` (by default for visitors from the euro area), in dollars otherwise. Should the\nprovider refuse a euro checkout (e.g. a product without its euro price yet), the buyer gets the dollar checkout\ninstead of none; ``currency`` in the response says which it is.\n\n:param body: The key, the pack and the currency.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.\n:raises BadRequestError: For euros while euro prices are off.",
     "operationId": "fiat_checkout_v1_credits_fiat_checkout_post",
     "requestBody": {
      "content": {
@@ -3789,7 +3815,7 @@
   },
   "/v1/pricing": {
    "get": {
-    "description": "The price of a check and everything derived from it.\n\nThe x402 tiers, the packs (by card, and the lower crypto\nprice), the VAT rules for crypto, exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it carries the visitor's likely country).\n:return: The price list.",
+    "description": "The price of a check and everything derived from it.\n\nThe x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), the card currency this\nvisitor gets, the VAT rules for crypto, exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it carries the visitor's likely country).\n:return: The price list.",
     "operationId": "get_pricing_v1_pricing_get",
     "responses": {
      "200": {

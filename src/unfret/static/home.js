@@ -9,11 +9,14 @@ const INVITE = /^ufi_[a-z2-7]{32}$/;
 async function prices() {
   const response = await fetch("/v1/pricing", { headers: { Accept: "application/json" } });
   if (!response.ok) return;
-  const { packs } = await response.json();
-  for (const pack of Array.isArray(packs) ? packs : []) {
+  const { packs, card_currency: cardCurrency } = await response.json();
+  const list = Array.isArray(packs) ? packs : [];
+  // Euros for visitors from the euro area (as checkout charges them), dollars elsewhere; crypto is always in dollars.
+  const euros = cardCurrency === "eur" && list.every((pack) => pack.price_eur);
+  for (const pack of list) {
     const item = document.querySelector(`#prices [data-checks="${Number(pack.checks)}"]`);
     if (!item) continue;
-    item.querySelector(".card-price").textContent = pack.price_usd;
+    item.querySelector(".card-price").textContent = euros ? pack.price_eur : pack.price_usd;
     item.querySelector(".crypto-price").textContent = `${pack.crypto_usd} with crypto`;
   }
 }

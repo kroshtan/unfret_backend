@@ -278,7 +278,7 @@ def test_each_pack_matches_its_own_card_price(size: int) -> None:
 @pytest.mark.parametrize(
     "changes",
     [
-        {"currency": "eur"},  # not USD, even at the right number
+        {"currency": "eur"},  # the dollar price's number in euros isn't the pack's euro price
         {"subtotal_amount": 0, "net_amount": 0, "tax_amount": 0, "total_amount": 0},  # a zero-price order
         {"net_amount": 500, "discount_amount": 100},  # a discount
         {"product_id": PRODUCTS[100]},  # the 25-pack's price for the 100-pack
@@ -327,3 +327,95 @@ def test_forged_stale_and_unreadable_webhooks_are_refused() -> None:
     broken, broken_headers = signed("order.paid", {"id": "x"}, now)
     with pytest.raises(FiatWebhookError):
         built.parse_webhook(broken_headers, broken, now)
+
+
+# ── Euros (iDEAL | Wero for Dutch buyers) ─────────────────────────────────────────────────────────────────────
+
+
+async def test_a_euro_checkout_is_the_packs_product_in_eur_with_the_same_metadata() -> None:
+    seen: list[httpx.Request] = []
+    built = provider(polar_api(seen, amount=550))
+    chosen = pack(settings(), 25)
+    assert chosen is not None
+
+    checkout = await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")
+
+    assert checkout.checkout_id == CHECKOUT_ID
+    (request,) = seen
+    assert json.loads(request.content) == {
+        "products": [PRODUCTS[25]],
+        "currency": "eur",
+        "metadata": {"account": ACCOUNT, "site": settings().public_base_url},
+        "success_url": SUCCESS_URL,
+        "allow_discount_codes": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        {"currency": "usd", "amount": 550},  # Polar fell back to the dollar price
+        {"currency": "eur", "amount": 600},  # the product's euro price isn't the pack's
+        {"status": 422},  # e.g. the product has no euro price
+    ],
+)
+async def test_a_euro_checkout_at_the_wrong_price_is_refused(reply: dict[str, Any]) -> None:
+    status = reply.pop("status", 201)
+    built = provider(polar_api([], status=status, **reply))
+    chosen = pack(settings(), 25)
+    assert chosen is not None
+    with pytest.raises(FiatProviderError):
+        await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")
+
+
+async def test_no_euro_checkout_without_euro_prices() -> None:
+    seen: list[httpx.Request] = []
+    chosen = pack(settings(card_prices_eur=""), 25)
+    assert chosen is not None
+    with pytest.raises(FiatProviderError):
+        await provider(polar_api(seen), card_prices_eur="").create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")
+    assert seen == []  # Polar isn't even asked
+
+
+EURO = {"currency": "eur", "subtotal_amount": 550, "net_amount": 550, "tax_amount": 116, "total_amount": 666}
+
+
+@pytest.mark.parametrize(("size", "cents"), [(25, 550), (50, 1000), (100, 1900)])
+def test_a_euro_order_matches_its_packs_euro_price(size: int, cents: int) -> None:
+    changes = {**EURO, "product_id": PRODUCTS[size], "subtotal_amount": cents, "net_amount": cents}
+    event = parse("order.paid", order(**changes))
+    assert event == FiatEvent(
+        kind="paid",
+        provider="polar",
+        order_id=ORDER["id"],
+        amount_cents=cents,
+        currency="eur",
+        checkout_id=CHECKOUT_ID,
+        account=ACCOUNT,
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {**EURO, "net_amount": 600},  # the dollar number in euros
+        {**EURO, "net_amount": 500, "discount_amount": 50},  # a discount
+        {**EURO, "product_id": PRODUCTS[50]},  # the 25-pack's euro price for the 50-pack
+        {"currency": "gbp", "net_amount": 550},  # a currency we don't sell in
+        {"currency": "gbp"},
+    ],
+)
+def test_a_euro_order_that_isnt_exactly_a_packs_euro_price_credits_nothing(changes: dict[str, Any]) -> None:
+    assert parse("order.paid", order(**changes)) is None
+
+
+def test_no_euro_orders_without_euro_prices() -> None:
+    now = time.time()
+    body, headers = signed("order.paid", order(**EURO), now)
+    assert provider(card_prices_eur="").parse_webhook(headers, body, now) is None
+
+
+def test_euro_refunds_are_in_the_orders_own_cents() -> None:
+    refunded = order(**EURO, status="partially_refunded", refunded_amount=275, refunded_tax_amount=58)
+    event = parse("order.refunded", refunded)
+    assert event is not None and (event.amount_cents, event.refunded_cents) == (550, 275)

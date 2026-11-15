@@ -16,14 +16,14 @@ import segno
 import structlog
 from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from solders.pubkey import Pubkey
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import fiat, invites, keys, ledger, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
-from unfret.credits.packs import Pack, pack, packs
+from unfret.credits.packs import CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
@@ -135,8 +135,8 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     """
     The price of a check and everything derived from it.
 
-    The x402 tiers, the packs (by card, and the lower crypto
-    price), the VAT rules for crypto, exact USDC amounts and a live SOL quote.
+    The x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), the card currency this
+    visitor gets, the VAT rules for crypto, exact USDC amounts and a live SOL quote.
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it carries the visitor's likely country).
@@ -144,10 +144,18 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     """
     door = get_credits(request)
     document = await pricing(settings, door.hot if door.purchases_enabled else None, door.book, door.usdc_mint)
-    document["vat"]["country_hint"] = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+    country = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+    document["vat"]["country_hint"] = country
+    # The card currency this visitor gets by default: euros from the euro area, dollars elsewhere.
+    document["card_currency"] = card_currency(settings, country)
     document["api_keys"] = door.sign_in_enabled
-    smallest = packs(settings)[0].card_usd_micros
-    document["fiat"] = {"available": get_fiat(request) is not None, "min_usd_micros": smallest}
+    smallest = packs(settings)[0]
+    document["fiat"] = {
+        "available": get_fiat(request) is not None,
+        "min_usd_micros": smallest.card_usd_micros,
+        "currencies": ["usd", "eur"] if euros_on(settings) else ["usd"],
+        "min_eur_cents": smallest.card_eur_cents,
+    }
     document["reports"] = {
         "per_month": settings.reports_per_month,
         "reward_checks": settings.report_reward_checks,
@@ -394,7 +402,23 @@ class FiatCheckoutRequest(BaseModel):
     """Which key to top up with which pack."""
 
     key_id: str = Field(max_length=120, description="The API key's id (or the key itself: only the id is used).")
-    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing (charged its price_usd).")
+    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing.")
+    currency: CardCurrency | None = Field(
+        default=None,
+        description="usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to "
+        "Dutch buyers). Default: /v1/pricing's card_currency for this visitor (eur from the euro area).",
+    )
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _lower(cls, value: Any) -> Any:
+        """
+        Accept ``EUR`` as well as ``eur``.
+
+        :param value: The raw value.
+        :return: The value, lower case if it is a string.
+        """
+        return value.lower() if isinstance(value, str) else value
 
 
 class FiatCheckoutResponse(BaseModel):
@@ -402,6 +426,7 @@ class FiatCheckoutResponse(BaseModel):
 
     checkout_url: str
     provider: str
+    currency: CardCurrency = Field(description="The checkout's currency: usd or eur.")
     checkout_id: str = Field(description="Poll GET /v1/credits/fiat-checkouts/{checkout_id} (with the claim) for it.")
     claim: str = Field(
         description="Send as X-Unfret-Claim with that poll: the first one after payment returns the pack's invite "
@@ -444,28 +469,51 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     The provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns
     that the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.
 
-    :param body: The key and the pack.
+    In euros for ``currency: "eur"`` (by default for visitors from the euro area), in dollars otherwise. Should the
+    provider refuse a euro checkout (e.g. a product without its euro price yet), the buyer gets the dollar checkout
+    instead of none; ``currency`` in the response says which it is.
+
+    :param body: The key, the pack and the currency.
     :param request: The incoming request.
     :return: The checkout URL.
     :raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.
+    :raises BadRequestError: For euros while euro prices are off.
     """
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
     chosen = _pack(body.checks)
+    currency = body.currency or card_currency(
+        settings, vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+    )
+    if currency == "eur" and not euros_on(settings):
+        raise BadRequestError("Card payments are in US dollars only.")
     account = await _key_account(request, body.key_id)
-    try:
-        checkout = await provider.create_checkout(account, chosen, f"{settings.public_base_url}/checkout?paid=1")
-    except FiatProviderError as exc:
+    return_url = f"{settings.public_base_url}/checkout?paid=1"
+    checkout = None
+    for attempt in dict.fromkeys([currency, "usd"]):  # euros first, then dollars rather than no checkout
+        try:
+            checkout = await provider.create_checkout(account, chosen, return_url, attempt)
+        except FiatProviderError:
+            if attempt == "eur":
+                logger.warning("fiat_checkout_eur_fallback", checks=chosen.checks)
+            continue
+        currency = attempt
+        break
+    if checkout is None:
         raise ServiceUnavailableError(
             "Card payments are unavailable right now; try again later or pay with SOL or USDC."
-        ) from exc
+        )
     claim = invites.new_claim()
     await fiat.remember_checkout(
         request.app.db_pool, provider.name, checkout, account, checks=chosen.checks, claim_hash=invites.digest(claim)
     )
     return FiatCheckoutResponse(
-        checkout_url=checkout.url, provider=provider.name, checkout_id=checkout.checkout_id, claim=claim
+        checkout_url=checkout.url,
+        provider=provider.name,
+        currency=currency,
+        checkout_id=checkout.checkout_id,
+        claim=claim,
     )
 
 

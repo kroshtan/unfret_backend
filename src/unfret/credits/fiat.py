@@ -1,7 +1,8 @@
 """
 Fiat top-ups for API keys through a Merchant of Record (Polar: :mod:`unfret.credits.polar`).
 
-A provider does two things: start a hosted checkout for a pack at its card price in US dollars, and turn its signed
+A provider does two things: start a hosted checkout for a pack at its card price in US dollars or, for visitors from
+the euro area, in euros (:func:`unfret.credits.packs.card_currency`), and turn its signed
 webhooks into :class:`FiatEvent` s: an order paid, refunded (possibly partly, possibly more than once) or disputed.
 Everything about the buyer (card, email, name, address, invoice, tax) stays with the provider: a webhook is reduced to
 the few fields of :class:`FiatEvent` on receipt, and nothing else from it is stored or logged.
@@ -11,16 +12,18 @@ account mapping ourselves (``fiat_checkouts``), since a provider may not echo ch
 mapping wins when both are present.
 
 What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`;
-the amount is the order's amount before the provider's sales tax/VAT). The provider is the seller of record and
-handles the tax, so no VAT record is kept here. A paid pack also issues its invites (:mod:`unfret.credits.invites`)
-in the crediting transaction, for the buyer's page to collect once with its claim token.
+the amount is the order's amount before the provider's sales tax/VAT, in the order's currency: dollars or euros).
+The provider is the seller of record and handles the tax, so no VAT record is kept here. A paid pack also issues its
+invites (:mod:`unfret.credits.invites`) in the crediting transaction, for the buyer's page to collect once with its
+claim token.
 
-``fiat_payments`` keeps one row per order: the account, the amount, the credits granted and how much was taken back.
-It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right account, and
-answers support questions. Rows are deleted after ``fiat_retention_days``.
+``fiat_payments`` keeps one row per order: the account, the amount and its currency, the credits granted and how much
+was taken back. It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right
+account, and answers support questions. Rows are deleted after ``fiat_retention_days``.
 
-Refunds debit credits pro rata to the refunded share of the order; a dispute debits all of the order's credits.
-Either may push the balance below zero, which blocks paid use until the account is topped up again.
+Refunds debit credits pro rata to the refunded share of the order (amounts in the order's own currency); a dispute
+debits all of the order's credits. Either may push the balance below zero, which blocks paid use until the account is
+topped up again.
 
 Webhooks are verified the Standard Webhooks way (Polar uses it): an HMAC-SHA256 over ``id.timestamp.body`` with the
 ``whsec_`` secret, and a timestamp within ``fiat_webhook_tolerance_s``.
@@ -46,7 +49,7 @@ import asyncpg
 
 from unfret.config import Settings
 from unfret.credits import invites, keys, ledger
-from unfret.credits.packs import Pack, card_credits, pack_for_card
+from unfret.credits.packs import CARD_CURRENCIES, CardCurrency, Pack, card_credits, pack_for_card
 
 USD_MICROS_PER_CENT = 10_000
 
@@ -74,8 +77,9 @@ class FiatEvent:
     kind: Literal["paid", "refunded", "disputed"]
     provider: str
     order_id: str
-    amount_cents: int = 0
+    amount_cents: int = 0  # in the order's currency's cents
     refunded_cents: int = 0  # refunded: the total refunded on the order so far
+    currency: str = "usd"  # paid: the order's currency, lower case
     checkout_id: str | None = None
     account: str | None = None  # from the checkout metadata, when the provider echoes it
     site: str | None = None  # the site that made the checkout (checkout metadata), when the provider echoes it
@@ -86,13 +90,16 @@ class FiatProvider(Protocol):
 
     name: str
 
-    async def create_checkout(self, account: str, pack: Pack, return_url: str) -> FiatCheckout:
+    async def create_checkout(
+        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+    ) -> FiatCheckout:
         """
         Start a hosted checkout.
 
         :param account: The ledger account to credit (``key:<id>``), for the checkout's metadata.
-        :param pack: The pack bought, charged its card price in US dollars.
+        :param pack: The pack bought, charged its card price in ``currency``.
         :param return_url: Where the provider sends the buyer afterwards.
+        :param currency: ``usd``, or ``eur`` for the pack's euro price.
         :return: The checkout's id and page. Raises :class:`FiatProviderError` if the provider can't start one.
         """
         ...
@@ -163,7 +170,8 @@ class FakeFiatProvider:
     A stand-in provider for tests, shaped like Polar: Standard Webhooks signatures and ``order.*`` events.
 
     Events: ``order.paid`` and ``order.refunded`` (``data``: ``id``, ``checkout_id``, ``metadata.account``,
-    ``total_amount`` and ``refunded_amount`` in cents, plus a ``customer`` block that is dropped), and
+    ``total_amount`` and ``refunded_amount`` in cents, ``currency`` (default ``usd``), plus a ``customer`` block that
+    is dropped), and
     ``order.disputed`` (Polar has no dispute event: :mod:`unfret.credits.polar` reads a lost dispute from its refund
     events).
     """
@@ -184,12 +192,15 @@ class FakeFiatProvider:
         """
         self.secret, self.tolerance_s = secret, tolerance_s
 
-    async def create_checkout(self, account: str, pack: Pack, return_url: str) -> FiatCheckout:
+    async def create_checkout(
+        self, account: str, pack: Pack, return_url: str, currency: CardCurrency = "usd"
+    ) -> FiatCheckout:
         """See :meth:`FiatProvider.create_checkout`."""
         checkout_id = str(uuid.uuid4())
-        query = urlencode(
-            {"id": checkout_id, "amount": pack.card_usd_micros // USD_MICROS_PER_CENT, "return": return_url}
-        )
+        amount = pack.card_cents(currency)
+        if amount is None:
+            raise FiatProviderError(f"No {currency} price for this pack.")
+        query = urlencode({"id": checkout_id, "amount": amount, "currency": currency, "return": return_url})
         return FiatCheckout(checkout_id, f"https://fiat.invalid/checkout?{query}")
 
     async def aclose(self) -> None:
@@ -228,6 +239,7 @@ class FakeFiatProvider:
                 order_id=str(data["id"]),
                 amount_cents=int(data.get("total_amount") or 0),
                 refunded_cents=int(data.get("refunded_amount") or 0),
+                currency=str(data.get("currency") or "usd").lower(),
                 checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
                 account=str(metadata["account"]) if metadata.get("account") else None,
                 site=str(metadata["site"]) if metadata.get("site") else None,
@@ -239,7 +251,15 @@ class FakeFiatProvider:
 # ── The ledger side ───────────────────────────────────────────────────────────────────────────────────────────────
 
 Outcome = Literal[
-    "credited", "duplicate", "debited", "unchanged", "unknown_order", "unknown_account", "too_small", "other_site"
+    "credited",
+    "duplicate",
+    "debited",
+    "unchanged",
+    "unknown_order",
+    "unknown_account",
+    "unknown_currency",
+    "too_small",
+    "other_site",
 ]
 
 
@@ -306,23 +326,26 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
         return "other_site"
     if account is None or event.amount_cents <= 0:
         return "unknown_account"
-    credits = card_credits(settings, event.amount_cents)
+    if event.currency not in CARD_CURRENCIES:
+        return "unknown_currency"
+    credits = card_credits(settings, event.amount_cents, event.currency)
     if credits <= 0:
         return "too_small"
     fresh = await conn.fetchval(
-        "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros) "
-        "VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING TRUE",
+        "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros, currency) "
+        "VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING TRUE",
         event.provider,
         event.order_id,
         account,
         event.amount_cents,
         credits,
+        event.currency,
     )
     if not fresh:
         return "duplicate"
     await ledger.credit(conn, account, credits, purchase=True)
     if event.checkout_id:  # marks the checkout paid; invites only for exactly a pack's card price
-        matched = pack_for_card(settings, event.amount_cents)
+        matched = pack_for_card(settings, event.amount_cents, event.currency)
         checks = matched.checks if matched else 0
         await invites.issue_for_checkout(conn, settings, event.provider, event.checkout_id, checks)
     return "credited"
@@ -360,10 +383,10 @@ async def apply_event(db: asyncpg.Pool, event: FiatEvent, settings: Settings) ->
     """
     Apply a webhook event to the ledger, idempotently.
 
-    ``paid`` credits the value of the pack the order paid for, once per order. ``refunded`` debits the
-    refunded share of those credits (``refunded_cents`` is the order's total refunded so far, so retries and
-    successive partial refunds add up correctly). ``disputed`` debits all of them. Debits may make the balance
-    negative.
+    ``paid`` credits the value of the pack the order paid for (in dollars or euros), once per order; another
+    currency credits nothing. ``refunded`` debits the refunded share of those credits (``refunded_cents`` is the
+    order's total refunded so far, so retries and successive partial refunds add up correctly). ``disputed`` debits
+    all of them. Debits may make the balance negative.
 
     :param db: The database pool.
     :param event: The event.

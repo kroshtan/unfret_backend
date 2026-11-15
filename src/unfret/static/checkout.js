@@ -297,10 +297,24 @@ function cardAvailable() {
   return Boolean(pricing?.fiat?.available);
 }
 
+// Card prices are in euros for visitors from the euro area (/v1/pricing's card_currency), in dollars elsewhere. A
+// euro checkout is what offers "iDEAL | Wero" to Dutch buyers at Polar, next to cards.
+function cardCurrency() {
+  return pricing?.card_currency === "eur" && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
+}
+
+function cardPrice(option) {
+  return cardCurrency() === "eur" ? option.price_eur : option.price_usd;
+}
+
+function cardMethods() {
+  return cardCurrency() === "eur" && pricing?.vat?.country_hint === "NL" ? "by card or iDEAL | Wero" : "by card";
+}
+
 async function startCardCheckout(keyId) {
   const started = await api("/v1/credits/fiat-checkout", {
     method: "POST",
-    body: JSON.stringify({ key_id: keyId, checks: pack.checks }),
+    body: JSON.stringify({ key_id: keyId, checks: pack.checks, currency: cardCurrency() }),
   });
   // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
   rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
@@ -435,9 +449,9 @@ function ready() {
 function refreshTarget() {
   // Card buttons: the price on the button; a key to top up.
   const cardOn = cardAvailable();
-  const price = pack ? ` ${pack.price_usd}` : "";
-  newPay.textContent = cardOn ? `Pay${price} by card` : "Card payments are unavailable right now";
-  topupPay.textContent = cardOn ? `Pay${price} by card` : "Card payments are unavailable right now";
+  const label = `Pay${pack ? ` ${cardPrice(pack)}` : ""} ${cardMethods()}`;
+  newPay.textContent = cardOn ? label : "Card payments are unavailable right now";
+  topupPay.textContent = cardOn ? label : "Card payments are unavailable right now";
   newPay.disabled = !cardOn || !pack;
   const topupId = keyIdOf(topupKey.value);
   topupPay.disabled = !cardOn || !pack || !topupId;
@@ -545,7 +559,7 @@ function renderPacks() {
       });
       const name = element("strong", ` ${checksWord(option.checks)}`);
       // The card price is the price; the crypto tab shows the crypto price (a discount, never a card surcharge).
-      const price = element("span", option.price_usd, "price card-only");
+      const price = element("span", cardPrice(option), "price card-only");
       const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
       const crypto = element("span", "+ VAT where it applies", "muted crypto crypto-only");
       label.append(input, name, price, cryptoPrice, crypto);

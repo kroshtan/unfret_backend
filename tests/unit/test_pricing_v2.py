@@ -8,7 +8,17 @@ import pytest
 from tests.unit.x402_helpers import StaticOracle
 from unfret.config import Settings
 from unfret.credits import vat
-from unfret.credits.packs import card_credits, card_price, pack, packs
+from unfret.credits.packs import (
+    EURO_AREA,
+    card_credits,
+    card_currency,
+    card_price,
+    euros_on,
+    format_eur,
+    pack,
+    pack_for_card,
+    packs,
+)
 from unfret.credits.pricing import pricing
 from unfret.prices import PriceBook
 from unfret.x402.solana import USDC_MINTS
@@ -39,6 +49,58 @@ def test_a_card_payment_buys_its_packs_value() -> None:
     # An amount that matches no pack buys only the whole checks it covers after the provider's cut.
     assert card_credits(s, 1000) == 8_800_000  # $10 → $8.85 kept → 44 checks
     assert card_credits(s, 50) == 0
+
+
+def test_euro_card_prices_buy_the_same_packs() -> None:
+    s = Settings()
+    assert [(p.checks, p.card_eur_cents) for p in packs(s)] == [(25, 550), (50, 1000), (100, 1900)]
+    assert [card_credits(s, cents, "eur") for cents in (550, 1000, 1900)] == [5_000_000, 10_000_000, 20_000_000]
+    assert [p.checks if p else None for p in (pack_for_card(s, 550, "eur"), pack_for_card(s, 550))] == [25, None]
+    # No exchange rate here: a euro amount that is no pack's euro price buys nothing (a person looks at it).
+    assert card_credits(s, 600, "eur") == card_credits(s, 2000, "eur") == 0
+    assert card_credits(s, 550, "gbp") == 0 and pack_for_card(s, 600, "gbp") is None
+    assert format_eur(550) == "€5.50" and format_eur(1900) == "€19.00" and format_eur(5) == "€0.05"
+
+
+@pytest.mark.parametrize(
+    ("country", "currency"),
+    [("NL", "eur"), ("DE", "eur"), ("BG", "eur"), ("GR", "eur"), ("US", "usd"), ("DK", "usd"), ("GB", "usd")]
+    + [(None, "usd")],
+)
+def test_the_euro_area_pays_by_card_in_euros(country: str | None, currency: str) -> None:
+    assert card_currency(Settings(), country) == currency
+    assert card_currency(Settings(card_prices_eur=""), country) == "usd"  # euro prices off: dollars for everyone
+    assert len(EURO_AREA) == 21
+
+
+def test_euro_prices_setting() -> None:
+    s = Settings(card_prices_eur=" 25=6 , 50=10.5,100=20.00 ")
+    assert s.card_eur_cents == {25: 600, 50: 1050, 100: 2000}
+    assert Settings(card_prices_eur="").card_eur_cents == {} and not euros_on(Settings(card_prices_eur=""))
+    assert euros_on(Settings())
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["25=5.50", "25=5.50,50=10,100=19,200=30", "25=5.555,50=10,100=19", "25=0,50=10,100=19", "25=x,50=10,100=19"]
+    + ["25=5.50,25=6,50=10,100=19", "25,50=10,100=19", "25=-1,50=10,100=19", "25=NaN,50=10,100=19"],
+)
+def test_malformed_or_partial_euro_prices_are_refused_at_start_up(bad: str) -> None:
+    with pytest.raises(ValueError, match="card_prices_eur"):
+        Settings(card_prices_eur=bad)
+
+
+async def test_the_price_list_has_the_euro_card_prices_next_to_the_dollar_ones() -> None:
+    s = Settings()
+    doc = await pricing(s, None, PriceBook(s, StaticOracle("100")), USDC_MINTS["solana-devnet"])
+    assert [(p["price_usd"], p["price_eur"], p["price_eur_cents"]) for p in doc["packs"]] == [
+        ("$6.00", "€5.50", 550),
+        ("$11.50", "€10.00", 1000),
+        ("$22.00", "€19.00", 1900),
+    ]
+    off = Settings(card_prices_eur="")
+    doc = await pricing(off, None, PriceBook(off, StaticOracle("100")), USDC_MINTS["solana-devnet"])
+    assert {(p["price_eur"], p["price_eur_cents"]) for p in doc["packs"]} == {(None, None)}
 
 
 @pytest.mark.parametrize("price", ["0.20", "0.25", "0.10"])

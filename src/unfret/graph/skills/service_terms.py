@@ -5,7 +5,8 @@ The patterns behind most complaints about emergency trades (locksmiths, plumbers
 before the work, cash only, a call-out "from €0" that turns into a large bill, a price set only once the technician
 is at the door, and "24/7, there in 20 minutes" pressure, often with a premium-rate (0900, 1-900) phone number. A
 written quote or fixed price up front is the reassuring opposite. Read from the page text and the pricing and
-promise snippets in the facts (on a platform profile, from the profile's own text only).
+promise snippets in the facts (on a platform profile, from the profile's own text only). The site's testimonials
+are left out: a customer's "no call-out fee, he was there in 20 minutes" is not the company's terms.
 """
 
 import re
@@ -61,6 +62,37 @@ _FAST_RE = re.compile(r"(?:within|in|binnen)\s+(\d{1,2})\s+(?:minutes|minuten|mi
 _FAST_MAX = 30
 
 
+# A testimonial this long is the customer's text, not a fragment that happens to occur in the company's own text.
+_MIN_QUOTE = 20
+
+
+def _without(text: str, quotes: list[str]) -> str:
+    """
+    The text with the site's testimonials taken out.
+
+    :param text: The page text.
+    :param quotes: The testimonials' texts, whitespace collapsed.
+    :return: The rest of the text, whitespace collapsed.
+    """
+    text = " ".join(text.split())
+    for quote in quotes:
+        text = text.replace(quote, " ")
+    return text
+
+
+def _in_testimonial(snippet: str, quotes: list[str]) -> bool:
+    """
+    Whether a pricing or promise snippet comes from a testimonial (its middle part is inside one).
+
+    :param snippet: The snippet (some context on both sides of the match).
+    :param quotes: The testimonials' texts, whitespace collapsed.
+    :return: ``True`` when it does.
+    """
+    words = snippet.split()
+    middle = " ".join(words[2:-2] if len(words) > 6 else words)
+    return any(middle in quote for quote in quotes)
+
+
 def _quote(m: re.Match[str], text: str) -> str:
     lo = max(text.rfind(".", 0, m.start()) + 1, m.start() - 80)
     hi = text.find(".", m.end())
@@ -107,9 +139,11 @@ class ServiceTermsSkill(Skill):
         :return: The skill's features and findings.
         """
         facts = state["facts"]
-        parts = [state.get("cleaned_content", "")]
+        quotes = [q for t in facts.testimonials if len(q := " ".join(t.text.split())) >= _MIN_QUOTE]
+        parts = [_without(state.get("cleaned_content", ""), quotes)]
         if state.get("page_type") == "service_site":
-            parts += [*facts.pricing_terms, *facts.promises]
+            snippets = [*facts.pricing_terms, *facts.promises]
+            parts += [s for s in snippets if not _in_testimonial(s, quotes)]
         text = " ".join(" ".join(parts).split())
         observations: list[Observation] = []
 

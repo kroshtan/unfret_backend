@@ -23,7 +23,7 @@ _KVK_ANY_RE = re.compile(
 )
 _LICENSED_RE = re.compile(r"(?<![a-z])licen[sc]ed(?![a-z])", re.IGNORECASE)
 _NL_ADDRESS_RE = re.compile(r"\d.*(?<![0-9])[1-9]\d{3}\s?[A-Z]{2}(?![A-Za-z])")
-_US_ADDRESS_RE = re.compile(r"^\s*\d{1,6}\s+\S.*(?<![A-Za-z])[A-Z]{2}\b")
+_US_ADDRESS_RE = re.compile(r"^\s*\d{1,6}\s+\S.*(?:(?<![A-Za-z])[A-Z]{2}\b|(?<![0-9])\d{5}(?![0-9]))")
 _COPYRIGHT_NAME_RE = re.compile(
     r"(?:(?:copyright\s*)?(?:©|\(c\))|copyright)\s*(?:\d{4}(?:\s*[-–]\s*\d{4})?)?[\s,.]*(?P<name>[^|·]{3,80}?)"
     r"\s*(?:\.\s|\.?$|\s(?:all rights|alle rechten)|[|·])",

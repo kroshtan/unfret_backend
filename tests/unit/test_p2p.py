@@ -20,7 +20,7 @@ from unfret.graph.skills import ANALYSED_PAGES, Skill, SkillOutput, Tier, conten
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.duplicate_ads import DuplicateAdsSkill, contact_hashes, drain
 from unfret.graph.skills.injection import InjectionSkill
-from unfret.graph.skills.off_platform import OffPlatformSkill
+from unfret.graph.skills.off_platform import _ABROAD_RE, OffPlatformSkill
 from unfret.graph.skills.price_outlier import PriceOutlierSkill, reference
 from unfret.graph.skills.seller_profile import SellerProfileSkill
 from unfret.graph.state import AnalysisState, Finding
@@ -752,3 +752,18 @@ def test_facts_only_ads_give_the_llm_the_ad_text() -> None:
     facts = PageFacts(title="Fiets", listing=ListingDetails(description="Alleen verzenden."))
 
     assert "Ad text: Alleen verzenden." in nodes._facts_text(facts)
+
+
+@pytest.mark.parametrize(
+    ("text", "abroad"),
+    [
+        ("Ik woon momenteel in het buitenland voor mijn werk.", True),
+        ("Bezichtiging kan niet omdat ik in het buitenland zit.", True),
+        ("Ik werk tijdelijk in het buitenland.", True),
+        ("De telefoon is op de releasedatum in het buitenland aangeschaft.", False),
+        ("We hebben in het buitenland gekocht, met bon.", False),
+        ("De onderdelen zijn in het buitenland gemaakt.", False),
+    ],
+)
+def test_abroad_means_the_seller_not_where_the_item_was_bought(text: str, abroad: bool) -> None:
+    assert (_ABROAD_RE.search(text) is not None) == abroad

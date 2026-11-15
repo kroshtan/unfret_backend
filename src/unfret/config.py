@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 from typing import Any, Literal, Self
 
@@ -109,6 +110,11 @@ class Settings(BaseSettings):
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
     card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
+    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=5.50,50=10.00,100=19.00",
+    # one per pack, before the provider's sales tax/VAT like the dollar prices. Set by hand (not derived from the
+    # dollar price, so they stay round); each Polar product needs a EUR price equal to its pack's. A EUR checkout is
+    # what shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in dollars.
+    card_prices_eur: str = "25=5.50,50=10.00,100=19.00"
     # Invites (unfret.credits.invites): every credited pack comes with one invite per invite_per_checks checks bought
     # (25 → 1, 50 → 2, 100 → 4), each worth invite_checks checks to an account that never had any credit. 0 turns
     # issuing off; invites already issued stay redeemable.
@@ -282,6 +288,13 @@ class Settings(BaseSettings):
         else:
             if unknown:
                 problems.append(f"polar_products names packs that aren't on sale: {unknown}")
+        try:
+            eur = self.card_eur_cents
+        except ValueError as exc:
+            problems.append(str(exc))
+        else:
+            if eur and set(eur) != set(self.packs):
+                problems.append("card_prices_eur must price every pack on sale (or be empty: dollars only)")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
@@ -323,6 +336,24 @@ class Settings(BaseSettings):
                 raise ValueError("polar_products must read like 25=<product id>,50=<product id>")
             products[int(size)] = product
         return products
+
+    @property
+    def card_eur_cents(self) -> dict[int, int]:
+        """
+        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=5.50,50=10.00"``).
+
+        :return: Pack size → euro cents; empty when euro prices are off.
+        :raises ValueError: If the setting is malformed.
+        """
+        prices: dict[int, int] = {}
+        for item in filter(None, (part.strip() for part in self.card_prices_eur.split(","))):
+            size, sep, amount = (piece.strip() for piece in item.partition("="))
+            euros = re.fullmatch(r"\d{1,6}(\.\d{1,2})?", amount)
+            cents = int(Decimal(amount) * 100) if euros else 0
+            if not sep or not size.isdigit() or int(size) in prices or cents <= 0:
+                raise ValueError("card_prices_eur must read like 25=5.50,50=10.00 (positive euros, at most cents)")
+            prices[int(size)] = cents
+        return prices
 
     @property
     def polar_configured(self) -> bool:

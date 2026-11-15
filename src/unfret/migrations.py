@@ -496,6 +496,15 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX ad_contacts_last_seen_idx ON ad_contacts (last_seen);
         """,
     ),
+    (
+        21,
+        "card order currency",
+        """
+        -- Card orders in euros (iDEAL | Wero and cards for euro-area visitors) next to dollars: the currency of
+        -- amount_cents and refunded_cents. Every earlier order was in dollars.
+        ALTER TABLE fiat_payments ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd' CHECK (currency ~ '^[a-z]{3}$');
+        """,
+    ),
 ]
 
 

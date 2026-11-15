@@ -358,7 +358,14 @@ def reference_only_transfer(request: SolanaPayRequest, payer: Keypair, blockhash
 
 
 def polar_order(
-    order_id: str, account: str, product_id: str, net_cents: int, refunded_cents: int = 0, *, site: str = DEV_URL
+    order_id: str,
+    account: str,
+    product_id: str,
+    net_cents: int,
+    refunded_cents: int = 0,
+    *,
+    site: str = DEV_URL,
+    currency: str = "usd",
 ) -> dict[str, Any]:
     """
     A Polar order as its webhooks carry it, reduced to what the service reads (plus the shape around it).
@@ -371,13 +378,14 @@ def polar_order(
     :param net_cents: The order's amount before tax (the pack's card price).
     :param refunded_cents: The amount refunded so far.
     :param site: The site whose checkout it was, as the checkout's metadata carries it (only that site credits it).
+    :param currency: The order's currency (``usd``, or ``eur`` at the pack's euro price).
     :return: The order.
     """
     return {
         "id": order_id,
         "status": "refunded" if refunded_cents else "paid",
         "paid": True,
-        "currency": "usd",
+        "currency": currency,
         "net_amount": net_cents,
         "tax_amount": 0,
         "total_amount": net_cents,

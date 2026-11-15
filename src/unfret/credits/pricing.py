@@ -14,7 +14,7 @@ from solders.transaction import VersionedTransaction
 
 from unfret.config import Settings
 from unfret.credits import invites, vat
-from unfret.credits.packs import Pack, packs
+from unfret.credits.packs import Pack, format_eur, packs
 from unfret.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
 from unfret.shopper import LANGUAGE, catalogue
 from unfret.x402.solana import MEMO_PROGRAM, associated_token_address, decimals, transfer_checked
@@ -160,7 +160,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     The public price list (``GET /v1/pricing``): the price of a check, the packs on both routes, and live amounts.
 
     Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd``
-    is the price (by card, before the provider's sales tax/VAT) and ``crypto_usd`` the lower price when paying with
+    is the price (by card, before the provider's sales tax/VAT), ``price_eur`` the same in euros for visitors from the
+    euro area (``None`` while euro prices are off), and ``crypto_usd`` the lower price when paying with
     SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the invites it comes with to give away (the
     25-pack: one of 3 checks, so it brings 28 checks in all).
 
@@ -185,6 +186,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
                 "checks": p.checks,
                 "price_usd_micros": p.card_usd_micros,
                 "price_usd": format_usd(p.card_usd_micros),
+                "price_eur_cents": p.card_eur_cents,
+                "price_eur": format_eur(p.card_eur_cents) if p.card_eur_cents else None,
                 "crypto_usd_micros": p.value_usd_micros,
                 "crypto_usd": format_usd(p.value_usd_micros),
                 "credited_usd_micros": p.value_usd_micros,

@@ -579,14 +579,17 @@ async def test_a_card_checkout_is_a_polar_checkout_page(
     assert url.hostname == "polar.sh" or str(url.hostname).endswith(".polar.sh")
 
 
+@pytest.mark.parametrize("currency", ["usd", "eur"])
 async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
-    api: httpx.AsyncClient, config: E2EConfig, account: Account
+    api: httpx.AsyncClient, config: E2EConfig, account: Account, currency: str
 ) -> None:
     skip_without_fiat(config)
     secret = config.need("fiat_webhook_secret")
     product = config.polar_products.get(PACK) or pytest.fail(f"UNFRET_E2E_POLAR_PRODUCTS has no {PACK}-pack product")
     pack = the_pack(await pricing(api))
-    cents = pack["price_usd_micros"] // 10_000
+    if currency == "eur" and not pack.get("price_eur_cents"):
+        pytest.skip("no euro card prices on the target")
+    cents = pack["price_eur_cents"] if currency == "eur" else pack["price_usd_micros"] // 10_000
     order_id = f"e2e-{secrets.token_hex(12)}"  # made up, never a real order; not the run's marker (it is logged)
     account_id = f"key:{account.key_id}"
     before = await key_balance(api, account.key)
@@ -594,7 +597,7 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
     body, headers = signed_webhook(
         secret,
         "order.paid",
-        polar_order(order_id, account_id, product, cents, site=config.base_url),
+        polar_order(order_id, account_id, product, cents, site=config.base_url, currency=currency),
         timestamp=int(time.time()),
     )
     paid = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
@@ -606,7 +609,9 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
     assert resent.json() == {"status": "duplicate"}
     assert await key_balance(api, account.key) == before + pack["credited_usd_micros"]
 
-    refund = polar_order(order_id, account_id, product, cents, refunded_cents=cents, site=config.base_url)
+    refund = polar_order(
+        order_id, account_id, product, cents, refunded_cents=cents, site=config.base_url, currency=currency
+    )
     body, headers = signed_webhook(secret, "order.refunded", refund, timestamp=int(time.time()))
     refunded = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
     assert refunded.json() == {"status": "debited"}

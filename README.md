@@ -198,6 +198,9 @@ provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50, before the provi
 or USDC costs less, just the pack's value ($5, $10, $20) plus VAT where it applies. The card price is shown as *the*
 price and crypto as the discount, never as a card surcharge (EU rules forbid surcharging consumer card payments).
 Either way the account is credited the pack's value, so a check costs the same in credits however it was bought.
+Visitors from the euro area (Cloudflare's country hint) pay by card in **euros** instead: €5.50, €10, €19
+(`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted, before VAT like the dollar prices). A euro checkout is
+what makes Polar offer **iDEAL | Wero** to Dutch buyers next to cards.
 
 **VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
 from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come from Cloudflare's edge (it forwards
@@ -261,14 +264,19 @@ are set:
 | `UNFRET_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
 
 **In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax ($6.00, $11.50,
-$22.00 at $0.20 a check). A checkout is created for the pack's product with `currency: "usd"`, discount codes off,
-our account id (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and `/checkout?paid=1` as the success URL; nothing about the buyer is
-sent. If Polar answers with another currency or price, the checkout is refused (503) before anyone pays.
+$22.00 at $0.20 a check), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€5.50, €10.00, €19.00;
+keep USD as the organisation's default currency). A checkout is created for the pack's product with `currency:
+"usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our account id
+(`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and `/checkout?paid=1` as the success
+URL; nothing about the buyer is sent. If Polar answers with another currency or price, the checkout is refused before
+anyone pays; a refused euro checkout falls back to the dollar one (logged as `fiat_checkout_eur_fallback`), so a
+product still missing its euro price costs euro-area buyers iDEAL | Wero, not the sale. Polar shows iDEAL | Wero by
+itself on EUR checkouts from the Netherlands; there is nothing to switch on.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
 **`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,
-and only if it is in USD, for a configured pack's product, at exactly that pack's card price before tax
-(`net_amount`); anything else credits nothing and logs `polar_order_not_credited` (order id, reason, currency and
+and only if it is for a configured pack's product at exactly that pack's card price before tax (`net_amount`) in the
+order's currency (USD, or EUR at the pack's euro price; the currency is kept in `fiat_payments.currency`); anything else credits nothing and logs `polar_order_not_credited` (order id, reason, currency and
 amount; never the buyer) for a person to sort out in Polar. Refunds take back the refunded share of the credits
 (`refunded_amount`, before tax); a refund that settles a dispute Polar lost takes back the whole order. Polar has no
 webhook for disputes themselves. Other events are acknowledged and ignored.
@@ -502,6 +510,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
 | `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
+| `UNFRET_CARD_PRICES_EUR` | `25=5.50,50=10.00,100=19.00` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack, or empty for dollars only. Each Polar product needs the same EUR price |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.11.0](https://github.com/kroshtan/unfret_backend/compare/0.10.5...0.11.0) (2026-11-15)
+
 ### Features
 
 * **Card payments in euros, with iDEAL | Wero for Dutch buyers.** Visitors from the euro area (Cloudflare's country hint; the 21 euro countries) see and pay the card prices in euros: €5.50 / €10.00 / €19.00 for 25 / 50 / 100 checks (`UNFRET_CARD_PRICES_EUR`, one per pack, before VAT like the dollar prices; empty: dollars for everyone). Their Polar checkout is in EUR, which is what makes Polar offer iDEAL | Wero in the Netherlands, and for Dutch visitors the button reads "Pay €5.50 by card or iDEAL | Wero". Everyone else stays on dollars; `POST /v1/credits/fiat-checkout` takes an optional `currency` (`usd` | `eur`, which the checkout page sends) and answers with the checkout's `currency`. A euro order credits the same checks and invites as the dollar pack, only at exactly the pack's euro price; refunds and lost disputes take credits back pro rata as for dollars; other currencies stay refused. `/v1/pricing` adds `price_eur`/`price_eur_cents` per pack, `card_currency`, `fiat.currencies` and `fiat.min_eur_cents`; the home page's price tiles show euros to euro-area visitors too. Migration 21 adds `fiat_payments.currency` (`usd` for earlier orders). Each Polar product needs a EUR price equal to its pack's; until it has one, a euro checkout falls back to the dollar one rather than failing

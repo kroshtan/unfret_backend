@@ -277,8 +277,10 @@ the checkout's currency and the buyer's billing country, and with no country it 
 appears only on a EUR checkout whose billing country is the Netherlands. So a visitor whose country has an entry in
 `LOCAL_METHODS` (today only `NL` → `wero`, "iDEAL | Wero", billing country `NL`, `eur`) gets a second button on
 `/checkout`, and its checkout is created in that currency with `customer_billing_address: {"country": "NL"}`
-prefilled (Polar's `AddressInput` needs only the country; with a preset address Polar asks the buyer for the full
-billing address). The buyer can still change the country on Polar's page. Nothing else differs: the same products,
+prefilled (Polar's `AddressInput` needs only the country; checked on dev: the checkout still asks for the country
+only, `require_billing_address` stays false). Polar's page then shows an **iDEAL | Wero** tab next to the card tab
+(the card tab is still selected first; the API has no way to preselect a method). The buyer can still change the
+country on Polar's page. Nothing else differs: the same products,
 prices, metadata, crediting and refunds. `/v1/pricing` says which method a visitor gets (`local_payment_method`), so
 the page has no country list of its own. **To add a country**, add one entry to `LOCAL_METHODS` (visitor country →
 method id, button label, billing country, currency), but first check by hand that Polar really offers that method:

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* **dev.unfret.net runs with the new page classes on** (`UNFRET_EXPANSION_CLASSES: "true"` in `config/deploy.dev.yml`), so peer-to-peer ads and service providers get their own checks and verdicts there; production keeps them off
+
 ## [0.11.0](https://github.com/kroshtan/unfret_backend/compare/0.10.5...0.11.0) (2026-11-15)
 
 ### Features

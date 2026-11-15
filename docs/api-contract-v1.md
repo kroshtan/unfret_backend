@@ -562,3 +562,21 @@ valid 7 days. Nothing is stored when a check runs.
   analysed and charged like product pages; their `verdict` band is `concerns` or `careful` (no `assessment`: there is
   no trained scorer for them yet). Stream `step` events keep their shape; the skills of every class report their
   steps as before.
+
+## Changes (product-page upgrades, backwards-compatible)
+
+- New skills on product pages, with features the shipped scorer doesn't use yet (scores are unchanged until it is
+  retrained): `payment_methods` (storefronts: `.irreversible_only`, `.irreversible`, `.protected`; findings
+  `irreversible_payment_only`, `protected_payment`), `claims` (storefronts: `.origin_contradicted`,
+  `.store_without_address`; findings of the same names), `market_price` (`.other_shops`, `.below_market`,
+  `.far_below`; finding `far_below_market`), `review_copies` (`.checked`, `.copied`, `.copied_share`, `.other_shops`;
+  finding `reviews_on_other_shops`), `brand_presence` (`.wikidata`, `.own_domain`, `.own_domain_age_years`,
+  `.no_presence`, `.shop_is_brand`; findings `brand_on_wikidata`, `brand_domain`, `brand_no_presence`) and
+  `safety_gate` (`.barcode_match`, `.model_match`; finding `safety_gate_alert`, whose evidence ends with the alert's
+  public URL). `domain_age` adds `.founded_claim_years` and `.founded_contradicted` (finding of the same name);
+  `shop_links` adds `.shared_address_shops` (finding `shared_address`).
+- New shopper reason keys `safety_gate_alert`, `irreversible_payment_only`, `founded_contradicted`,
+  `far_below_market`, `origin_contradicted`, `copied_reviews_elsewhere`, `brand_no_presence`,
+  `store_without_address`, `shared_address`, and positive `protected_payment`; `known_brand` may now also come from
+  Wikidata. Clients that map reason keys should fall back to the `title`/`detail` text they already get.
+- `POST /v1/admin/contacts/forget` accepts `kind: "address"` (a postal address, normalised and hashed as stored).

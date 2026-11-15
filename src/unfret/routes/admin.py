@@ -22,7 +22,7 @@ from unfret import page_fetch, reports, shares, shop_store, showcase
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger, vat
-from unfret.fingerprint import contact_hash, normalise_email, normalise_phone
+from unfret.fingerprint import contact_hash, normalise_address, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
 from unfret.routes.check import get_x402
 
@@ -50,8 +50,8 @@ async def clear_alerts(request: Request) -> dict[str, Any]:
 class ForgetContact(BaseModel):
     """A merchant's contact detail to remove from the fingerprint store (sent in plaintext, never stored)."""
 
-    kind: Literal["email", "phone"]
-    value: str = Field(min_length=3, max_length=254)
+    kind: Literal["email", "phone", "address"]
+    value: str = Field(min_length=3, max_length=300)
 
 
 @router.delete("/shops/{domain}")
@@ -77,7 +77,8 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     :return: How many shop links were removed.
     :raises HTTPException: 422 if it isn't a valid address or number, 503 without a contact key.
     """
-    value = normalise_email(body.value) if body.kind == "email" else normalise_phone(body.value)
+    normalise = {"email": normalise_email, "phone": normalise_phone, "address": normalise_address}[body.kind]
+    value = normalise(body.value)
     if value is None:
         raise HTTPException(422, "Not a valid contact.")
     key = shop_store.contact_key()

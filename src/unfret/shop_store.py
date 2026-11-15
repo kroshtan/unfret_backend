@@ -7,9 +7,13 @@ registration and first-certificate dates already looked up, and the account iden
 (:mod:`unfret.fingerprint`). Nothing records who checked it, which page, or what Unfret concluded: no URL, caller,
 wallet, IP address, score or verdict is stored, so the store can't feed its own verdicts back as evidence.
 
-Contact e-mail addresses and phone numbers are personal data: they are stored only as keyed hashes (HMAC-SHA256
-with a server secret), never shown, deleted 180 days after they were last seen, and removable on request
-(:func:`forget_contact`). Everything else is deleted 400 days after the shop was last seen.
+Contact e-mail addresses, phone numbers and postal addresses are personal data (a sole trader's address is their
+own): they are stored only as keyed hashes (HMAC-SHA256 with a server secret), never shown, deleted 180 days after
+they were last seen, and removable on request (:func:`forget_contact`). Everything else is deleted 400 days after the
+shop was last seen.
+
+Postal addresses never link shops: a virtual office or a mail-forwarding address serves hundreds of unrelated
+businesses. They are only counted (:meth:`ShopStore.address_shops`), to tell a shared address from a shop's own.
 
 Links are one hop: two shops are linked when they share an identifier, never because both share one with a third
 shop. An identifier shared by more than :data:`MAX_SHARE` shops is an agency's or a template's, not an operator's,
@@ -29,7 +33,7 @@ import structlog
 from unfret import fact_cache
 from unfret.config import settings
 from unfret.facts.schema import Platform
-from unfret.fingerprint import contact_hash, fingerprint
+from unfret.fingerprint import contact_hash, fingerprint, normalise_address
 from unfret.graph.skills.html_source_signals import page_source, scan
 from unfret.net import hostname
 from unfret.price_store import registrable_domain
@@ -38,8 +42,11 @@ logger = structlog.get_logger("unfret")
 
 RETENTION_DAYS = 400
 CONTACT_RETENTION_DAYS = 180
+MAX_ADDRESSES = 5
 MAX_SHARE = 25  # an identifier on more shops than this is shared infrastructure, not one operator
-CONTACT_KINDS = frozenset({"email", "phone"})
+# Kinds stored only as keyed hashes, kept 180 days. Addresses are counted, never used as links (NOT_LINKING).
+CONTACT_KINDS = frozenset({"email", "phone", "address"})
+NOT_LINKING = frozenset({"address"})
 # Shops are web shops: marketplaces and platforms (peer-to-peer, service providers) are one domain for millions of
 # sellers, so their pages say nothing about a shop. Every recognised platform but the shop systems.
 _MARKETPLACES = frozenset(get_args(Platform)) - {"shopify", "woocommerce", "generic"}
@@ -93,6 +100,16 @@ class ShopStore(Protocol):
         :param current: The identifiers on the page being analysed (kind → values).
         :return: The linked shops, most identifiers first.
         """
+
+    async def address_shops(self, domain: str, addresses: set[str]) -> set[str]:
+        """
+        The other shops that give one of these (hashed) postal addresses.
+
+        :param domain: This shop (left out).
+        :param addresses: The address hashes on its page now.
+        :return: Their registrable domains.
+        """
+        ...
 
     async def purge(self, today: date) -> None:
         """
@@ -166,6 +183,7 @@ class MemoryShopStore:
         :return: The linked shops.
         """
         mine = {(k, v) for (k, v, d) in self.links if d == domain} | _pairs(current)
+        mine = {(k, v) for k, v in mine if k not in NOT_LINKING}
         found: dict[str, list[tuple[str, str]]] = {}
         for kind, value in mine:
             holders = {d for (k, v, d) in self.links if (k, v) == (kind, value)} | {domain}
@@ -186,6 +204,16 @@ class MemoryShopStore:
                 for other, pairs in found.items()
             ]
         )
+
+    async def address_shops(self, domain: str, addresses: set[str]) -> set[str]:
+        """
+        Other shops with one of these addresses.
+
+        :param domain: This shop.
+        :param addresses: Address hashes.
+        :return: Their domains.
+        """
+        return {d for (k, v, d) in self.links if k == "address" and v in addresses and d != domain}
 
     async def purge(self, today: date) -> None:
         """
@@ -286,10 +314,10 @@ class PostgresShopStore:
         :param current: The identifiers on its page now.
         :return: The linked shops.
         """
-        pairs = sorted(_pairs(current))
+        pairs = sorted((k, v) for k, v in _pairs(current) if k not in NOT_LINKING)
         rows: list[Any] = await self.pool.fetch(
             "WITH mine AS ("
-            "  SELECT kind, value FROM shop_links WHERE domain = $1"
+            "  SELECT kind, value FROM shop_links WHERE domain = $1 AND kind <> ALL($5::text[])"
             "  UNION SELECT * FROM unnest($3::text[], $4::text[]) AS c (kind, value)"
             "), shared AS ("
             "  SELECT mine.kind, mine.value FROM mine WHERE ("
@@ -304,6 +332,7 @@ class PostgresShopStore:
             MAX_SHARE,
             [k for k, _ in pairs],
             [v for _, v in pairs],
+            sorted(NOT_LINKING),
         )
         found: dict[str, list[Any]] = {}
         for row in rows:
@@ -321,6 +350,22 @@ class PostgresShopStore:
                 for other, group in found.items()
             ]
         )
+
+    async def address_shops(self, domain: str, addresses: set[str]) -> set[str]:
+        """
+        Other shops with one of these addresses.
+
+        :param domain: This shop.
+        :param addresses: Address hashes.
+        :return: Their domains.
+        """
+        rows: list[Any] = await self.pool.fetch(
+            "SELECT DISTINCT domain FROM shop_links "
+            "WHERE kind = 'address' AND value = ANY($1::text[]) AND domain <> $2",
+            sorted(addresses),
+            domain,
+        )
+        return {r["domain"] for r in rows}
 
     async def purge(self, today: date) -> None:
         """
@@ -484,7 +529,8 @@ async def page_links(state: dict[str, Any]) -> PageLinks | None:
     fp = await asyncio.to_thread(fingerprint, source)
     links = dict(fp.links)
     if (key := contact_key()) is not None:
-        for kind, values in (("email", fp.emails), ("phone", fp.phones)):
+        addresses = {a for a in map(normalise_address, state["facts"].addresses[:MAX_ADDRESSES]) if a}
+        for kind, values in (("email", fp.emails), ("phone", fp.phones), ("address", addresses)):
             if values:
                 links[kind] = {contact_hash(kind, v, key).hex() for v in values}
     apps = tuple(sorted({label for category, label in scan(source) if category != "supplier_trace"}))

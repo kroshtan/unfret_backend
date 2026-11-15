@@ -13,6 +13,7 @@ import contextlib
 import hashlib
 import hmac
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
@@ -129,6 +130,58 @@ def contacts(source: str) -> tuple[set[str], set[str]]:
     numbers = [m.group(1) for m in _TEL_RE.finditer(source)] + [m.group(1) for m in _PLUS_PHONE_RE.finditer(source)]
     phones = {p for n in numbers if (p := normalise_phone(n))}
     return set(sorted(emails)[:MAX_IDS_PER_KIND]), set(sorted(phones)[:MAX_IDS_PER_KIND])
+
+
+_ADDRESS_WORDS = {
+    "st": "street",
+    "str": "street",
+    "rd": "road",
+    "ave": "avenue",
+    "av": "avenue",
+    "blvd": "boulevard",
+    "ste": "suite",
+    "fl": "floor",
+    "flr": "floor",
+    "apt": "apartment",
+    "no": "",
+    "nr": "",
+    "number": "",
+    "strasse": "street",
+    "straße": "street",
+}
+# Country names at the end of an address, dropped so "…, NL" and "…, Netherlands" compare equal.
+_ADDRESS_COUNTRIES = frozenset(
+    {
+        "netherlands", "the netherlands", "nederland", "nl", "holland", "belgium", "belgie", "belgique", "be",
+        "germany", "deutschland", "de", "france", "fr", "united kingdom", "uk", "gb", "england", "united states",
+        "usa", "us", "united states of america", "china", "pr china", "prc", "cn", "hong kong", "hk",
+    }
+)  # fmt: skip
+_NL_ADDRESS_RE = re.compile(r"(\d{1,5})\s*[a-z]?(?:[-\s]*\w{0,4})?[\s,]+([1-9]\d{3})\s?([a-z]{2})(?![a-z0-9])")
+
+
+def normalise_address(value: str) -> str | None:
+    """
+    A postal address in a comparable form, or ``None`` when it is too short to name one place.
+
+    A Dutch address is its postcode and house number (``nl:1016br:182``), which name one building however the
+    street is written. Any other address is folded to lower case without accents or punctuation, common
+    abbreviations written out (``St`` → ``street``) and a trailing country dropped. No geocoding.
+
+    :param value: The address as the page writes it.
+    :return: The comparable form.
+    """
+    folded = "".join(c for c in unicodedata.normalize("NFKD", value) if not unicodedata.combining(c)).lower()
+    if m := _NL_ADDRESS_RE.search(folded):
+        return f"nl:{m.group(2)}{m.group(3)}:{m.group(1)}"
+    parts = [p.strip() for p in re.split(r"[,\n]", folded) if p.strip()]
+    while parts and re.sub(r"[^a-z ]", "", parts[-1]).strip() in _ADDRESS_COUNTRIES:
+        parts.pop()
+    words = re.sub(r"[^a-z0-9]+", " ", " ".join(parts)).split()
+    words = [w for w in (_ADDRESS_WORDS.get(w, w) for w in words) if w]
+    if len(words) < 3 or not any(any(c.isdigit() for c in w) for w in words):
+        return None
+    return " ".join(words)
 
 
 def contact_hash(kind: str, value: str, key: bytes) -> bytes:

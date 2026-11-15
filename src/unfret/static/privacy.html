@@ -63,8 +63,16 @@
         ID, a barcode), the day, the price and the claimed "was" price, under a one-way hash of the shop's domain and
         that number. No address, wallet, IP address or time of day. Kept 90 days, to show whether a "was" price was
         ever really charged.</li>
-      <li><strong>Shop facts</strong>: a shop domain's registration date, first certificate and VAT check, kept a week
-        so they aren't looked up again for every shopper.</li>
+      <li><strong>Prices across shops</strong>: for product pages with a barcode, the day and the price under a one-way
+        hash of the barcode and another of the shop's domain (a marketplace counts as one shop), to see whether a price
+        is far below what other shops ask for the same product. No address, wallet, IP address or time of day. Kept 90
+        days.</li>
+      <li><strong>Review fingerprints</strong>: for the longer reviews on a checked product page, a one-way hash of each
+        review's text (in lower case, letters and digits only) and of the shop's domain, with the first and last day
+        we saw it, to spot the same reviews on different shops. Never the review itself, the reviewer's name or the
+        page. Kept 90 days after we last saw it.</li>
+      <li><strong>Shop facts</strong>: a shop domain's registration date, first certificate and VAT check, and whether a
+        product's brand is on Wikidata, kept a week so they aren't looked up again for every shopper.</li>
       <li><strong>Shop fingerprints</strong>: for web shops (not marketplaces), what their pages reveal about the
         business behind them: the first and last day we saw the shop, its platform and apps, the shape of its template,
         and the account IDs on its pages (analytics, ad pixels, payment accounts). This recognises shops run by the
@@ -90,9 +98,10 @@
     </ul>
 
     <h2>For shop owners</h2>
-    <p>Contact e-mail addresses and phone numbers on a shop's pages are stored only as a keyed one-way hash, never shown
-      to anyone, and used only to tell whether two shops share them (our legitimate interest in warning shoppers about
-      networks of fake shops). They are deleted 180 days after we last saw them. To object, or to have a shop or
+    <p>Contact e-mail addresses, phone numbers and postal addresses on a shop's pages are stored only as a keyed one-way
+      hash, never shown to anyone, and used only to tell whether two shops share them, or, for a postal address, how
+      many unrelated shops give the same one (our legitimate interest in warning shoppers about networks of fake shops
+      and virtual offices). They are deleted 180 days after we last saw them. To object, or to have a shop or
       contact detail removed, use the contact details at kroshtan.com; the same goes for a "Spotted recently" example
       of your page, which we'll look at again or take down. A shared result about your page can be reported from the
       page itself: it is hidden at once until we review it, and what you write is kept only until then.</p>
@@ -112,8 +121,9 @@
     <ul>
       <li>A language model hosted by Scaleway in the EU reads the page text. We send it nothing that identifies
         you.</li>
-      <li>Public registries (RDAP, crt.sh, the EU's VIES) answer the shop lookups. They see the shop's domain or VAT
-        number, not you.</li>
+      <li>Public registries (RDAP, crt.sh, the EU's VIES) and Wikidata answer the shop and brand lookups. They see the
+        shop's domain, its VAT number, or the product's brand and the domains named after it, not you. The EU's Safety
+        Gate alerts (dangerous products) are a copy on our server: checking a product against them asks no one.</li>
       <li>Crypto payments are Solana transactions, public on the blockchain like any other.</li>
       <li>When you pay with SOL or USDC you choose your country, for VAT. It may be prefilled from the country Cloudflare
         sees your connection coming from; your IP address is never stored. For our tax records we keep the day, the

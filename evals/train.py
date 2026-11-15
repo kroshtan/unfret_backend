@@ -62,7 +62,16 @@ RULE_MIRRORS = {
 # Not part of the model: they look things up (network lookups are off in evaluation: today's data says nothing
 # about an archived page), or, for pricing, read a price history the corpus doesn't have. Their signals reach the
 # shopper as reasons.
-EXCLUDED_SKILLS = {"reverse_image", "domain_age", "pricing", "shop_links"}
+# market_price and review_copies read stores the corpus never fills, brand_presence looks the brand up.
+EXCLUDED_SKILLS = {
+    "reverse_image",
+    "domain_age",
+    "pricing",
+    "shop_links",
+    "market_price",
+    "review_copies",
+    "brand_presence",
+}
 THRESHOLDS = (30, 40, 50)
 
 

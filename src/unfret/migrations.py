@@ -431,6 +431,36 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         UPDATE wallets SET purchased = TRUE WHERE pubkey IN (SELECT account FROM fiat_payments);
         """,
     ),
+    (
+        18,
+        "market prices, review fingerprints and hashed addresses",
+        """
+        -- What shops charge for the same barcode (unfret.market_prices): a SHA-256 of the barcode and of the shop's
+        -- registrable domain, the day and the price only. No URL, caller or time of day; deleted after 90 days.
+        CREATE TABLE market_prices (
+            product_key  BYTEA NOT NULL CHECK (octet_length(product_key) = 32),
+            shop_key     BYTEA NOT NULL CHECK (octet_length(shop_key) = 32),
+            day          DATE NOT NULL,
+            price        NUMERIC(14, 2) NOT NULL CHECK (price >= 0),
+            currency     TEXT NOT NULL CHECK (length(currency) <= 3),
+            PRIMARY KEY (product_key, shop_key, day)
+        );
+        CREATE INDEX market_prices_day_idx ON market_prices (day);
+        -- Review texts seen on shops (unfret.review_store): a SHA-256 of the normalised text and of the shop's
+        -- registrable domain, first and last day. No text, reviewer, URL or caller; deleted 90 days after last seen.
+        CREATE TABLE review_fingerprints (
+            review_hash  BYTEA NOT NULL CHECK (octet_length(review_hash) = 32),
+            shop_key     BYTEA NOT NULL CHECK (octet_length(shop_key) = 32),
+            first_seen   DATE NOT NULL,
+            last_seen    DATE NOT NULL,
+            PRIMARY KEY (review_hash, shop_key)
+        );
+        CREATE INDEX review_fingerprints_last_seen_idx ON review_fingerprints (last_seen);
+        -- Postal addresses join e-mail addresses and phone numbers in shop_links: a keyed hash only.
+        ALTER TABLE shop_links ADD CONSTRAINT shop_links_address_hashed
+            CHECK (kind <> 'address' OR value ~ '^[0-9a-f]{64}$');
+        """,
+    ),
 ]
 
 

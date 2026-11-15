@@ -5,6 +5,10 @@ Reads the shop fingerprint store (:mod:`unfret.shop_store`); no outside lookups,
 Links are one hop and only on identifiers unique to one account. The features are computed from the linked shops'
 own facts (when Unfret first saw them, their registration and first-certificate dates), never from what Unfret
 concluded about them. Contact details are counted, never shown.
+
+Postal addresses (hashed like contacts) never link shops; the skill only counts the unrelated shops that give the same
+address (``shared_address_shops``: not linked to this one by any identifier). Many of them is what a virtual office
+or a mail-forwarding address looks like.
 """
 
 from datetime import date, timedelta
@@ -45,7 +49,7 @@ class ShopLinksSkill(Skill):
     name = "shop_links"
     description = "Finds other web shops using the same analytics, pixel, payment or contact identifiers."
     page_types = STOREFRONTS | SERVICE_SITES
-    features = ("linked_shops", "linked_young_shops", "shared_payment", "shared_contact")
+    features = ("linked_shops", "linked_young_shops", "shared_payment", "shared_contact", "shared_address_shops")
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -60,8 +64,12 @@ class ShopLinksSkill(Skill):
         if page is None:
             return self.output({}, note="Not a web shop.")
         linked = await shop_store.store().linked(page.domain, page.links)
+        address = await _shared_address(page, {link.domain for link in linked})
         if not linked:
-            return self.output({"linked_shops": 0}, note="No other shops share its identifiers.")
+            features: dict[str, float | bool] = {"linked_shops": 0}
+            if address is not None:
+                features["shared_address_shops"] = address[0]
+            return self.output(features, address[1] if address else [], note="No other shops share its identifiers.")
 
         today = shop_store.today()
         kinds = {k for link in linked for k in link.kinds}
@@ -88,12 +96,36 @@ class ShopLinksSkill(Skill):
                     + ".",
                 )
             )
-        return self.output(
-            {
-                "linked_shops": len(linked),
-                "linked_young_shops": len(young),
-                "shared_payment": bool(kinds & _PAYMENT_KINDS),
-                "shared_contact": bool(kinds & shop_store.CONTACT_KINDS),
-            },
-            observations,
+        features = {
+            "linked_shops": len(linked),
+            "linked_young_shops": len(young),
+            "shared_payment": bool(kinds & _PAYMENT_KINDS),
+            "shared_contact": bool(kinds & shop_store.CONTACT_KINDS),
+        }
+        if address is not None:
+            features["shared_address_shops"] = address[0]
+            observations += address[1]
+        return self.output(features, observations)
+
+
+async def _shared_address(page: shop_store.PageLinks, linked: set[str]) -> tuple[int, list[Observation]] | None:
+    """
+    How many unrelated shops give the same postal address as this one.
+
+    :param page: The page's identifiers (its hashed addresses among them).
+    :param linked: The shops linked to it by an identifier (related, so not counted).
+    :return: The count and its finding, or ``None`` when the page gives no address.
+    """
+    addresses = page.links.get("address")
+    if not addresses:
+        return None
+    others = await shop_store.store().address_shops(page.domain, addresses) - linked
+    observations = []
+    if others:
+        verb = "shops give" if len(others) != 1 else "shop gives"
+        observations.append(
+            Observation(
+                type="shared_address", evidence=f"{len(others)} other unrelated {verb} the same postal address."
+            )
         )
+    return len(others), observations

@@ -184,6 +184,42 @@
     "linked_new_shops": {
       "title": "Linked to new shops",
       "detail": "This shop shares accounts (such as an advertising pixel or payment account) with {count} {shops} registered in the last six months: {names}."
+    },
+    "safety_gate_alert": {
+      "title": "On the EU list of dangerous products",
+      "detail": "The EU's Safety Gate, where authorities warn about dangerous products, has an alert for this product: {alert}"
+    },
+    "irreversible_payment_only": {
+      "title": "Only payments you can't get back",
+      "detail": "The shop mentions {methods} and no card, PayPal or other method with buyer protection. Money sent that way can't be reclaimed if nothing arrives."
+    },
+    "founded_contradicted": {
+      "title": "Says it's long-established, but the site is new",
+      "detail": "The shop says {claim}, but its web address has existed for only {age}."
+    },
+    "far_below_market": {
+      "title": "Far below the usual price",
+      "detail": "This product (same barcode) costs {pct} less here than the typical price at {count} other {shops} we've seen in the last three months. Prices that low often mean a fake, or an order that never arrives."
+    },
+    "origin_contradicted": {
+      "title": "Not where it says it is",
+      "detail": "The shop says {claim}, but the only address it gives is in {place}."
+    },
+    "copied_reviews_elsewhere": {
+      "title": "Reviews copied from other shops",
+      "detail": "{copied} of the {checked} longer reviews here appear word for word on {count} other {shops}."
+    },
+    "brand_no_presence": {
+      "title": "A brand with no presence of its own",
+      "detail": "We found no record of {brand} anywhere else: no entry in Wikidata and no website under its name. With the other signals, that points to generic goods sold under a made-up name."
+    },
+    "store_without_address": {
+      "title": "Mentions a store, gives no address",
+      "detail": "The shop says {claim}, but gives no address anywhere on the page."
+    },
+    "shared_address": {
+      "title": "Address shared by many shops",
+      "detail": "The shop's address is also given by {count} other unrelated web shops we've seen: typical of a virtual office or a mail-forwarding address, not the shop's own premises."
     }
   },
   "positives": {
@@ -211,13 +247,17 @@
       "title": "Natural-looking reviews",
       "detail": "Ratings are mixed and spread over time, as you'd expect from real buyers."
     },
-    "nothing_found": {
-      "title": "No warning signs",
-      "detail": "Nothing suspicious found in the listing, the reviews or the page."
-    },
     "us_business": {
       "title": "Company details shown",
       "detail": "The shop names its company ({company}) and a US business address."
+    },
+    "protected_payment": {
+      "title": "Payment with buyer protection",
+      "detail": "The shop mentions {methods}. Paying that way lets you get your money back if something goes wrong."
+    },
+    "nothing_found": {
+      "title": "No warning signs",
+      "detail": "Nothing suspicious found in the listing, the reviews or the page."
     }
   },
   "age_units": {
@@ -316,7 +356,29 @@
     "us_identity.us_phone": "Phone number",
     "reverse_image.searched": "Photo looked up",
     "reverse_image.other_shops": "Same photo on other shops",
-    "reverse_image.catalogue_matches": "Same photo in a product catalogue"
+    "reverse_image.catalogue_matches": "Same photo in a product catalogue",
+    "payment_methods.irreversible_only": "Only payments you can't get back",
+    "payment_methods.irreversible": "Bank transfer or crypto mentioned",
+    "payment_methods.protected": "Payment with buyer protection",
+    "claims.origin_contradicted": "Not where it says it is",
+    "claims.store_without_address": "Mentions a store, gives no address",
+    "domain_age.founded_claim_years": "Years in business claimed",
+    "domain_age.founded_contradicted": "Long-established claim on a new site",
+    "market_price.other_shops": "Other shops with this product",
+    "market_price.below_market": "Below the usual price",
+    "market_price.far_below": "Far below the usual price",
+    "review_copies.checked": "Longer reviews compared",
+    "review_copies.copied": "Reviews also on other shops",
+    "review_copies.copied_share": "Share of reviews on other shops",
+    "review_copies.other_shops": "Other shops with the same reviews",
+    "brand_presence.wikidata": "Brand known on Wikidata",
+    "brand_presence.own_domain": "Brand has its own website",
+    "brand_presence.own_domain_age_years": "Age of the brand's website",
+    "brand_presence.no_presence": "Brand found nowhere else",
+    "brand_presence.shop_is_brand": "Sold by the brand's own site",
+    "safety_gate.barcode_match": "On the EU list of dangerous products",
+    "safety_gate.model_match": "On the EU list of dangerous products",
+    "shop_links.shared_address_shops": "Address shared by other shops"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
@@ -346,5 +408,6 @@
       "concerns": "Checks for service companies are new, so there is no full rating yet: look at the points below and ask for a written quote.",
       "careful": "Something on this site needs a close look before you hire: see the points below and ask for a written quote."
     }
-  }
+  },
+  "protected_methods": "a card or PayPal"
 }

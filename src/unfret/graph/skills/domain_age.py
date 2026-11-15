@@ -17,12 +17,17 @@ import httpx
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
 from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills.claims import claimed_founding
 from unfret.graph.state import AnalysisState
 from unfret.net import fetch_public, hostname
 
 _RDAP_TIMEOUT_S = 10.0
 _CRTSH_TIMEOUT_S = 15.0
 _REDACTED_MARKERS = ("redacted", "privacy", "withheld", "data protected", "not disclosed")
+# A shop that claims at least this many years ...
+FOUNDED_MIN_YEARS = 5
+# ... on a domain whose registration and first certificate are both younger than this contradicts itself.
+FOUNDED_DOMAIN_MAX_DAYS = 365
 
 
 def _parse_rdap_date(value: object) -> date | None:
@@ -140,7 +145,16 @@ class DomainAgeSkill(Skill):
     description = "Checks domain registration (RDAP) and first certificate (CT logs) for pop-up store signals."
     page_types = STOREFRONTS | SERVICE_SITES
     retry = True
-    features = ("known", "age_years", "under_6_months", "term_years", "redacted", "cert_age_years")
+    features = (
+        "known",
+        "age_years",
+        "under_6_months",
+        "term_years",
+        "redacted",
+        "cert_age_years",
+        "founded_claim_years",
+        "founded_contradicted",
+    )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -189,14 +203,29 @@ class DomainAgeSkill(Skill):
             observations.append(Observation(type="term", evidence="Registered for one year only."))
 
         youngest = min((d for d in (age, cert_age) if d is not None), default=None)
-        return self.output(
-            {
-                "known": True,
-                "age_years": (age if age is not None else cert_age or 0) / 365,
-                "under_6_months": youngest is not None and youngest < 183,
-                "term_years": term if term is not None else 0.0,
-                "redacted": bool(rdap and rdap.get("redacted")),
-                "cert_age_years": (cert_age or 0) / 365,
-            },
-            observations,
-        )
+        features: dict[str, float | bool] = {
+            "known": True,
+            "age_years": (age if age is not None else cert_age or 0) / 365,
+            "under_6_months": youngest is not None and youngest < 183,
+            "term_years": term if term is not None else 0.0,
+            "redacted": bool(rdap and rdap.get("redacted")),
+            "cert_age_years": (cert_age or 0) / 365,
+        }
+        # Claims vs facts: "since 1998" on a domain that has existed for months. The oldest evidence of the domain
+        # counts (a re-registered domain keeps its old certificates), so only a domain young by every measure does.
+        founded = claimed_founding(state["facts"], state.get("cleaned_content", ""), today.year)
+        if founded is not None:
+            year, quote = founded
+            claimed = today.year - year
+            oldest = max(d for d in (age, cert_age) if d is not None)
+            features["founded_claim_years"] = claimed
+            if claimed >= FOUNDED_MIN_YEARS and oldest < FOUNDED_DOMAIN_MAX_DAYS:
+                features["founded_contradicted"] = True
+                since = f"registered {registered}" if age is not None else f"first certificate {cert}"
+                observations.append(
+                    Observation(
+                        type="founded_contradicted",
+                        evidence=f'Says "{quote}"; {domain} is only {oldest} days old ({since}).',
+                    )
+                )
+        return self.output(features, observations)

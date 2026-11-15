@@ -312,6 +312,82 @@
     "low_response_rate": {
       "title": "Often doesn't reply",
       "detail": "Answers only {pct} of requests on the platform."
+    },
+    "p2p_advance_payment": {
+      "title": "Payment up front",
+      "detail": "The ad asks you to pay before you have the item ({quote}). Pay through the platform, or when you collect it."
+    },
+    "p2p_untraceable_payment": {
+      "title": "Payment you can't get back",
+      "detail": "The ad asks for payment by {method} ({quote}). Money sent that way can't be reclaimed if the item never comes."
+    },
+    "p2p_protection_refused": {
+      "title": "Refuses the platform's payment",
+      "detail": "The ad rules out paying through the platform ({quote}), which is what protects you as a buyer."
+    },
+    "p2p_seller_abroad": {
+      "title": "Seller says they're away",
+      "detail": "The seller says they are abroad or can't meet ({quote}). Ads for goods that never arrive often tell this story."
+    },
+    "p2p_photo_in_other_ads": {
+      "title": "Photo used in other ads",
+      "detail": "The main photo is also in {count} other {ads} we checked lately ({platforms}). It may have been copied from someone else's ad."
+    },
+    "p2p_price_far_below": {
+      "title": "Price far below the usual",
+      "detail": "{evidence} A price this low is a common way to lure buyers."
+    },
+    "p2p_bank_transfer": {
+      "title": "Bank transfer asked",
+      "detail": "The ad asks for a bank transfer or a payment link ({quote}). A transfer to a stranger can't be undone: pay through the platform, or when you collect the item."
+    },
+    "p2p_shipping_only": {
+      "title": "No pickup",
+      "detail": "The seller won't meet ({quote}), so you can't see the item before you pay."
+    },
+    "p2p_new_account": {
+      "title": "New account",
+      "detail": "The seller's account is {age} old."
+    },
+    "p2p_listing_burst": {
+      "title": "Many ads on a new account",
+      "detail": "{count} other ads on an account that's {age} old."
+    },
+    "p2p_duplicate_text": {
+      "title": "Same text in other ads",
+      "detail": "The same ad text is in {count} other {ads} we checked in the last 90 days ({platforms}). Ads that aren't what they seem are often posted many times."
+    },
+    "p2p_shared_contact": {
+      "title": "Contact details in many ads",
+      "detail": "The phone number or e-mail address in this ad is also in {count} other ads we checked in the last 90 days."
+    },
+    "p2p_contact_outside": {
+      "title": "Contact outside the platform",
+      "detail": "The ad asks you to get in touch by {channel} ({quote}). Keep the conversation on the platform: it is part of its buyer protection."
+    },
+    "p2p_llm_off_platform": {
+      "title": "Deal moved off the platform",
+      "detail": "The ad's wording moves the deal away from the platform ({quote})."
+    },
+    "p2p_low_rating": {
+      "title": "Low ratings",
+      "detail": "The seller is rated {rating}."
+    },
+    "p2p_photo_on_shops": {
+      "title": "Shop photo",
+      "detail": "The main photo is also on {count} {shops} ({names}), so it may not be a photo of this item. Ask for a photo of your own choosing."
+    },
+    "p2p_no_ratings": {
+      "title": "No ratings yet",
+      "detail": "The seller has no ratings from earlier buyers yet."
+    },
+    "p2p_slow_responses": {
+      "title": "Slow replies",
+      "detail": "The platform shows the seller's replies as slow ({said})."
+    },
+    "p2p_little_known": {
+      "title": "Little to go on",
+      "detail": "The ad shows too little about the seller or the payment to call it fine. Pay through the platform, or when you collect the item."
     }
   },
   "positives": {
@@ -382,6 +458,30 @@
     "service_nothing_found": {
       "title": "No warning signs",
       "detail": "Nothing worrying found in what the page says about the business."
+    },
+    "p2p_established": {
+      "title": "Established account",
+      "detail": "The seller has been on the platform for {age}."
+    },
+    "p2p_well_rated": {
+      "title": "Well rated",
+      "detail": "{count} ratings from earlier buyers, {rating}."
+    },
+    "p2p_verified": {
+      "title": "Verified account",
+      "detail": "The platform shows the seller as verified ({badges})."
+    },
+    "p2p_protection": {
+      "title": "Platform payment",
+      "detail": "You can pay through the platform's buyer protection."
+    },
+    "p2p_pickup": {
+      "title": "Pickup possible",
+      "detail": "You can see the item before you pay."
+    },
+    "p2p_normal_price": {
+      "title": "Usual price",
+      "detail": "The price is in line with what such items go for."
     }
   },
   "age_units": {
@@ -542,7 +642,38 @@
     "platform_profile.few_reviews": "Few reviews yet",
     "platform_profile.low_response_rate": "Often doesn't reply",
     "platform_profile.verified_badges": "Checked by the platform",
-    "platform_profile.years_in_business": "Years in business"
+    "platform_profile.years_in_business": "Years in business",
+    "reverse_image.other_ads": "Photo in other ads",
+    "seller_profile.shown": "Seller profile shown",
+    "seller_profile.account_days": "Account age",
+    "seller_profile.new_account": "New account",
+    "seller_profile.established": "Established account",
+    "seller_profile.ratings": "Number of ratings",
+    "seller_profile.no_ratings": "No ratings yet",
+    "seller_profile.low_rating": "Low ratings",
+    "seller_profile.well_rated": "Well rated",
+    "seller_profile.verified": "Verified account",
+    "seller_profile.listing_burst": "Many ads on a new account",
+    "seller_profile.slow_responses": "Slow replies",
+    "off_platform.text_read": "Ad text read",
+    "off_platform.contact_outside": "Contact outside the platform",
+    "off_platform.bank_transfer": "Bank transfer asked",
+    "off_platform.untraceable_payment": "Payment you can't get back",
+    "off_platform.advance_payment": "Payment up front",
+    "off_platform.shipping_only": "No pickup",
+    "off_platform.abroad": "Seller says they're away",
+    "off_platform.protection_refused": "Refuses the platform's payment",
+    "off_platform.signals": "Deal moved off the platform",
+    "price_outlier.checked": "Price compared",
+    "price_outlier.market": "Compared with shop prices",
+    "price_outlier.ratio": "Price against the usual",
+    "price_outlier.far_below": "Price far below the usual",
+    "price_outlier.normal": "Usual price",
+    "duplicate_ads.text_print": "Ad text compared",
+    "duplicate_ads.text_copies": "Same text in other ads",
+    "duplicate_ads.copy_platforms": "Platforms with the same text",
+    "duplicate_ads.contacts": "Contact details in the ad",
+    "duplicate_ads.contact_ads": "Contact details in other ads"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
@@ -561,8 +692,10 @@
   "shop_many": "shops",
   "class_headlines": {
     "p2p_listing": {
-      "concerns": "Checks for private sellers' ads are new, so there is no full rating yet: look at the points below, and pay only through the platform.",
-      "careful": "Something on this ad needs a close look before you pay: see the points below, and pay only through the platform."
+      "reliable": "Nothing worrying stood out in this ad, and the seller has a track record on the platform.",
+      "concerns": "Mostly fine, but check the seller before you pay, and pay through the platform or on collection.",
+      "careful": "Some warning signs in this ad: see the points below, and pay only through the platform.",
+      "junk_or_scam": "Many warning signs: this ad shows patterns of ads where buyers lost their money."
     }
   },
   "service_headlines": {

@@ -605,3 +605,18 @@ valid 7 days. Nothing is stored when a check runs.
   `platform_profile`; `reverse_image` may run there without being asked for (the rules decide).
 - `POST /v1/admin/contacts/forget` also takes `"kind": "email_domain"` (a domain such as `example.nl`); phone
   numbers of service sites are stored with their country code, so remove them as `+31 30 234 5678`.
+
+## Changes (peer-to-peer ads, backwards-compatible)
+
+- `PageFacts.listing` gains `description` (string, at most 5,000 characters, default empty): the ad's own text as
+  the seller wrote it, not the platform's (snapshot updated). The server reads off-platform wording, contact details
+  for the duplicate check and the text fingerprint from it; without it, only the page text's payment wording is read.
+  `contact_methods` are `whatsapp`, `telegram`, `phone`, `email`; `payment_requests` are `bank_transfer`,
+  `payment_link`, `deposit`, `gift_card`, `crypto`, `money_transfer`, `payment_app`. An older server drops the new
+  field; an older client keeps working (the server's own extractor fills it from the HTML).
+- With `UNFRET_EXPANSION_CLASSES` on, a `p2p_listing`'s `verdict` may have any of the four bands (`reliable`,
+  `concerns`, `careful`, `junk_or_scam`), from hand-written rules, still without `assessment`. Its reasons and
+  positives have `p2p_` types (e.g. `p2p_advance_payment`, `p2p_new_account`, `p2p_established`); the shape is the
+  same as for products, so clients render them unchanged. `score` is the band's representative value. New stream
+  `step` events come from the ad skills `seller_profile`, `off_platform`, `price_outlier` and `duplicate_ads`, and
+  from `reverse_image` (now run for every ad with a photo).

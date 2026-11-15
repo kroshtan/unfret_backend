@@ -471,6 +471,31 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             CHECK (kind <> 'email_domain' OR value ~ '^[0-9a-f]{64}$');
         """,
     ),
+    (
+        20,
+        "peer-to-peer ad fingerprints",
+        """
+        -- Peer-to-peer ads (unfret.ad_store), to spot the same ad text or phone number behind many ads. Per ad: the
+        -- platform, a hash of the listing, a 64-bit simhash of its text (nothing of the text can be read back) and
+        -- the day. Contact details written in an ad only as a keyed hash (HMAC) with the listing's hash and the day.
+        -- No seller, name, location, price, text, URL, caller or verdict. Deleted 90 days after last seen.
+        CREATE TABLE ad_prints (
+            platform     TEXT NOT NULL CHECK (length(platform) BETWEEN 1 AND 20),
+            listing_key  BYTEA NOT NULL CHECK (octet_length(listing_key) = 32),
+            simhash      BIGINT,
+            last_seen    DATE NOT NULL,
+            PRIMARY KEY (platform, listing_key)
+        );
+        CREATE INDEX ad_prints_last_seen_idx ON ad_prints (last_seen);
+        CREATE TABLE ad_contacts (
+            contact_hash  BYTEA NOT NULL CHECK (octet_length(contact_hash) = 32),
+            listing_key   BYTEA NOT NULL CHECK (octet_length(listing_key) = 32),
+            last_seen     DATE NOT NULL,
+            PRIMARY KEY (contact_hash, listing_key)
+        );
+        CREATE INDEX ad_contacts_last_seen_idx ON ad_contacts (last_seen);
+        """,
+    ),
 ]
 
 

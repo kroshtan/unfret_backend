@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import page_fetch, reports, shares, shop_store, showcase
+from unfret import ad_store, page_fetch, reports, shares, shop_store, showcase
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger, vat
@@ -83,7 +83,7 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     Remove a contact detail wherever it is linked (a merchant's objection or erasure request).
 
     :param body: The contact, normalised and hashed here exactly as when it was stored.
-    :return: How many shop links were removed.
+    :return: How many shop links and ad contacts were removed.
     :raises HTTPException: 422 if it isn't a valid address or number, 503 without a contact key.
     """
     normalise = {
@@ -99,6 +99,10 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     if key is None:
         raise HTTPException(503, "No contact hash key configured, so no contacts are stored.")
     removed = await shop_store.store().forget_contact(body.kind, contact_hash(body.kind, value, key).hex())
+    # Ads store phone numbers in their comparable form (country code added), so remove that form too.
+    ad_values = {value, ad_store.comparable_phone(value) or value} if body.kind == "phone" else {value}
+    for ad_value in ad_values:
+        removed += await ad_store.store().forget_contact(contact_hash(body.kind, ad_value, key))
     logger.info("contact_forgotten", removed=removed)
     return {"removed": removed}
 

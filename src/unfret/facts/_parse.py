@@ -27,6 +27,8 @@ for _number, _names in enumerate(
 _ISO_RE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 _DAY_MONTH_YEAR_RE = re.compile(r"\b(\d{1,2})\.?\s+([^\W\d_]{3,10})\.?\s+(\d{4})\b")
 _MONTH_DAY_YEAR_RE = re.compile(r"\b([^\W\d_]{3,10})\.?\s+(\d{1,2}),?\s+(\d{4})\b")
+_MONTH_YEAR_RE = re.compile(r"\b([^\W\d_]{3,10})\.?\s+((?:19|20)\d\d)\b")
+_YEAR_RE = re.compile(r"(?<!\d)((?:19|20)\d\d)(?!\d)")
 _NUMBER_RE = re.compile(r"\d[\d.,  ]*")
 _CURRENCY_SYMBOLS = {"$": "USD", "€": "EUR", "£": "GBP", "¥": "JPY", "₹": "INR", "zł": "PLN", "kr": "SEK"}
 _CURRENCY_CODE_RE = re.compile(r"\b(USD|EUR|GBP|CAD|AUD|JPY|INR|PLN|SEK|CHF|DKK|NOK|TRY|MXN|BRL)\b")
@@ -51,6 +53,22 @@ def parse_date(text: str) -> date | None:
             return date(year, month, day)
         except ValueError:
             continue
+    return None
+
+
+def parse_since(text: str) -> date | None:
+    """
+    The date a "member since" statement gives: a full date, else the first of a month, else the first of a year.
+
+    :param text: E.g. "12 maart 2019", "Mar 2015" or "2015".
+    :return: The date, or ``None`` without a year.
+    """
+    if found := parse_date(text):
+        return found
+    if (m := _MONTH_YEAR_RE.search(text)) and (month := _MONTHS.get(m[1].lower())):
+        return date(int(m[2]), month, 1)
+    if m := _YEAR_RE.search(text):
+        return date(int(m[1]), 1, 1)
     return None
 
 

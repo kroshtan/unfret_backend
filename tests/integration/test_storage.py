@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from pydantic import SecretStr
 
-from unfret import fact_cache, image_seed, shop_store, verdict_store
+from unfret import ad_store, fact_cache, image_seed, shop_store, verdict_store
 from unfret.config import settings
 from unfret.db import PostgresFactStore
 from unfret.facts import PageFacts
@@ -320,3 +320,47 @@ async def test_the_seed_imports_idempotently_and_can_be_removed(pool: asyncpg.Po
 
     assert await image_seed.remove_seed(pool, "abo") == n
     assert [r["source"] for r in await pool.fetch("SELECT source FROM image_prints")] == ["seen"]  # analyses stay
+
+
+async def test_postgres_ad_store_finds_copies_and_shared_contacts(pool: asyncpg.Pool) -> None:
+    store = ad_store.PostgresAdStore(pool)
+    text = ad_store.simhash(
+        "Te koop mijn iPhone 15 Pro, zo goed als nieuw, altijd in een hoesje. Alleen verzenden, betalen vooraf."
+    )
+    assert text is not None
+    signed = ~text  # far from it, and the other sign: hashes are stored signed
+    contact = b"c" * 32
+    await store.record(ad_store.AdPrint("marktplaats", b"a" * 32, text, (contact,)), TODAY)
+    await store.record(ad_store.AdPrint("2dehands", b"b" * 32, signed, ()), TODAY)
+    await store.record(ad_store.AdPrint("vinted", b"o" * 32, text, (contact,)), TODAY - timedelta(days=100))
+
+    seen = await store.lookup(ad_store.AdPrint("facebook", b"n" * 32, text, (contact,)), TODAY - timedelta(days=90))
+    assert seen.text_copies == {"marktplaats": 1} and seen.contact_ads == 1  # the old one is out of the window
+    mine = await store.lookup(ad_store.AdPrint("marktplaats", b"a" * 32, text, (contact,)), TODAY - timedelta(days=90))
+    assert mine.copies == 0 and mine.contact_ads == 0  # an ad never matches itself
+    far = await store.lookup(ad_store.AdPrint("facebook", b"n" * 32, signed, ()), TODAY - timedelta(days=90))
+    assert far.text_copies == {"2dehands": 1}
+
+    await store.purge(TODAY - timedelta(days=ad_store.RETENTION_DAYS))
+    assert await pool.fetchval("SELECT COUNT(*) FROM ad_prints") == 2
+    assert await pool.fetchval("SELECT COUNT(*) FROM ad_contacts") == 1
+    assert await store.forget_contact(contact) == 1
+    assert await pool.fetchval("SELECT COUNT(*) FROM ad_contacts") == 0
+    columns = {
+        r["column_name"]
+        for r in await pool.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_name IN ('ad_prints', 'ad_contacts')"
+        )
+    }
+    assert columns == {"platform", "listing_key", "simhash", "last_seen", "contact_hash"}
+
+
+async def test_postgres_image_store_keeps_ad_photos_90_days(pool: asyncpg.Pool) -> None:
+    store = PostgresImageStore(pool)
+    day = TODAY - timedelta(days=100)
+    await store.upsert(Listing("vinted", b"v" * 32), _print(1), image_url="u", day=day, source="seen")
+    await store.upsert(Listing("shop.example", b"s" * 32), _print(2), image_url="u", day=day, source="seen")
+
+    await store.purge(TODAY)
+
+    assert [r["domain"] for r in await pool.fetch("SELECT domain FROM image_prints")] == ["shop.example"]

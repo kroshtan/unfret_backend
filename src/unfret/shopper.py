@@ -82,6 +82,26 @@ REASON_SEVERITY: dict[str, Severity] = {
     "hidden_ai_text": "high",
     "ai_text": "medium",
     "overall": "low",
+    # Peer-to-peer ads (unfret.shopper_p2p), in their own tie-break order.
+    "p2p_advance_payment": "high",
+    "p2p_untraceable_payment": "high",
+    "p2p_protection_refused": "high",
+    "p2p_seller_abroad": "high",
+    "p2p_photo_in_other_ads": "high",
+    "p2p_price_far_below": "medium",
+    "p2p_bank_transfer": "medium",
+    "p2p_shipping_only": "medium",
+    "p2p_new_account": "medium",
+    "p2p_listing_burst": "medium",
+    "p2p_duplicate_text": "medium",
+    "p2p_shared_contact": "medium",
+    "p2p_contact_outside": "medium",
+    "p2p_llm_off_platform": "medium",
+    "p2p_low_rating": "medium",
+    "p2p_photo_on_shops": "low",
+    "p2p_no_ratings": "low",
+    "p2p_slow_responses": "low",
+    "p2p_little_known": "low",
 }
 POSITIVE_KEYS = (
     "known_brand",
@@ -93,6 +113,12 @@ POSITIVE_KEYS = (
     "natural_reviews",
     "protected_payment",
     "nothing_found",
+    "p2p_established",
+    "p2p_well_rated",
+    "p2p_verified",
+    "p2p_protection",
+    "p2p_pickup",
+    "p2p_normal_price",
 )
 # Features that describe the page rather than judge it (what kind of page, how many ratings, whether a policy is
 # shown): when the scorer leans on them they're shown as neutral context, never as an accusation.

@@ -29,10 +29,15 @@ from unfret.price_store import product_id, registrable_domain
 Source = Literal["seen", "abo"]
 
 RETENTION_DAYS = 400  # for photos seen in analyses; the public catalogue seed stays
+AD_RETENTION_DAYS = 90  # for photos of peer-to-peer ads (a private seller's photos: as short as the ad store)
 STOP_DOMAINS = 50
 _CANDIDATES = 500
 # Marketplaces are one shop family across their country domains (amazon.de and amazon.nl list the same photos).
 _FAMILIES = {"amazon": "amazon", "bol.com": "bol.com"}
+# Peer-to-peer platforms are one family each too (vinted.nl and vinted.de), apart from the shops: an ad's photos are
+# matched against other ads and shops (:func:`lookup_ad`), a shop's never against ads.
+AD_FAMILIES: dict[str, str] = {p: p for p in ("ebay", "marktplaats", "2dehands", "vinted", "craigslist", "facebook")}
+_AD_DOMAINS = tuple(AD_FAMILIES.values())
 
 
 @dataclass(frozen=True)
@@ -74,8 +79,10 @@ def listing(url: str, facts: PageFacts) -> Listing | None:
     host = hostname(url)
     if not host or "." not in host:
         return None
-    domain = _FAMILIES.get(facts.platform) or registrable_domain(host)
-    pid = product_id(url, facts) or f"path:{urlsplit(url).path.rstrip('/').lower()}"
+    domain = _FAMILIES.get(facts.platform) or AD_FAMILIES.get(facts.platform) or registrable_domain(host)
+    # An ad is its own listing even when it names a product's barcode (two people can sell the same phone).
+    pid = None if facts.platform in AD_FAMILIES else product_id(url, facts)
+    pid = pid or f"path:{urlsplit(url).path.rstrip('/').lower()}"
     return Listing(domain, hashlib.sha256(f"{domain}|{pid}".encode()).digest())
 
 
@@ -115,7 +122,7 @@ class ImageStore(Protocol):
 
     async def purge(self, today: date) -> None:
         """
-        Delete photos seen in analyses that weren't seen for :data:`RETENTION_DAYS`.
+        Delete photos seen in analyses not seen for :data:`RETENTION_DAYS` (ads: :data:`AD_RETENTION_DAYS`).
 
         :param today: Today.
         """
@@ -175,7 +182,12 @@ class MemoryImageStore:
         :param today: Today.
         """
         cutoff = today - timedelta(days=RETENTION_DAYS)
-        self.rows = {k: v for k, v in self.rows.items() if v[0].source != "seen" or v[3] >= cutoff}
+        ad_cutoff = today - timedelta(days=AD_RETENTION_DAYS)
+        self.rows = {
+            k: v
+            for k, v in self.rows.items()
+            if v[0].source != "seen" or v[3] >= (ad_cutoff if v[0].domain in _AD_DOMAINS else cutoff)
+        }
 
 
 class PostgresImageStore:
@@ -264,7 +276,11 @@ class PostgresImageStore:
         :param today: Today.
         """
         await self.pool.execute(
-            "DELETE FROM image_prints WHERE source = 'seen' AND last_seen < $1", today - timedelta(days=RETENTION_DAYS)
+            "DELETE FROM image_prints WHERE source = 'seen' "
+            "AND (last_seen < $1 OR (domain = ANY($2) AND last_seen < $3))",
+            today - timedelta(days=RETENTION_DAYS),
+            list(_AD_DOMAINS),
+            today - timedelta(days=AD_RETENTION_DAYS),
         )
 
 
@@ -281,6 +297,7 @@ async def lookup(
     :return: One match per other shop; ``stop`` when the photo is on too many shops to mean anything.
     """
     same = [c for c in await store.candidates(fp.phash, thresholds.phash) if same_photo(fp, c.print, thresholds)]
+    same = [c for c in same if c.domain not in _AD_DOMAINS]  # a shop's photo in someone's ad says nothing of the shop
     if where is not None:
         same = [c for c in same if c.domain != where.domain and c.listing_key != where.listing_key]
     per_domain: dict[str, StoredPrint] = {}
@@ -289,3 +306,40 @@ async def lookup(
     if len(per_domain) > STOP_DOMAINS:
         return Lookup([], stop=True)
     return Lookup(list(per_domain.values()))
+
+
+async def lookup_ad(
+    store: ImageStore, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
+) -> Lookup:
+    """
+    The other ads and shops showing the same photo as a peer-to-peer ad.
+
+    Unlike a shop's photo, an ad's is compared with the other ads on its own platform (and on the others): the same
+    photo in another ad is a copied ad, or a photo taken from someone else's. One match per other ad (ads first),
+    then one per shop.
+
+    :param store: The index.
+    :param fp: The photo's fingerprints.
+    :param where: The ad (it doesn't match itself).
+    :param thresholds: When two photos are the same.
+    :return: The matches; ``stop`` when the photo is on too many shops or ads to mean anything (a stock photo).
+    """
+    same = [c for c in await store.candidates(fp.phash, thresholds.phash) if same_photo(fp, c.print, thresholds)]
+    if where is not None:
+        same = [c for c in same if c.listing_key != where.listing_key]
+    found: dict[tuple[str, bytes], StoredPrint] = {}
+    for match in sorted(same, key=lambda m: (m.domain not in _AD_DOMAINS, m.source != "seen", m.id)):
+        found.setdefault((match.domain, match.listing_key if is_ad(match) else b""), match)
+    if len(found) > STOP_DOMAINS:
+        return Lookup([], stop=True)
+    return Lookup(list(found.values()))
+
+
+def is_ad(match: StoredPrint) -> bool:
+    """
+    Whether a match is another peer-to-peer ad (rather than a shop or the catalogue).
+
+    :param match: The match.
+    :return: ``True`` for a photo seen on a peer-to-peer platform.
+    """
+    return match.domain in _AD_DOMAINS

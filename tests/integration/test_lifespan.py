@@ -14,6 +14,7 @@ from structlog.testing import capture_logs
 from tests.integration.conftest import POSTGRES_URI
 from tests.unit import test_polar
 from unfret import main
+from unfret.ad_store import PostgresAdStore
 from unfret.api import UnfretAPI
 from unfret.config import Settings
 from unfret.credits import CreditsDoor
@@ -29,6 +30,7 @@ from unfret.x402.service import X402
 from unfret.x402.verdict import QUICK_SKILLS
 
 STORES = {
+    "unfret.ad_store": PostgresAdStore,
     "unfret.fact_cache": PostgresFactStore,
     "unfret.price_store": PostgresPriceStore,
     "unfret.shop_store": PostgresShopStore,

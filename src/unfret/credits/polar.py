@@ -7,9 +7,9 @@ A checkout is created for the pack's product in USD, or in EUR for visitors from
 codes off and our account id and this site's address (``public_base_url``) in its metadata; nothing about the buyer
 is sent, except the billing country of a local payment method (:mod:`unfret.credits.local_methods`): Polar shows
 iDEAL | Wero only for a checkout in EUR whose billing country is the Netherlands, so that checkout has
-``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it; with a preset address Polar asks
-for the full billing address). The API calls need an Organization Access Token with the ``checkouts:write`` scope
-only.
+``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it; Polar still asks for the country
+only, and its card tab stays selected, with iDEAL | Wero as the tab next to it). The API calls need an Organization
+Access Token with the ``checkouts:write`` scope only.
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* **Buy checks is four short paths instead of one long form.** Tabs: **Buy checks** (pick a pack, one "Pay $6.00 by card" button: the key is made just before the card checkout and shown after paying, with Copy buttons and how to use it), **I have a code** (one field and "Get my free checks": a new key is made and the invite or intro code redeemed in one click), **Top up my key** (paste the key, pay by card; "Lost your key?" with the recovery code lives here) and **Pay with crypto** (the wallet/key, SOL/USDC, country, wallet and QR flow as before). Before, a new buyer had to make a key, save two codes and tick a box before "Pay by card" even turned on, and a code took six steps. A key made on the page waits in the browser until its owner confirms saving it (so the card provider's round trip or a closed tab can't lose it) and signs in `/check` if nothing else is. `?mode=new|code|topup|crypto` picks a tab; `?code=` opens the code tab, `?for=wallet` (or a wallet signed in) the crypto tab
+
 ### Bug fixes
 
 * **Pages always get the stylesheet and scripts of their own build**: every page now names its static files under a folder for the running commit (`/static/v-<commit>/site.css`), which the static server ignores when it finds the file, so each deploy uses addresses no cache has seen. Cloudflare overrides the `no-cache` header from 0.10.4 (a Cache Rule or Browser Cache TTL keeps `/static/` for 4 hours), and 0.10.4's new price tiles came out with 0.10.3's styles. Files under a build folder are served as immutable; the old addresses still work and are revalidated

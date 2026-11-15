@@ -1,15 +1,17 @@
-// /checkout: buy a pack of checks with SOL or USDC (or, for API keys, by card). The wallet signs and sends a transfer
-// to Unfret's hot wallet; the server credits the pack once the transfer is final. Phone wallets can pay the same
-// request by QR code. Either way the purchase has a quote, and the page polls /v1/credits/quotes/<id> to show the
-// payment arriving (no sign-in needed for that). Prices come from /v1/pricing, all derived from the price of one check: each pack has a price
-// (by card) and a lower crypto price, plus VAT for the buyer's country (prefilled from where the request comes from).
-// Checks go to an API key by default (?for=key; ?for=wallet or a wallet signed in on /connect picks the wallet): a new one (made here after a small proof of work), an existing
-// one, or one recovered with its recovery code. The purchase's quote then names the key's public ID; the key itself
-// never leaves this page except to check its balance (and to redeem an invite for it, "Have an invite?").
-// Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on chain,
-// never sent to the card provider); the first status poll after payment that carries it (X-Unfret-Claim) returns
-// the codes, once. Pending claims are kept in localStorage for a few days, so a closed tab or the card provider's
-// round trip doesn't lose them; each is dropped once its purchase is paid.
+// /checkout: get checks, in four tabs so each visitor sees one short path.
+//
+//   Buy checks      pick a pack, pay by card. The key is made in this browser just before the card checkout and shown
+//                   after paying, so nobody has to understand keys before they've paid.
+//   I have a code   one field and one button: a new key is made and the invite or intro code is redeemed onto it.
+//   Top up my key   paste the key you have, pick a pack, pay by card (and recover a lost key with its recovery code).
+//   Pay with crypto SOL or USDC to a wallet or a key, from a wallet in this browser or by QR code on a phone.
+//
+// A key made here waits in localStorage ("unfret-new-key") until its owner says it's saved, so a card checkout's round
+// trip or a closed tab can't lose it; it is also signed in on /check (if nothing else is) so a link can be checked at
+// once. Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on
+// chain, never sent to the card provider); the first status poll after payment that carries it (X-Unfret-Claim)
+// returns the codes, once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto
+// payments have a quote, polled at /v1/credits/quotes/<id> until the transfer is final.
 import {
   INVITE_RE,
   NOT_A_CODE,
@@ -26,56 +28,49 @@ import {
   walletButton,
 } from "./wallet.js";
 
-const payPanel = document.getElementById("pay-panel");
-const payMessage = document.getElementById("pay-message");
-const payOptions = document.getElementById("pay-options");
-const paySetup = document.getElementById("pay-setup");
-const packs = document.getElementById("packs");
-const summary = document.getElementById("summary");
-const list = document.getElementById("wallets");
-const empty = document.getElementById("no-wallets");
-const qr = document.getElementById("qr");
-const qrShow = document.getElementById("qr-show");
-const payLink = document.getElementById("pay-link");
+const $ = (id) => document.getElementById(id);
+const main = document.querySelector("main.checkout");
+const payPanel = $("pay-panel");
+const payMessage = $("pay-message");
+const payOptions = $("pay-options");
+const paySetup = $("pay-setup");
+const packs = $("packs");
+const summary = $("summary");
+const list = $("wallets");
+const empty = $("no-wallets");
+const qr = $("qr");
+const qrShow = $("qr-show");
+const payLink = $("pay-link");
+const shop = $("shop");
+const currencyField = $("currency");
+const countryField = $("country");
+const usdcNote = $("usdc-note");
+const keyPanel = $("key-panel");
+const keyInput = $("key-input");
+const keyStatus = $("key-status");
+const keyReveal = $("key-reveal");
+const savedRow = $("saved-row");
+const saved = $("saved");
+const newPay = $("new-pay");
+const topupPay = $("topup-pay");
+const topupKey = $("topup-key");
 
-function onPhone() {
-  return window.matchMedia("(pointer: coarse)").matches;
-}
-
-if (onPhone()) {
-  // The wallet is on this same phone: open it with the payment instead of showing a code to scan.
-  document.getElementById("phone-heading").textContent = "With a wallet app on this phone";
-  document.getElementById("phone-help").textContent =
-    "Phantom, Solflare or any wallet that supports Solana Pay opens with the payment filled in. (On a computer, this shows a QR code to scan.)";
-  qrShow.textContent = "Pay in my wallet app";
-}
-const shop = document.getElementById("shop");
-const unavailable = document.getElementById("unavailable");
-const currencyField = document.getElementById("currency");
-const countryField = document.getElementById("country");
-const usdcNote = document.getElementById("usdc-note");
-const keyPanel = document.getElementById("key-panel");
-const keyInput = document.getElementById("key-input");
-const keyStatus = document.getElementById("key-status");
-const keyReveal = document.getElementById("key-reveal");
-const saved = document.getElementById("saved");
-const cardPay = document.getElementById("card-pay");
-const card = document.getElementById("card");
-
+const MODES = ["new", "code", "topup", "crypto"];
+let mode = "new";
 let pricing = null;
 let pack = null; // the chosen pack from /v1/pricing
 let currency = "SOL";
 // Signed in on /connect in this tab: phone payments credit that wallet, whoever pays.
 const signedIn = recallAny();
-// API key is the default (it can pay by card); a wallet when asked for (?for=wallet) or already signed in here.
-const forParam = new URLSearchParams(window.location.search).get("for");
-let forKey = forParam === "key" || (forParam !== "wallet" && !signedIn);
-let fullKey = null; // the whole key, when typed or made here: lets the page show the balance
+let forKey = false; // the crypto tab: to a key (true) or to a wallet
+let fullKey = null; // the whole key, when typed or made in the crypto tab
 let watch = null; // the purchase being waited for (see watchQuote)
 
 const POLL_MS = 3000;
 const POLL_ROUNDS = 60; // about three minutes of waiting while the page is visible
 const CLAIMS_KEY = "unfret-invite-claims";
+const NEW_KEY = "unfret-new-key";
+const CHECK_ACCOUNT = "unfret-account"; // /check's sign-in
 const CLAIM_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // quotes are gone after about two days anyway
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
@@ -91,45 +86,68 @@ const COUNTRIES = (
   "TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW"
 ).split(" ");
 
-// The key ID to credit, or null. A whole key is reduced to its ID before anything is sent for a purchase.
-function keyId() {
-  const value = keyInput.value.trim();
-  const match = KEY_RE.exec(value);
-  fullKey = match ? value : null;
+function onPhone() {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
+if (onPhone()) {
+  // The wallet is on this same phone: open it with the payment instead of showing a code to scan.
+  $("phone-heading").textContent = "With a wallet app on this phone";
+  $("phone-help").textContent =
+    "Phantom, Solflare or any wallet that supports Solana Pay opens with the payment filled in. (On a computer, this shows a QR code to scan.)";
+  qrShow.textContent = "Pay in my wallet app";
+}
+
+// ── Small helpers ───────────────────────────────────────────────────────────────────────────────────────────────
+
+function element(tag, text, className) {
+  const node = document.createElement(tag);
+  if (text) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+}
+
+function button(text, onClick, className) {
+  const node = element("button", text, className);
+  node.type = "button";
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+function formatUsd(micros) {
+  return `$${(micros / 1e6).toFixed(2)}`;
+}
+
+function checksWord(n) {
+  return `${n} ${n === 1 ? "check" : "checks"}`;
+}
+
+// A key's ID from a whole key or the ID itself, or null.
+function keyIdOf(value) {
+  const text = value.trim();
+  const match = KEY_RE.exec(text);
   if (match) return match[1];
-  return KEY_ID_RE.test(value) ? value : null;
+  return KEY_ID_RE.test(text) ? text : null;
 }
 
-// Paying needs a target (the paying wallet, or a valid key whose new codes are saved first) and a country.
-// Paying by card needs a valid key whose new codes are saved first (no country: the provider asks for it).
-function cardReady() {
-  return forKey && Boolean(pack) && Boolean(keyId()) && (keyReveal.hidden || saved.checked);
+function storageGet(name) {
+  try {
+    return JSON.parse(localStorage.getItem(name) ?? "null");
+  } catch {
+    return null;
+  }
 }
 
-// The card option is for API keys, when the card provider is configured.
-function cardOffered() {
-  return forKey && Boolean(pricing?.fiat?.available);
+function storageSet(name, value) {
+  try {
+    if (value === null) localStorage.removeItem(name);
+    else localStorage.setItem(name, JSON.stringify(value));
+  } catch {
+    // private modes: not remembered, this page still works while it stays open
+  }
 }
 
-function ready() {
-  if (!countryField.value) return false;
-  if (!forKey) return true;
-  return Boolean(keyId()) && (keyReveal.hidden || saved.checked);
-}
-
-function refreshTarget() {
-  keyPanel.hidden = !forKey;
-  card.hidden = !cardOffered();
-  const ok = ready();
-  list.querySelectorAll("button").forEach((button) => (button.disabled = !ok));
-  qrShow.disabled = !ok;
-  cardPay.disabled = !cardReady();
-  if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an API key or key ID.", "error");
-  else if (forKey && !keyId()) setStatus(keyStatus, "Enter your API key or its ID, or create a new key, to pay.");
-  else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save both codes, then tick the box.");
-  else setStatus(keyStatus, "");
-  describe();
-}
+// ── Keys made on this page ──────────────────────────────────────────────────────────────────────────────────────
 
 function zeroBits(digest) {
   const bytes = new Uint8Array(digest);
@@ -154,149 +172,216 @@ async function solve(challenge, bits) {
   }
 }
 
-function reveal(issued) {
-  document.getElementById("key-value").textContent = issued.key;
-  document.getElementById("recovery-value").textContent = issued.recovery_code;
-  keyReveal.hidden = false;
-  saved.checked = false;
-  keyInput.value = issued.key;
+// A new, empty key: { key, recovery_code, key_id }. A few seconds of work in the browser keeps out bots.
+async function makeKey() {
+  const challenge = await api("/v1/keys/challenge");
+  const solution = await solve(challenge.challenge, challenge.bits);
+  return api("/v1/keys", { method: "POST", body: JSON.stringify({ challenge: challenge.challenge, solution }) });
+}
+
+// The key made here and not yet confirmed saved: { key, recovery_code, key_id, funded }.
+function loadNewKey() {
+  const stored = storageGet(NEW_KEY);
+  return stored && typeof stored.key === "string" && KEY_RE.test(stored.key) ? stored : null;
+}
+
+function saveNewKey(value) {
+  storageSet(NEW_KEY, value);
+}
+
+// An empty key made here earlier is reused (a cancelled card checkout, a refused code); a funded one never is.
+async function unfundedKey() {
+  const earlier = loadNewKey();
+  if (earlier && !earlier.funded) return earlier;
+  const issued = await makeKey();
+  const fresh = { key: issued.key, recovery_code: issued.recovery_code, key_id: issued.key_id, funded: false };
+  saveNewKey(fresh);
+  return fresh;
+}
+
+// Let /check use the new key right away, unless it is already signed in with something.
+function signInCheckPage(issued) {
+  if (storageGet(CHECK_ACCOUNT)) return;
+  storageSet(CHECK_ACCOUNT, { kind: "key", token: issued.key, address: `key:${issued.key_id}` });
+}
+
+function secretRow(label, help, value) {
+  const row = element("div", "", "secret");
+  const head = element("p", "", "secret-label");
+  head.append(element("strong", label));
+  if (help) head.append(element("span", help, "muted small"));
+  const code = element("code", value);
+  const copy = button("Copy", async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      copy.textContent = "Copied ✓";
+      setTimeout(() => (copy.textContent = "Copy"), 2000);
+    } catch {
+      copy.textContent = "Select and copy it";
+    }
+  });
+  const line = element("div", "", "secret-value");
+  line.append(code, copy);
+  row.append(head, line);
+  return row;
+}
+
+// The key and its recovery code, with what to do with them.
+function keyCard(issued) {
+  const box = element("div", "", "key-card");
+  box.append(
+    secretRow("Your Unfret key", "", issued.key),
+    secretRow("Recovery code", "gets you a new key with the same checks if you ever lose this one", issued.recovery_code),
+    element(
+      "p",
+      "Save both somewhere safe, such as your password manager or a note. We only keep a fingerprint of each, so we can't show them again.",
+      "muted small",
+    ),
+  );
+  return box;
+}
+
+function useSteps() {
+  const steps = element("ol", "", "howto");
+  const first = element("li");
+  first.append(
+    element("b", "In the Unfret extension: "),
+    document.createTextNode("click its icon, choose “API key” and paste your key."),
+  );
+  const second = element("li");
+  const link = element("a", "Check a link");
+  link.href = "/check";
+  second.append(element("b", "On your phone or this page: "), link, document.createTextNode(" (you're signed in here)."));
+  steps.append(first, second);
+  return steps;
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+
+function setMode(next, { focus = false } = {}) {
+  mode = MODES.includes(next) ? next : "new";
+  main.dataset.mode = mode;
+  for (const tab of tabs) {
+    const on = tab.dataset.mode === mode;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    if (on && focus) tab.focus();
+    $(tab.getAttribute("aria-controls")).hidden = !on;
+  }
+  $("pack-section").hidden = mode === "code";
   refreshTarget();
 }
 
-async function createKey(button) {
-  button.disabled = true;
-  try {
-    setStatus(keyStatus, "Making your key (a few seconds of work in this browser keeps out bots)…");
-    const challenge = await api("/v1/keys/challenge");
-    const solution = await solve(challenge.challenge, challenge.bits);
-    reveal(await api("/v1/keys", { method: "POST", body: JSON.stringify({ challenge: challenge.challenge, solution }) }));
-  } catch (error) {
-    setStatus(keyStatus, error.message || "Couldn't make a key; try again.", "error");
-  } finally {
-    button.disabled = false;
+tabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => setMode(tab.dataset.mode));
+  tab.addEventListener("keydown", (event) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    setMode(tabs[(index + step + tabs.length) % tabs.length].dataset.mode, { focus: true });
+  });
+});
+
+// While a result is on screen (a new key, a payment), the tabs and choices step aside.
+function showChoices(visible) {
+  for (const node of [document.querySelector(".tabs"), $("pack-section"), ...MODES.map((m) => $(`panel-${m}`))]) {
+    node.classList.toggle("set-aside", !visible);
   }
 }
 
-async function recoverKey(button) {
-  button.disabled = true;
+// ── Card payments (Buy checks, Top up my key) ───────────────────────────────────────────────────────────────────
+
+function cardAvailable() {
+  return Boolean(pricing?.fiat?.available);
+}
+
+async function startCardCheckout(keyId) {
+  const started = await api("/v1/credits/fiat-checkout", {
+    method: "POST",
+    body: JSON.stringify({ key_id: keyId, checks: pack.checks }),
+  });
+  // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
+  rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
+  window.location.assign(started.checkout_url);
+}
+
+newPay.addEventListener("click", async () => {
+  if (!pack || !cardAvailable()) return;
+  const status = $("new-status");
+  newPay.disabled = true;
   try {
-    const code = document.getElementById("recovery-input").value.trim();
+    setStatus(status, "Getting your checkout ready…");
+    const issued = await unfundedKey();
+    await startCardCheckout(issued.key_id);
+  } catch (error) {
+    setStatus(status, error.message || "Card payment isn't available right now; please try again.", "error");
+    newPay.disabled = false;
+  }
+});
+
+topupPay.addEventListener("click", async () => {
+  const id = keyIdOf(topupKey.value);
+  if (!pack || !id || !cardAvailable()) return refreshTarget();
+  topupPay.disabled = true;
+  try {
+    await startCardCheckout(id);
+  } catch (error) {
+    setStatus($("topup-status"), error.message || "Card payment isn't available right now.", "error");
+    topupPay.disabled = false;
+  }
+});
+topupKey.addEventListener("input", refreshTarget);
+
+// Lost key: the recovery code gets a new key with the same balance (the old key stops working).
+$("recover").addEventListener("click", async (event) => {
+  const recoverButton = event.currentTarget;
+  const status = $("recover-status");
+  recoverButton.disabled = true;
+  try {
+    const code = $("recovery-input").value.trim();
     const issued = await api("/v1/keys/recover", { method: "POST", body: JSON.stringify({ recovery_code: code }) });
-    reveal(issued);
-    document.getElementById("recover-panel").hidden = true;
+    topupKey.value = issued.key;
+    $("recovery-input").value = "";
+    $("recover-box").open = false;
+    showResult(
+      "Here's your new key",
+      { ...issued, funded: true },
+      [element("p", "It has the same checks as your old key, which no longer works. Your recovery code is new too.")],
+      { saveFirst: true },
+    );
   } catch (error) {
-    setStatus(keyStatus, error.message || "That recovery code didn't work.", "error");
+    setStatus(status, error.message || "That recovery code didn't work.", "error");
   } finally {
-    button.disabled = false;
+    recoverButton.disabled = false;
   }
-}
-
-document.getElementById("new-key").addEventListener("click", (event) => createKey(event.currentTarget));
-document.getElementById("recover").addEventListener("click", (event) => recoverKey(event.currentTarget));
-document.getElementById("recover-open").addEventListener("click", () => {
-  document.getElementById("recover-panel").hidden = false;
-});
-document.querySelectorAll("[data-copy]").forEach((button) =>
-  button.addEventListener("click", () =>
-    navigator.clipboard.writeText(document.getElementById(button.dataset.copy).textContent),
-  ),
-);
-keyInput.addEventListener("input", () => {
-  keyReveal.hidden = true;
-  refreshTarget();
-});
-saved.addEventListener("change", refreshTarget);
-document.getElementById("beneficiary").addEventListener("change", (event) => {
-  forKey = event.target.value === "key";
-  refreshTarget();
 });
 
-// ── Pending invite claims (localStorage; try/catch: private modes must still work, just without remembering) ──
+// ── I have a code ───────────────────────────────────────────────────────────────────────────────────────────────
 
-function loadClaims() {
-  try {
-    const list = JSON.parse(localStorage.getItem(CLAIMS_KEY) ?? "[]");
-    return Array.isArray(list) ? list.filter((c) => c && c.id && c.claim && Date.now() - c.at < CLAIM_MAX_AGE_MS) : [];
-  } catch {
-    return [];
-  }
+function normaliseCode(value) {
+  const typed = value.trim();
+  if (!INVITE_RE.test(typed.toLowerCase())) return null;
+  return typed.toLowerCase().startsWith("ufi_") ? typed.toLowerCase() : typed.toUpperCase();
 }
 
-function saveClaims(list) {
-  try {
-    if (list.length) localStorage.setItem(CLAIMS_KEY, JSON.stringify(list));
-    else localStorage.removeItem(CLAIMS_KEY);
-  } catch {
-    // not remembered: this page still shows the invites if it stays open
-  }
-}
-
-function rememberClaim(kind, id, claim, checks) {
-  if (!id || !claim) return;
-  saveClaims([...loadClaims().filter((c) => c.id !== id), { kind, id, claim, checks, at: Date.now() }]);
-}
-
-function forgetClaim(id) {
-  saveClaims(loadClaims().filter((c) => c.id !== id));
-}
-
-// A purchase's status with its claim: { paid, checks, invites } (the invites only the first time), or null if the
-// purchase is unknown (gone, or not this claim). Once paid, the claim has done its job and is forgotten.
-async function collectClaim(entry) {
-  const path =
-    entry.kind === "fiat"
-      ? `/v1/credits/fiat-checkouts/${encodeURIComponent(entry.id)}`
-      : `/v1/credits/quotes/${encodeURIComponent(entry.id)}`;
-  try {
-    const status = await api(path, { cache: "no-store", headers: { "X-Unfret-Claim": entry.claim } });
-    if (status.paid) forgetClaim(entry.id);
-    return status;
-  } catch (error) {
-    if (error.status === 404) forgetClaim(entry.id);
-    return null;
-  }
-}
-
-// ── Have an invite? (for an API key: it needs the whole key, which proves the key is yours) ────────────────────
-
-// A shared intro-code link (/key?code=FRIENDS → /checkout?for=key&code=FRIENDS): open the box with the code filled in.
-{
-  const shared = new URLSearchParams(window.location.search).get("code");
-  if (shared && INVITE_RE.test(shared.trim().toLowerCase())) {
-    const typed = shared.trim();
-    const shown = typed.toLowerCase().startsWith("ufi_") ? typed.toLowerCase() : typed.toUpperCase();
-    document.getElementById("invite-input").value = shown;
-    document.getElementById("invite-key").open = true;
-    setStatus(
-      document.getElementById("invite-status"),
-      `Your code ${shown} is filled in: create a new key above, save it, then press "Use code".`,
-    );
-  }
-}
-
-document.getElementById("invite-redeem").addEventListener("click", async (event) => {
-  const status = document.getElementById("invite-status");
-  const input = document.getElementById("invite-input");
-  const code = input.value.trim().toLowerCase();
-  keyId(); // sets fullKey from the key field
-  if (!INVITE_RE.test(code)) return setStatus(status, NOT_A_CODE, "error");
-  if (!fullKey) {
-    return setStatus(
-      status,
-      "Create a new key above, or paste the whole key (ufk_…, not just its ID): an invite needs the key itself.",
-      "error",
-    );
-  }
+$("invite-redeem").addEventListener("click", async (event) => {
   const redeemButton = event.currentTarget;
+  const status = $("invite-status");
+  const code = normaliseCode($("invite-input").value);
+  if (!code) return setStatus(status, NOT_A_CODE, "error");
   redeemButton.disabled = true;
   try {
-    const added = await redeemInvite(code, fullKey);
-    input.value = "";
-    setStatus(
-      status,
-      `✓ ${checksWord(added.checks_added)} added to key ${keyId()}. It now has ${checksWord(added.checks_remaining)}.`,
-      "ok",
-    );
+    setStatus(status, "Setting up your key…");
+    const issued = await unfundedKey();
+    const added = await redeemInvite(code, issued.key);
+    const funded = { ...issued, funded: true };
+    saveNewKey(funded);
+    signInCheckPage(funded);
+    $("invite-input").value = "";
+    setStatus(status, "");
+    showResult(`✓ ${checksWord(added.checks_added)} added. Welcome to Unfret!`, funded, []);
   } catch (error) {
     setStatus(status, error.message || "That code didn't work.", "error");
   } finally {
@@ -304,32 +389,102 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
   }
 });
 
-cardPay.addEventListener("click", async () => {
-  const id = keyId();
-  if (!id || !cardReady()) return refreshTarget();
-  const payButton = cardPay;
-  payButton.disabled = true;
+// ── Results: a new key (after a code, a card payment or a recovery) ─────────────────────────────────────────────
+
+// The result view, in place of the choices: a headline, the key card and how to use it, then "I've saved my key".
+function showResult(headline, issued, extra = [], { saveFirst = false, invites = [] } = {}) {
+  stopWatching();
+  const nodes = [element("p", headline, "headline")];
+  if (issued) nodes.push(keyCard(issued), element("h3", "How to use your key"), useSteps());
+  nodes.push(...extra);
+  if (invites.length) nodes.push(...inviteNodes(invites));
+  const done = button(
+    issued ? "I've saved my key" : "Done",
+    () => {
+      if (invites.length && !window.confirm("Copied your invites? They can't be shown again.")) return;
+      if (issued && loadNewKey()?.key === issued.key) saveNewKey(null);
+      clearPanel();
+      showChoices(true);
+      setMode(saveFirst ? "topup" : mode);
+    },
+    "primary",
+  );
+  nodes.push(element("div", "", "result-actions"));
+  nodes.at(-1).append(done);
+  showPanel("ok", ...nodes);
+  showChoices(false);
+  bringIntoView();
+}
+
+// ── Crypto: to a key or a wallet ────────────────────────────────────────────────────────────────────────────────
+
+// The key ID to credit from the crypto tab, or null. A whole key is reduced to its ID before anything is sent.
+function keyId() {
+  const value = keyInput.value.trim();
+  fullKey = KEY_RE.test(value) ? value : null;
+  return keyIdOf(value);
+}
+
+// Paying with crypto needs a country, and for a key a valid one whose new codes are saved first.
+function ready() {
+  if (!countryField.value) return false;
+  if (!forKey) return true;
+  return Boolean(keyId()) && (keyReveal.hidden || saved.checked);
+}
+
+function refreshTarget() {
+  // Card buttons: the price on the button; a key to top up.
+  const cardOn = cardAvailable();
+  const price = pack ? ` ${pack.price_usd}` : "";
+  newPay.textContent = cardOn ? `Pay${price} by card` : "Card payments are unavailable right now";
+  topupPay.textContent = cardOn ? `Pay${price} by card` : "Card payments are unavailable right now";
+  newPay.disabled = !cardOn || !pack;
+  const topupId = keyIdOf(topupKey.value);
+  topupPay.disabled = !cardOn || !pack || !topupId;
+  const topupStatus = $("topup-status");
+  if (topupKey.value.trim() && !topupId) setStatus(topupStatus, "That doesn't look like an Unfret key.", "error");
+  else setStatus(topupStatus, "");
+
+  // Crypto.
+  keyPanel.hidden = !forKey;
+  const ok = ready();
+  list.querySelectorAll("button").forEach((b) => (b.disabled = !ok));
+  qrShow.disabled = !ok;
+  if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an Unfret key or key ID.", "error");
+  else if (forKey && !keyId()) setStatus(keyStatus, "Paste your key or its ID, or make a new key, to pay.");
+  else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save your key, then tick the box.");
+  else setStatus(keyStatus, "");
+  describe();
+}
+
+$("new-key").addEventListener("click", async (event) => {
+  const makeButton = event.currentTarget;
+  makeButton.disabled = true;
   try {
-    const started = await api("/v1/credits/fiat-checkout", {
-      method: "POST",
-      body: JSON.stringify({ key_id: id, checks: pack.checks }),
-    });
-    // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
-    rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
-    window.location.assign(started.checkout_url);
+    setStatus(keyStatus, "Making your key (a few seconds of work in this browser keeps out bots)…");
+    const issued = await makeKey();
+    keyReveal.replaceChildren(keyCard(issued));
+    keyReveal.hidden = false;
+    savedRow.hidden = false;
+    saved.checked = false;
+    keyInput.value = issued.key;
+    refreshTarget();
   } catch (error) {
-    showMessage("error", error.message || "Card payment isn't available right now.");
-    payButton.disabled = false;
+    setStatus(keyStatus, error.message || "Couldn't make a key; try again.", "error");
+  } finally {
+    makeButton.disabled = false;
   }
 });
-
-function formatUsd(micros) {
-  return `$${(micros / 1e6).toFixed(2)}`;
-}
-
-function checksWord(n) {
-  return `${n} ${n === 1 ? "check" : "checks"}`;
-}
+keyInput.addEventListener("input", () => {
+  keyReveal.hidden = true;
+  savedRow.hidden = true;
+  refreshTarget();
+});
+saved.addEventListener("change", refreshTarget);
+$("beneficiary").addEventListener("change", (event) => {
+  forKey = event.target.value === "key";
+  refreshTarget();
+});
 
 // The VAT this page expects for the chosen country (the server's quote is what counts): EU countries per
 // /v1/pricing's vat.eu_rates_pct, others none.
@@ -353,8 +508,6 @@ function formatPay(amount) {
 
 function describe() {
   if (!pricing || !pack || watch) return; // while a purchase is under way, the summary describes that one
-  document.getElementById("card-price").textContent = formatUsd(pack.price_usd_micros);
-  document.getElementById("card-tax").textContent = "plus sales tax/VAT where applicable, added at checkout";
   if (!countryField.value) {
     summary.textContent = `${checksWord(pack.checks)}: choose your country to see the price with VAT.`;
     return;
@@ -365,6 +518,12 @@ function describe() {
     ? `${formatUsd(net)} + ${pct}% VAT (${formatUsd(vat)}) = ${formatUsd(total)}`
     : `${formatUsd(total)} (no VAT outside the EU)`;
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
+}
+
+// "comes with 1 invite of 3 checks to give away": always called an invite.
+function inviteOffer(invites) {
+  const what = invites.count === 1 ? "1 invite" : `${invites.count} invites`;
+  return `comes with ${what} of ${invites.checks_each} checks to give away`;
 }
 
 function renderPacks() {
@@ -384,27 +543,17 @@ function renderPacks() {
         pack = option;
         refreshTarget();
       });
-      // The card price is the price; crypto is shown as the discount (never as a card surcharge).
-      const name = document.createElement("strong");
-      name.textContent = ` ${checksWord(option.checks)}`;
-      const price = document.createElement("span");
-      price.className = "price";
-      price.textContent = option.price_usd;
-      const crypto = document.createElement("span");
-      crypto.className = "muted crypto";
-      crypto.textContent = `or ${option.crypto_usd} with crypto (+ VAT where applicable)`;
-      label.append(input, name, price, crypto);
+      const name = element("strong", ` ${checksWord(option.checks)}`);
+      // The card price is the price; the crypto tab shows the crypto price (a discount, never a card surcharge).
+      const price = element("span", option.price_usd, "price card-only");
+      const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
+      const crypto = element("span", "+ VAT where it applies", "muted crypto crypto-only");
+      label.append(input, name, price, cryptoPrice, crypto);
       if (option.invites?.count) label.append(element("span", inviteOffer(option.invites), "muted gift"));
       return label;
     }),
   );
   refreshTarget();
-}
-
-// "comes with 1 invite of 3 checks to give away": always called an invite.
-function inviteOffer(invites) {
-  const what = invites.count === 1 ? "1 invite" : `${invites.count} invites`;
-  return `comes with ${what} of ${invites.checks_each} checks to give away`;
 }
 
 function renderCountries() {
@@ -434,24 +583,47 @@ function purchaseTarget() {
   return signedIn ? { beneficiary: signedIn.address } : {};
 }
 
-// ── The payment's progress, in step 3 ───────────────────────────────────────────────────────────────────────────
+// ── Pending invite claims (localStorage; try/catch: private modes must still work, just without remembering) ──
 
-function element(tag, text, className) {
-  const node = document.createElement(tag);
-  if (text) node.textContent = text;
-  if (className) node.className = className;
-  return node;
+function loadClaims() {
+  const list = storageGet(CLAIMS_KEY);
+  return Array.isArray(list) ? list.filter((c) => c && c.id && c.claim && Date.now() - c.at < CLAIM_MAX_AGE_MS) : [];
 }
 
-function button(text, onClick) {
-  const node = element("button", text);
-  node.type = "button";
-  node.addEventListener("click", onClick);
-  return node;
+function saveClaims(list) {
+  storageSet(CLAIMS_KEY, list.length ? list : null);
 }
+
+function rememberClaim(kind, id, claim, checks) {
+  if (!id || !claim) return;
+  saveClaims([...loadClaims().filter((c) => c.id !== id), { kind, id, claim, checks, at: Date.now() }]);
+}
+
+function forgetClaim(id) {
+  saveClaims(loadClaims().filter((c) => c.id !== id));
+}
+
+// A purchase's status with its claim: { paid, checks, invites } (the invites only the first time), or null if the
+// purchase is unknown (gone, or not this claim). Once paid, the claim has done its job and is forgotten.
+async function collectClaim(entry) {
+  const path =
+    entry.kind === "fiat"
+      ? `/v1/credits/fiat-checkouts/${encodeURIComponent(entry.id)}`
+      : `/v1/credits/quotes/${encodeURIComponent(entry.id)}`;
+  try {
+    const status = await api(path, { cache: "no-store", headers: { "X-Unfret-Claim": entry.claim } });
+    if (status.paid) forgetClaim(entry.id);
+    return status;
+  } catch (error) {
+    if (error.status === 404) forgetClaim(entry.id);
+    return null;
+  }
+}
+
+// ── The payment's progress ──────────────────────────────────────────────────────────────────────────────────────
 
 // Show the panel in one of its states: "info", "waiting", "ok", "timeout", "thanks" or "error". While waiting or
-// done, the panel takes the place of the payment choices; a hint or an error shows above them, to try again.
+// done, the panel takes the place of the crypto payment choices; a hint or an error shows above them, to try again.
 function showPanel(state, ...nodes) {
   payPanel.dataset.state = state;
   payMessage.replaceChildren(...nodes);
@@ -459,7 +631,6 @@ function showPanel(state, ...nodes) {
   const busy = ["waiting", "ok", "timeout"].includes(state);
   payOptions.hidden = busy;
   paySetup.hidden = busy;
-  card.hidden = busy || !cardOffered();
 }
 
 function showMessage(state, text) {
@@ -480,7 +651,6 @@ function clearPanel() {
   payLink.hidden = true;
   payOptions.hidden = false;
   paySetup.hidden = false;
-  card.hidden = !cardOffered();
 }
 
 function stopWatching() {
@@ -492,6 +662,7 @@ function stopWatching() {
 function reset() {
   stopWatching();
   clearPanel();
+  showChoices(true);
   refreshTarget();
 }
 
@@ -536,21 +707,10 @@ async function showPaid(purchase, invites = []) {
   const headline = `✓ Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
   const nodes = [element("p", headline, "headline")];
   if (invites.length) nodes.push(...inviteNodes(invites));
-  const close = invites.length ? "Once you've copied your invites, you can close this page" : "You can close this page";
   if (purchase.keyId) {
-    if (purchase.newKey) {
-      const key = element("p", "Your API key");
-      key.append(document.createElement("br"), element("code", purchase.newKey));
-      nodes.push(
-        key,
-        element("p", "Keep your recovery code somewhere safe: it gets you a new key with the same balance if you lose this one."),
-      );
-    }
-    nodes.push(
-      element("p", `Paste the key in the extension's settings (or use it in scripts) and the extension shows your checks. ${close}.`),
-    );
+    nodes.push(element("p", "In the extension, choose “API key” and paste your key, and it shows your checks."));
   } else {
-    nodes.push(element("p", `${close}; the extension shows your checks.`));
+    nodes.push(element("p", "The extension shows your checks once you're signed in with this wallet."));
   }
   const balance = element("p", "", "muted");
   nodes.push(balance, button("Buy more", () => leaveInvites(invites)));
@@ -620,7 +780,6 @@ function purchaseInfo(extra) {
   return {
     checks: pack.checks,
     keyId: forKey ? keyId() : null,
-    newKey: forKey && !keyReveal.hidden ? fullKey : null, // made or recovered on this page just now
     summary: summary.textContent,
     ...extra,
   };
@@ -677,7 +836,7 @@ async function buy(wallet) {
     return;
   }
   const info = purchaseInfo({ qr: false, signedIn: true });
-  list.querySelectorAll("button").forEach((button) => (button.disabled = true));
+  list.querySelectorAll("button").forEach((b) => (b.disabled = true));
   try {
     const { accounts } = await wallet.features["standard:connect"].connect();
     const account = accounts[0];
@@ -717,6 +876,75 @@ function renderWallets(wallets) {
   refreshTarget();
 }
 
+// ── Start ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Back from the card provider: wait for the webhook to credit the key, then show the key (if it was made here) and
+// the pack's invites.
+async function watchCard() {
+  const entry = loadClaims()
+    .filter((c) => c.kind === "fiat")
+    .sort((a, b) => b.at - a.at)[0];
+  const made = loadNewKey();
+  if (!entry) {
+    if (made?.funded) showResult("Your Unfret key", made);
+    return;
+  }
+  showChoices(false);
+  showPanel("waiting", element("p", "Thanks! Confirming your card payment…", "headline"));
+  for (let round = 0; round < POLL_ROUNDS; round += 1) {
+    const status = await collectClaim(entry);
+    if (status === null) break;
+    if (status.paid) {
+      const checks = status.checks ?? entry.checks;
+      const invites = status.invites ?? [];
+      if (made) {
+        const funded = { ...made, funded: true };
+        saveNewKey(funded);
+        signInCheckPage(funded);
+        showResult(`✓ Payment received: ${checksWord(checks)} are ready.`, funded, [], { invites });
+      } else {
+        showResult(`✓ Payment received: ${checksWord(checks)} added to your key.`, null, [], { invites });
+      }
+      return;
+    }
+    await sleep(POLL_MS);
+  }
+  showResult(
+    "Your payment is still being confirmed",
+    made,
+    [element("p", "Your checks arrive by themselves within a few minutes; there's no need to pay again.")],
+  );
+}
+
+// Invites from an earlier purchase on this browser whose page was closed before they were shown, and a key made
+// here that its owner hasn't confirmed saving.
+async function collectEarlier() {
+  const codes = [];
+  for (const entry of loadClaims()) {
+    const status = await collectClaim(entry);
+    if (status?.paid && status.invites?.length) codes.push(...status.invites);
+  }
+  if (watch) return;
+  const made = loadNewKey();
+  if (made?.funded) {
+    showResult("Your Unfret key", made, [element("p", "You haven't confirmed saving it yet.", "muted")], {
+      invites: codes,
+    });
+  } else if (codes.length) {
+    showResult("Your earlier purchase came with invites", null, [], { invites: codes });
+  }
+}
+
+function initialMode(params) {
+  const asked = params.get("mode");
+  if (MODES.includes(asked)) return asked;
+  if (params.get("code")) return "code";
+  if (params.get("for") === "wallet" || (!params.get("for") && signedIn)) return "crypto";
+  return cardAvailable() ? "new" : "crypto";
+}
+
 async function start() {
   try {
     pricing = await api("/v1/pricing");
@@ -724,13 +952,16 @@ async function start() {
     pricing = null;
   }
   if (!pricing?.hot_wallet) {
-    unavailable.hidden = false;
+    $("unavailable").hidden = false;
     return;
   }
   shop.hidden = false;
   if (pricing.network !== "solana-mainnet") {
-    document.getElementById("network").textContent = "Test network (devnet): no real SOL.";
+    $("network").textContent = "Test network (devnet): no real money.";
   }
+  const params = new URLSearchParams(window.location.search);
+  const shared = params.get("code");
+  if (shared && normaliseCode(shared)) $("invite-input").value = normaliseCode(shared);
   const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');
   if (pricing.sol) {
@@ -741,54 +972,13 @@ async function start() {
     currency = "USDC";
     usdcNote.textContent = "SOL is unavailable right now (no fresh price); pay in USDC.";
   }
-  document.getElementById("beneficiary").querySelector(`input[value="${forKey ? "key" : "wallet"}"]`).checked = true;
-  if (new URLSearchParams(window.location.search).get("paid")) {
-    showPanel(
-      "thanks",
-      element("p", "Thanks! Your card payment is being confirmed; the checks reach your key within a minute.", "headline"),
-    );
-    void watchCard();
-  } else {
-    void collectEarlier();
-  }
   renderCountries();
   renderPacks();
   renderWallets([]);
+  setMode(initialMode(params));
+  if (params.get("paid")) void watchCard();
+  else void collectEarlier();
   discoverWallets(renderWallets);
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Back from the card provider: wait for the webhook to credit the key, then show the pack's invites.
-async function watchCard() {
-  const entry = loadClaims()
-    .filter((c) => c.kind === "fiat")
-    .sort((a, b) => b.at - a.at)[0];
-  if (!entry) return;
-  for (let round = 0; round < POLL_ROUNDS; round += 1) {
-    const status = await collectClaim(entry);
-    if (status === null) return;
-    if (status.paid) {
-      const checks = status.checks ?? entry.checks;
-      const nodes = [element("p", `✓ Card payment received: ${checksWord(checks)} added to your key.`, "headline")];
-      if (status.invites?.length) nodes.push(...inviteNodes(status.invites));
-      showPanel("ok", ...nodes, button("Buy more", () => leaveInvites(status.invites ?? [])));
-      bringIntoView();
-      return;
-    }
-    await sleep(POLL_MS);
-  }
-}
-
-// Invites from an earlier purchase on this browser whose page was closed before they were shown.
-async function collectEarlier() {
-  const codes = [];
-  for (const entry of loadClaims()) {
-    const status = await collectClaim(entry);
-    if (status?.paid && status.invites?.length) codes.push(...status.invites);
-  }
-  if (!codes.length || watch) return;
-  showPanel("thanks", element("p", "Your earlier purchase came with invites", "headline"), ...inviteNodes(codes));
 }
 
 start();

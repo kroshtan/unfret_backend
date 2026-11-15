@@ -25,13 +25,19 @@
   </header>
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: 10 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
+    <p><em>Last updated: 15 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
 
     <h2>What a check sends</h2>
     <p>Nothing leaves your browser until you click <strong>Check this page</strong> in the extension (or an agent calls
       <code>/v1/check</code>). Then the page address, the product facts (title, brand, seller, price, ratings, reviews,
       shop policies) and the page's visible text go to our server in the EU. Account menus, addresses, forms and
       anything you typed are removed in your browser first.</p>
+    <p>On a service company's own site or a provider's profile on a platform (a plumber, a locksmith, a Werkspot or
+      Thumbtack profile) the check also sends what the business publishes about itself: its name, KvK or licence number,
+      address, phone numbers and e-mail addresses (from its footer, contact and legal sections and its structured
+      data), its prices and payment terms, the towns it lists, and its testimonials (the text, the name as the site
+      prints it, the rating and the date). On a platform profile: the platform's figures (member since, jobs, rating,
+      badges, response rate) and its reviews, without the reviewers' names. These are used for the check only.</p>
     <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
       your browser until you tap Check. The page keeps no history; only your sign-in or API key stays in your browser,
@@ -73,12 +79,13 @@
         page. Kept 90 days after we last saw it.</li>
       <li><strong>Shop facts</strong>: a shop domain's registration date, first certificate and VAT check, and whether a
         product's brand is on Wikidata, kept a week so they aren't looked up again for every shopper.</li>
-      <li><strong>Shop fingerprints</strong>: for web shops (not marketplaces), what their pages reveal about the
-        business behind them: the first and last day we saw the shop, its platform and apps, the shape of its template,
-        and the account IDs on its pages (analytics, ad pixels, payment accounts). This recognises shops run by the
-        same operator. Never who checked the shop, which page, or our verdict. Kept 400 days after we last saw the
-        shop.</li>
-      <li><strong>Product photo fingerprints</strong>: for the main photo of a checked product, its fingerprints
+      <li><strong>Shop fingerprints</strong>: for web shops and service companies' own websites (not marketplaces or
+        platforms), what their pages reveal about the business behind them: the first and last day we saw the site, its
+        platform and apps, the shape of its template, and the account IDs on its pages (analytics, ad pixels, payment
+        accounts). This recognises shops run by the same operator, and one call centre behind many "local" service
+        brands. Never who checked the site, which page, or our verdict. Kept 400 days after we last saw the site.</li>
+      <li><strong>Product photo fingerprints</strong>: for the main photo of a checked product (on a service company's
+        page, its first photo that isn't a logo), its fingerprints
         (computed on our server; the photo goes to no one else), the photo's address on the shop, the shop and a
         one-way hash of the listing, to spot the same photo on another shop. Kept 400 days after last seen. Matching
         photos are shown as small thumbnails from our server, so your browser never contacts the other shop.</li>
@@ -97,12 +104,14 @@
         to delete it sooner. Shared pages ask search engines not to list them.</li>
     </ul>
 
-    <h2>For shop owners</h2>
-    <p>Contact e-mail addresses, phone numbers and postal addresses on a shop's pages are stored only as a keyed one-way
-      hash, never shown to anyone, and used only to tell whether two shops share them, or, for a postal address, how
-      many unrelated shops give the same one (our legitimate interest in warning shoppers about networks of fake shops
-      and virtual offices). They are deleted 180 days after we last saw them. To object, or to have a shop or
-      contact detail removed, use the contact details at kroshtan.com; the same goes for a "Spotted recently" example
+    <h2>For shop owners and service companies</h2>
+    <p>Contact e-mail addresses, phone numbers and postal addresses on a shop's or service company's pages, and a
+      service company's e-mail domain, are stored only as a keyed one-way hash, never shown to anyone, and used only to
+      tell whether two sites share them, or, for a postal address, how many unrelated shops give the same one (our
+      legitimate interest in warning shoppers about networks of fake shops, virtual offices and call centres posing as
+      local businesses). They are deleted 180 days after we last saw them. A check of a service provider stays with
+      the person who ran it: it can't be shared as a link. To object, or to have a site or contact detail removed, use
+      the contact details at kroshtan.com; the same goes for a "Spotted recently" example
       of your page, which we'll look at again or take down. A shared result about your page can be reported from the
       page itself: it is hidden at once until we review it, and what you write is kept only until then.</p>
 

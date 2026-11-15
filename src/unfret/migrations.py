@@ -461,6 +461,16 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             CHECK (kind <> 'address' OR value ~ '^[0-9a-f]{64}$');
         """,
     ),
+    (
+        19,
+        "service sites' e-mail domains",
+        """
+        -- Service companies' own sites are linked on the domain of their e-mail addresses too (one call centre behind
+        -- many "local" brands): stored only as a keyed hash, like e-mail addresses and phone numbers.
+        ALTER TABLE shop_links ADD CONSTRAINT shop_links_email_domain_hashed
+            CHECK (kind <> 'email_domain' OR value ~ '^[0-9a-f]{64}$');
+        """,
+    ),
 ]
 
 

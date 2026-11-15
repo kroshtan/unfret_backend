@@ -130,6 +130,20 @@ async def test_contacts_can_only_be_stored_hashed(pool: asyncpg.Pool) -> None:
     with pytest.raises(asyncpg.CheckViolationError):
         await store.record(ShopRecord("z.shop", TODAY, links={"email": {"owner@z.shop"}}))
     assert await pool.fetchval("SELECT COUNT(*) FROM shops WHERE domain = 'z.shop'") == 0  # one transaction
+    with pytest.raises(asyncpg.CheckViolationError):
+        await store.record(ShopRecord("z.nl", TODAY, links={"email_domain": {"callcentre.nl"}}))
+
+
+async def test_service_sites_link_on_hashed_email_domains_and_phones(pool: asyncpg.Pool) -> None:
+    store = PostgresShopStore(pool)
+    domain, phone = "d" * 64, "f" * 64
+    await store.record(ShopRecord("loodgieter-a.nl", TODAY, links={"email_domain": {domain}, "phone": {phone}}))
+    await store.record(ShopRecord("loodgieter-b.nl", TODAY, links={"email_domain": {domain}}))
+
+    (link,) = await store.linked("loodgieter-c.nl", {"phone": {phone}})
+    assert (link.domain, link.kinds, link.shared) == ("loodgieter-a.nl", ("phone",), ())  # contacts never shown
+    assert [x.domain for x in await store.linked("loodgieter-b.nl", {})] == ["loodgieter-a.nl"]
+    assert await store.forget_contact("email_domain", domain) == 2
 
 
 async def test_fingerprint_tables_hold_no_people_pages_times_or_verdicts(pool: asyncpg.Pool) -> None:

@@ -146,6 +146,16 @@ def _scan(soup: BeautifulSoup) -> _Scan:
     return scan
 
 
+def public_text(soup: BeautifulSoup) -> str:
+    """
+    The page's text outside the areas that could hold the visitor's details (forms, account menus, checkout).
+
+    :param soup: The parsed page.
+    :return: The text, whitespace collapsed.
+    """
+    return _squash(" ".join(_scan(soup).public))
+
+
 def _collect(tag: Tag, inside: bool, scan: _Scan) -> None:
     if tag.name == "a" and tag.has_attr("href"):
         scan.links.append((_attr(tag, "href"), _squash(tag.get_text(" "))))
@@ -371,7 +381,7 @@ def extract(soup: BeautifulSoup, url: str, facts: PageFacts) -> None:
     facts.payment_methods = _payment_methods(f"{public} {' '.join(scan.alts)}")
     if facts.platform in PRIVATE_SELLER_PLATFORMS:
         return
-    orgs = _organizations(soup)
+    orgs = organizations(soup)
     facts.organization_ld = [_trim(o) for o in orgs[:10]]
     facts.phones = _phones(scan, business, orgs, host)
     facts.emails = _emails(scan, business, orgs, host)
@@ -453,7 +463,13 @@ def _is_org(node: dict[str, Any]) -> bool:
     return any(k.lower() in _ORG_TYPES for k in _kinds(node))
 
 
-def _organizations(soup: BeautifulSoup) -> list[dict[str, Any]]:
+def organizations(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    """
+    The page's Organization and LocalBusiness JSON-LD nodes, untrimmed.
+
+    :param soup: The parsed page.
+    :return: The nodes, in document order.
+    """
     orgs: list[dict[str, Any]] = []
 
     def walk(node: object) -> None:

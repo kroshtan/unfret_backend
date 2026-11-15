@@ -108,6 +108,19 @@ class Link(BaseModel):
     url: str = Field(default="", max_length=500)
 
 
+class Testimonial(BaseModel):
+    """
+    A testimonial a service company publishes on its own site: its own content, read as it is shown.
+
+    The name is only what the site prints next to it ("Jan, Utrecht"); used during the check only.
+    """
+
+    text: str = Field(default="", max_length=_LONG)
+    name: str = Field(default="", max_length=100)
+    rating: float | None = Field(default=None, ge=0, le=5)
+    posted: date | None = None
+
+
 class SellerProfile(BaseModel):
     """
     The seller (peer-to-peer) or provider (service platform) as the platform shows them: never their name.
@@ -124,6 +137,7 @@ class SellerProfile(BaseModel):
     response_time: str = Field(default="", max_length=100)
     response_rate: float | None = Field(default=None, ge=0, le=100, description="In percent.")
     jobs_completed: int | None = Field(default=None, ge=0)
+    years_in_business: int | None = Field(default=None, ge=0, le=200)
 
 
 class ListingDetails(BaseModel):
@@ -224,7 +238,9 @@ class PageFacts(BaseModel):
     promises: list[str] = Field(
         default_factory=list, max_length=20, description='"24/7", "within 30 minutes", same-day (snippets).'
     )
-    testimonials: list[str] = Field(default_factory=list, max_length=50)
+    testimonials: list[Testimonial] = Field(
+        default_factory=list, max_length=50, description="Testimonials on a service company's own site."
+    )
     organization_ld: list[dict[str, Any]] = Field(
         default_factory=list, max_length=10, description="Organization/LocalBusiness JSON-LD, trimmed."
     )

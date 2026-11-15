@@ -18,6 +18,7 @@ MARKETPLACES: frozenset[PageType] = frozenset({"aggregate_listing"})
 P2P_PAGES: frozenset[PageType] = P2P_TYPES
 SERVICE_PAGES: frozenset[PageType] = SERVICE_TYPES
 SERVICE_SITES: frozenset[PageType] = frozenset({"service_site"})
+SERVICE_LISTINGS: frozenset[PageType] = frozenset({"service_listing"})
 # Every page that gets analysed: products, peer-to-peer listings and service providers.
 ANALYSED_PAGES: frozenset[PageType] = PRODUCT_PAGES | P2P_PAGES | SERVICE_PAGES
 

@@ -22,6 +22,12 @@ Label = Literal["legit", "junk", "scam"]
 LabelSource = Literal["dataset", "rule", "llm", "agreed", "human"]
 Split = Literal["train", "test"]
 UNRELIABLE: frozenset[str] = frozenset({"junk", "scam"})
+# Page classes. ``product`` is every product page (``aggregate_listing``, ``storefront``, or no page type recorded):
+# the shipped scorers, product metrics and the product split only ever see those. The new classes each have their
+# own labels, split strata and reports.
+PRODUCT_CLASS = "product"
+NEW_CLASSES: tuple[str, ...] = ("p2p_listing", "service_site", "service_listing")
+PAGE_CLASSES: tuple[str, ...] = (PRODUCT_CLASS, *NEW_CLASSES)
 
 
 class LabelRecord(BaseModel):
@@ -32,7 +38,9 @@ class LabelRecord(BaseModel):
     label_source: LabelSource | None = None
     confidence: float = 0.0
     platform: str = Field(default="", description="Marketplace name, or empty for a brand's own shop.")
-    page_type: str = Field(default="", description="Expected page type: storefront or aggregate_listing.")
+    page_type: str = Field(
+        default="", description="Expected page type: storefront, aggregate_listing, or one of the new classes."
+    )
     source: str = Field(description="How the HTML was obtained: dataset, wayback or synthetic.")
     origin_dataset: str
     origin_url: str = ""
@@ -49,6 +57,21 @@ class LabelRecord(BaseModel):
     rule_features: list[str] = Field(
         default_factory=list, description="Features a labelling rule used; exclude or check them when training."
     )
+
+
+def page_class(record: LabelRecord) -> str:
+    """
+    The page class a record belongs to: one of :data:`NEW_CLASSES`, or :data:`PRODUCT_CLASS` for everything else.
+
+    :param record: The record.
+    :return: The class name.
+    """
+    return record.page_type if record.page_type in NEW_CLASSES else PRODUCT_CLASS
+
+
+def is_product(record: LabelRecord) -> bool:
+    """Whether a record is a product page (the class every product scorer and report is limited to)."""
+    return page_class(record) == PRODUCT_CLASS
 
 
 class QueueItem(BaseModel):

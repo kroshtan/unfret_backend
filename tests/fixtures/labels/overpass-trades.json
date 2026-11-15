@@ -1,0 +1,14 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API (hand-made fixture)",
+  "elements": [
+    {"type": "node", "id": 101, "tags": {"craft": "plumber", "name": "Voorbeeld Installatie", "website": "https://www.voorbeeld-installatie.nl/"}},
+    {"type": "way", "id": 102, "tags": {"craft": "plumber", "name": "Voorbeeld Installatie (depot)", "website": "http://voorbeeld-installatie.nl/contact"}},
+    {"type": "node", "id": 103, "tags": {"craft": "locksmith", "name": "Sleutel Sample", "contact:website": "sleutelsample.nl"}},
+    {"type": "node", "id": 104, "tags": {"craft": "electrician", "name": "Only Facebook", "website": "https://www.facebook.com/onlyfacebookelectric"}},
+    {"type": "node", "id": 105, "tags": {"shop": "hardware", "name": "Not A Craft", "website": "https://notacraft.example"}},
+    {"type": "node", "id": 106, "tags": {"craft": "roofer", "name": "No Website"}},
+    {"type": "relation", "id": 107, "tags": {"craft": "hvac", "name": "Sample Heating", "website": "HTTPS://WWW.SAMPLEHEATING.COM"}},
+    {"type": "node", "id": 108, "tags": {"craft": "painter", "name": "Broken", "website": "not a url"}}
+  ]
+}

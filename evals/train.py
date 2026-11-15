@@ -42,7 +42,7 @@ from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import brier_score_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
-from evals.corpus import Corpus, LabelRecord, dump_json
+from evals.corpus import Corpus, LabelRecord, dump_json, is_product
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from unfret.graph import SKILLS
 from unfret.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, neutral_features
@@ -357,7 +357,7 @@ def main() -> None:
     reports = corpus.root / "reports"
     path = args.features or max(reports.glob("*-features.jsonl"), key=lambda p: p.stat().st_mtime)
     features = load_features(path)
-    labelled = [r for r in corpus.labels().values() if r.label and r.split in {"train", "test"}]
+    labelled = [r for r in corpus.labels().values() if is_product(r) and r.label and r.split in {"train", "test"}]
     names = feature_names()
     if args.quick:
         names = [n for n in names if n.split(".", 1)[0] in QUICK_SKILLS]

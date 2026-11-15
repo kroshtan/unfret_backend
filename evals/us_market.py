@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from evals.corpus import Corpus, LabelRecord, dump_json
+from evals.corpus import Corpus, LabelRecord, dump_json, is_product
 from evals.train import RULE_MIRRORS, build, evaluate, feature_names, fit, load_features
 from unfret.facts import parse_page
 from unfret.graph.skills import Skill
@@ -99,7 +99,11 @@ async def main_async(args: argparse.Namespace) -> None:
     reports = corpus.root / "reports"
     path = args.features or max(reports.glob("*Z-features.jsonl"), key=lambda p: p.stat().st_mtime)
     old = load_features(path)
-    labelled = [r for r in corpus.labels().values() if r.label and r.split in {"train", "test"} and r.id in old]
+    labelled = [
+        r
+        for r in corpus.labels().values()
+        if is_product(r) and r.label and r.split in {"train", "test"} and r.id in old
+    ]
     results = await asyncio.gather(*(recompute(corpus, r, old[r.id]) for r in labelled))
     new = {r.id: f for r, (f, _) in zip(labelled, results, strict=True)}
     markets = {r.id: m for r, (_, m) in zip(labelled, results, strict=True)}

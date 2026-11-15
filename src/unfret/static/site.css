@@ -501,7 +501,7 @@ label { color: var(--ink-2); }
 .prices li {
   display: grid;
   gap: 0;
-  align-content: start;
+  align-content: center;
   padding: 1.1rem 1rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);

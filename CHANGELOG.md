@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.10.4](https://github.com/kroshtan/unfret_backend/compare/0.10.3...0.10.4) (2026-11-15)
+
 ### Changed
 
 * Intro codes give at most 250 free checks a UTC day across all codes (`UNFRET_INTRO_DAILY_CHECKS_CAP`, was 100): 25 people a day at 10 checks each

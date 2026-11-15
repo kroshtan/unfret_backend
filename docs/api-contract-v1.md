@@ -585,8 +585,9 @@ valid 7 days. Nothing is stored when a check runs.
 
 - `PageFacts.testimonials` is now a list of objects, `{"text", "name", "rating": 0–5|null, "posted": "YYYY-MM-DD"|null}`
   (it was a list of strings, never filled until now): the testimonials a service company publishes on its own site,
-  the name only as the site prints it. Empty on a platform profile, whose reviews go into `reviews` without names.
-  A client that sends strings there gets a 422; the extension sends objects from this release on.
+  the name only as the site prints it. Empty on a product page (its reviews are in `reviews`) and on a platform
+  profile, whose reviews go into `reviews` without names. A client that sends strings there gets a 422; the
+  extension sends objects from this release on.
 - `PageFacts.seller_profile` adds `years_in_business` (integer or null). On a service platform's profile page
   (Werkspot, Thumbtack, Angi, …) the extractors fill `seller_profile` (member since, jobs completed, years in
   business, rating and count, badges, response rate and time) and `reviews`.

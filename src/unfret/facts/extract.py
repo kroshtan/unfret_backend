@@ -150,13 +150,20 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
     if facts.platform in P2P_PLATFORMS:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)
-    if facts.platform not in PRIVATE_SELLER_PLATFORMS:
-        orgs = business.organizations(soup)
-        if facts.platform in service_platforms.SERVICE_PLATFORMS:
-            service_platforms.extract(soup, facts, orgs)  # a provider's profile: the platform's reviews, no names
-        else:
-            facts.testimonials = testimonials.extract(soup, orgs)
+    _services(soup, facts)
     return facts
+
+
+def _services(soup: BeautifulSoup, facts: PageFacts) -> None:
+    # A provider's profile on a service platform (the platform's reviews, no names), or a company's testimonials
+    # (not on a product page: its reviews are in ``reviews``). Never on a private seller's platform.
+    if facts.platform in PRIVATE_SELLER_PLATFORMS:
+        return
+    orgs = business.organizations(soup)
+    if facts.platform in service_platforms.SERVICE_PLATFORMS:
+        service_platforms.extract(soup, facts, orgs)
+    elif not facts.json_ld and facts.price is None:
+        facts.testimonials = testimonials.extract(soup, orgs)
 
 
 def without_seller(json_ld: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -170,9 +170,9 @@ def from_html(soup: BeautifulSoup) -> list[Testimonial]:
 
 def _ld_rating(value: object) -> float | None:
     node = value.get("ratingValue") if isinstance(value, dict) else value
-    if node is None or isinstance(node, bool):
+    if isinstance(node, bool) or not isinstance(node, int | float | str):
         return None
-    number = float(node) if isinstance(node, int | float) else parse_number(str(node))
+    number = float(node) if isinstance(node, int | float) else parse_number(node)
     return number if number is not None and 0 <= number <= 5 else None
 
 

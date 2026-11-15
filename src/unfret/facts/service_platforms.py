@@ -86,9 +86,9 @@ def _jobs(text: str) -> int | None:
 
 
 def _ld_number(value: object) -> float | None:
-    if value is None or isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
-    return float(value) if isinstance(value, int | float) else parse_number(str(value))
+    return float(value) if isinstance(value, int | float) else parse_number(value)
 
 
 def _rating(orgs: list[dict[str, Any]], text: str) -> tuple[float | None, int | None]:

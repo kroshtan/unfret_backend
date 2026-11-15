@@ -178,6 +178,15 @@ def test_review_microdata_is_read() -> None:
     assert found[0].posted == date(2026, 10, 28) and found[0].rating == 5.0
 
 
+def test_a_product_pages_reviews_are_not_testimonials() -> None:
+    html = (
+        "<html><head><meta property='og:price:amount' content='49.90'></head><body><h1>Massagepistole</h1>"
+        "<div class='review-card'><p>Super Gerät, sehr stark und leise!</p></div></body></html>"
+    )
+
+    assert parse_page(html, "https://gadget.example/p/1")[0].testimonials == []
+
+
 def test_testimonials_in_a_form_are_the_visitors_not_the_companys() -> None:
     html = (
         "<html><body><form><div class='testimonial'><blockquote>Mijn eigen ervaring met deze slotenmaker"

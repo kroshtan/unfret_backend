@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from unfret.config import settings
-from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR
+from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned
 
 RELEASE_DIR = STATIC_DIR / "extension"
 
@@ -105,7 +105,7 @@ def install_page() -> HTMLResponse:
     """
     template = (STATIC_DIR / "extension.html").read_text(encoding="utf-8")
     page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
-    return HTMLResponse(page, headers=PAGE_HEADERS)
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 @router.get("/extension/updates.xml")

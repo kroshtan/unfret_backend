@@ -13,7 +13,7 @@ import pytest
 from unfret import page_fetch
 from unfret.main import app
 from unfret.net import UnsafeURLError
-from unfret.routes.pages import STATIC_DIR
+from unfret.routes.pages import STATIC_DIR, asset_tag
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ async def test_the_page_is_served_with_a_strict_policy(client: httpx.AsyncClient
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "connect-src 'self'" in csp
     assert "manifest-src 'self'" in csp and "worker-src 'self'" in csp and "frame-ancestors 'none'" in csp
     assert response.headers["referrer-policy"] == "no-referrer"
-    assert '<script type="module" src="/static/check.js">' in response.text
+    assert f'<script type="module" src="/static/{asset_tag()}/check.js">' in response.text
     assert '<link rel="manifest" href="/manifest.webmanifest">' in response.text
     # Nothing from elsewhere: the only outside addresses are the shared footer's links (the source code, the maker).
     page = response.text.replace("https://shop.example", "")

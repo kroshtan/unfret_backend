@@ -10,7 +10,7 @@ import pytest
 
 from unfret.credits import siws
 from unfret.main import app
-from unfret.routes.pages import STATIC_DIR
+from unfret.routes.pages import STATIC_DIR, asset_tag
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ async def test_pages_are_served_with_a_strict_policy(client: httpx.AsyncClient, 
     assert response.headers["content-type"].startswith("text/html")
     csp = response.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
-    assert f'<script type="module" src="{script}">' in response.text
+    assert f'<script type="module" src="{script.replace("/static/", f"/static/{asset_tag()}/")}">' in response.text
     assert "http://" not in response.text.replace("http://test", "")  # nothing loaded from elsewhere
 
 
@@ -128,7 +128,7 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     )  # store link filled in
     # Its only script fills in "Checked by us recently" (/v1/showcase), the prices (/v1/pricing) and the code box.
     assert response.text.count("<script") == 1
-    assert '<script type="module" src="/static/home.js"></script>' in response.text
+    assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text
     assert 'id="spotted"' in response.text
 
 
@@ -157,3 +157,19 @@ def test_pages_show_invites_and_offer_to_redeem_one() -> None:
     for name in ("index.html", "checkout.html", "checkout.js", "wallet.js", "connect.html", "check.html"):
         text = (STATIC_DIR / name).read_text().lower()
         assert "free invite" not in text and "trial" not in text, name  # an invite, never "free" or a "trial"
+
+
+async def test_pages_name_their_assets_under_the_build(client: httpx.AsyncClient) -> None:
+    # A deploy changes every asset address, so no cache can give a new page an old stylesheet or script.
+    tag = asset_tag()
+    for path in ("/", "/checkout", "/check", "/connect", "/privacy", "/extension"):
+        page = (await client.get(path)).text
+        assert f'"/static/{tag}/site.css"' in page, path
+        assert '"/static/site.css"' not in page, path
+    built = await client.get(f"/static/{tag}/site.css")
+    assert built.status_code == 200 and "--bg-glow" in built.text
+    assert built.headers["cache-control"] == "public, max-age=31536000, immutable"
+    plain = await client.get("/static/site.css")  # an old page's address still works, and is revalidated
+    assert plain.status_code == 200 and plain.headers["cache-control"] == "no-cache"
+    module = await client.get(f"/static/{tag}/check-render.js")  # what check.js imports relatively
+    assert module.status_code == 200

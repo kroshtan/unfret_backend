@@ -10,11 +10,13 @@ Policy lets them load only their own scripts and talk only to this API.
 """
 
 import html
+import re
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
+from unfret import __version__
 from unfret.config import settings
 from unfret.credits import invites
 
@@ -38,6 +40,31 @@ CHECK_PAGE_HEADERS = {
     "Content-Security-Policy": PAGE_HEADERS["Content-Security-Policy"] + "; manifest-src 'self'; worker-src 'self'",
 }
 
+# Every page names its scripts, styles and images under a folder for the running build (/static/v-<commit>/…), which
+# the static server ignores when it finds the file. A deploy changes every address, so no cache (Cloudflare's included)
+# can hand a new page an old stylesheet, and the scripts' relative imports stay within the same build.
+_ASSET_TAG_RE = re.compile(r"[^0-9A-Za-z.]")
+
+
+def asset_tag() -> str:
+    """
+    The folder name for this build's static files.
+
+    :return: ``v-`` and the first 12 characters of the commit (the version outside a built image).
+    """
+    return "v-" + _ASSET_TAG_RE.sub("", settings.git_sha.strip() or __version__)[:12]
+
+
+def versioned(page: str) -> str:
+    """
+    Point a page's ``/static/`` addresses at this build's folder.
+
+    :param page: The page's HTML.
+    :return: The HTML with ``"/static/`` turned into ``"/static/v-<build>/``.
+    """
+    return page.replace('"/static/', f'"/static/{asset_tag()}/')
+
+
 router = APIRouter(include_in_schema=False)
 
 
@@ -50,11 +77,11 @@ def home() -> HTMLResponse:
     """
     template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
-    return HTMLResponse(page, headers=PAGE_HEADERS)
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 def _page(name: str) -> HTMLResponse:
-    return HTMLResponse((STATIC_DIR / name).read_text(encoding="utf-8"), headers=PAGE_HEADERS)
+    return HTMLResponse(versioned((STATIC_DIR / name).read_text(encoding="utf-8")), headers=PAGE_HEADERS)
 
 
 @router.get("/key", include_in_schema=False)
@@ -109,7 +136,7 @@ def check_page() -> HTMLResponse:
 
     :return: The page.
     """
-    return HTMLResponse((STATIC_DIR / "check.html").read_text(encoding="utf-8"), headers=CHECK_PAGE_HEADERS)
+    return HTMLResponse(versioned((STATIC_DIR / "check.html").read_text(encoding="utf-8")), headers=CHECK_PAGE_HEADERS)
 
 
 @router.get("/manifest.webmanifest")

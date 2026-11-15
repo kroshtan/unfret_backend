@@ -870,3 +870,77 @@ details.invite input { display: block; width: 100%; max-width: 24rem; margin: 0.
   .demo.solo { padding-top: 0; }
   .demo.solo .popup { margin: 0 auto; }
 }
+
+/* ── Buy checks: four tabs, one short path each ──────────────────────────────────────────────────────────────── */
+
+.checkout .lead { margin-bottom: 1.5rem; }
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+  margin: 0 0 1.5rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+.tabs [role="tab"] {
+  min-height: 2.6rem;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.tabs [role="tab"]:hover:not([aria-selected="true"]) { background: var(--brand-soft); color: var(--brand-ink); }
+.tabs [role="tab"][aria-selected="true"] { background: var(--surface); color: var(--brand-ink); box-shadow: var(--shadow-sm); }
+@media (max-width: 34rem) { .tabs { grid-template-columns: 1fr 1fr; } }
+.set-aside { display: none !important; }
+
+h2.step { margin: 1.5rem 0 0.75rem; font-size: 1.1rem; border: 0; padding: 0; }
+#pack-section h2.step { margin-top: 0; }
+.checkout .pack .crypto-only { display: none; }
+.checkout[data-mode="crypto"] .pack .crypto-only { display: inline; }
+.checkout[data-mode="crypto"] .pack .crypto { display: block; }
+.checkout[data-mode="crypto"] .pack .card-only { display: none; }
+#panel-new, #panel-topup, #panel-code, #panel-crypto { margin-top: 1.25rem; }
+#panel-code { margin-top: 0; }
+#panel-code h2.step { margin-top: 0; }
+button.wide { width: 100%; }
+.reassure-line { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.92rem; text-align: center; }
+label.field { display: grid; gap: 0.15rem; margin-bottom: 0.4rem; color: var(--ink); font-weight: 600; }
+label.field .small { font-weight: 400; }
+.wide-input { display: block; width: 100%; margin-bottom: 0.6rem; }
+#topup-pay { margin-top: 0.4rem; }
+#panel-topup details.invite { margin-top: 1.25rem; }
+
+/* A key shown once: the key and its recovery code, each with a Copy button. */
+.key-card {
+  display: grid;
+  gap: 0.9rem;
+  margin: 1rem 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.secret-label { display: grid; gap: 0.1rem; margin: 0 0 0.35rem; }
+.secret-value { display: flex; gap: 0.5rem; align-items: center; }
+.secret-value code {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  word-break: break-all;
+  font-size: 0.88rem;
+}
+.secret-value button { flex: none; min-height: 2.5rem; }
+.key-card > p { margin: 0; }
+.result-actions { margin-top: 1.25rem; }
+.pay-panel .howto { margin-top: 0.5rem; }

@@ -24,76 +24,92 @@
       </nav>
     </div>
   </header>
-  <main>
+  <main class="checkout" data-mode="new">
     <h1>Buy checks</h1>
-    <p>One check is one page analysed. Pick a pack, choose where the checks go, then pay. Every pack comes with
-      invites to give away: each adds 3 checks for someone who hasn't tried Unfret.</p>
+    <p class="lead">One check is one product page read by Unfret. No subscription, and checks never expire.</p>
     <p id="network" class="muted"></p>
 
-    <p id="unavailable" hidden>Buying checks isn't available yet. Please try again later.</p>
+    <p id="unavailable" hidden>Buying checks isn't available right now. Please try again later.</p>
 
     <div id="shop" hidden>
-      <section aria-labelledby="amount-heading">
-        <h2 id="amount-heading">1. Choose a pack</h2>
+      <div class="tabs" role="tablist" aria-label="How would you like to get checks?">
+        <button type="button" role="tab" id="tab-new" data-mode="new" aria-controls="panel-new" aria-selected="true">Buy checks</button>
+        <button type="button" role="tab" id="tab-code" data-mode="code" aria-controls="panel-code" aria-selected="false" tabindex="-1">I have a code</button>
+        <button type="button" role="tab" id="tab-topup" data-mode="topup" aria-controls="panel-topup" aria-selected="false" tabindex="-1">Top up my key</button>
+        <button type="button" role="tab" id="tab-crypto" data-mode="crypto" aria-controls="panel-crypto" aria-selected="false" tabindex="-1">Pay with crypto</button>
+      </div>
+
+      <section id="pack-section" aria-labelledby="amount-heading">
+        <h2 id="amount-heading" class="step">How many checks?</h2>
         <fieldset class="packs">
           <legend class="visually-hidden">Packs</legend>
           <div id="packs" class="packs"></div>
         </fieldset>
       </section>
 
-      <section aria-labelledby="for-heading">
-        <h2 id="for-heading">2. Where should the checks go?</h2>
-        <fieldset class="choices" id="beneficiary">
-          <legend class="visually-hidden">Where the checks go</legend>
-          <label><input type="radio" name="for" value="key" checked> To an API key
-            <span class="muted">No wallet needed: in the Unfret extension, choose API key and paste it (or use it in scripts).</span></label>
-          <label><input type="radio" name="for" value="wallet"> To my wallet
-            <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
-        </fieldset>
-        <div id="key-panel" hidden>
-          <label class="custom">Top up a key you have: paste the key or its ID
-            <input id="key-input" autocomplete="off" spellcheck="false" placeholder="ufk_… or the 10-letter ID">
-          </label>
-          <p>
-            <button id="new-key" type="button">Create a new key</button>
-            <button id="recover-open" type="button">Lost your key?</button>
-          </p>
-          <div id="recover-panel" hidden>
-            <label class="custom">Your recovery code
-              <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="ufr_…">
-            </label>
-            <button id="recover" type="button">Get a new key</button>
-          </div>
-          <div id="key-reveal" hidden>
-            <p><strong>Save both now.</strong> They're shown only once; we keep just a fingerprint of each.</p>
-            <p>API key<br><code id="key-value"></code> <button type="button" data-copy="key-value">Copy</button></p>
-            <p>Recovery code (gets you a new key with the same balance if you lose this one)<br>
-              <code id="recovery-value"></code> <button type="button" data-copy="recovery-value">Copy</button></p>
-            <label><input type="checkbox" id="saved"> I've saved both somewhere safe</label>
-          </div>
-          <p id="key-status" role="status" aria-live="polite"></p>
-          <details id="invite-key" class="invite">
-            <summary>Have an invite or intro code?</summary>
-            <p class="muted">An invite adds 3 checks, an intro code a few, to a new API key, one that never had checks.
-              Create a key above (or paste one you just made), save it, then use the code.</p>
-            <label for="invite-input">Invite or intro code</label>
-            <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="ufi_… or a code like FRIENDS">
-            <button id="invite-redeem" type="button">Use code</button>
-            <p id="invite-status" role="status" aria-live="polite"></p>
-          </details>
-        </div>
+      <!-- New here: pay by card; the key is made for you and shown after paying. -->
+      <section id="panel-new" role="tabpanel" aria-labelledby="tab-new">
+        <button id="new-pay" class="primary large wide" type="button">Pay by card</button>
+        <p class="reassure-line">Secure checkout by our payment provider, Polar. Afterwards you get your own Unfret key:
+          no account and no password.</p>
+        <p id="new-status" class="small" role="status" aria-live="polite"></p>
       </section>
 
-      <section aria-labelledby="pay-heading">
-        <h2 id="pay-heading">3. Pay</h2>
-        <div id="card" hidden>
-          <h3>By card</h3>
-          <p class="muted">For API keys, through our payment provider: <span id="card-price"></span>,
-            <span id="card-tax"></span>.</p>
-          <button id="card-pay" class="primary" type="button">Pay by card</button>
-          <h3>Or with crypto</h3>
+      <!-- An intro code or invite: one click makes a key and adds the free checks. -->
+      <section id="panel-code" role="tabpanel" aria-labelledby="tab-code" hidden>
+        <h2 class="step">Have an invite or intro code?</h2>
+        <p class="muted">Someone shared a code like FRIENDS with you? It gives free checks to someone new to Unfret.</p>
+        <label class="visually-hidden" for="invite-input">Your code</label>
+        <div class="code-form">
+          <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="Your code, for example FRIENDS">
+          <button id="invite-redeem" class="primary" type="button">Get my free checks</button>
+        </div>
+        <p id="invite-status" class="small" role="status" aria-live="polite"></p>
+        <p class="small muted">Signed in to the extension with a wallet? Use your code on the
+          <a href="/connect">sign-in page</a> instead.</p>
+      </section>
+
+      <!-- Bought before: top up the key you have. -->
+      <section id="panel-topup" role="tabpanel" aria-labelledby="tab-topup" hidden>
+        <label class="field" for="topup-key">Your Unfret key
+          <span class="muted small">It starts with ufk_. The 10-letter key ID works too.</span>
+        </label>
+        <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+        <p id="topup-status" class="small" role="status" aria-live="polite"></p>
+        <button id="topup-pay" class="primary large wide" type="button">Pay by card</button>
+        <details id="recover-box" class="invite">
+          <summary>Lost your key?</summary>
+          <p class="muted">Your recovery code (it starts with ufr_) gets you a new key with the same checks.</p>
+          <label class="visually-hidden" for="recovery-input">Recovery code</label>
+          <div class="code-form">
+            <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="ufr_…">
+            <button id="recover" type="button">Get a new key</button>
+          </div>
+          <p id="recover-status" class="small" role="status" aria-live="polite"></p>
+        </details>
+      </section>
+
+      <!-- Crypto: SOL or USDC, to a wallet or a key. -->
+      <section id="panel-crypto" role="tabpanel" aria-labelledby="tab-crypto" hidden>
+        <h2 class="step">Where should the checks go?</h2>
+        <fieldset class="choices" id="beneficiary">
+          <legend class="visually-hidden">Where the checks go</legend>
+          <label><input type="radio" name="for" value="wallet" checked> To my wallet
+            <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
+          <label><input type="radio" name="for" value="key"> To an Unfret key
+            <span class="muted">No wallet sign-in needed: in the extension, choose API key and paste it.</span></label>
+        </fieldset>
+        <div id="key-panel" hidden>
+          <label class="custom">Paste your key or its ID
+            <input id="key-input" autocomplete="off" spellcheck="false" placeholder="ufk_… or the 10-letter ID">
+          </label>
+          <p><button id="new-key" type="button">Make a new key</button></p>
+          <div id="key-reveal" hidden></div>
+          <label id="saved-row" hidden><input type="checkbox" id="saved"> I've saved my key and recovery code</label>
+          <p id="key-status" role="status" aria-live="polite"></p>
         </div>
 
+        <h2 class="step">Pay</h2>
         <div id="pay-setup">
           <fieldset class="currency" id="currency">
             <legend>Pay with</legend>
@@ -106,27 +122,23 @@
           </label>
         </div>
         <p id="summary"></p>
-
-        <!-- The payment's progress: waiting (with the QR code for a phone), received, still settling, or an error. -->
-        <div id="pay-panel" class="pay-panel" tabindex="-1" hidden>
-          <a id="pay-link" class="button primary" hidden>Pay in your wallet app</a>
-          <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
-          <div id="pay-message" role="status" aria-live="polite"></div>
-        </div>
-
         <div id="pay-options">
           <h3>With a wallet in this browser</h3>
           <div id="wallets" class="wallets"></div>
           <p id="no-wallets" class="muted">No Solana wallet found in this browser. Use your phone instead.</p>
-
           <h3 id="phone-heading">With a wallet on your phone</h3>
           <p id="phone-help">Scan with Phantom, Solflare or any wallet that supports Solana Pay.</p>
           <button id="qr-show" type="button">Show the QR code</button>
-
         </div>
       </section>
-    </div>
 
+      <!-- Progress and results: waiting for a payment, the new key, the pack's invites, or an error. -->
+      <div id="pay-panel" class="pay-panel" tabindex="-1" hidden>
+        <a id="pay-link" class="button primary" hidden>Pay in your wallet app</a>
+        <img id="qr" alt="Solana Pay QR code for this purchase" width="240" height="240" hidden>
+        <div id="pay-message" role="status" aria-live="polite"></div>
+      </div>
+    </div>
   </main>
 
   <footer class="site-footer">

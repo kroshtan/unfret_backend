@@ -18,8 +18,14 @@ measure too:
 uses features the quick tier doesn't compute (e.g. network lookups); until then the quick tier falls back to the
 full model, which ``tests/unit/test_x402_verdict.py`` checks.
 
-Each is a standardised logistic regression with its regularisation chosen by cross-validation on TRAIN, calibrated
-with isotonic regression on cross-validated TRAIN predictions, and scored once on TEST. The calibration reweights
+Each is a standardised logistic regression with its L2 regularisation chosen by cross-validation on TRAIN (the
+balanced log loss of the held-out folds), calibrated with isotonic regression on cross-validated TRAIN predictions,
+and scored once on TEST. Two guards keep it from learning how the corpus was collected rather than what a shop looks
+like: each coefficient is **sign-constrained** to the direction its feature can mean (:data:`FEATURE_SIGNS`), and a
+feature seen on fewer than :data:`MIN_SUPPORT` training pages gets no weight (one page is no evidence, and a pair of
+such columns let the fit trade huge opposite coefficients). A **source-prediction leakage test** checks, within each
+label, how well the features tell the corpus sources apart, and how the scorer does on the one source that holds
+both legit and scam pages. The calibration reweights
 the classes to a base rate of ``--prior`` (default 0.5): the corpus share of unreliable pages says how the corpus was
 collected, not how likely a page is to be unreliable, and left in it tilts every page towards "unreliable". A
 gradient-boosted model is reported for comparison only. The shipped artifact goes to
@@ -36,16 +42,24 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from scipy.optimize import minimize
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegressionCV
-from sklearn.metrics import brier_score_loss, roc_auc_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
 from evals.corpus import Corpus, LabelRecord, dump_json, is_product
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from unfret.graph import SKILLS
-from unfret.scoring import MODEL_PATH, MODEL_QUICK_PATH, Model, neutral_features
+from unfret.scoring import (
+    MODEL_PATH,
+    MODEL_QUICK_PATH,
+    Model,
+    neutral_features,
+    not_applicable_skills,
+    unavailable_skills,
+)
 from unfret.x402.verdict import QUICK_SKILLS
 
 UNRELIABLE = {"junk", "scam"}
@@ -73,6 +87,83 @@ EXCLUDED_SKILLS = {
     "brand_presence",
 }
 THRESHOLDS = (30, 40, 50)
+# The direction each feature may push the risk, from what it measures: +1 towards unreliable, -1 towards reliable.
+# The fit keeps every coefficient on its side of zero (or at zero). Unconstrained, it learned what happens to separate
+# this corpus: its legit shops carry more countdown timers, zero-width characters and fee wording than its scam shops
+# (archived ones too), and its US scam shops name an LLC more often than its legit ones, so a timer or hidden
+# characters read as signs of a good shop and a named company as a warning. Both are doubtful outside the corpus, and
+# the first kind is a free discount for any scam shop that adds a timer. Features left out are context that may go
+# either way (platform, rating, review counts and shares, title length, an irreversible method offered next to
+# others).
+FEATURE_SIGNS: dict[str, int] = {
+    **dict.fromkeys(
+        [
+            "content.scam_copy",
+            "content.generic_product",
+            "content.implausible_claims",
+            "content.missing_trust_info",
+            "content.addresses_ai",
+            "content.title_word_soup",
+            "content.generic_brand",
+            "listing.generated_brand",
+            "listing.discount_pct",
+            "listing.keyword_stuffed",
+            "listing.seller_not_brand",
+            "listing.ships_from_china",
+            "reviews.log_reviews_per_day",
+            "reviews.j_shaped",
+            "reviews.duplicate_share",
+            "reviews.short_share",
+            "reviews.burst_share",
+            "reviews.title_similarity_mean",
+            "reviews.off_topic_share",
+            "html_source_signals.dropship_app",
+            "html_source_signals.supplier_trace",
+            "html_source_signals.review_import_app",
+            "html_source_signals.shipping_protection_app",
+            "html_source_signals.timer_app",
+            "dark_patterns.timer",
+            "dark_patterns.timer_resets",
+            "dark_patterns.preticked_addons",
+            "dark_patterns.fee_mentions",
+            "dark_patterns.checkout_markup_pct",
+            "injection.hidden_chars",
+            "injection.instruction_hidden",
+            "injection.instruction_visible",
+            "us_identity.mailbox_only",
+            "shop_policies.long_delivery",
+            "shop_policies.returns_abroad",
+            "shop_policies.return_address_withheld",
+            "shop_policies.restocking_fee_high",
+            "shop_policies.origin_doubt",
+            "payment_methods.irreversible_only",
+            "claims.origin_contradicted",
+            "claims.store_without_address",
+            "safety_gate.barcode_match",
+            "safety_gate.model_match",
+        ],
+        1,
+    ),
+    **dict.fromkeys(
+        [
+            "content.brand_recognized",
+            "eu_registry.vat_present",
+            "eu_registry.vat_valid",
+            "eu_registry.vat_name_match",
+            "eu_registry.withdrawal_right",
+            "eu_registry.imprint",
+            "us_identity.us_address",
+            "us_identity.business_entity",
+            "us_identity.us_phone",
+            "payment_methods.protected",
+        ],
+        -1,
+    ),
+}
+# A feature measured (non-zero) on fewer training pages than this gets no weight.
+MIN_SUPPORT = 5
+# The L2 strengths tried (sklearn's C: larger is weaker), the same range LogisticRegressionCV(Cs=12) searches.
+C_GRID = tuple(float(c) for c in np.logspace(-4, 4, 17))
 
 
 @dataclass
@@ -130,14 +221,91 @@ def build(records: Sequence[LabelRecord], features: dict[str, dict[str, float]],
     return Dataset(kept, x.reshape(len(kept), len(names)), y)
 
 
-def fit(train: Dataset, names: list[str], version: str, prior: float = 0.5) -> Model:
+def _balanced(y: np.ndarray) -> np.ndarray:
+    # sklearn's class_weight="balanced": each class weighs as much as the other in total.
+    share = float(y.mean())
+    return np.where(y == 1, 0.5 / share, 0.5 / (1 - share))
+
+
+def fit_logistic(
+    z: np.ndarray, y: np.ndarray, c: float, bounds: Sequence[tuple[float | None, float | None]]
+) -> tuple[np.ndarray, float]:
     """
-    Fit a standardised, cross-validated, isotonic-calibrated logistic regression.
+    An L2-regularised, class-balanced logistic regression with bounds on the coefficients.
+
+    Minimises ``c * sum(w * log loss) + ||coef||^2 / 2`` (sklearn's objective; the intercept is not penalised).
+
+    :param z: Standardised features.
+    :param y: Labels (1 = unreliable).
+    :param c: Inverse regularisation strength.
+    :param bounds: ``(low, high)`` per coefficient; ``None`` is unbounded, ``(0, 0)`` pins it to zero.
+    :return: The coefficients and the intercept.
+    """
+    w = _balanced(y) * c
+    sign = 2.0 * y - 1.0
+
+    def objective(theta: np.ndarray) -> tuple[float, np.ndarray]:
+        coef, intercept = theta[:-1], theta[-1]
+        margin = sign * (z @ coef + intercept)
+        loss = float(np.sum(w * np.logaddexp(0.0, -margin)) + 0.5 * coef @ coef)
+        g = -w * sign / (1.0 + np.exp(margin))  # d loss / d logit
+        return loss, np.append(z.T @ g + coef, g.sum())
+
+    result = minimize(
+        objective,
+        np.zeros(z.shape[1] + 1),
+        jac=True,
+        method="L-BFGS-B",
+        bounds=[*bounds, (None, None)],
+        options={"maxiter": 15_000},
+    )
+    return result.x[:-1], float(result.x[-1])
+
+
+def coefficient_bounds(
+    train: Dataset, names: list[str], signs: dict[str, int] | None = None, min_support: int = MIN_SUPPORT
+) -> list[tuple[float | None, float | None]]:
+    """
+    Each coefficient's bounds: zero for a feature with too little support, else its sign from :data:`FEATURE_SIGNS`.
+
+    :param train: The training data (NaN = never measured).
+    :param names: Its feature columns.
+    :param signs: Expected signs; :data:`FEATURE_SIGNS` by default, ``{}`` for none.
+    :param min_support: The fewest training pages a feature must be non-zero on to get weight.
+    :return: ``(low, high)`` per column.
+    """
+    signs = FEATURE_SIGNS if signs is None else signs
+    support = (np.nan_to_num(train.x) != 0).sum(axis=0)
+    bounds: list[tuple[float | None, float | None]] = []
+    for name, n in zip(names, support.tolist(), strict=True):
+        if n < min_support:
+            bounds.append((0.0, 0.0))
+        else:
+            bounds.append({1: (0.0, None), -1: (None, 0.0)}.get(signs.get(name, 0), (None, None)))
+    return bounds
+
+
+def fit(
+    train: Dataset,
+    names: list[str],
+    version: str,
+    prior: float = 0.5,
+    *,
+    signs: dict[str, int] | None = None,
+    min_support: int = MIN_SUPPORT,
+) -> Model:
+    """
+    Fit a standardised, sign-constrained, cross-validated, isotonic-calibrated logistic regression.
+
+    The L2 strength is the one whose held-out folds have the lowest class-balanced log loss: unlike AUC, which only
+    ranks, it punishes over-confident coefficients.
 
     :param train: The training data.
     :param names: Its feature columns.
     :param version: Version string for the artifact.
     :param prior: The base rate of unreliable pages the calibration assumes (the classes are reweighted to it).
+    :param signs: Expected coefficient signs (see :func:`coefficient_bounds`).
+    :param min_support: The fewest training pages a feature must be non-zero on to get weight.
     :return: The model.
     """
     means = np.nan_to_num(np.nanmean(train.x, axis=0)) if train.x.size else np.zeros(len(names))
@@ -145,16 +313,20 @@ def fit(train: Dataset, names: list[str], version: str, prior: float = 0.5) -> M
     scales = x.std(axis=0)
     scales[scales == 0] = 1.0
     z = (x - means) / scales
-    folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=7)
-    lr = LogisticRegressionCV(Cs=12, cv=folds, scoring="roc_auc", max_iter=5_000, class_weight="balanced")
-    lr.fit(z, train.y)
-    raw = cross_val_predict(
-        LogisticRegressionCV(Cs=[float(lr.C_[0])], cv=3, max_iter=5_000, class_weight="balanced"),
-        z,
-        train.y,
-        cv=folds,
-        method="predict_proba",
-    )[:, 1]
+    bounds = coefficient_bounds(train, names, signs, min_support)
+    folds = list(StratifiedKFold(n_splits=5, shuffle=True, random_state=7).split(z, train.y))
+    best: tuple[float, float, np.ndarray] | None = None
+    for c in C_GRID:
+        held_out = np.zeros(len(train.y))
+        for fit_idx, val_idx in folds:
+            coef, intercept = fit_logistic(z[fit_idx], train.y[fit_idx], c, bounds)
+            held_out[val_idx] = 1 / (1 + np.exp(-(z[val_idx] @ coef + intercept)))
+        loss = float(log_loss(train.y, held_out, sample_weight=_balanced(train.y)))
+        if best is None or loss < best[0] - 1e-9:
+            best = (loss, c, held_out)
+    assert best is not None
+    _, c, raw = best
+    coef, intercept = fit_logistic(z, train.y, c, bounds)
     share = float(train.y.mean())
     weights = np.where(train.y == 1, prior / share, (1 - prior) / (1 - share))
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(raw, train.y, sample_weight=weights)
@@ -164,8 +336,8 @@ def fit(train: Dataset, names: list[str], version: str, prior: float = 0.5) -> M
         features=names,
         means=means.tolist(),
         scales=scales.tolist(),
-        coefficients=lr.coef_[0].tolist(),
-        intercept=float(lr.intercept_[0]),
+        coefficients=[round(float(v), 6) + 0.0 for v in coef],
+        intercept=float(intercept),
         calibration=[(round(a, 6), round(b, 6)) for a, b in points],
     )
 
@@ -263,6 +435,88 @@ def gbm_auc(train: Dataset, test: Dataset) -> float:
     return round(float(roc_auc_score(test.y, gbm.predict_proba(test.x)[:, 1])), 4)
 
 
+def _standardise(x: np.ndarray) -> np.ndarray:
+    means = np.nan_to_num(np.nanmean(x, axis=0)) if x.size else np.zeros(x.shape[1])
+    x = np.where(np.isnan(x), means, x)
+    scales = x.std(axis=0)
+    scales[scales == 0] = 1.0
+    return np.asarray((x - means) / scales)
+
+
+def source_leakage(
+    records: Sequence[LabelRecord], features: dict[str, dict[str, float]], names: list[str], model: Model
+) -> dict[str, Any]:
+    """
+    The source-prediction leakage test: whether the features say where a page came from rather than what it is.
+
+    Three checks over the storefront pages (the marketplace pages all come from one source):
+
+    - **source**: within one label, how well a logistic regression on the features tells each source from the
+      others (cross-validated AUC; 0.5 = not at all), with its strongest features. A source holding only one label
+      (live = legit, dataset = scam) makes every such feature a shortcut to the label.
+    - **applicability**: for each skill that doesn't apply to some pages (``not_applicable``: no EU rules on a US
+      shop, no US identity on an EU one), the label AUC of "it applied" alone. A high one means the market itself
+      predicts the label in this corpus, and a fit can rebuild it from near-empty columns (their means differ from
+      zero only where the skill ran).
+    - **within source**: the model's TEST AUC on each source holding both labels, where the source can't help.
+
+    :param records: The labelled TRAIN and TEST records.
+    :param features: Features by record id.
+    :param names: The feature columns.
+    :param model: The model to check within each source.
+    :return: The three checks.
+    """
+    stores = [r for r in records if r.page_type == "storefront" and r.id in features]
+    by_label: dict[str, list[LabelRecord]] = {}
+    for r in stores:
+        assert r.label is not None
+        by_label.setdefault(r.label, []).append(r)
+    source: list[dict[str, Any]] = []
+    for label, group in sorted(by_label.items()):
+        sources = sorted({r.source for r in group})
+        # Each source against the rest; with two sources one comparison says it all.
+        for src in (sources if len(sources) > 2 else sources[:1]) if len(sources) > 1 else []:
+            data = build(group, features, names)
+            y = np.array([1 if r.source == src else 0 for r in data.records])
+            if min(int(y.sum()), int(len(y) - y.sum())) < 20:
+                continue
+            z = _standardise(data.x)
+            lr = LogisticRegression(C=0.3, max_iter=5_000, class_weight="balanced")
+            folds = StratifiedKFold(n_splits=5, shuffle=True, random_state=7)
+            held_out = cross_val_predict(lr, z, y, cv=folds, method="predict_proba")[:, 1]
+            coef = lr.fit(z, y).coef_[0]
+            top = sorted(zip(names, coef.tolist(), strict=True), key=lambda t: -abs(t[1]))[:5]
+            others = "+".join(s for s in sources if s != src)
+            source.append(
+                {
+                    "label": label,
+                    "source": f"{src} vs {others}",
+                    "pages": [int(y.sum()), int(len(y) - y.sum())],
+                    "auc": round(float(roc_auc_score(y, held_out)), 3),
+                    "top": [(n, round(c, 2)) for n, c in top],
+                }
+            )
+    y_label = np.array([1 if r.label in UNRELIABLE else 0 for r in stores])
+    applicability: dict[str, float] = {}
+    for skill in sorted({n.split(".", 1)[0] for n in names}):
+        measured = np.array(
+            [skill not in unavailable_skills(features[r.id]) | not_applicable_skills(features[r.id]) for r in stores],
+            dtype=float,
+        )
+        if 0 < measured.sum() < len(measured) and len(set(y_label.tolist())) == 2:
+            applicability[skill] = round(float(roc_auc_score(y_label, measured)), 3)
+    within: dict[str, Any] = {}
+    test = [r for r in records if r.split == "test" and r.id in features]
+    for src in sorted({r.source for r in test}):
+        group = [r for r in test if r.source == src]
+        if len({r.label in UNRELIABLE for r in group}) == 2:
+            within[src] = {
+                "pages": len(group),
+                "roc_auc": roc_auc(outcomes(model, build(group, features, names), names)),
+            }
+    return {"source": source, "applicability": applicability, "within_source": within}
+
+
 def top_coefficients(model: Model, n: int = 12) -> list[tuple[str, float]]:
     """
     The largest coefficients by magnitude (on standardised features).
@@ -338,6 +592,16 @@ def to_markdown(report: dict[str, Any]) -> str:
             f"- **{name}**: {variant['description']}; train n={variant['train_n']}, "
             f"GBM AUC {variant['gbm_auc']}; top coefficients {variant['top']}"
         )
+    lines += ["", "## Source-prediction leakage test (storefronts)", ""]
+    leakage = report.get("leakage", {})
+    for row_ in leakage.get("source", []):
+        lines.append(
+            f"- {row_['label']}: {row_['source']} (pages {row_['pages']}): source AUC {row_['auc']}; top {row_['top']}"
+        )
+    if leakage.get("applicability"):
+        lines.append(f"- label AUC of a skill applying at all (market proxy): {leakage['applicability']}")
+    if leakage.get("within_source"):
+        lines.append(f"- TEST AUC within one source: {leakage['within_source']}")
     lines += ["", f"Shipped: {report['shipped']}"]
     return "\n".join(lines) + "\n"
 
@@ -391,6 +655,10 @@ def main() -> None:
         }
     test_ids = {r.id for r in build(test_records, features, names).records}
     report["judge"] = judge_baseline(corpus, test_ids, path)
+    leak_key = "C" if args.ship == "none" else args.ship
+    report["leakage"] = source_leakage(
+        [r for r in labelled if r.label_source != "rule"], features, models[leak_key].features, models[leak_key]
+    )
     report["shipped"] = "none" if args.ship == "none" else models[args.ship].version
 
     if args.ship != "none":

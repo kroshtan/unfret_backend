@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+* Hidden buttons stayed visible: the new button style (`display: inline-flex`) beat the `hidden` attribute, so checkout showed "Pay in your wallet app" above a card or code result. `[hidden]` now always hides
+
 ### Changed
 
 * **Buy checks is four short paths instead of one long form.** Tabs: **Buy checks** (pick a pack, one "Pay $6.00 by card" button: the key is made just before the card checkout and shown after paying, with Copy buttons and how to use it), **I have a code** (one field and "Get my free checks": a new key is made and the invite or intro code redeemed in one click), **Top up my key** (paste the key, pay by card; "Lost your key?" with the recovery code lives here) and **Pay with crypto** (the wallet/key, SOL/USDC, country, wallet and QR flow as before). Before, a new buyer had to make a key, save two codes and tick a box before "Pay by card" even turned on, and a code took six steps. A key made on the page waits in the browser until its owner confirms saving it (so the card provider's round trip or a closed tab can't lose it) and signs in `/check` if nothing else is. `?mode=new|code|topup|crypto` picks a tab; `?code=` opens the code tab, `?for=wallet` (or a wallet signed in) the crypto tab

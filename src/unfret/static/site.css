@@ -85,6 +85,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Hidden means hidden, whatever display a component's style gives (buttons are inline-flex). */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {

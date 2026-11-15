@@ -174,8 +174,9 @@ class Settings(BaseSettings):
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
-    # Where /extension sends people to install the extension.
+    # Where the home page and /extension send people to install the extension.
     chrome_store_url: str = "https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo"
+    firefox_store_url: str = "https://addons.mozilla.org/en-US/firefox/addon/unfret/"
     solana_network: Literal["solana-devnet", "solana-mainnet"] = "solana-devnet"
     solana_rpc_url: str = "https://api.devnet.solana.com"
     # Mainnet stays refused until this is set deliberately.

@@ -498,7 +498,9 @@ label { color: var(--ink-2); }
 /* Pricing. */
 .pricing { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.25rem; align-items: stretch; }
 .prices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
-.prices li {
+.prices li { display: flex; }
+.prices a {
+  flex: 1;
   display: grid;
   gap: 0;
   align-content: center;
@@ -507,13 +509,20 @@ label { color: var(--ink-2); }
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+  color: var(--ink);
   text-align: center;
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
+.prices a:hover { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow); }
+@media (prefers-reduced-motion: no-preference) { .prices a:hover { transform: translateY(-2px); } }
+.prices .choose { margin-top: 0.7rem; color: var(--brand-ink); font-weight: 650; font-size: 0.9rem; }
+.prices .choose::after { content: " →"; }
 .prices .n { font-size: 1.6rem; font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; }
 .prices .unit { color: var(--muted); font-size: 0.85rem; }
 .prices .card-price { margin-top: 0.75rem; font-weight: 650; font-size: 1.1rem; }
 .prices .crypto-price { color: var(--muted); font-size: 0.85rem; }
-.prices li.featured { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow-sm); }
+.prices li.featured a { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow-sm); }
 .code-box {
   padding: 1.35rem 1.35rem 1.25rem;
   border: 1px solid var(--line);
@@ -526,7 +535,7 @@ label { color: var(--ink-2); }
 .code-form input { flex: 1; min-width: 0; text-transform: uppercase; letter-spacing: 0.04em; }
 .code-form input::placeholder { text-transform: none; letter-spacing: 0; }
 @media (max-width: 56rem) { .pricing { grid-template-columns: 1fr; } }
-@media (max-width: 30rem) { .prices { gap: 0.5rem; } .prices li { padding: 0.9rem 0.5rem; } .prices .crypto-price { font-size: 0.78rem; } }
+@media (max-width: 30rem) { .prices { gap: 0.5rem; } .prices a { padding: 0.9rem 0.5rem; } .prices .crypto-price { font-size: 0.78rem; } }
 
 /* Private by design. */
 .promises { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 0; padding: 0; list-style: none; }

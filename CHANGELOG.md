@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* The home page's price tiles are links: each opens checkout with that pack selected (`/checkout?checks=25`), with a "Choose →" line and a hover state
+
 ### Bug fixes
 
 * **A deploy no longer shows a new page with an old stylesheet**: files under `/static/` are now served with `Cache-Control: no-cache`, so Cloudflare and browsers check with the server before reusing them (an unchanged file is still reused after a quick ETag check). Before, Cloudflare kept them for up to 4 hours, and 0.10.3's new home page came out with 0.10.2's styles

@@ -4,6 +4,7 @@ Run the analysis graph over the labelled corpus and report how well it separates
 Usage::
 
     uv run python -m evals.run [--limit N] [--split test|train|all] [--record | --replay] [--skills ...] [--with-url]
+        [--class product|p2p_listing|service_site|service_listing ...]
 
 ``--record`` (the default) calls the LLM on cache misses and stores every response in the corpus's
 ``llm_cache.sqlite``; ``--replay`` serves only cached responses and fails any page that would need a new call, so
@@ -14,6 +15,11 @@ which tells the model whether a scam domain has since died rather than anything 
 search is paid per search. URLs are withheld for the same reason unless ``--with-url`` is given. Embeddings are
 recorded and replayed like LLM responses. Each page's skill features are written next to the report, for training
 the scorer.
+
+``--class`` picks the page classes to score (default ``product``: the product pages, exactly as before). The new
+classes (``p2p_listing``, ``service_site``, ``service_listing``) run with ``UNFRET_EXPANSION_CLASSES`` on, get their
+metrics per class, and write their reports to ``<corpus>/reports/<classes>/`` so product reports, ``latest.md`` and
+the product scorer's training input are never mixed with them.
 """
 
 import argparse
@@ -23,13 +29,14 @@ import json
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
+from pathlib import Path
 
 import structlog
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.globals import set_llm_cache
 from pydantic import SecretStr
 
-from evals.corpus import Corpus, LabelRecord, dump_json
+from evals.corpus import PAGE_CLASSES, PRODUCT_CLASS, Corpus, LabelRecord, dump_json, page_class
 from evals.embedding_cache import CachedEmbeddings
 from evals.llm_cache import SQLiteLLMCache
 from evals.metrics import Outcome, summarise, to_markdown
@@ -136,6 +143,59 @@ async def evaluate(
     return outcomes
 
 
+def per_class(outcomes: list[Outcome], classes: dict[str, str]) -> dict[str, dict[str, object]]:
+    """
+    The full metrics summary per page class.
+
+    :param outcomes: Pipeline results.
+    :param classes: Each outcome's page class, by record id.
+    :return: ``{class: summary}`` for every class with outcomes.
+    """
+    grouped: dict[str, list[Outcome]] = defaultdict(list)
+    for o in outcomes:
+        grouped[classes.get(o.id, PRODUCT_CLASS)].append(o)
+    return {cls: summarise(members) for cls, members in sorted(grouped.items())}
+
+
+def per_class_markdown(summaries: dict[str, dict[str, object]]) -> str:
+    """
+    One Markdown section per page class.
+
+    :param summaries: Output of :func:`per_class`.
+    :return: Markdown text (empty for no classes).
+    """
+    return "".join(
+        "\n#" + to_markdown(summary, f"Class {cls}").replace("\n## ", "\n### ") for cls, summary in summaries.items()
+    )
+
+
+def write_reports(
+    reports: Path, report: dict[str, object], outcomes: list[Outcome], page_features: dict[str, dict[str, float]]
+) -> str:
+    """
+    Write a run's report (JSON and Markdown, also as ``latest.md``), outcomes and per-page features.
+
+    :param reports: The report directory (created if needed).
+    :param report: The summary, with ``per_class`` when the run scored new page classes.
+    :param outcomes: Pipeline results.
+    :param page_features: Each scored page's skill features.
+    :return: The Markdown report.
+    """
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    reports.mkdir(parents=True, exist_ok=True)
+    dump_json(reports / f"{stamp}.json", report)
+    markdown = to_markdown(report, f"Unfret evaluation {stamp} ({report['mode']}, {settings.llm_model})")
+    if "per_class" in report:
+        markdown += per_class_markdown(report["per_class"])  # type: ignore[arg-type]
+    (reports / f"{stamp}.md").write_text(markdown)
+    (reports / "latest.md").write_text(markdown)
+    (reports / f"{stamp}-outcomes.jsonl").write_text("".join(json.dumps(o.__dict__) + "\n" for o in outcomes))
+    (reports / f"{stamp}-features.jsonl").write_text(
+        "".join(json.dumps({"id": i, "features": f}) + "\n" for i, f in sorted(page_features.items()))
+    )
+    return markdown
+
+
 def main() -> None:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
@@ -147,7 +207,16 @@ def main() -> None:
     parser.add_argument("--with-url", action="store_true")
     parser.add_argument("--split", choices=["test", "train", "all"], default="test", help="which split to score")
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument(
+        "--class",
+        dest="classes",
+        nargs="+",
+        choices=PAGE_CLASSES,
+        default=[PRODUCT_CLASS],
+        help="page classes to score (default: product pages only)",
+    )
     args = parser.parse_args()
+    product_only = args.classes == [PRODUCT_CLASS]
 
     corpus = Corpus()
     set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
@@ -157,6 +226,8 @@ def main() -> None:
     # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
     # turning them into "skill unavailable" findings or failed pages.
     settings.llm_max_retries = max(settings.llm_max_retries, 6)
+    if not product_only:
+        settings.expansion_classes = True  # the new classes' subgraphs only run with the flag on
     llm.get_llm.cache_clear()
     if args.replay and not settings.llm_api_key.get_secret_value():
         # The client refuses to start without a key; in replay mode it never sends one.
@@ -168,7 +239,11 @@ def main() -> None:
         )
     )
 
-    labelled = [r for r in corpus.labels().values() if r.label and args.split in {"all", r.split}]
+    labelled = [
+        r
+        for r in corpus.labels().values()
+        if r.label and args.split in {"all", r.split} and page_class(r) in args.classes
+    ]
     records = select(labelled, args.limit)
     logger.info("eval_start", pages=len(records), skills=args.skills, replay=args.replay)
     page_features: dict[str, dict[str, float]] = {}
@@ -182,18 +257,14 @@ def main() -> None:
     report["split"] = args.split
     report["model"] = settings.llm_model
     report["pages_with_unavailable_skills"] = [{"id": o.id, "note": o.note} for o in outcomes if o.note]
+    if not product_only:
+        report["classes"] = args.classes
+        report["per_class"] = per_class(outcomes, {r.id: page_class(r) for r in records})
 
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     reports = corpus.root / "reports"
-    reports.mkdir(exist_ok=True)
-    dump_json(reports / f"{stamp}.json", report)
-    markdown = to_markdown(report, f"Unfret evaluation {stamp} ({report['mode']}, {settings.llm_model})")
-    (reports / f"{stamp}.md").write_text(markdown)
-    (reports / "latest.md").write_text(markdown)
-    (reports / f"{stamp}-outcomes.jsonl").write_text("".join(json.dumps(o.__dict__) + "\n" for o in outcomes))
-    (reports / f"{stamp}-features.jsonl").write_text(
-        "".join(json.dumps({"id": i, "features": f}) + "\n" for i, f in sorted(page_features.items()))
-    )
+    if not product_only:
+        reports = reports / "-".join(sorted(args.classes))
+    markdown = write_reports(reports, report, outcomes, page_features)
     print(markdown)  # noqa: T201 - command-line report
 
 

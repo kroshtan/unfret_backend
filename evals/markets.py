@@ -39,7 +39,7 @@ from typing import Any
 
 from sklearn.metrics import brier_score_loss
 
-from evals.corpus import UNRELIABLE, Corpus, LabelRecord, dump_json
+from evals.corpus import UNRELIABLE, Corpus, LabelRecord, dump_json, is_product
 from evals.metrics import Outcome, roc_auc
 from evals.train import RULE_MIRRORS, build, feature_names, fit, load_features, write_artifact
 from unfret import scoring, shopper
@@ -257,7 +257,7 @@ async def main_async(args: argparse.Namespace) -> None:
     reports = corpus.root / "reports"
     path = args.features or max(reports.glob("*Z-features.jsonl"), key=lambda p: p.stat().st_mtime)
     old = load_features(path)
-    labelled = [r for r in corpus.labels().values() if r.label and r.split in {"train", "test"}]
+    labelled = [r for r in corpus.labels().values() if is_product(r) and r.label and r.split in {"train", "test"}]
     pages = list(await asyncio.gather(*(recompute(corpus, r, old.get(r.id)) for r in labelled)))
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     # Two files: the run's pages (every skill, for the full model) and all pages (the quick skills are complete).

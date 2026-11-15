@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops new-classes markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -55,6 +55,15 @@ corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 
 eu-shops:  ## Add legitimate EU shops to the corpus, fetched live (robots.txt respected; no LLM calls)
 	uv run python -m evals.sources.eu_shops
+
+new-classes:  ## Collect labelled p2p and service pages (pattern sources, synthetic, ACM, OSM), then second opinion and split
+	uv run python -m evals.sources.patterns
+	uv run python -m evals.sources.p2p_ads
+	uv run python -m evals.sources.service_pages
+	uv run python -m evals.sources.acm_traders
+	uv run python -m evals.sources.osm_trades
+	for c in p2p_listing service_site service_listing; do uv run python -m evals.second_opinion --class $$c; done
+	uv run python -m evals.split
 
 markets:  ## Per-market metrics (EU, US, other) of the shipped scorers; no LLM calls (MARKETS_ARGS="--train")
 	uv run python -m evals.markets $(MARKETS_ARGS)

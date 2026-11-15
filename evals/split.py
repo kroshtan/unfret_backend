@@ -9,6 +9,8 @@ The corpus is also training data for the feature scorer, so the test set must me
 - Within each label × source stratum, eligible items are ordered by a seeded hash of their id and the first
   ``test_fraction`` go to test, so the split is stratified, reproducible, and independent of file order.
 - Unlabelled items get no split.
+- The new page classes (``p2p_listing``, ``service_site``, ``service_listing``) are stratified per class as well, so
+  adding them never moves a product page between train and test.
 
 Re-run after labels change (``make split``); the result depends only on the labels and the seed.
 
@@ -21,7 +23,7 @@ from collections import Counter, defaultdict
 
 import structlog
 
-from evals.corpus import Corpus, LabelRecord, dump_json
+from evals.corpus import PRODUCT_CLASS, Corpus, LabelRecord, dump_json, page_class
 
 logger = structlog.get_logger("unfret.evals")
 
@@ -44,13 +46,14 @@ def assign_splits(records: list[LabelRecord], test_fraction: float, seed: str) -
     :param seed: Seed for the ordering hash.
     :return: The records with ``split`` set (``None`` for unlabelled ones).
     """
-    strata: dict[tuple[str, str], list[LabelRecord]] = defaultdict(list)
+    strata: dict[tuple[str, ...], list[LabelRecord]] = defaultdict(list)
     out: dict[str, LabelRecord] = {}
     for r in records:
         if r.label is None:
             out[r.id] = r.model_copy(update={"split": None})
         elif r.label_source in TEST_ELIGIBLE:
-            strata[(r.label, r.source)].append(r)
+            cls = page_class(r)
+            strata[(r.label, r.source) if cls == PRODUCT_CLASS else (cls, r.label, r.source)].append(r)
         else:
             out[r.id] = r.model_copy(update={"split": "train"})
     for members in strata.values():
@@ -62,8 +65,12 @@ def assign_splits(records: list[LabelRecord], test_fraction: float, seed: str) -
 
 
 def split_counts(records: list[LabelRecord]) -> dict[str, int]:
-    """Counts per ``split/label/label_source/source``, for reports."""
-    counts = Counter(f"{r.split}/{r.label}/{r.label_source}/{r.source}" for r in records)
+    """Counts per ``split/label/label_source/source`` (prefixed ``class:`` for the new page classes), for reports."""
+    counts = Counter(
+        ("" if page_class(r) == PRODUCT_CLASS else f"{page_class(r)}:")
+        + f"{r.split}/{r.label}/{r.label_source}/{r.source}"
+        for r in records
+    )
     return dict(sorted(counts.items()))
 
 

@@ -30,6 +30,12 @@
 
 * **Unfret is on Firefox too.** The home page (hero and closing section) and `/extension` now offer "Add to Chrome" and "Add to Firefox" side by side, with "Check a link instead" as the quieter option; `/extension` says which browsers each store serves (Chrome Web Store: Chrome, Brave, Edge, Vivaldi, Opera; Firefox Add-ons: Firefox) and no longer says Firefox is on its way. The Firefox link comes from `UNFRET_FIREFOX_STORE_URL` (default the Unfret listing on addons.mozilla.org), filled in like the Chrome one
 
+### Development
+
+* **Automatic labels for the new page classes** (`p2p_listing`, `service_site`, `service_listing`), so their verdicts can be measured and later trained, without hand labelling. New collectors in `evals/sources/`: `patterns` (scam and normal patterns, each tied to the public pages that document it: Fraudehelpdesk, the Marktplaats safety centre, ACM, Consumentenbond, Kassa, FTC; fetched with robots.txt respected to confirm them, only the verdict is kept), `p2p_ads` (synthetic ads for Marktplaats, 2dehands, eBay private sellers, Vinted, Craigslist and Facebook Marketplace built from the confirmed patterns, since those platforms' robots.txt or terms forbid collecting real ads; never a seller's name), `service_pages` (synthetic service sites and Werkspot/Thumbtack profiles, NL and US), `acm_traders` (the rogue locksmith and plumber sites named in ACM's KeyService, Allfree and Leadle decisions, from the Internet Archive) and `osm_trades` (trade businesses on OpenStreetMap whose domain the Internet Archive has seen since before 2015, their 2020 home page). Synthetic pages say so in `source` and `notes`. `make new-classes` runs them all
+* The second opinion has a rubric per new class and is strict there: a page keeps its label only when the labeller confidently agrees, anything else drops the label with the reason in `notes` (`reports/<class>/second_opinion.json` counts kept and dropped pages); nothing of theirs is queued for a human. `--class` limits a run to one class
+* `evals.run --class p2p_listing service_site …` scores the new classes with `UNFRET_EXPANSION_CLASSES` on and reports metrics per class under `reports/<classes>/`. Product runs, metrics, reports, training (`evals.train`, `evals.markets`, `evals.us_market`) and the product train/test split only ever see product pages; the new classes have their own split strata
+
 ## [0.10.5](https://github.com/kroshtan/unfret_backend/compare/0.10.4...0.10.5) (2026-11-15)
 
 ### Bug fixes

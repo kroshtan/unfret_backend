@@ -1271,8 +1271,9 @@
       "type": "string"
      },
      "testimonials": {
+      "description": "Testimonials on a service company's own site.",
       "items": {
-       "type": "string"
+       "$ref": "#/components/schemas/Testimonial"
       },
       "maxItems": 50,
       "title": "Testimonials",
@@ -1956,6 +1957,19 @@
       ],
       "title": "Seller Type",
       "type": "string"
+     },
+     "years_in_business": {
+      "anyOf": [
+       {
+        "maximum": 200.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Years In Business"
      }
     },
     "title": "SellerProfile",
@@ -2456,6 +2470,50 @@
      "page_url"
     ],
     "title": "ShowcaseSummary",
+    "type": "object"
+   },
+   "Testimonial": {
+    "description": "A testimonial a service company publishes on its own site: its own content, read as it is shown.\n\nThe name is only what the site prints next to it (\"Jan, Utrecht\"); used during the check only.",
+    "properties": {
+     "name": {
+      "default": "",
+      "maxLength": 100,
+      "title": "Name",
+      "type": "string"
+     },
+     "posted": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Posted"
+     },
+     "rating": {
+      "anyOf": [
+       {
+        "maximum": 5.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating"
+     },
+     "text": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "title": "Testimonial",
     "type": "object"
    },
    "ValidationError": {

@@ -36,14 +36,15 @@ flowchart LR
         S2[skills for ads] --> J2[interim judge]
     end
     subgraph SV [service subgraph]
-        S3[skills for service providers] --> J3[interim judge]
+        S3[skills for service providers] --> T3{triage<br/><sub>rules</sub>} --> J3[judge<br/><sub>hand-written rules</sub>]
     end
 ```
 
 Preprocessing parses the page once into typed **`PageFacts`** (title, brand, prices, seller, rating histogram, dated
 reviews, hidden text, checkboxes, timers, VAT IDs, policy links, and the business facts: public product IDs,
 payment methods, published phone numbers and e-mail addresses, addresses, KvK and licence numbers, founding claims,
-Organization/LocalBusiness data, same-site links, …); a browser extension can send them directly (`page_facts`).
+Organization/LocalBusiness data, same-site links, a service company's testimonials, a platform profile's track
+record, …); a browser extension can send them directly (`page_facts`).
 Contacts and addresses are read only from what the business publishes (structured data, `tel:`/`mailto:` links, the
 footer and contact, legal or imprint sections), never from forms, account menus, checkout or delivery areas, so
 nothing about the visitor ends up in the facts (`facts/business.py`). Each skill reads the facts and reports numeric
@@ -61,9 +62,19 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
   or a private seller on eBay) and **service** (`service_listing`: a provider's profile on Werkspot, Thumbtack, Angi,
   HomeAdvisor, …; `service_site`: a service company's own website). These exist only while
   `UNFRET_EXPANSION_CLASSES` is on (default **off**: classification is then exactly as before, and such pages are
-  treated as they always were). Their judge is an interim one: no trained scorer yet, so never "looks fine", only
-  "a few things to check" (or "some warning signs" when a skill found something serious), with a headline that says
-  the checks are new. Expensive skills run there only when the caller asks for them.
+  treated as they always were). No scorer is trained for them yet. The ads' judge is an interim one: never "looks
+  fine", only "a few things to check" (or "some warning signs" when a skill found something serious), with a
+  headline that says the checks are new; expensive skills run there only when the caller asks for them. The service
+  providers get a full verdict from cautious hand-written rules (`graph/services.py`), for the Netherlands and the
+  US: "many warning signs" only for the combinations behind fake local businesses (town landing pages without an
+  address plus links to other sites with the same phone numbers or tracking IDs; a premium-rate number plus payment
+  up front or cash only; copied photos plus one of those or a brand-new site), "some warning signs" for one serious
+  or two medium signals, "looks fine" only with concrete positives (an established domain, a complete identity
+  with KvK or licence number, a street address, no doorway pattern, no upfront or cash-only terms; on a platform,
+  two years and twenty reviews averaging four stars), and "a few things to check" otherwise. Their triage runs the
+  photo search, by rules, when the cheap skills found something copied photos would confirm. No register is looked
+  up (no KvK API, Companies House or state licence boards): the signals come from the page itself, the
+  fingerprint store and the photo index, plus VIES for a VAT number. Their results carry no share token.
 
 Classification is rules first. A known marketplace's product page (Amazon, bol.com, Walmart) or a page with a
 product and a price is settled from the facts. With the expansion classes on, a host and path table
@@ -92,14 +103,19 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs; a "since 1998" / "founded 20 years ago" claim about the shop itself on a domain younger than a year by both measures (claims vs facts) |
-| `shop_links` | Storefronts and service sites (looked up; only shops are recorded): other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
+| `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Local lookup, also in the quick tier; not in the scorer yet |
 | `payment_methods` | Storefronts: only payments that can't be reversed (bank transfer, crypto, Western Union, MoneyGram; gift cards don't count alone) and no card, PayPal, iDEAL, Klarna or other protected method in the text, logo alt texts or a payment provider's script (Shopify shops never: their checkout takes cards); protected methods offered (a positive). Not in the scorer yet |
 | `claims` | Storefronts: claims against the facts: "a Dutch company", "family business in Amsterdam", "based in Germany" while every address the shop gives is in another country (told from the address text: country names, Dutch postcodes, US state and ZIP, UK postcodes; no geocoding); "visit our showroom" with no address, postcode or phone number anywhere. Not in the scorer yet |
 | `market_price` | Product pages with a barcode (GTIN/EAN): the price against each other shop's median price for the same barcode over 90 days, from Unfret's own anonymous observations (`unfret.market_prices`); far below means at most 40% of the median of at least three other shops in the same currency. Off in evaluation; not in the scorer yet |
 | `review_copies` | Product pages: the longer reviews (60+ characters, 10+ words) whose normalised text other shops show too, from the review fingerprint store (`unfret.review_store`: hashes only). Told to the shopper only for an unknown brand with other resale signs, since brands syndicate reviews to their resellers. Off in evaluation; not in the scorer yet |
 | `brand_presence` | Product pages: the brand on Wikidata (a business or brand item with that label or alias) and its own `<brand>.com`/`.nl` in RDAP (registered, and how long ago), both cached as store-level facts. "No presence" is told to the shopper only on marketplace listings with other white-label signs. A network lookup: off in evaluation; not in the scorer yet |
 | `safety_gate` | Product pages: the product in the EU Safety Gate alerts (dangerous non-food products), from the vendored index: the barcode exactly, or the brand and a whole model number (5+ characters with a letter and a digit, or 6+ digits) in the title, model, MPN or SKU. Local; not in the scorer yet |
-| `reverse_image` | Every class (outside products only when asked for): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
+| `service_identity` | Service sites, NL and US: what the site says about who it is. NL: a KvK number (Dutch businesses must show it on their website) of eight digits, a VAT number, the company name and legal form, a street address; US: the company name, a street address, and a licence number when the site says it is licensed ("says licensed but shows no licence number", never "unlicensed"); two different company names on one site. Nothing is looked up |
+| `doorway_pages` | Service sites: landing pages for five or more towns ("Loodgieter Utrecht", "Plumber Austin", from the site's own links) with no street address, and whether its only number is a central one (national, toll-free, premium): the classic fake local business |
+| `service_terms` | Service sites and profiles: payment in full or a deposit of half or more before the work, cash only, a call-out fee of (almost) nothing, a price set only on the doorstep, prices only on request, "24/7, there within 30 minutes", a premium-rate (0900, 1-900) number; a written quote or fixed price as the positive |
+| `testimonials` | Service sites and profiles: testimonials (on a platform, its reviews) that repeat each other with a town or name swapped, all 5 stars, repeated or placeholder names, dates within a week |
+| `platform_profile` | Platform profiles (Werkspot, Thumbtack, Angi, …): member since, jobs completed, rating and count, badges, response rate, as the platform shows them |
+| `reverse_image` | Every class (p2p only when asked for; service providers when their triage's rules call for it, on the first photo that isn't a logo): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
 
 The skills from `payment_methods` on (and `domain_age`'s founding claim, `shop_links`'s shared address) report new
 features that the shipped scorer doesn't use: they reach the shopper as reasons and positives, and the scores stay

@@ -48,9 +48,13 @@ async def clear_alerts(request: Request) -> dict[str, Any]:
 
 
 class ForgetContact(BaseModel):
-    """A merchant's contact detail to remove from the fingerprint store (sent in plaintext, never stored)."""
+    """
+    A merchant's contact detail to remove from the fingerprint store (sent in plaintext, never stored).
 
-    kind: Literal["email", "phone", "address"]
+    A phone number with its country code (``+31 30 234 5678``), as service sites' numbers are stored that way.
+    """
+
+    kind: Literal["email", "phone", "address", "email_domain"]
     value: str = Field(min_length=3, max_length=300)
 
 
@@ -68,6 +72,11 @@ async def forget_shop(domain: str) -> dict[str, Any]:
     return {"domain": target, "removed": removed}
 
 
+def _email_domain(value: str) -> str | None:
+    domain = value.strip().lstrip("@").lower()
+    return domain if "." in domain and "@" not in domain else None
+
+
 @router.post("/contacts/forget")
 async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     """
@@ -77,7 +86,12 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
     :return: How many shop links were removed.
     :raises HTTPException: 422 if it isn't a valid address or number, 503 without a contact key.
     """
-    normalise = {"email": normalise_email, "phone": normalise_phone, "address": normalise_address}[body.kind]
+    normalise = {
+        "email": normalise_email,
+        "phone": normalise_phone,
+        "address": normalise_address,
+        "email_domain": _email_domain,
+    }[body.kind]
     value = normalise(body.value)
     if value is None:
         raise HTTPException(422, "Not a valid contact.")

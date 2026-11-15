@@ -7,10 +7,14 @@ registration and first-certificate dates already looked up, and the account iden
 (:mod:`unfret.fingerprint`). Nothing records who checked it, which page, or what Unfret concluded: no URL, caller,
 wallet, IP address, score or verdict is stored, so the store can't feed its own verdicts back as evidence.
 
-Contact e-mail addresses, phone numbers and postal addresses are personal data (a sole trader's address is their
-own): they are stored only as keyed hashes (HMAC-SHA256 with a server secret), never shown, deleted 180 days after
-they were last seen, and removable on request (:func:`forget_contact`). Everything else is deleted 400 days after the
-shop was last seen.
+Service companies' own sites are recorded the same way, so one call centre behind many "local" brands shows up as
+one operator: their published phone numbers (as the facts read them, national formats included) and the domain of
+their e-mail addresses (not webmail) count as identifiers too.
+
+Contact e-mail addresses, phone numbers, e-mail domains and postal addresses are personal data (a sole trader's
+address and domain are their own): they are stored only as keyed hashes (HMAC-SHA256 with a server secret), never
+shown, deleted 180 days after they were last seen, and removable on request (:func:`forget_contact`). Everything else
+is deleted 400 days after the shop was last seen.
 
 Postal addresses never link shops: a virtual office or a mail-forwarding address serves hundreds of unrelated
 businesses. They are only counted (:meth:`ShopStore.address_shops`), to tell a shared address from a shop's own.
@@ -32,8 +36,9 @@ import structlog
 
 from unfret import fact_cache
 from unfret.config import settings
-from unfret.facts.schema import Platform
-from unfret.fingerprint import contact_hash, fingerprint, normalise_address
+from unfret.facts.business import WEBMAIL_DOMAINS
+from unfret.facts.schema import PageFacts, Platform
+from unfret.fingerprint import MAX_IDS_PER_KIND, contact_hash, fingerprint, normalise_address, normalise_phone
 from unfret.graph.skills.html_source_signals import page_source, scan
 from unfret.net import hostname
 from unfret.price_store import registrable_domain
@@ -45,7 +50,7 @@ CONTACT_RETENTION_DAYS = 180
 MAX_ADDRESSES = 5
 MAX_SHARE = 25  # an identifier on more shops than this is shared infrastructure, not one operator
 # Kinds stored only as keyed hashes, kept 180 days. Addresses are counted, never used as links (NOT_LINKING).
-CONTACT_KINDS = frozenset({"email", "phone", "address"})
+CONTACT_KINDS = frozenset({"email", "phone", "email_domain", "address"})
 NOT_LINKING = frozenset({"address"})
 # Shops are web shops: marketplaces and platforms (peer-to-peer, service providers) are one domain for millions of
 # sellers, so their pages say nothing about a shop. Every recognised platform but the shop systems.
@@ -525,16 +530,42 @@ async def page_links(state: dict[str, Any]) -> PageLinks | None:
     domain = shop_domain(state)
     if domain is None:
         return None
-    source = page_source(state.get("page_content", ""), state["facts"])
+    facts = state["facts"]
+    source = page_source(state.get("page_content", ""), facts)
     fp = await asyncio.to_thread(fingerprint, source)
     links = dict(fp.links)
+    emails, phones, domains = fp.emails, fp.phones, set[str]()
+    if state.get("page_type") == "service_site":
+        emails, phones, domains = _service_contacts(facts, emails, phones)
     if (key := contact_key()) is not None:
-        addresses = {a for a in map(normalise_address, state["facts"].addresses[:MAX_ADDRESSES]) if a}
-        for kind, values in (("email", fp.emails), ("phone", fp.phones), ("address", addresses)):
+        addresses = {a for a in map(normalise_address, facts.addresses[:MAX_ADDRESSES]) if a}
+        hashed = (("email", emails), ("phone", phones), ("email_domain", domains), ("address", addresses))
+        for kind, values in hashed:
             if values:
                 links[kind] = {contact_hash(kind, v, key).hex() for v in values}
     apps = tuple(sorted({label for category, label in scan(source) if category != "supplier_trace"}))
     return PageLinks(domain, links, fp.skeleton, apps)
+
+
+def _service_contacts(facts: PageFacts, emails: set[str], phones: set[str]) -> tuple[set[str], set[str], set[str]]:
+    """
+    A service site's contacts: the page's, the numbers its facts read, and its e-mail domains.
+
+    The facts read national formats too ("030 234 5678"); webmail domains, which millions share, are left out.
+
+    :param facts: The page facts.
+    :param emails: The e-mail addresses the fingerprint found.
+    :param phones: The phone numbers the fingerprint found.
+    :return: E-mail addresses, phone numbers and e-mail domains, each at most :data:`MAX_IDS_PER_KIND`.
+    """
+    numbers = set(phones) | {n for p in facts.phones if p.number.startswith("+") and (n := normalise_phone(p.number))}
+    addresses = set(emails) | {e.address for e in facts.emails}
+    domains = {a.rsplit("@", 1)[1] for a in addresses if "@" in a} - WEBMAIL_DOMAINS
+    return (
+        set(sorted(addresses)[:MAX_IDS_PER_KIND]),
+        set(sorted(numbers)[:MAX_IDS_PER_KIND]),
+        set(sorted(domains)[:MAX_IDS_PER_KIND]),
+    )
 
 
 def fingerprint_digest(page: PageLinks) -> bytes:

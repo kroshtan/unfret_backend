@@ -580,3 +580,28 @@ valid 7 days. Nothing is stored when a check runs.
   `store_without_address`, `shared_address`, and positive `protected_payment`; `known_brand` may now also come from
   Wikidata. Clients that map reason keys should fall back to the `title`/`detail` text they already get.
 - `POST /v1/admin/contacts/forget` accepts `kind: "address"` (a postal address, normalised and hashed as stored).
+
+## Changes (service providers, behind `UNFRET_EXPANSION_CLASSES`)
+
+- `PageFacts.testimonials` is now a list of objects, `{"text", "name", "rating": 0–5|null, "posted": "YYYY-MM-DD"|null}`
+  (it was a list of strings, never filled until now): the testimonials a service company publishes on its own site,
+  the name only as the site prints it. Empty on a product page (its reviews are in `reviews`) and on a platform
+  profile, whose reviews go into `reviews` without names. A client that sends strings there gets a 422; the
+  extension sends objects from this release on.
+- `PageFacts.seller_profile` adds `years_in_business` (integer or null). On a service platform's profile page
+  (Werkspot, Thumbtack, Angi, …) the extractors fill `seller_profile` (member since, jobs completed, years in
+  business, rating and count, badges, response rate and time) and `reviews`.
+- With the flag on, `service_site` and `service_listing` pages get a full verdict from hand-written rules: any of the
+  four bands (`reliable` only with concrete positives), still no `assessment`. New reason types (`doorway_pages`,
+  `linked_sites`, `copied_photo`, `premium_number`, `upfront_payment`, `cash_only`, `quote_on_site`, `new_site`,
+  `copied_testimonials`, `placeholder_names`, `testimonial_dates`, `all_five_testimonials`, `kvk_malformed`,
+  `kvk_missing`, `licence_no_number`, `names_differ`, `bait_callout`, `emergency_pressure`, `vague_pricing`,
+  `no_street_address`, `new_on_platform`, `few_platform_reviews`, `low_response_rate`) and positive types
+  (`service_established`, `service_identity_nl`, `service_identity_us`, `licence_shown`, `written_quote`,
+  `platform_track_record`, `platform_verified`, `service_nothing_found`); clients render `title`/`detail` as for
+  any other reason, so nothing changes for them.
+- A service provider's result has no `share_token` (results about a business stay private).
+- New stream `step` skills on those pages: `service_identity`, `doorway_pages`, `service_terms`, `testimonials`,
+  `platform_profile`; `reverse_image` may run there without being asked for (the rules decide).
+- `POST /v1/admin/contacts/forget` also takes `"kind": "email_domain"` (a domain such as `example.nl`); phone
+  numbers of service sites are stored with their country code, so remove them as `+31 30 234 5678`.

@@ -16,7 +16,7 @@ from unfret.auth import require_account
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.facts import PageFacts
-from unfret.graph.state import Finding
+from unfret.graph.state import SERVICE_TYPES, Finding
 from unfret.schemas.errors import (
     GatewayTimeoutError,
     InsufficientCreditsError,
@@ -36,6 +36,8 @@ _SKILL_TAG_RE = re.compile(r"\[([^\]]+)\]")
 _RESULT_KEYS = ("score", "explanation", "assessment", "verdict")
 # Kept with a result (in memory, as the cache entry) for its share token: the product's title, from the page.
 _TITLE = "title"
+# Kept with a result: it is about a service provider's business, so it gets no share token (results stay private).
+_PRIVATE = "private"
 # Pages fetched for URL-only requests, per account: a page we can't read is free, so this bounds the free fetches.
 _fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
 
@@ -178,6 +180,7 @@ def _kept(result: dict[str, Any]) -> dict[str, Any]:
     kept = {k: result[k] for k in _RESULT_KEYS if k in result}
     facts = result.get("facts")
     kept[_TITLE] = facts.title if isinstance(facts, PageFacts) else str(result.get(_TITLE) or "")
+    kept[_PRIVATE] = bool(result.get(_PRIVATE)) or result.get("page_type") in SERVICE_TYPES
     return kept
 
 
@@ -199,7 +202,7 @@ def _response(
         charged=charged,
         report_token=report_token,
     )
-    if shared_from is not None:
+    if shared_from is not None and not result.get(_PRIVATE):
         # Lets whoever sees this result make it public later (POST /v1/shares); it names no account.
         response.share_token = shares.issue_token(
             settings.session_secret.get_secret_value(),
@@ -312,6 +315,7 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
         }
         if "page_type" in values:
             step["page_type"] = values["page_type"]
+            final[_PRIVATE] = values["page_type"] in SERVICE_TYPES
         events.append(_event("step", step))
     return events
 

@@ -220,6 +220,98 @@
     "shared_address": {
       "title": "Address shared by many shops",
       "detail": "The shop's address is also given by {count} other unrelated web shops we've seen: typical of a virtual office or a mail-forwarding address, not the shop's own premises."
+    },
+    "doorway_pages": {
+      "title": "Pages for many towns, no address",
+      "detail": "The site has landing pages for {count} towns but no street address in any of them. Call centres that pose as local businesses often work this way: check where the company really is before you hire."
+    },
+    "linked_sites": {
+      "title": "Same company behind other sites",
+      "detail": "This site shares a phone number, e-mail domain or tracking ID with {count} other {sites} ({names}): one company may run them all under different local names."
+    },
+    "copied_photo": {
+      "title": "Photo also on other sites",
+      "detail": "A photo on this page also appears on {count} other {sites} ({names}), so it may not show this company's own work."
+    },
+    "premium_number": {
+      "title": "Premium-rate phone number",
+      "detail": "The phone number is a premium-rate one: you pay extra per minute just to call. Look for a regular number."
+    },
+    "upfront_payment": {
+      "title": "Payment before the work",
+      "detail": "The page asks for payment in full or a large deposit before the work starts ({quote}). Pay for work once it's done, or for materials against a receipt."
+    },
+    "cash_only": {
+      "title": "Cash only",
+      "detail": "The page says it only takes cash ({quote}). Cash leaves you no way to get your money back if something goes wrong."
+    },
+    "quote_on_site": {
+      "title": "Price only on the doorstep",
+      "detail": "The price is only set once someone is at your door ({quote}). Ask for a written price before they start."
+    },
+    "new_site": {
+      "title": "Brand-new website",
+      "detail": "This website's address was registered only {age} ago."
+    },
+    "copied_testimonials": {
+      "title": "Copy-paste testimonials",
+      "detail": "Most of the {count} testimonials or reviews on the page repeat each other almost word for word, with only a town or a name changed."
+    },
+    "placeholder_names": {
+      "title": "Placeholder names on testimonials",
+      "detail": "Some testimonials are signed with a placeholder name such as 'John Doe' or 'Jan Jansen'."
+    },
+    "testimonial_dates": {
+      "title": "Testimonials all from the same week",
+      "detail": "All {count} testimonials are dated within a few days of each other."
+    },
+    "all_five_testimonials": {
+      "title": "Only 5-star testimonials",
+      "detail": "All {count} testimonials give 5 stars. A company picks the testimonials it shows: look for reviews on an independent site too."
+    },
+    "kvk_malformed": {
+      "title": "KvK number looks wrong",
+      "detail": "The KvK (Chamber of Commerce) number on the site doesn't have the 8 digits every KvK number has."
+    },
+    "kvk_missing": {
+      "title": "No KvK number found",
+      "detail": "No KvK (Chamber of Commerce) number found on the page, though Dutch businesses must show it on their website. Ask for it, and look the company up at kvk.nl."
+    },
+    "licence_no_number": {
+      "title": "Says licensed, no licence number",
+      "detail": "The site says it is licensed but shows no licence number. Ask for it: most states let you look contractor, plumbing and electrical licences up online."
+    },
+    "names_differ": {
+      "title": "Two company names",
+      "detail": "The site names two different companies: {names}. Check which one you'd be hiring."
+    },
+    "bait_callout": {
+      "title": "Very low call-out fee",
+      "detail": "The page advertises a call-out fee of (almost) nothing ({quote}). The bill is usually made up elsewhere: ask what the whole job will cost."
+    },
+    "emergency_pressure": {
+      "title": "Emergency promises",
+      "detail": "The page promises help day and night within minutes ({quote}). In a hurry it's easy to skip the questions: still ask for the price first."
+    },
+    "vague_pricing": {
+      "title": "No prices given",
+      "detail": "The page gives no prices, only 'on request' ({quote})."
+    },
+    "no_street_address": {
+      "title": "No street address",
+      "detail": "The site doesn't give a street address, only a phone number or a town."
+    },
+    "new_on_platform": {
+      "title": "New on the platform",
+      "detail": "This provider joined the platform less than six months ago, so there's little track record yet."
+    },
+    "few_platform_reviews": {
+      "title": "Few reviews yet",
+      "detail": "Only {count} reviews on the platform so far."
+    },
+    "low_response_rate": {
+      "title": "Often doesn't reply",
+      "detail": "Answers only {pct} of requests on the platform."
     }
   },
   "positives": {
@@ -258,6 +350,38 @@
     "nothing_found": {
       "title": "No warning signs",
       "detail": "Nothing suspicious found in the listing, the reviews or the page."
+    },
+    "service_established": {
+      "title": "Established website",
+      "detail": "This website's address has existed for {years} years."
+    },
+    "service_identity_nl": {
+      "title": "Company details shown",
+      "detail": "The site shows its KvK number, company name and a street address."
+    },
+    "service_identity_us": {
+      "title": "Company details shown",
+      "detail": "The site names its company ({company}) and gives a street address."
+    },
+    "licence_shown": {
+      "title": "Licence number shown",
+      "detail": "The site shows a licence number ({licence}) that you can look up with the state."
+    },
+    "written_quote": {
+      "title": "Written quote offered",
+      "detail": "The page offers a written quote or a fixed price before the work starts."
+    },
+    "platform_track_record": {
+      "title": "Track record on the platform",
+      "detail": "On {platform}{since}, with {count} reviews averaging {rating} stars."
+    },
+    "platform_verified": {
+      "title": "Checked by the platform",
+      "detail": "The platform shows these badges: {badges}."
+    },
+    "service_nothing_found": {
+      "title": "No warning signs",
+      "detail": "Nothing worrying found in what the page says about the business."
     }
   },
   "age_units": {
@@ -378,7 +502,47 @@
     "brand_presence.shop_is_brand": "Sold by the brand's own site",
     "safety_gate.barcode_match": "On the EU list of dangerous products",
     "safety_gate.model_match": "On the EU list of dangerous products",
-    "shop_links.shared_address_shops": "Address shared by other shops"
+    "shop_links.shared_address_shops": "Address shared by other shops",
+    "service_identity.kvk_shown": "KvK number shown",
+    "service_identity.kvk_malformed": "KvK number looks wrong",
+    "service_identity.licence_shown": "Licence number shown",
+    "service_identity.licence_claim_no_number": "Says licensed, no licence number",
+    "service_identity.complete": "Company details shown",
+    "doorway_pages.city_pages": "Landing pages for towns",
+    "doorway_pages.doorway": "Pages for many towns, no address",
+    "service_terms.upfront_payment": "Payment before the work",
+    "service_terms.cash_only": "Cash only",
+    "service_terms.premium_number": "Premium-rate phone number",
+    "service_terms.quote_on_site": "Price only on the doorstep",
+    "testimonials.copied_share": "Copy-paste testimonials",
+    "platform_profile.new_member": "New on the platform",
+    "service_identity.market_nl": "Dutch company",
+    "service_identity.market_us": "US company",
+    "service_identity.vat_shown": "VAT number shown",
+    "service_identity.name_shown": "Company name shown",
+    "service_identity.address_shown": "Street address shown",
+    "service_identity.names_differ": "Two company names",
+    "doorway_pages.areas_served": "Towns served",
+    "doorway_pages.street_address": "Street address shown",
+    "doorway_pages.central_number_only": "Only a central phone number",
+    "service_terms.bait_callout": "Very low call-out fee",
+    "service_terms.vague_pricing": "No prices given",
+    "service_terms.written_quote": "Written quote offered",
+    "service_terms.emergency_pressure": "Emergency promises",
+    "testimonials.count": "Number of testimonials",
+    "testimonials.all_five": "Only 5-star testimonials",
+    "testimonials.repeated_names": "Same name on several testimonials",
+    "testimonials.placeholder_names": "Placeholder names on testimonials",
+    "testimonials.dates_clustered": "Testimonials all from the same week",
+    "platform_profile.known": "Platform profile found",
+    "platform_profile.member_years": "Years on the platform",
+    "platform_profile.jobs_completed": "Jobs on the platform",
+    "platform_profile.rating": "Rating on the platform",
+    "platform_profile.rating_count": "Reviews on the platform",
+    "platform_profile.few_reviews": "Few reviews yet",
+    "platform_profile.low_response_rate": "Often doesn't reply",
+    "platform_profile.verified_badges": "Checked by the platform",
+    "platform_profile.years_in_business": "Years in business"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",
@@ -399,15 +563,13 @@
     "p2p_listing": {
       "concerns": "Checks for private sellers' ads are new, so there is no full rating yet: look at the points below, and pay only through the platform.",
       "careful": "Something on this ad needs a close look before you pay: see the points below, and pay only through the platform."
-    },
-    "service_listing": {
-      "concerns": "Checks for service providers are new, so there is no full rating yet: look at the points below and ask for a written quote.",
-      "careful": "Something on this profile needs a close look before you hire: see the points below and ask for a written quote."
-    },
-    "service_site": {
-      "concerns": "Checks for service companies are new, so there is no full rating yet: look at the points below and ask for a written quote.",
-      "careful": "Something on this site needs a close look before you hire: see the points below and ask for a written quote."
     }
+  },
+  "service_headlines": {
+    "reliable": "Nothing worrying stood out about this business on this page.",
+    "concerns": "A few things are worth checking before you hire: ask for a written quote and the company's details.",
+    "careful": "Some warning signs: check who this business really is and get a written quote before you hire.",
+    "junk_or_scam": "Many warning signs: this page shows several patterns of businesses that aren't what they seem. Check it elsewhere before you hire."
   },
   "protected_methods": "a card or PayPal"
 }

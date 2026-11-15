@@ -9,6 +9,9 @@ concluded about them. Contact details are counted, never shown.
 Postal addresses (hashed like contacts) never link shops; the skill only counts the unrelated shops that give the same
 address (``shared_address_shops``: not linked to this one by any identifier). Many of them is what a virtual office
 or a mail-forwarding address looks like.
+
+On a service company's site the same lookup links the "local" brands of one call centre: they share its tracking
+IDs, its phone numbers or its e-mail domain. Its findings then speak of sites rather than shops.
 """
 
 from datetime import date, timedelta
@@ -34,6 +37,7 @@ KIND_LABELS = {
     "myshopify": "Shopify store",
     "email": "contact e-mail address",
     "phone": "contact phone number",
+    "email_domain": "e-mail domain",
 }
 _PAYMENT_KINDS = frozenset({"stripe", "paypal", "myshopify"})
 
@@ -62,7 +66,7 @@ class ShopLinksSkill(Skill):
             return self.output({}, note="Shop fingerprints are off.")
         page = await shop_store.page_links(dict(state))
         if page is None:
-            return self.output({}, note="Not a web shop.")
+            return self.output({}, note="Not a web shop or a service company's site.")
         linked = await shop_store.store().linked(page.domain, page.links)
         address = await _shared_address(page, {link.domain for link in linked})
         if not linked:
@@ -72,6 +76,7 @@ class ShopLinksSkill(Skill):
             return self.output(features, address[1] if address else [], note="No other shops share its identifiers.")
 
         today = shop_store.today()
+        noun = "site" if state.get("page_type") == "service_site" else "shop"
         kinds = {k for link in linked for k in link.kinds}
         observations: list[Observation] = []
         for kind in sorted(kinds, key=lambda k: (k in shop_store.CONTACT_KINDS, k)):
@@ -82,7 +87,7 @@ class ShopLinksSkill(Skill):
             observations.append(
                 Observation(
                     type="shared_identifier",
-                    evidence=f"Shares its {label} with {len(shops)} other shop{'s' if len(shops) != 1 else ''}: "
+                    evidence=f"Shares its {label} with {len(shops)} other {noun}{'s' if len(shops) != 1 else ''}: "
                     f"{names}."[:500],
                 )
             )
@@ -91,7 +96,7 @@ class ShopLinksSkill(Skill):
             observations.append(
                 Observation(
                     type="linked_young_shops",
-                    evidence=f"{len(young)} of the linked shops were registered in the last six months: "
+                    evidence=f"{len(young)} of the linked {noun}s were registered in the last six months: "
                     + ", ".join(link.domain for link in young[:_SHOWN])
                     + ".",
                 )

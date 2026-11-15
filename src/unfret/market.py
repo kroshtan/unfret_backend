@@ -62,3 +62,41 @@ def shop_market(facts: PageFacts, url: str = "", text: str = "") -> Market:
     sample = text[:_MAX_TEXT]
     dollars = len(_DOLLAR_RE.findall(sample))
     return "us" if dollars and dollars > len(_EURO_POUND_RE.findall(sample)) else "eu"
+
+
+ServiceMarket = Literal["nl", "us", "other"]
+_NL_POSTCODE_RE = re.compile(r"(?<![0-9])[1-9]\d{3}\s?[A-Z]{2}(?![A-Za-z])")
+_US_STATE_ZIP_RE = re.compile(r"(?<![A-Za-z])[A-Z]{2},?\s+\d{5}(?:-\d{4})?(?![0-9])|,\s*US$")
+
+
+def service_market(facts: PageFacts, url: str = "") -> ServiceMarket:
+    """
+    Where a service company works, for the identity rules that hold there: the Netherlands, the US, or elsewhere.
+
+    On positive evidence only: a ``.nl`` domain, a KvK number, Dutch phone numbers or a Dutch postcode for the
+    Netherlands; a US licence number, US phone numbers, a state and ZIP code or dollar prices for the US.
+
+    :param facts: The page facts.
+    :param url: The page URL.
+    :return: ``"nl"``, ``"us"`` or ``"other"``.
+    """
+    host = hostname(url or facts.url)
+    tld = host.rsplit(".", 1)[-1] if "." in host else ""
+    countries = [p.country for p in facts.phones if p.country]
+    nl = (
+        tld == "nl"
+        or bool(facts.kvk_numbers)
+        or (bool(countries) and countries.count("NL") > countries.count("US"))
+        or any(_NL_POSTCODE_RE.search(a) for a in facts.addresses)
+    )
+    if nl:
+        return "nl"
+    us = (
+        bool(facts.licences)
+        or (bool(countries) and countries.count("US") >= len(countries) / 2)
+        or any(_US_STATE_ZIP_RE.search(a) for a in facts.addresses)
+        or facts.currency.upper() == "USD"
+    )
+    if us and tld not in _EU_TLDS | _OTHER_TLDS:
+        return "us"
+    return "other"

@@ -14,9 +14,9 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, business, walmart
+from unfret.facts import amazon, bolcom, business, service_platforms, testimonials, walmart
 from unfret.facts._parse import parse_date, parse_number, parse_rating
-from unfret.facts.schema import P2P_PLATFORMS, Checkbox, PageFacts, Platform, Review
+from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
 
 _HIDDEN_STYLE_RE = re.compile(
@@ -150,7 +150,20 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
     if facts.platform in P2P_PLATFORMS:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)
+    _services(soup, facts)
     return facts
+
+
+def _services(soup: BeautifulSoup, facts: PageFacts) -> None:
+    # A provider's profile on a service platform (the platform's reviews, no names), or a company's testimonials
+    # (not on a product page: its reviews are in ``reviews``). Never on a private seller's platform.
+    if facts.platform in PRIVATE_SELLER_PLATFORMS:
+        return
+    orgs = business.organizations(soup)
+    if facts.platform in service_platforms.SERVICE_PLATFORMS:
+        service_platforms.extract(soup, facts, orgs)
+    elif not facts.json_ld and facts.price is None:
+        facts.testimonials = testimonials.extract(soup, orgs)
 
 
 def without_seller(json_ld: list[dict[str, Any]]) -> list[dict[str, Any]]:

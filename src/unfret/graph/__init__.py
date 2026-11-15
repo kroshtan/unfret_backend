@@ -15,7 +15,7 @@ from langgraph.types import RetryPolicy, Send
 
 from unfret import scoring, shop_store
 from unfret.config import settings
-from unfret.graph import triage
+from unfret.graph import services, triage
 from unfret.graph.nodes import (
     classify_by_rules_node,
     classify_node,
@@ -30,19 +30,24 @@ from unfret.graph.skills.claims import ClaimsSkill
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
 from unfret.graph.skills.domain_age import DomainAgeSkill
+from unfret.graph.skills.doorway_pages import DoorwayPagesSkill
 from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.html_source_signals import HtmlSourceSignalsSkill
 from unfret.graph.skills.injection import InjectionSkill
 from unfret.graph.skills.listing import ListingSkill
 from unfret.graph.skills.market_price import MarketPriceSkill
 from unfret.graph.skills.payment_methods import PaymentMethodsSkill
+from unfret.graph.skills.platform_profile import PlatformProfileSkill
 from unfret.graph.skills.pricing import PricingSkill
 from unfret.graph.skills.reverse_image import ReverseImageSkill
 from unfret.graph.skills.review_copies import ReviewCopiesSkill
 from unfret.graph.skills.reviews import ReviewsSkill
 from unfret.graph.skills.safety_gate import SafetyGateSkill
+from unfret.graph.skills.service_identity import ServiceIdentitySkill
+from unfret.graph.skills.service_terms import ServiceTermsSkill
 from unfret.graph.skills.shop_links import ShopLinksSkill
 from unfret.graph.skills.shop_policies import ShopPoliciesSkill
+from unfret.graph.skills.testimonials import TestimonialsSkill
 from unfret.graph.skills.us_identity import UsIdentitySkill
 from unfret.graph.state import P2P_TYPES, PRODUCT_TYPES, SERVICE_TYPES, AnalysisState, PageType
 
@@ -71,6 +76,12 @@ SKILLS: list[Skill] = [
     ReviewCopiesSkill(),
     BrandPresenceSkill(),
     SafetyGateSkill(),
+    # Service providers.
+    ServiceIdentitySkill(),
+    DoorwayPagesSkill(),
+    ServiceTermsSkill(),
+    TestimonialsSkill(),
+    PlatformProfileSkill(),
     ReverseImageSkill(),
 ]
 
@@ -217,6 +228,34 @@ def _requested_only_triage_node(skills: list[Skill]) -> Callable[..., Awaitable[
     return triage_node
 
 
+def _service_triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[str, object]]]:
+    expensive = {s.name for s in skills if s.tier == "expensive"}
+
+    async def triage_node(state: AnalysisState) -> dict[str, object]:
+        """
+        The service class's triage: rules only, no LLM.
+
+        An expensive skill the caller asked for runs; otherwise the photo search runs once when the cheap skills
+        found something that copied photos would confirm (:func:`unfret.graph.services.suspicion`).
+
+        :param state: The graph state after the cheap skills.
+        :return: The next round number, the planned skills, and their record in ``expensive_runs``.
+        """
+        round_ = state.get("triage_round", 0)
+        done = state.get("expensive_runs", [])
+        flagged = [n for n in state["flags"] if n in expensive and n not in done]
+        run: tuple[str, ...] = ()
+        if round_ == 0 and len(done) < settings.triage_max_expensive_runs:
+            if flagged:
+                run = (flagged[0],)
+            elif "reverse_image" in expensive and state["facts"].image_urls and services.suspicion(state["features"]):
+                run = ("reverse_image",)
+        logger.info("triage", round=round_, run=run, reason="service rules")
+        return {"triage_round": round_ + 1, "next_skills": list(run), "expensive_runs": list(run)}
+
+    return triage_node
+
+
 def _recording(
     judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]],
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
@@ -328,15 +367,19 @@ def build_graph(
         preprocess → classify ─┬→ product: [cheap skills] (parallel) → triage ─┬→ [expensive skill] → triage
                                │                                                └→ judge → END
                                ├→ p2p:     [cheap skills] → triage (requested only) → interim judge → END
-                               ├→ service: [cheap skills] → triage (requested only) → interim judge → END
+                               ├→ service: [cheap skills] → triage (rules) ─┬→ [reverse_image] → triage
+                               │                                             └→ service judge → END
                                └→ early_exit → END
 
     ``preprocess`` and ``classify`` are shared; each page class then has its own subgraph. Marketplace listings
     and storefronts go to the product subgraph: the cheap skills that handle that page type, then the triage, which
     decides, rules first, whether an expensive skill (a reverse image search) is worth it, within a per-analysis
     budget, with one re-triage after it, then the scorer's judge. Peer-to-peer ads and service providers (only
-    while ``settings.expansion_classes`` is on) go to their own subgraphs, whose interim judge gives a cautious
-    verdict (:mod:`unfret.graph.placeholder`). Articles and non-product pages exit early with a score of ``-1``.
+    while ``settings.expansion_classes`` is on) go to their own subgraphs: the ads' interim judge gives a cautious
+    verdict (:mod:`unfret.graph.placeholder`); the service providers' triage runs the photo search when their
+    cheap skills found something it would confirm, and their judge's hand-written rules give the band
+    (:mod:`unfret.graph.services`), after which a service company's site is recorded in the fingerprint store like
+    a shop. Articles and non-product pages exit early with a score of ``-1``.
 
     Nodes that call the LLM or fetch outside data have LangGraph's RetryPolicy (:func:`retry_policy`). The graph
     is stream-capable: ``graph.astream(..., stream_mode="updates", subgraphs=True)`` yields each skill's findings
@@ -357,9 +400,10 @@ def build_graph(
         _recording(make_judge_node(model_path, llm=llm)),
     )
     judges = {"product": product}
-    for name in ("p2p", "service"):
-        handled = [s for s in skills if s.page_types & PAGE_CLASSES[name]]
-        judges[name] = _class_graph(handled, _requested_only_triage_node(handled), make_interim_judge())
+    handled = [s for s in skills if s.page_types & PAGE_CLASSES["p2p"]]
+    judges["p2p"] = _class_graph(handled, _requested_only_triage_node(handled), make_interim_judge())
+    handled = [s for s in skills if s.page_types & PAGE_CLASSES["service"]]
+    judges["service"] = _class_graph(handled, _service_triage_node(handled), _recording(services.make_service_judge()))
 
     builder = StateGraph(AnalysisState)
     builder.add_node("preprocess", preprocess_node)

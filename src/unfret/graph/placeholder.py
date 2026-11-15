@@ -1,5 +1,5 @@
 """
-The interim judge of the page classes beyond products (peer-to-peer ads, service providers).
+The interim judge of peer-to-peer ads (service providers have their own: :mod:`unfret.graph.services`).
 
 No scorer is trained for these classes yet, so this judge never gives an overall "looks fine": the band is
 "concerns" ("a few things to check"), or "careful" when a skill found something serious (a high-severity reason

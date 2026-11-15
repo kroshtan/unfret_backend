@@ -6,18 +6,23 @@ and looked up in the index (:mod:`unfret.image_store`). Its own shop and the sam
 on more than a handful of shops can be honest (a brand's press photo) or a supplier photo: the skill only reports
 what it found, and the shopper verdict calls it a warning only in a suspicious context, never for a known brand.
 
+On a service company's site or profile the photo is the first one that isn't a logo or an icon (its work, its
+van, its team): the same photo on other sites means it was copied from elsewhere.
+
 After the lookup the photo is added to the index, in the background (off with ``fingerprints``).
 """
 
 import asyncio
+import re
 from datetime import date
 
 import structlog
 
 from unfret import image_index, image_store, shop_store
 from unfret.config import settings
+from unfret.facts.schema import PageFacts
 from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
-from unfret.graph.state import AnalysisState
+from unfret.graph.state import SERVICE_TYPES, AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
 from unfret.net import fetch_public
@@ -28,6 +33,7 @@ MAX_IMAGE_BYTES = 8 * 1024 * 1024
 _FETCH_TIMEOUT_S = 6.0
 _SHOWN = 3
 _CATALOGUES = {"abo": "an Amazon catalogue listing"}
+_NOT_A_PHOTO_RE = re.compile(r"logo|icon|favicon|sprite|badge|avatar|/pay(?:ment)?s?/|flag", re.IGNORECASE)
 
 _store: ImageStore = MemoryImageStore()
 _pending: set[asyncio.Task[None]] = set()
@@ -88,17 +94,32 @@ async def drain() -> None:
         await asyncio.gather(*list(_pending), return_exceptions=True)
 
 
-def _evidence(matches: list[StoredPrint]) -> list[Observation]:
+def main_photo(facts: PageFacts, page_type: str) -> str | None:
+    """
+    The photo to look up: a product page's first image; on a service provider's page the first that isn't a logo.
+
+    :param facts: The page facts.
+    :param page_type: The classified page type.
+    :return: The image URL, or ``None`` when there is none.
+    """
+    if page_type in SERVICE_TYPES:
+        return next((u for u in facts.image_urls if not _NOT_A_PHOTO_RE.search(u)), None)
+    return facts.image_urls[0] if facts.image_urls else None
+
+
+def _evidence(matches: list[StoredPrint], *, service: bool = False) -> list[Observation]:
     shops = [m for m in matches if m.source == "seen"]
     catalogue = [m for m in matches if m.source != "seen"]
     observations: list[Observation] = []
     if shops:
         names = ", ".join(m.domain for m in shops[:_SHOWN]) + (" and others" if len(shops) > _SHOWN else "")
+        what, where = ("photo", "site") if service else ("product photo", "shop")
         observations.append(
             Observation(
                 type="photo_on_other_shops",
-                evidence=f"The same product photo is on {len(shops)} other shop{'s' if len(shops) != 1 else ''}: "
-                f"{names}."[:500],
+                evidence=f"The same {what} is on {len(shops)} other {where}{'s' if len(shops) != 1 else ''}: {names}."[
+                    :500
+                ],
                 thumbnails=[thumbnail_url(m.id) for m in shops[:_SHOWN]],
             )
         )
@@ -135,9 +156,9 @@ class ReverseImageSkill(Skill):
         model = image_index.embedder()
         if not settings.fingerprints or not model.available():
             return self.output({"searched": False}, note="The photo index is not available.")
-        if not facts.image_urls:
+        image_url = main_photo(facts, state.get("page_type", "storefront"))
+        if image_url is None:
             return self.output({"searched": False}, note="No product image found.")
-        image_url = facts.image_urls[0]
         try:
             data = await fetch_public(image_url, timeout=_FETCH_TIMEOUT_S, max_bytes=MAX_IMAGE_BYTES)
             fp = await asyncio.to_thread(image_index.fingerprint, data, model)
@@ -159,5 +180,5 @@ class ReverseImageSkill(Skill):
                 "other_shops": sum(1 for m in found.matches if m.source == "seen"),
                 "catalogue_matches": sum(1 for m in found.matches if m.source != "seen"),
             },
-            _evidence(found.matches),
+            _evidence(found.matches, service=state.get("page_type") in SERVICE_TYPES),
         )

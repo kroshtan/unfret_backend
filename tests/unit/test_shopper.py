@@ -8,7 +8,7 @@ import pytest
 
 from unfret import shopper
 from unfret.facts import PageFacts
-from unfret.graph import SKILLS
+from unfret.graph import SKILLS, services
 from unfret.graph.state import Finding
 
 # Every reason at once (on a storefront), to check every piece of copy renders cleanly.
@@ -86,13 +86,17 @@ def test_bands(score: int, band: str) -> None:
 
 def test_catalogue_is_complete() -> None:
     copy = json.loads((shopper.COPY_DIR / "en.json").read_text(encoding="utf-8"))
-    assert set(copy["reasons"]) == set(shopper.REASON_SEVERITY)
-    assert set(copy["positives"]) == set(shopper.POSITIVE_KEYS)
+    # Products' and service providers' reasons share the catalogue (and a few keys, with the same severity).
+    assert set(copy["reasons"]) == set(shopper.REASON_SEVERITY) | set(services.REASON_SEVERITY)
+    shared = set(shopper.REASON_SEVERITY) & set(services.REASON_SEVERITY)
+    assert all(shopper.REASON_SEVERITY[k] == services.REASON_SEVERITY[k] for k in shared)
+    assert set(copy["positives"]) == set(shopper.POSITIVE_KEYS) | set(services.POSITIVE_KEYS)
     for entry in [*copy["reasons"].values(), *copy["positives"].values()]:
         assert entry["title"].strip() and entry["detail"].strip()
         assert "{" not in entry["title"]  # titles never carry page content
     bands = {"reliable", "concerns", "careful", "junk_or_scam"}
     assert set(copy["labels"]) == bands and set(copy["headlines"]) == bands
+    assert set(copy["service_headlines"]) == bands
     assert set(copy["age_units"]) == {"day", "week", "month", "year"}
 
 

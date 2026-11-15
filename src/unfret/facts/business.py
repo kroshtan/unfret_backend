@@ -215,7 +215,22 @@ _KVK_RE = re.compile(
 _LICENCE_RE = re.compile(
     r"(?<![A-Za-z])(?:([A-Z]{2})\s+)?(?:[Ss]tate\s+)?(?:[Cc]ontractor'?s?\s+)?"
     r"(?:[Ll]ic(?:ense|ence)?|LIC(?:ENSE|ENCE)?|CSLB|ROC)\.?\s*(?:#|[Nn]o\.?|[Nn]umber|[Nn]r\.?)?\s*:?\s*#?\s*"
-    r"([A-Z]{0,4}-?\d{5,10})(?![0-9])"
+    r"([A-Z]{0,4}[-.]?\d{5,10})(?![0-9])"
+)
+# Street addresses written out in a business area (a footer, a contact block) rather than marked up: a house number,
+# a street and a ZIP ("12111 Menchaca Rd Austin, Texas 78748"; "7239 Bradburn Blvd. Suite 200 Westminster, CO 80030"),
+# or a street, a number and a Dutch postcode ("Tingietersweg 129 2031 ER Haarlem"). A post-office box is not one.
+_US_STREET_ADDRESS_RE = re.compile(
+    r"(?<![A-Za-z0-9#])\d{1,6} (?:(?:[A-Z][A-Za-z.'-]*|\d{1,3}(?:st|nd|rd|th)) ){1,5}?"
+    r"(?:St|Street|Rd|Road|Dr|Drive|Ave|Avenue|Blvd|Boulevard|Ln|Lane|Way|Pkwy|Parkway|Hwy|Highway|Ct|Court|Cir"
+    r"|Circle|Pl|Place|Trl|Trail|Ter|Terrace|Pike|Loop|Sq|Square)\.?,?"
+    r"(?: (?:Ste|Suite|Unit|Apt|Bldg|#)\.? ?#?[A-Za-z0-9-]+,?)?"
+    r" (?:[A-Z][A-Za-z.'-]* ){0,3}?[A-Z][A-Za-z.'-]*,?"
+    r" (?:[A-Z]{2}|[A-Z][a-z]+(?: [A-Z][a-z]+)?) \d{5}(?:-\d{4})?(?![0-9])"
+)
+_NL_STREET_ADDRESS_RE = re.compile(
+    r"(?<![A-Za-zÀ-ÿ0-9.])[A-Z][a-zà-ÿ'-]+(?:[ -][A-Za-zà-ÿ'-]+){0,3} \d{1,5}"
+    r"(?: ?[a-zA-Z](?![a-zA-Z])| ?- ?\d{1,4})?,? [1-9]\d{3} ?[A-Z]{2}(?![A-Za-z])"
 )
 US_STATES = frozenset(
     ("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA")
@@ -385,7 +400,9 @@ def extract(soup: BeautifulSoup, url: str, facts: PageFacts) -> None:
     facts.organization_ld = [_trim(o) for o in orgs[:10]]
     facts.phones = _phones(scan, business, orgs, host)
     facts.emails = _emails(scan, business, orgs, host)
-    facts.addresses = _dedupe([*(_ld_address(o.get("address")) for o in orgs), *scan.addresses])[:20]
+    known = [*(_ld_address(o.get("address")) for o in orgs), *scan.addresses]
+    written = [a for a in _text_addresses(business) if not _already_known(a, known)]
+    facts.addresses = _dedupe([*known, *written])[:20]
     founding = [f"foundingDate {o['foundingDate']}" for o in orgs if isinstance(o.get("foundingDate"), str)]
     facts.founded_claims = _dedupe([*(m.group() for m in _FOUNDED_RE.finditer(public)), *founding])[:10]
     name = next((_text_value(o.get("name")) for o in orgs if _text_value(o.get("name"))), "")
@@ -497,6 +514,29 @@ def _trim(node: dict[str, Any]) -> dict[str, Any]:
     if len(json.dumps(trimmed, default=str)) <= 4_000:
         return trimmed
     return {k: trimmed[k] for k in ("@type", "name", "legalName") if k in trimmed}
+
+
+def _text_addresses(business: str) -> list[str]:
+    """
+    Street addresses written out in the business areas' text (not marked up as an address).
+
+    :param business: The text inside business areas, whitespace collapsed.
+    :return: The addresses, in page order.
+    """
+    found = [*_US_STREET_ADDRESS_RE.finditer(business), *_NL_STREET_ADDRESS_RE.finditer(business)]
+    return [m.group() for m in sorted(found, key=lambda m: m.start()) if "postbus" not in m.group().lower()]
+
+
+def _already_known(address: str, known: list[str]) -> bool:
+    """
+    Whether a written-out address is one already known in another spelling: its house number and postcode are in it.
+
+    :param address: The written-out address.
+    :param known: The addresses from structured data and address markup.
+    :return: ``True`` when it adds nothing.
+    """
+    numbers = re.findall(r"[0-9]+", address)
+    return bool(numbers) and any(numbers[0] in k and numbers[-1] in k for k in known)
 
 
 def _ld_address(value: object) -> str:

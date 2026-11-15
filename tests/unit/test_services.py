@@ -659,3 +659,50 @@ async def test_admin_forgets_an_email_domain(setup: MemoryShopStore, monkeypatch
         bad = {"kind": "email_domain", "value": "info@devries-installatie.nl"}
         assert (await client.post("/v1/admin/contacts/forget", json=bad, headers=auth)).status_code == 422
     assert not any(kind == "email_domain" for kind, _, _ in setup.links)
+
+
+def test_street_addresses_written_out_in_the_footer_are_read() -> None:
+    html = """<html><body><h1>Plumbing</h1><p>We fix leaks.</p><footer>
+    <p>Austin<br>12111 Menchaca Rd<br>Austin, Texas 78748<br><a href="tel:5125550100">(512) 555-0100</a></p>
+    <p>Waco<br>2505 Washington Ave, Ste 3<br>Waco, TX 76710</p>
+    <p>Gascontrol B.V.<br>Tingietersweg 129<br>2031 ER Haarlem</p>
+    <p>Postbus 123, 1000 AB Amsterdam</p>
+    <p>Master License #MP.00188386</p>
+    </footer></body></html>"""
+
+    facts = parse_page(html, "https://example-plumbing.com/")[0]
+
+    assert facts.addresses == [
+        "12111 Menchaca Rd Austin, Texas 78748",
+        "2505 Washington Ave, Ste 3 Waco, TX 76710",
+        "Tingietersweg 129 2031 ER",
+    ]
+    assert [lic.number for lic in facts.licences] == ["MP.00188386"]
+
+
+def test_an_address_outside_the_business_areas_is_not_read() -> None:
+    html = """<html><body><main><p>Deliver to 12 Elm St Springfield, IL 62701</p></main>
+    <footer><p>Call us</p></footer></body></html>"""
+
+    assert parse_page(html, "https://example-plumbing.com/")[0].addresses == []
+
+
+async def test_town_pages_with_a_written_out_address_are_not_a_doorway() -> None:
+    towns = ("Austin", "Round Rock", "Cedar Park", "Pflugerville", "Georgetown", "Leander")
+    links = [Link(text=f"Plumber {town}", url=f"https://x.com/plumber-{town.lower()}") for town in towns]
+    facts = PageFacts(url="https://x.com/", internal_links=links, addresses=["12111 Menchaca Rd Austin, Texas 78748"])
+    out = await DoorwayPagesSkill().run({"facts": facts, "url": facts.url})  # type: ignore[typeddict-item]
+
+    assert out["features"]["doorway_pages.doorway"] == 0
+
+
+async def test_service_terms_leave_the_customers_testimonials_out() -> None:
+    quote = "Hij was er binnen 20 minuten en ik heb niks af hoeven rekenen. Geen voorrijkosten niets."
+    facts = PageFacts(testimonials=[Testimonial(text=quote, name="Jan")], promises=[f"... {quote} ..."])
+    text = f"Loodgieter Utrecht. Wij zijn 24/7 bereikbaar. {quote} Vraag een offerte aan."
+    state: Any = {"facts": facts, "cleaned_content": text, "page_type": "service_site"}
+
+    out = await ServiceTermsSkill().run(state)
+
+    assert out["features"]["service_terms.bait_callout"] == 0
+    assert out["features"]["service_terms.emergency_pressure"] == 0

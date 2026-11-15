@@ -26,7 +26,10 @@ _SHIPPING_ONLY_RE = re.compile(
     re.IGNORECASE,
 )
 _ABROAD_RE = re.compile(
-    r"in het buitenland|op (?:een )?(?:schip|boorplatform|booreiland)|op zee(?![a-z])|verhuisd naar het buitenland"
+    # The seller being abroad ("ik woon momenteel in het buitenland"), not the item bought there.
+    r"(?<![a-z])(?:ben|zit|woon|verblijf|werk|wonen|zitten|verblijven|werken)(?: [a-z]+){0,2} in het buitenland"
+    r"|in het buitenland (?:ben|zit|woon|verblijf|werk|wonen|zitten)(?![a-z])"
+    r"|op (?:een )?(?:schip|boorplatform|booreiland)|op zee(?![a-z])|verhuisd naar het buitenland"
     r"|(?:i am|i'm|currently|now|temporarily) (?:abroad|overseas|deployed|offshore|out of (?:the )?(?:country|state))"
     r"|out of the country|working (?:on an oil rig|offshore|overseas|abroad)|on a (?:ship|rig|cruise|mission)"
     r"|military (?:deployment|base)|deployed overseas|missionary|moved (?:abroad|overseas)|im ausland",

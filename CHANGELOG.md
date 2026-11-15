@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bug fixes
+
+* Fewer false warnings on service companies' sites, found by checking real sites on dev: a street address written out in the footer or contact block (several branches, "12111 Menchaca Rd Austin, Texas 78748", "Tingietersweg 129 2031 ER Haarlem") now counts, so an established firm with many branch pages is no longer "pages for many towns, no address"; a licence number with a dot ("License #MP.00188386") counts as shown; and the payment and call-out checks no longer read the customers' testimonials ("no call-out fee, he was there in 20 minutes" is a customer's story, not the company's terms). On a private seller's ad, "bought abroad" is no longer read as "the seller is abroad"
+
 ### Features
 
 * **"Pay with iDEAL | Wero" as its own button for Dutch visitors.** Polar shows iDEAL | Wero only when the buyer's billing country is the Netherlands, and with no country it shows cards only, so Dutch buyers rarely saw it. `/checkout` now gives Dutch visitors two buttons in "Buy checks" and "Top up my key": "Pay €5.50 with iDEAL | Wero" (first) and "Pay €5.50 by card", priced for the selected pack; it replaces the single "Pay … by card or iDEAL | Wero" label. Everyone else keeps the one card button. The Wero checkout is a EUR checkout with `customer_billing_address: {"country": "NL"}` prefilled; metadata, claim, crediting and refunds are unchanged. Table-driven so more countries can follow with one entry each (`unfret.credits.local_methods.LOCAL_METHODS`, after checking at Polar that the method really shows for that country). API: `/v1/pricing` adds `local_payment_method` (`{id, label, currency}` or `null`); `POST /v1/credits/fiat-checkout` takes an optional `payment_method` (`card` | `wero`; `wero` is a 400 while euro prices are off or with `currency: "usd"`) and answers with the checkout's `payment_method` (`card` when Polar refused the euro checkout and the dollar one was made instead).

@@ -247,6 +247,24 @@ US_LICENSES = {
     "NV": "NSCB #{n}",
     "UT": "DOPL #{n}",
 }
+# A real area code and ZIP prefix per state, so a generated address doesn't contradict itself.
+_US_AREA = {
+    "TX": ("512", "787"),
+    "AZ": ("602", "850"),
+    "CO": ("303", "802"),
+    "WA": ("206", "981"),
+    "OR": ("503", "972"),
+    "CA": ("916", "958"),
+    "GA": ("404", "303"),
+    "FL": ("407", "328"),
+    "NC": ("919", "276"),
+    "OH": ("614", "432"),
+    "IL": ("312", "606"),
+    "MN": ("612", "554"),
+    "TN": ("615", "372"),
+    "NV": ("702", "891"),
+    "UT": ("801", "841"),
+}
 _NL_AREA_CODES = {
     "Amsterdam": "020",
     "Utrecht": "030",
@@ -302,10 +320,16 @@ def _nl_phone(rng: random.Random, town: str, scam: bool) -> str:
     return f"{area}-{rng.randint(100, 999)} {rng.randint(1000, 9999)}"
 
 
-def _us_phone(rng: random.Random, scam: bool) -> str:
+def _us_phone(rng: random.Random, scam: bool, state: str = "") -> str:
     if scam:
         return f"1-8{rng.choice('0456')}{rng.choice('0478')}-555-01{rng.randint(10, 99)}"
-    return f"({rng.randint(201, 989)}) 555-01{rng.randint(10, 99)}"
+    area = _US_AREA.get(state, (str(rng.randint(201, 989)), ""))[0]
+    return f"({area}) 555-01{rng.randint(10, 99)}"
+
+
+def _us_zip(rng: random.Random, state: str) -> str:
+    prefix = _US_AREA.get(state, ("", "9"))[1]
+    return prefix + "".join(str(rng.randint(0, 9)) for _ in range(5 - len(prefix)))
 
 
 def _a(noun: str) -> str:
@@ -359,14 +383,16 @@ def _reviews(rng: random.Random, market: str, trade: Trade, scam: bool, town: st
             "Our go-to {trade} in {town} for years. Handled {job} quickly again.",
             "Got a written estimate in two days, scheduled within the week. Communicated a small delay.",
         )
+    # Real reviews are by different people and never word for word the same.
+    picked = rng.sample(templates, rng.randint(2, len(templates)))
     return [
         (
-            rng.choice(names),
-            rng.choice(templates).format(
+            name,
+            template.format(
                 job=rng.choice(jobs), trade=trade.nl.lower() if market == "nl" else trade.en.lower(), town=town
             ),
         )
-        for _ in range(rng.randint(2, 4))
+        for name, template in zip(rng.sample(names, len(picked)), picked, strict=True)
     ]
 
 
@@ -573,7 +599,7 @@ def _legit_site_parts(rng: random.Random, who: _Who) -> tuple[list[str], str, st
     else:
         licence = US_LICENSES.get(who.state, "License #{n}").format(n=rng.randint(100_000, 999_999))
         contact = (
-            f"{e(who.name)} · {number} {e(street)}, {e(who.town)}, {who.state} {rng.randint(10_000, 99_999)} · "
+            f"{e(who.name)} · {number} {e(street)}, {e(who.town)}, {who.state} {_us_zip(rng, who.state)} · "
             f"{e(who.phone)} · Licensed, bonded &amp; insured · {e(licence)}"
         )
         address = f"{number} {street}"
@@ -605,7 +631,7 @@ def _site(rng: random.Random, market: str, trade: Trade, label: str, scam_keys: 
         name = name[0].upper() + name[1:]
         domain = f"{_slug(name).replace('-', '')}.{'nl' if nl else 'com'}"
         patterns = list(_GOOD_PATTERNS)
-    phone = _nl_phone(rng, town, scam) if nl else _us_phone(rng, scam)
+    phone = _nl_phone(rng, town, scam) if nl else _us_phone(rng, scam, state)
     who = _Who(market, trade, tname, town, state, name, phone)
     url = f"https://www.{domain}/"
     address: dict[str, object] = {"@type": "PostalAddress", "addressLocality": town}

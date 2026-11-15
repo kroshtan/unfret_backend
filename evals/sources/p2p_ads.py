@@ -555,6 +555,7 @@ SCAM_TEXT: dict[str, dict[str, tuple[str, ...]]] = {
         ),
     },
 }
+_NOT_GOODS = frozenset({"puppy", "firewood"})
 _RENTAL_ONLY = frozenset({"rental_no_viewing", "copied_listing"})
 _SCAM_PATTERNS = (
     "off_platform_contact",
@@ -726,7 +727,8 @@ def _ad_text(rng: random.Random, lang: str, item: Item, label: str, patterns: li
         return text + [rng.choice(scam[k]) for k in patterns]
     good = GOOD_TEXT[lang]
     text = [rng.choice(good["intro"]), rng.choice(details)]
-    text += [rng.choice(good[part]) for part in ("history", "flaw", "reason") if rng.random() < 0.75]
+    if item.key not in _NOT_GOODS:  # "bought at a shop, small scratch" makes no sense for puppies or firewood
+        text += [rng.choice(good[part]) for part in ("history", "flaw", "reason") if rng.random() < 0.75]
     text += [rng.choice(good["logistics"]), rng.choice(good["payment"])]
     if rng.random() < 0.5:
         text.append(rng.choice(good["closing"]))

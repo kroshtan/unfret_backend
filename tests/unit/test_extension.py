@@ -193,7 +193,7 @@ async def test_other_names_are_not_found(client: httpx.AsyncClient, name: str) -
     assert (await client.get(f"/extension/{name}")).status_code == 404
 
 
-async def test_install_page_points_to_the_chrome_web_store(client: httpx.AsyncClient) -> None:
+async def test_install_page_points_to_both_stores(client: httpx.AsyncClient) -> None:
     response = await client.get("/extension")
 
     assert response.status_code == 200
@@ -202,6 +202,8 @@ async def test_install_page_points_to_the_chrome_web_store(client: httpx.AsyncCl
     assert "<script" not in response.text
     assert "{{" not in response.text
     assert f'href="{settings.chrome_store_url}"' in response.text
+    assert f'href="{settings.firefox_store_url}"' in response.text
+    assert "on its way" not in response.text
     assert "policies/managed" not in response.text  # the self-hosted install is no longer offered
 
 

@@ -99,12 +99,14 @@ def current_release(release_dir: Path | None = None, manifest: str = "updates.xm
 @router.get("/extension", response_class=HTMLResponse)
 def install_page() -> HTMLResponse:
     """
-    Where to install the extension: its Chrome Web Store listing.
+    Where to install the extension: its Chrome Web Store and Firefox Add-ons listings.
 
     :return: The page.
     """
     template = (STATIC_DIR / "extension.html").read_text(encoding="utf-8")
-    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
+    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url)).replace(
+        "{{firefox_url}}", html.escape(settings.firefox_store_url)
+    )
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

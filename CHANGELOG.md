@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+* **Unfret is on Firefox too.** The home page (hero and closing section) and `/extension` now offer "Add to Chrome" and "Add to Firefox" side by side, with "Check a link instead" as the quieter option; `/extension` says which browsers each store serves (Chrome Web Store: Chrome, Brave, Edge, Vivaldi, Opera; Firefox Add-ons: Firefox) and no longer says Firefox is on its way. The Firefox link comes from `UNFRET_FIREFOX_STORE_URL` (default the Unfret listing on addons.mozilla.org), filled in like the Chrome one
+
 ## [0.10.5](https://github.com/kroshtan/unfret_backend/compare/0.10.4...0.10.5) (2026-11-15)
 
 ### Bug fixes

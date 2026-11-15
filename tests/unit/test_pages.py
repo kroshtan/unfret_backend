@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from unfret.config import settings
 from unfret.credits import siws
 from unfret.main import app
 from unfret.routes.pages import STATIC_DIR, asset_tag
@@ -123,9 +124,11 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert "Shop without" in response.text and "<span>Unfret</span>" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
-    assert (
-        "{{" not in response.text and 'href="https://chromewebstore.google.com/' in response.text
-    )  # store link filled in
+    # Both store links filled in, on the hero and the closing section.
+    assert "{{" not in response.text
+    assert response.text.count(f'href="{settings.chrome_store_url}"') == 2
+    assert response.text.count(f'href="{settings.firefox_store_url}"') == 2
+    assert 'href="https://addons.mozilla.org/' in response.text
     # Its only script fills in "Checked by us recently" (/v1/showcase), the prices (/v1/pricing) and the code box.
     assert response.text.count("<script") == 1
     assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text

@@ -76,7 +76,9 @@ def home() -> HTMLResponse:
     :return: The page.
     """
     template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url))
+    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url)).replace(
+        "{{firefox_url}}", html.escape(settings.firefox_store_url)
+    )
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

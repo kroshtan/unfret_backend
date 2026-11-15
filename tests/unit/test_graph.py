@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from langchain_core.runnables import RunnableLambda
@@ -9,7 +9,7 @@ from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph import build_graph, nodes
 from unfret.graph.skills import Skill, SkillOutput
-from unfret.graph.state import AnalysisState, PageType
+from unfret.graph.state import AnalysisState
 
 
 class _RecordingSkill(Skill):
@@ -34,6 +34,9 @@ class FakeLLM:
     def structured(self, schema: type[BaseModel]) -> RunnableLambda:
         def respond(messages: Any) -> BaseModel:
             self.prompts.append(messages)
+            if schema is nodes._ClassifyOutputExpanded and schema not in self.outputs:
+                # With the expansion classes on, a product page's classification comes in the wider schema.
+                return schema(**self.outputs[nodes._ClassifyOutput].model_dump())
             return self.outputs[schema]
 
         return RunnableLambda(respond)
@@ -78,7 +81,9 @@ async def test_listing_runs_skills_and_judge(fake_llm: FakeLLM) -> None:
     ("page_type", "explanation"),
     [("article", "Articles are not supported yet"), ("non_product", "No product referenced on this page")],
 )
-async def test_non_listing_pages_exit_early(fake_llm: FakeLLM, page_type: PageType, explanation: str) -> None:
+async def test_non_listing_pages_exit_early(
+    fake_llm: FakeLLM, page_type: Literal["article", "non_product"], explanation: str
+) -> None:
     fake_llm.outputs[nodes._ClassifyOutput] = nodes._ClassifyOutput(page_type=page_type, platform="", reasoning="r")
     skill = _RecordingSkill("a")
 

@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops markets opinions split label reports showcase eval bump vat-rates-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -32,8 +32,12 @@ test-unit:  ## Run unit tests (no external services needed)
 test-integration: db-up  ## Run integration tests against a throwaway Postgres container
 	UNFRET_TEST_POSTGRES_URI=$(TEST_DB_URI) uv run pytest tests/integration
 
-test: db-up  ## Run the full test suite
+test: db-up  ## Run the full test suite, then the unit tests again with the expansion classes on
 	UNFRET_TEST_POSTGRES_URI=$(TEST_DB_URI) uv run pytest
+	$(MAKE) test-expansion
+
+test-expansion:  ## Unit tests with UNFRET_EXPANSION_CLASSES on (product results must not change)
+	UNFRET_EXPANSION_CLASSES=true uv run pytest tests/unit --no-cov -q
 
 e2e:  ## End-to-end sweep against dev (devnet; spends the e2e payer's test money): UNFRET_E2E_* (README)
 	uv run pytest -m e2e tests/e2e -x --no-cov -p no:cacheprovider -v

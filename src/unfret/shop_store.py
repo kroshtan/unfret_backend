@@ -21,13 +21,14 @@ import hashlib
 import hmac
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, Protocol, get_args
 
 import asyncpg
 import structlog
 
 from unfret import fact_cache
 from unfret.config import settings
+from unfret.facts.schema import Platform
 from unfret.fingerprint import contact_hash, fingerprint
 from unfret.graph.skills.html_source_signals import page_source, scan
 from unfret.net import hostname
@@ -39,8 +40,11 @@ RETENTION_DAYS = 400
 CONTACT_RETENTION_DAYS = 180
 MAX_SHARE = 25  # an identifier on more shops than this is shared infrastructure, not one operator
 CONTACT_KINDS = frozenset({"email", "phone"})
-# Shops are web shops: marketplaces are one domain for millions of sellers, so their pages say nothing about a shop.
-_MARKETPLACES = frozenset({"amazon", "bol.com", "walmart"})
+# Shops are web shops: marketplaces and platforms (peer-to-peer, service providers) are one domain for millions of
+# sellers, so their pages say nothing about a shop. Every recognised platform but the shop systems.
+_MARKETPLACES = frozenset(get_args(Platform)) - {"shopify", "woocommerce", "generic"}
+# The page types whose site is the business's own: a shop, or (looked up, not recorded) a service company's site.
+_OWN_SITES = frozenset({"storefront", "service_site"})
 
 
 @dataclass(frozen=True)
@@ -451,7 +455,7 @@ def shop_domain(state: dict[str, Any]) -> str | None:
     facts = state.get("facts")
     if not host or "." not in host or facts is None or facts.platform in _MARKETPLACES:
         return None
-    if state.get("page_type") != "storefront":
+    if state.get("page_type") not in _OWN_SITES:
         return None
     return registrable_domain(host)
 

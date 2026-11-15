@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from unfret import scoring, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
+from unfret.facts.extract import without_seller
+from unfret.graph import platforms
 from unfret.graph.skills import injection
 from unfret.graph.state import AnalysisState, PageType
 from unfret.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
@@ -96,6 +98,54 @@ Return the most specific match. When the platform is a known marketplace, includ
 {UNTRUSTED_NOTICE}\
 """
 
+
+class _ClassifyOutputExpanded(BaseModel):
+    """The classification with the page classes beyond products (``settings.expansion_classes``)."""
+
+    page_type: Literal[
+        "aggregate_listing", "storefront", "p2p_listing", "service_listing", "service_site", "article", "non_product"
+    ] = Field(
+        description=(
+            "aggregate_listing: a product a business sells on a marketplace (Amazon, Etsy, a business seller on "
+            "eBay, …); "
+            "storefront: a brand's or shop's own website selling products; "
+            "p2p_listing: one ad by a private person on a classifieds or second-hand marketplace (Marktplaats, "
+            "Vinted, Craigslist, Facebook Marketplace, a private seller on eBay), including rentals; "
+            "service_listing: one service provider's profile on a platform listing many providers (Werkspot, "
+            "Thumbtack, Angi, …); "
+            "service_site: a company's own website offering a service (plumbing, cleaning, locksmith, removals, "
+            "repairs, …) rather than products; "
+            "article: news/blog/review describing a product or service; "
+            "non_product: none of these (search results, a platform's home page, anything else)."
+        )
+    )
+    platform: str = Field(
+        description='The marketplace or platform name when the page is on one (e.g. "Marktplaats"), otherwise empty.'
+    )
+    reasoning: str = Field(description="One sentence explaining the classification.")
+
+
+_CLASSIFY_SYSTEM_EXPANDED = """\
+You are a web-page classifier. Given the text of a page, decide what kind of page it is:
+   - aggregate_listing: a product sold by a business on a third-party marketplace (Amazon, Etsy, Walmart, \
+bol.com, Zalando, Cdiscount, a business seller on eBay, etc.)
+   - storefront: a brand's or shop's own website selling products directly
+   - p2p_listing: one ad by a private person on a classifieds or second-hand marketplace (Marktplaats, 2dehands, \
+Vinted, Craigslist, Facebook Marketplace, a private seller on eBay): an item for sale, or a room or home for rent
+   - service_listing: the profile of one service provider (plumber, cleaner, handyman, locksmith, …) on a platform \
+that lists many providers (Werkspot, Thumbtack, Angi, HomeAdvisor, Checkatrade, …)
+   - service_site: a company's own website offering a service such as plumbing, cleaning, locksmith work, \
+removals, roofing or repairs, rather than selling products
+   - article: a news article, blog post, or review that discusses a product or service
+   - non_product: none of the above (search results, a platform's home page, anything else)
+
+Note: bol.com is a Dutch marketplace — always classify it as aggregate_listing, never as storefront.
+
+Return the most specific match. When the page is on a known marketplace or platform, include its name.
+
+{UNTRUSTED_NOTICE}\
+"""
+
 _MARKETPLACE_NAMES = {"amazon": "Amazon", "bol.com": "bol.com", "walmart": "Walmart"}
 
 
@@ -128,37 +178,68 @@ def _addresses_an_ai(facts: PageFacts | None, cleaned: str) -> bool:
     return bool(injection.instructions(hidden, hidden=True) or injection.instructions(cleaned, hidden=False))
 
 
+def _classified(page_type: PageType, label: str, why: str, facts: PageFacts | None = None) -> dict:
+    update: dict = {"page_type": page_type, "skill_results": [f"[classify]\nPage type: {label}\n{why}"]}
+    if page_type == "p2p_listing" and facts is not None:
+        # A private seller's name is never kept.
+        update["facts"] = facts.model_copy(update={"seller": "", "json_ld": without_seller(facts.json_ld)})
+    return update
+
+
+def _settled_by_rules(state: AnalysisState, facts: PageFacts | None, *, expansion: bool) -> dict | None:
+    """
+    Classify the page from its facts when they settle it, without an LLM.
+
+    Without the expansion classes: a known marketplace's product page, then a page with a product and a price.
+    With them, first a listing or profile on a known peer-to-peer or service platform (:mod:`unfret.graph.platforms`),
+    whose other pages (search, home) go to the LLM rather than count as a shop; and after the product rules, a page
+    whose structured data describes a service company.
+
+    :param state: Current graph state; uses ``url`` and ``cleaned_content``.
+    :param facts: The page facts.
+    :param expansion: Whether the page classes beyond products are on.
+    :return: The classification update, or ``None`` when only the LLM can tell.
+    """
+    if expansion and facts is not None:
+        if settled := platforms.platform_rule(facts, state.get("url", ""), state["cleaned_content"]):
+            page_type, name = settled
+            return _classified(page_type, f"{page_type} ({name})", f"A listing page on {name}.", facts)
+        if platforms.is_known_platform(facts):
+            return None
+    if facts is not None and facts.platform in _MARKETPLACE_NAMES and facts.title:
+        name = _MARKETPLACE_NAMES[facts.platform]
+        return _classified("aggregate_listing", f"aggregate_listing ({name})", f"A product page on {name}.")
+    if strong_product_signals(facts, state):
+        # Facts the extractor found (a price on a titled page, Product JSON-LD, a checkout page) settle it without
+        # an LLM call, and an injected "this is not a shop" can't talk the page out of being analysed.
+        return _classified("storefront", "storefront", "The page lists a product with a price.")
+    if expansion and platforms.service_site_signals(facts):
+        return _classified("service_site", "service_site", "The page's structured data describes a service company.")
+    return None
+
+
 async def classify_node(state: AnalysisState) -> dict:
     """
     Classify the page type before skills run.
 
-    Determines whether the page is a marketplace listing, a storefront,
-    an article about a product, or unrelated to products entirely. Product
-    pages on marketplaces the extractor recognises (Amazon, bol.com, Walmart) are
-    classified without an LLM call.
+    Determines whether the page is a marketplace listing, a storefront, an article about a product, or unrelated
+    to products entirely; with ``settings.expansion_classes`` on, also a peer-to-peer ad, a service provider's
+    platform profile or a service company's own site. Rules decide first (:func:`_settled_by_rules`: known
+    marketplaces and platforms, product facts); the LLM only classifies the pages they leave open.
 
-    :param state: Current graph state; uses ``cleaned_content`` and ``facts``.
-    :return: ``page_type`` and a classification entry in ``skill_results``.
+    :param state: Current graph state; uses ``cleaned_content``, ``facts`` and ``url``.
+    :return: ``page_type`` and a classification entry in ``skill_results`` (and, for a peer-to-peer ad, the facts
+        without the seller's name).
     """
     if not state["cleaned_content"]:
         return {"page_type": "non_product", "skill_results": ["[classify]\nPage type: non_product\nPage has no text."]}
 
     facts = state.get("facts")
-    if facts is not None and facts.platform in _MARKETPLACE_NAMES and facts.title:
-        name = _MARKETPLACE_NAMES[facts.platform]
-        return {
-            "page_type": "aggregate_listing",
-            "skill_results": [f"[classify]\nPage type: aggregate_listing ({name})\nA product page on {name}."],
-        }
-
-    if strong_product_signals(facts, state):
-        # Facts the extractor found (a price on a titled page, Product JSON-LD, a checkout page) settle it without
-        # an LLM call, and an injected "this is not a shop" can't talk the page out of being analysed.
-        return {
-            "page_type": "storefront",
-            "skill_results": ["[classify]\nPage type: storefront\nThe page lists a product with a price."],
-        }
-    return await _classify_with_llm(state, facts)
+    expansion = settings.expansion_classes
+    settled = _settled_by_rules(state, facts, expansion=expansion)
+    if settled is not None:
+        return settled
+    return await _classify_with_llm(state, facts, expansion=expansion)
 
 
 async def classify_by_rules_node(state: AnalysisState) -> dict:
@@ -167,25 +248,31 @@ async def classify_by_rules_node(state: AnalysisState) -> dict:
 
     A known marketplace's product page, or a page with a product and a price, is analysed as :func:`classify_node`
     would; anything else is not assessed (the caller pays nothing for it), since only the LLM could tell a product
-    page without a price from an article.
+    page without a price from an article. The quick tier is for product pages only, whether or not the expansion
+    classes are on.
 
     :param state: Current graph state; uses ``cleaned_content`` and ``facts``.
     :return: ``page_type`` and a classification entry in ``skill_results``.
     """
-    facts = state.get("facts")
-    known = facts is not None and facts.platform in _MARKETPLACE_NAMES and bool(facts.title)
-    if state["cleaned_content"] and (known or strong_product_signals(facts, state)):
-        return await classify_node(state)  # settled by the facts: no LLM call
+    settled = _settled_by_rules(state, state.get("facts"), expansion=False) if state["cleaned_content"] else None
+    if settled is not None:
+        return settled
     return {
         "page_type": "non_product",
         "skill_results": ["[classify]\nPage type: non_product\nNo product with a price found on the page."],
     }
 
 
-async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None) -> dict:
-    output: _ClassifyOutput = await get_structured_llm(_ClassifyOutput).ainvoke(
+async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None, *, expansion: bool = False) -> dict:
+    # Without the expansion classes the prompt and schema are exactly the earlier ones (recorded evaluation
+    # responses keep matching).
+    schema: type[_ClassifyOutput] | type[_ClassifyOutputExpanded] = (
+        _ClassifyOutputExpanded if expansion else _ClassifyOutput
+    )
+    system = _CLASSIFY_SYSTEM_EXPANDED if expansion else _CLASSIFY_SYSTEM
+    output = await get_structured_llm(schema).ainvoke(
         [
-            SystemMessage(content=_CLASSIFY_SYSTEM.format(UNTRUSTED_NOTICE=UNTRUSTED_NOTICE)),
+            SystemMessage(content=system.format(UNTRUSTED_NOTICE=UNTRUSTED_NOTICE)),
             HumanMessage(content=untrusted(state["cleaned_content"][:8_000])),
         ]
     )
@@ -198,9 +285,7 @@ async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None) -> d
     label: str = output.page_type
     if output.platform:
         label = f"{output.page_type} ({output.platform})"
-
-    finding = f"[classify]\nPage type: {label}\n{output.reasoning}"
-    return {"page_type": page_type, "skill_results": [finding]}
+    return _classified(page_type, label, output.reasoning, facts)
 
 
 _EARLY_EXIT_EXPLANATIONS: dict[str, str] = {

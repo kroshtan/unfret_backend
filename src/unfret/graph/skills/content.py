@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from unfret.config import settings
-from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.graph.skills import ANALYSED_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.llm import UNTRUSTED_NOTICE, get_structured_llm, untrusted
 
@@ -45,6 +45,13 @@ _POLICY_NAMES = {
     "privacy": "privacy policy",
     "contact": "contact page",
     "imprint": "legal notice (imprint)",
+}
+# How the prompt names the page; anything else is a shop's own page (product pages keep their exact wording).
+_PAGE_LABELS = {
+    "aggregate_listing": "marketplace listing",
+    "p2p_listing": "private seller's ad on a classifieds marketplace",
+    "service_listing": "service provider's profile on a platform",
+    "service_site": "service company's own website",
 }
 
 
@@ -91,6 +98,8 @@ class ContentSkill(Skill):
 
     name = "content"
     description = "Scores sales tactics, branding and claims in the listing text, with quoted evidence."
+    page_types = ANALYSED_PAGES
+    retry = True
     features = (
         "scam_copy",
         "generic_product",
@@ -110,7 +119,7 @@ class ContentSkill(Skill):
         :return: The skill's features and findings.
         """
         facts = state["facts"]
-        page = "marketplace listing" if state.get("page_type") == "aggregate_listing" else "shop's own page"
+        page = _PAGE_LABELS.get(state.get("page_type", "storefront"), "shop's own page")
         header = f"Page: {page}\nTitle: {facts.title}\nBrand: {facts.brand or 'unknown'}\n"
         if facts.price is not None:
             header += f"Price: {facts.price} {facts.currency}\n"

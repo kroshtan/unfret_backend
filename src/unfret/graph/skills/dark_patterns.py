@@ -13,7 +13,7 @@ import re
 from bs4 import BeautifulSoup
 
 from unfret.facts._parse import parse_price
-from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.graph.skills import PRODUCT_PAGES, SERVICE_SITES, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
 
@@ -106,6 +106,7 @@ class DarkPatternsSkill(Skill):
 
     name = "dark_patterns"
     description = "Detects fake countdown timers, pre-ticked paid add-ons and drip pricing."
+    page_types = PRODUCT_PAGES | SERVICE_SITES
     features = ("timer", "timer_resets", "preticked_addons", "fee_mentions", "checkout_markup_pct")
 
     async def run(self, state: AnalysisState) -> SkillOutput:

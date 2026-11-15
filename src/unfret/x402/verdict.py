@@ -119,7 +119,9 @@ class Verdict(BaseModel):
     )
     summary: str | None = Field(default=None, description="One plain sentence for the human you're buying for.")
     page_type: str | None = Field(
-        default=None, description="aggregate_listing (marketplace), storefront, article or non_product."
+        default=None,
+        description="aggregate_listing (marketplace), storefront, article or non_product; while the expansion classes "
+        "are on, also p2p_listing (a private seller's ad), service_listing or service_site (service providers).",
     )
 
 

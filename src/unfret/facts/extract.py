@@ -14,9 +14,9 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, walmart
+from unfret.facts import amazon, bolcom, business, walmart
 from unfret.facts._parse import parse_date, parse_number, parse_rating
-from unfret.facts.schema import Checkbox, PageFacts, Platform, Review
+from unfret.facts.schema import P2P_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
 
 _HIDDEN_STYLE_RE = re.compile(
@@ -70,6 +70,29 @@ _WOO_RE = re.compile(r"woocommerce|wp-content/plugins/woocommerce", re.IGNORECAS
 _AMAZON_HOST_RE = re.compile(r"(?:^|[\s.])amazon\.[a-z.]+")
 _BOL_HOST_RE = re.compile(r"(?:^|[\s.])bol\.com")
 _WALMART_HOST_RE = re.compile(r"(?:^|[\s.])walmart\.com\b")
+# Peer-to-peer marketplaces and service platforms, by host (the page type is decided by the classifier).
+_HOST_PATTERNS: tuple[tuple[Platform, str], ...] = (
+    ("ebay", r"ebay\.[a-z.]+"),
+    ("marktplaats", r"marktplaats\.nl"),
+    ("2dehands", r"2dehands\.be|2ememain\.be"),
+    ("vinted", r"vinted\.[a-z.]+"),
+    ("craigslist", r"craigslist\.[a-z.]+"),
+    ("facebook", r"facebook\.com"),
+    ("werkspot", r"werkspot\.nl"),
+    ("thumbtack", r"thumbtack\.com"),
+    ("angi", r"angi\.com|angieslist\.com"),
+    ("homeadvisor", r"homeadvisor\.com"),
+    ("checkatrade", r"checkatrade\.com"),
+    ("taskrabbit", r"taskrabbit\.[a-z.]+"),
+    ("bark", r"bark\.com"),
+    ("houzz", r"houzz\.[a-z.]+"),
+    ("myhammer", r"my-hammer\.de|myhammer\.de"),
+)
+_PLATFORM_HOSTS: tuple[tuple[Platform, re.Pattern[str]], ...] = (
+    ("bol.com", _BOL_HOST_RE),
+    ("walmart", _WALMART_HOST_RE),
+    *((name, re.compile(rf"(?:^|[\s.])(?:{hosts})(?![a-z0-9-])")) for name, hosts in _HOST_PATTERNS),
+)
 _COMPARE_AT_RE = re.compile(r'"compare_at_price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_PRICE_RE = re.compile(r'"price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_ID_RE = re.compile(r'"id"\s*:\s*"?(\d{6,})')
@@ -124,7 +147,31 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")
     if not facts.image_urls and (image := _meta(soup, "og:image")):
         facts.image_urls = [urljoin(url, image)]
+    if facts.platform in P2P_PLATFORMS:
+        facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
+    business.extract(soup, url, facts)
     return facts
+
+
+def without_seller(json_ld: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Product JSON-LD without the offers' seller (on a peer-to-peer ad, a private person's name).
+
+    :param json_ld: The trimmed product nodes.
+    :return: The same nodes, each offer without its ``seller``.
+    """
+
+    def offer(value: object) -> object:
+        return {k: v for k, v in value.items() if k != "seller"} if isinstance(value, dict) else value
+
+    out = []
+    for node in json_ld:
+        offers = node.get("offers")
+        if offers is None:
+            out.append(node)
+        else:
+            out.append({**node, "offers": [offer(o) for o in offers] if isinstance(offers, list) else offer(offers)})
+    return out
 
 
 def _platform(soup: BeautifulSoup, html: str, url: str) -> Platform:
@@ -134,10 +181,9 @@ def _platform(soup: BeautifulSoup, html: str, url: str) -> Platform:
     hosts = f"{host} {canonical_host}"
     if _AMAZON_HOST_RE.search(hosts) or (soup.find(id="productTitle") and soup.find(id="dp")):
         return "amazon"
-    if _BOL_HOST_RE.search(hosts):
-        return "bol.com"
-    if _WALMART_HOST_RE.search(hosts):
-        return "walmart"
+    for name, pattern in _PLATFORM_HOSTS:
+        if pattern.search(hosts):
+            return name
     if _SHOPIFY_RE.search(html):
         return "shopify"
     if _WOO_RE.search(html):

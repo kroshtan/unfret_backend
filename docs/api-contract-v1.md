@@ -538,3 +538,27 @@ valid 7 days. Nothing is stored when a check runs.
 
 - `GET /v1/credits` adds `invite_eligible` (bool): true while the account has never had credit, the same test
   `POST /v1/invites/redeem` makes, so a client can show "Have an invite?" only where a code would be accepted.
+
+## Changes (page classes beyond products, backwards-compatible)
+
+- New optional `PageFacts` fields (snapshot updated), all with empty defaults: `product_ids` (object: `gtin`,
+  `gtin8`/`12`/`13`/`14`, `mpn`, `asin`), `payment_methods` (strings such as `paypal`, `ideal`, `bank_transfer`,
+  `crypto`, `gift_card`), `phones` (`{"number", "kind": mobile|local|national|toll_free|premium|unknown, "country"}`),
+  `emails` (`{"address", "kind": own_domain|webmail|other}`), `addresses`, `founded_claims`, `business_name`,
+  `legal_form`, `kvk_numbers`, `licences` (`{"number", "state"}`), `certifications`, `cities_served`,
+  `internal_links` (`{"text", "url"}`), `pricing_terms`, `promises`, `testimonials`, `organization_ld`, and the
+  nullable objects `seller_profile` (`seller_type` business|private, `member_since`, `rating`, `rating_count`, `badges`,
+  `other_listings`, `response_time`, `response_rate`, `jobs_completed`) and `listing` (`negotiable`, `bidding`,
+  `condition`, `category`, `listed`, `location`, `delivery`, `payment_protection`, `contact_methods`,
+  `payment_requests`). Clients that extract facts themselves (the extension) fill them by the same rules as the
+  server: contacts and addresses only from what the business publishes, nothing from forms, account, checkout,
+  billing or delivery areas; never a private seller's name.
+- `PageFacts.platform` may also be `ebay`, `marktplaats`, `2dehands`, `vinted`, `craigslist`, `facebook`, `werkspot`,
+  `thumbtack`, `angi`, `homeadvisor`, `checkatrade`, `taskrabbit`, `bark`, `houzz` or `myhammer`. An older server
+  ignores the new fields (unknown fields are dropped) but rejects the new platform values (422), so a server with
+  this change must be deployed before an extension that sends them; an older client keeps working unchanged.
+- While the server runs with `UNFRET_EXPANSION_CLASSES` on (off by default), `page_type` (stream `step` of
+  `classify`, x402 `page_type`) may also be `p2p_listing`, `service_listing` or `service_site`. Those pages are
+  analysed and charged like product pages; their `verdict` band is `concerns` or `careful` (no `assessment`: there is
+  no trained scorer for them yet). Stream `step` events keep their shape; the skills of every class report their
+  steps as before.

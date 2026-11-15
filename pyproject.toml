@@ -24,8 +24,10 @@ dependencies = [
     "beautifulsoup4>=4.15",
     "fastapi>=0.162",
     "httpx>=0.28.1",
-    "langchain-openai>=1.7",
-    "langgraph>=1.2",
+    # The LLM layer and the graph, pinned to their minor release: upgraded deliberately, measured on the corpus.
+    "langchain-core~=1.7.6",
+    "langchain-openai~=1.7.4",
+    "langgraph~=1.2.20",
     "pillow>=13.0",
     "pydantic>=2.14",
     "pydantic-settings>=2.12",

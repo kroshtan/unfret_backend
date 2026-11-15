@@ -23,38 +23,77 @@ POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sou
 ```mermaid
 flowchart LR
     A[POST /v1/analyze] --> P[preprocess<br/><sub>PageFacts + text, one parse</sub>]
-    P --> C{classify<br/><sub>LLM, or known marketplace</sub>}
+    P --> C{classify<br/><sub>rules first: known marketplaces<br/>and platforms, page facts; LLM for the rest</sub>}
     C -- article / non-product --> X[early exit<br/><sub>score = -1</sub>]
-    C -- marketplace listing / storefront --> S1[content]
-    C --> S2[listing]
-    C --> S3[reviews]
-    C --> S4[html_source_signals]
-    C --> S5[dark_patterns]
-    C --> S6[injection]
-    C --> S7[eu_registry / domain_age<br/><sub>storefronts</sub>]
-    S1 & S2 & S3 & S4 & S5 & S6 & S7 --> J[judge<br/><sub>LLM → score + explanation</sub>]
+    C -- marketplace listing / storefront --> PR
+    C -. p2p ad .-> PP
+    C -. service provider .-> SV
+    subgraph PR [product subgraph]
+        S[cheap skills<br/><sub>in parallel</sub>] --> T{triage} -- photo check worth it --> R[reverse_image] --> T
+        T --> J[judge<br/><sub>scorer + LLM headline</sub>]
+    end
+    subgraph PP [p2p subgraph]
+        S2[skills for ads] --> J2[interim judge]
+    end
+    subgraph SV [service subgraph]
+        S3[skills for service providers] --> J3[interim judge]
+    end
 ```
 
 Preprocessing parses the page once into typed **`PageFacts`** (title, brand, prices, seller, rating histogram, dated
-reviews, hidden text, checkboxes, timers, VAT IDs, policy links, …); a browser extension can send them directly
-(`page_facts`). Each skill reads the facts and reports numeric **features** plus factual **findings** (evidence, never a
-verdict). The graph fans out to the skills that handle the page type with LangGraph's `Send` API, so they run
-concurrently. All page content is passed to the LLM as clearly delimited untrusted data.
+reviews, hidden text, checkboxes, timers, VAT IDs, policy links, and the business facts: public product IDs,
+payment methods, published phone numbers and e-mail addresses, addresses, KvK and licence numbers, founding claims,
+Organization/LocalBusiness data, same-site links, …); a browser extension can send them directly (`page_facts`).
+Contacts and addresses are read only from what the business publishes (structured data, `tel:`/`mailto:` links, the
+footer and contact, legal or imprint sections), never from forms, account menus, checkout or delivery areas, so
+nothing about the visitor ends up in the facts (`facts/business.py`). Each skill reads the facts and reports numeric
+**features** plus factual **findings** (evidence, never a verdict). All page content is passed to the LLM as clearly
+delimited untrusted data.
+
+**One shared classify step, one LangGraph subgraph per page class.** `preprocess` and `classify` are shared; each
+page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which fans out to the skills whose
+`page_types` include the page's type (LangGraph's `Send` API, so they run concurrently), then a triage, then a judge:
+
+- **product** (marketplace listings and storefronts): the cheap skills, the triage (rules first, the LLM only for
+  unclear cases) that decides whether the reverse image search is worth it, and the judge (the trained scorer's
+  band; an LLM writes the headline).
+- **p2p** (`p2p_listing`: a private seller's ad on Marktplaats, 2dehands, Vinted, Craigslist, Facebook Marketplace,
+  or a private seller on eBay) and **service** (`service_listing`: a provider's profile on Werkspot, Thumbtack, Angi,
+  HomeAdvisor, …; `service_site`: a service company's own website). These exist only while
+  `UNFRET_EXPANSION_CLASSES` is on (default **off**: classification is then exactly as before, and such pages are
+  treated as they always were). Their judge is an interim one: no trained scorer yet, so never "looks fine", only
+  "a few things to check" (or "some warning signs" when a skill found something serious), with a headline that says
+  the checks are new. Expensive skills run there only when the caller asks for them.
+
+Classification is rules first. A known marketplace's product page (Amazon, bol.com, Walmart) or a page with a
+product and a price is settled from the facts. With the expansion classes on, a host and path table
+(`graph/platforms.py`) comes first: a listing or profile on a known peer-to-peer or service platform is classified
+without the LLM (an eBay listing by a seller the page labels a business stays a marketplace listing; otherwise it is
+an ad), and the platform's other pages (search, home) go to the LLM rather than count as a shop; after the product
+rules, structured data naming a trade (`Plumber`, `Locksmith`, `HomeAndConstructionBusiness`, …) makes a
+`service_site`. The LLM classifies whatever is left, with the new types in its prompt only while the flag is on.
+
+Nodes that call the LLM or fetch outside data (classify, the content, reviews, domain_age, eu_registry and
+reverse_image skills, the triage, the judge) have LangGraph's built-in **RetryPolicy**: a transient error (dropped
+connection, provider 5xx, rate limit) gets `UNFRET_GRAPH_RETRY_ATTEMPTS` attempts (default 2) before a skill counts
+as unavailable. LangGraph, langchain-core and langchain-openai are pinned to their minor release and upgraded
+deliberately; no LangSmith or other hosted LangChain service is used (its tracing is forced off).
+`POST /v1/analyze/stream` streams every class's skill steps (`astream(..., subgraphs=True)`).
 
 | Skill | What it checks |
 | --- | --- |
-| `content` | One LLM read of the listing text: scam copy and fake urgency, generic white-label product, whether the brand is established, implausible claims, missing trust information |
+| `content` | Every class: one LLM read of the page text: scam copy and fake urgency, generic white-label product, whether the brand is established, implausible claims, missing trust information |
 | `listing` | Generated-looking brand names, inflated "was" prices, keyword-stuffed titles, seller ≠ brand, ships from China |
 | `reviews` | Reviews per day since the listing appeared, rating shape, duplicate and very short reviews, bursts, and review/title embedding similarity (reviews borrowed from other products) |
 | `html_source_signals` | Known dropship apps, supplier CDNs, AliExpress review importers, shipping-protection and countdown apps |
-| `dark_patterns` | Countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
-| `injection` | Hidden text and instructions addressed to an AI, which honest shops have no reason to include |
-| `eu_registry` | Storefronts: VAT ID checked against the EU VIES register (name match) and its check digit (a number that can't exist earns no credit and makes the verdict "careful" at best; a bank account that starts like a VAT ID is ignored), withdrawal right and imprint; outside the EU (a US shop, or one on a non-European country domain or currency) a named company or US business address counts as its imprint, and a missing imprint, VAT ID or return policy is not applicable (neutral), since no law there requires them |
-| `us_identity` | US storefronts: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
+| `dark_patterns` | Product pages and service sites: countdown timers (and whether they reset per visitor), pre-ticked paid add-ons, fee wording, and checkout total vs listed price when the checkout page is supplied |
+| `injection` | Every class: hidden text and instructions addressed to an AI, which honest shops have no reason to include |
+| `eu_registry` | Storefronts and service sites: VAT ID checked against the EU VIES register (name match) and its check digit (a number that can't exist earns no credit and makes the verdict "careful" at best; a bank account that starts like a VAT ID is ignored), withdrawal right and imprint; outside the EU (a US shop, or one on a non-European country domain or currency) a named company or US business address counts as its imprint, and a missing imprint, VAT ID or return policy is not applicable (neutral), since no law there requires them |
+| `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
-| `domain_age` | Storefronts: domain registration via RDAP and the first certificate in the CT logs |
-| `shop_links` | Storefronts: other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
-| `reverse_image` | The main product photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
+| `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs |
+| `shop_links` | Storefronts and service sites (looked up; only shops are recorded): other web shops with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Local lookup, also in the quick tier; not in the scorer yet |
+| `reverse_image` | Every class (outside products only when asked for): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue. pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
 
 ### Adding a skill
 
@@ -69,7 +108,10 @@ class ShippingTimeSkill(Skill):
         return self.output({"weeks": weeks}, [Observation(type="shipping", evidence=f"Ships in {weeks} weeks.")])
 ```
 
-Register an instance in `SKILLS` in [`src/unfret/graph/__init__.py`](src/unfret/graph/__init__.py).
+Register an instance in `SKILLS` in [`src/unfret/graph/__init__.py`](src/unfret/graph/__init__.py). Its
+`page_types` decide which page classes run it (default: product pages; `ANALYSED_PAGES`, `P2P_PAGES`,
+`SERVICE_PAGES`, `SERVICE_SITES` in `graph/skills/__init__.py`), and `retry = True` marks one that calls the LLM or
+fetches outside data, so transient errors are retried.
 
 ## API
 

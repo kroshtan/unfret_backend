@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 from collections.abc import Awaitable, Callable
 from functools import cache
@@ -12,6 +13,11 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel
 
 from unfret.config import settings
+
+# No LangSmith or any other hosted LangChain service: langchain-core ships the LangSmith client, so its tracing is
+# switched off here whatever the environment says (prompts carry page content, and nothing leaves for a third party).
+for _variable in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"):
+    os.environ[_variable] = "false"
 
 
 @cache

@@ -14,6 +14,8 @@ import httpx
 
 from unfret.config import settings
 from unfret.facts.extract import parse_page
+from unfret.facts.service_platforms import SERVICE_PLATFORMS
+from unfret.graph.platforms import platform_rule
 from unfret.net import UnresolvableHostError, UnsafeURLError, fetch_public
 
 Reason = Literal["PAGE_UNAVAILABLE", "PAGE_BLOCKED", "PAGE_TOO_THIN", "INVALID_URL"]
@@ -43,6 +45,10 @@ _DETAILS: dict[Reason, str] = {
     "PAGE_TOO_THIN": "The page shows too little without a browser to be checked.",
     "INVALID_URL": "That isn't a public web address.",
 }
+# A platform that answers a server with its page but leaves the profile out of it (Houzz's /professionals/ pages).
+_PROFILE_WITHHELD = (
+    "The platform doesn't show this profile to automatic checks: check it in your browser with the Unfret extension."
+)
 _UNREACHABLE = "The site couldn't be reached: its address doesn't lead anywhere (any more)."
 
 
@@ -87,6 +93,27 @@ def is_too_thin(html: str, url: str) -> bool:
     return len(text.strip()) < MIN_TEXT_CHARS and facts.price is None and not facts.json_ld
 
 
+def is_withheld_profile(html: str, url: str) -> bool:
+    """
+    Whether this is a service platform's profile page that came without the profile.
+
+    A platform (Houzz, behind Fastly) may answer a server with its page frame but none of the provider's rating,
+    reviews or membership: a check of that would say "a few things to check" about nothing at all. Only while the
+    page classes beyond products are on (with them off these pages aren't checked as profiles anyway).
+
+    :param html: The page.
+    :param url: Its URL.
+    :return: ``True`` for a known service platform's profile URL whose page shows no profile.
+    """
+    if not settings.expansion_classes:
+        return False
+    facts, text = parse_page(html, url)
+    if facts.platform not in SERVICE_PLATFORMS:
+        return False
+    rule = platform_rule(facts, url, text)
+    return rule is not None and rule[0] == "service_listing" and facts.seller_profile is None and not facts.reviews
+
+
 def _reason_for(exc: Exception) -> Reason:
     if isinstance(exc, UnresolvableHostError):
         return "PAGE_UNAVAILABLE"  # a dead domain is unreachable, not a private address
@@ -115,4 +142,6 @@ async def fetch_page(url: str) -> str:
         raise PageUnreadableError("PAGE_BLOCKED")
     if is_too_thin(html, url):
         raise PageUnreadableError("PAGE_TOO_THIN")
+    if is_withheld_profile(html, url):
+        raise PageUnreadableError("PAGE_BLOCKED", _PROFILE_WITHHELD)
     return html

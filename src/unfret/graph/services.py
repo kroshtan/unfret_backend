@@ -286,7 +286,9 @@ def _everywhere(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["pushy_copy"] = {}
     if e.f("injection.instruction_hidden") >= 1:
         fired["hidden_ai_text"] = {}
-    if e.f("injection.instruction_visible") >= 1 or e.f("content.addresses_ai") >= 1:
+    # Only the quoted phrase the injection skill found, as on product pages: the content read's yes/no
+    # ``addresses_ai`` has no quote to show and fires on ordinary text.
+    if e.f("injection.instruction_visible") >= 1:
         fired["ai_text"] = {}
     _profile(e, fired)
 
@@ -464,13 +466,30 @@ def service_verdict(state: AnalysisState) -> dict[str, Any]:
     :param state: The graph state after the class's skills.
     :return: ``score``, ``explanation`` and ``verdict`` (no ``assessment``: there is no scorer).
     """
+    facts = state.get("facts") or PageFacts()
+    page_type = state.get("page_type", "service_site")
     score, verdict = build(
-        features=state.get("features", {}),
-        findings=state.get("findings", []),
-        facts=state.get("facts") or PageFacts(),
-        page_type=state.get("page_type", "service_site"),
+        features=state.get("features", {}), findings=state.get("findings", []), facts=facts, page_type=page_type
     )
+    if page_type == "service_listing" and nothing_read(facts, verdict):
+        # A platform page without the provider's profile (Houzz's frame without its data): "a few things to check"
+        # would be about nothing. Not analysed, so not charged; the extension reads the page the user sees.
+        return {"score": -1, "explanation": PROFILE_NOT_READ}
     return {"score": score, "explanation": verdict.headline, "verdict": verdict.model_dump()}
+
+
+PROFILE_NOT_READ = "The provider's profile on this page couldn't be read, so it wasn't checked."
+
+
+def nothing_read(facts: PageFacts, verdict: shopper.Verdict) -> bool:
+    """
+    Whether a platform profile check found nothing at all to go on: no profile, no reviews, no reason, no positive.
+
+    :param facts: The page facts.
+    :param verdict: The verdict built from them.
+    :return: ``True`` when the verdict would be about nothing.
+    """
+    return facts.seller_profile is None and not facts.reviews and not verdict.reasons and not verdict.positives
 
 
 def make_service_judge() -> Callable[[AnalysisState], Awaitable[dict[str, Any]]]:

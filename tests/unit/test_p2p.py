@@ -818,12 +818,69 @@ def test_the_accounts_age_from_the_json(since: str, years: int, expected: date |
     assert p2p_facts._member_since({"activeSinceDiff": since, "activeYears": years}) == expected
 
 
-async def test_an_old_marktplaats_account_with_pickup_is_not_little_to_go_on() -> None:
+async def test_an_old_marktplaats_account_with_pickup_looks_fine() -> None:
+    # Marktplaats shows no rating count: an account of years with pickup and nothing against it is not "little to
+    # go on" (10 of 15 real ads said so next to these very positives).
     _, verdict = await _verdict(facts_of("marktplaats-config"))
 
-    assert verdict.band == "concerns"  # no ratings in the JSON, so not "Looks fine"
+    assert verdict.band == "reliable"
+    assert verdict.reasons == []
     assert {p.type for p in verdict.positives} >= {"p2p_established", "p2p_pickup"}
-    assert [r.type for r in verdict.reasons] == ["p2p_little_known"]  # a band below "Looks fine" says why
+
+
+async def test_the_accounts_real_age_is_shown_beyond_ten_years() -> None:
+    facts = facts_of("marktplaats-config")  # "activeYears": 11
+    out = await SellerProfileSkill().run(state_of(facts))
+
+    _, verdict = await _verdict(facts)
+
+    assert out["features"]["seller_profile.account_days"] == 3650  # the scorer's feature keeps its cap
+    established = next(p for p in verdict.positives if p.type == "p2p_established")
+    assert established.detail == "The seller has been on the platform for 11 years."
+
+
+async def test_an_llm_lean_towards_paying_off_the_platform_holds_back_looks_fine() -> None:
+    llm_read = SkillOutput(features={"content.off_platform_push": 0.8}, findings=[], skill_results=[])
+
+    _, verdict = await _verdict(facts_of("marktplaats-config"), llm_read)
+
+    assert verdict.band == "concerns"
+
+
+@pytest.mark.parametrize(
+    ("since", "text", "kept"),
+    [
+        (date(2016, 1, 1), "Mooie fiets, ophalen in Groningen.", False),  # the seller's own other ads
+        (date(2026, 10, 1), "Mooie fiets, ophalen in Groningen.", True),  # a young account
+        (date(2016, 1, 1), "Mooie fiets. Betalen via overboeking, daarna verstuur ik hem.", True),  # another sign
+    ],
+)
+async def test_same_ad_text_counts_only_with_something_else_against_it(since: date, text: str, kept: bool) -> None:
+    facts = PageFacts(
+        platform="marktplaats",
+        url=URLS["marktplaats-config"],
+        seller_profile=SellerProfile(member_since=since),
+        listing=ListingDetails(description=text, delivery=["pickup"]),
+    )
+    dup = Finding(skill="duplicate_ads", type="duplicate_text", evidence="The same ad text is in 2 other ads (x).")
+    copies = SkillOutput(features={"duplicate_ads.text_copies": 2.0}, findings=[dup], skill_results=[])
+
+    _, verdict = await _verdict(facts, copies)
+
+    assert ("p2p_duplicate_text" in {r.type for r in verdict.reasons}) == kept
+    if not kept:
+        assert verdict.band == "reliable"
+
+
+async def test_the_content_reads_yes_no_on_ai_text_is_not_a_reason() -> None:
+    llm_read = SkillOutput(features={"content.addresses_ai": 1.0}, findings=[], skill_results=[])
+    visible = SkillOutput(features={"injection.instruction_visible": 1.0}, findings=[], skill_results=[])
+
+    _, verdict = await _verdict(facts_of("marktplaats-config"), llm_read)
+    _, quoted = await _verdict(facts_of("marktplaats-config"), visible)
+
+    assert "ai_text" not in {r.type for r in verdict.reasons}
+    assert "ai_text" in {r.type for r in quoted.reasons}
 
 
 # ── Real ads that were flagged wrongly ──────────────────────────────────────────────────────────────────────

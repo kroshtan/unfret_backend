@@ -29,6 +29,13 @@ class AnalyzeResponse(BaseModel):
 
     score: int = Field(ge=-1, le=100, description="Reliability score: 0 (scam) → 100 (legitimate); -1 = not analysed.")
     explanation: str = Field(description="One-line explanation of the score.")
+    page_type: str | None = Field(
+        default=None,
+        description="What kind of page was checked: aggregate_listing (a product on a marketplace), storefront (a "
+        "shop's own product page), p2p_listing (a private person's ad), service_listing (a service provider on a "
+        "platform), service_site (a service company's own site), article or non_product (not analysed). The same "
+        "value the stream's classify step carries; new values may be added.",
+    )
     assessment: dict[str, Any] | None = Field(
         default=None, description="The trained scorer's risk_score, confidence, weighted flags and model_version."
     )

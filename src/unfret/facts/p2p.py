@@ -11,12 +11,19 @@ The seller box is read for what it says about the account (member since, ratings
 time), never for who it is. The ad text (:attr:`ListingDetails.description`) is kept for the check only; contact
 methods and payment requests are the *kinds* it mentions (``whatsapp``, ``bank_transfer``), not the details.
 
+Marktplaats and 2dehands render most of an ad in the browser; the page carries it as JSON in a script
+(``window.__CONFIG__``), which :func:`adevinta_listing` reads instead: the deal (price type, bidding, pickup or
+shipping, the platform's payment protection, the date placed, the town) and the account (private or business, how
+long on the platform). That JSON names the seller too (and their profile link); only the listed fields are copied
+out of it, so the name never leaves the parser.
+
 The browser extension runs the same rules on the live page (``src/extract/p2p.ts``, kept in parity).
 """
 
+import json
 import re
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 from bs4 import BeautifulSoup, Tag
 
@@ -393,6 +400,161 @@ def ad_signals(text: str) -> tuple[list[str], list[str]]:
     return contacts, payments
 
 
+# ── Marktplaats and 2dehands: the ad's JSON ─────────────────────────────────────────────────────────────────
+
+_CONFIG_RE = re.compile(r"window\.__CONFIG__\s*=\s*")
+_SINCE_DIFF_RE = re.compile(
+    r"(\d+)\s*(jaar|jaren|years?|ans?|maanden|maand|months?|mois|weken|week|weeks?|semaines?|dagen|dag|days?|jours?)",
+    re.IGNORECASE,
+)
+_UNIT_DAYS = (("jour", 1), ("dag", 1), ("day", 1), ("we", 7), ("sem", 7), ("m", 30))  # by prefix; else years
+_SELLER_TYPES: dict[str, SellerType] = {"CONSUMER": "private", "TRADER": "business", "BUSINESS": "business"}
+_NEGOTIABLE_PRICE_TYPES = {"NOTK": True, "FIXED": False}
+_BID_PRICE_TYPES = {"MIN_BID", "FAST_BID"}
+_IMAGE_SIZE = "$_85"  # the gallery's "$_#" placeholder, as a large photo
+
+
+def _today() -> date:
+    """Today: the "on the platform for 4 months" the ad's JSON gives counts back from it (tests fix it)."""
+    return date.today()
+
+
+@dataclass
+class AdevintaListing:
+    """What Unfret reads from a Marktplaats or 2dehands ad's JSON. Deliberately no name, id or profile link."""
+
+    title: str = ""
+    price: float | None = None
+    price_type: str = ""
+    bidding: bool | None = None
+    delivery: list[Delivery] = field(default_factory=list)
+    payment_protection: bool | None = None
+    listed: date | None = None
+    location: str = ""
+    category: str = ""
+    seller_type: SellerType = ""
+    member_since: date | None = None
+    image_urls: list[str] = field(default_factory=list)
+
+
+def _config(soup: BeautifulSoup) -> dict[str, object] | None:
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        if (m := _CONFIG_RE.search(text)) is None:
+            continue
+        try:
+            value, _ = json.JSONDecoder().raw_decode(text, m.end())
+        except ValueError:
+            return None
+        return value if isinstance(value, dict) else None
+    return None
+
+
+def _dict(value: object, key: str) -> dict[str, object]:
+    found = value.get(key) if isinstance(value, dict) else None
+    return found if isinstance(found, dict) else {}
+
+
+def _str(value: object, key: str) -> str:
+    found = value.get(key) if isinstance(value, dict) else None
+    return found.strip() if isinstance(found, str) else ""
+
+
+def _member_since(seller: dict[str, object]) -> date | None:
+    """The account's start, counted back from today: "4 maanden" (the platform's own wording) or whole years."""
+    if m := _SINCE_DIFF_RE.search(_str(seller, "activeSinceDiff")):
+        unit = m[2].lower()
+        days = next((n for prefix, n in _UNIT_DAYS if unit.startswith(prefix)), 365)
+        return _today() - timedelta(days=int(m[1]) * days)
+    years = seller.get("activeYears")
+    if isinstance(years, int) and not isinstance(years, bool) and years >= 1:
+        return _today() - timedelta(days=years * 365)
+    return None
+
+
+def _ad_delivery(listing: dict[str, object]) -> list[Delivery]:
+    kind = _str(_dict(_dict(listing, "shippingInformation"), "deliveryType"), "attributeValueKey").lower()
+    shipping = "verzenden" in kind or "envoi" in kind or "livraison" in kind
+    pickup = "ophalen" in kind or "enlèvement" in kind or "retrait" in kind
+    kinds: list[Delivery] = ["shipping", "pickup"]
+    return [k for k, offered in zip(kinds, (shipping, pickup), strict=True) if offered]
+
+
+def adevinta_listing(soup: BeautifulSoup) -> AdevintaListing | None:
+    """
+    The ad as a Marktplaats or 2dehands page carries it in ``window.__CONFIG__``, without the seller's name.
+
+    :param soup: The parsed page.
+    :return: The fields Unfret uses, or ``None`` when the page has no such JSON.
+    """
+    config = _config(soup)
+    listing = _dict(config, "listing")
+    if not listing:
+        return None
+    seller = _dict(listing, "seller")
+    place = _dict(seller, "location")
+    town = _str(place, "cityName")
+    if town and place.get("isAbroad") is True and (country := _str(place, "countryName")):
+        town = f"{town}, {country}"
+    category = _dict(listing, "category")
+    images = _dict(listing, "gallery").get("imageUrls")
+    bids = _dict(listing, "bidsInfo").get("isBiddingEnabled")
+    since = parse_date(_str(_dict(listing, "stats"), "since")[:10])
+    cents = _dict(listing, "priceInfo").get("priceCents")
+    return AdevintaListing(
+        title=_str(listing, "title")[:2_000],
+        price=cents / 100 if isinstance(cents, int) and not isinstance(cents, bool) and cents > 0 else None,
+        price_type=_str(_dict(listing, "priceInfo"), "priceType").upper(),
+        bidding=bids if isinstance(bids, bool) else None,
+        delivery=_ad_delivery(listing),
+        payment_protection=True if listing.get("buyersProtectionAllowed") is True else None,
+        listed=since,
+        location=town[:300],
+        category=" > ".join(c for c in (_str(category, "parentName"), _str(category, "name")) if c)[:300],
+        seller_type=_SELLER_TYPES.get(_str(seller, "sellerType").upper(), ""),
+        member_since=_member_since(seller),
+        image_urls=[
+            ("https:" + u if u.startswith("//") else u).replace("$_#", _IMAGE_SIZE)
+            for u in (images if isinstance(images, list) else [])
+            if isinstance(u, str) and u.startswith(("//", "https://"))
+        ][:50],
+    )
+
+
+def _with_adevinta(soup: BeautifulSoup, facts: PageFacts) -> None:
+    """Complete an ad's facts from its JSON: where it has a value, it is the platform's own word."""
+    ad = adevinta_listing(soup)
+    if ad is None or facts.listing is None:
+        return
+    listing = facts.listing
+    if ad.title and not facts.title:
+        facts.title = ad.title
+    if ad.price is not None and facts.price is None:
+        facts.price, facts.currency = ad.price, facts.currency or "EUR"
+    if len(ad.image_urls) > len(facts.image_urls):
+        facts.image_urls = ad.image_urls  # the whole gallery, where the page itself shows one photo
+    negotiable = _NEGOTIABLE_PRICE_TYPES.get(ad.price_type)
+    facts.listing = listing.model_copy(
+        update={
+            "negotiable": negotiable if negotiable is not None else listing.negotiable,
+            "bidding": ad.bidding if ad.bidding is not None else listing.bidding,
+            "delivery": ad.delivery or listing.delivery,
+            "payment_protection": ad.payment_protection or listing.payment_protection,
+            "listed": ad.listed or listing.listed,
+            "location": ad.location or listing.location,
+            "category": ad.category or listing.category,
+        }
+    )
+    if ad.seller_type or ad.member_since:
+        profile = facts.seller_profile or SellerProfile()
+        facts.seller_profile = profile.model_copy(
+            update={
+                "seller_type": ad.seller_type or profile.seller_type,
+                "member_since": ad.member_since or profile.member_since,
+            }
+        )
+
+
 # ── Extraction ──────────────────────────────────────────────────────────────────────────────────────────────
 
 
@@ -439,6 +601,8 @@ def extract(soup: BeautifulSoup, facts: PageFacts) -> None:
     )
     if seller:
         facts.seller_profile = _seller_profile(seller, facts)
+    if facts.platform in {"marktplaats", "2dehands"}:
+        _with_adevinta(soup, facts)
     if facts.platform == "ebay" and (m := _POSITIVE_SHARE_RE.search(seller)):
         share = parse_number(m.group(1))
         facts.seller_rating = share if share is not None and share <= 100 else facts.seller_rating

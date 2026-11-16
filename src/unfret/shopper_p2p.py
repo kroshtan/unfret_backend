@@ -27,6 +27,7 @@ from typing import Any
 from unfret import shopper
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
+from unfret.graph.skills.off_platform import names_a_way_off
 from unfret.graph.state import Finding
 
 # The ad reasons' severities and tie-break order live with the product ones (``shopper.REASON_SEVERITY``, the
@@ -100,7 +101,13 @@ def _payment(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
         }
     rules = ad.f("off_platform.signals") >= 1
     llm_quote = ad.first("off_platform_quote")
-    if not rules and ad.f("content.off_platform_push") >= LLM_PUSH_MIN and llm_quote is not None:
+    if (
+        not rules
+        and ad.f("content.off_platform_push") >= LLM_PUSH_MIN
+        and llm_quote is not None
+        and names_a_way_off(llm_quote.evidence)
+    ):
+        # Only a quote naming a channel or payment outside the platform: "contact us for prices" is not one.
         fired["p2p_llm_off_platform"] = {"quote": shopper._quote(llm_quote.evidence)}
 
 

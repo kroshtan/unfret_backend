@@ -14,7 +14,7 @@ import httpx
 
 from unfret.config import settings
 from unfret.facts.extract import parse_page
-from unfret.net import UnsafeURLError, fetch_public
+from unfret.net import UnresolvableHostError, UnsafeURLError, fetch_public
 
 Reason = Literal["PAGE_UNAVAILABLE", "PAGE_BLOCKED", "PAGE_TOO_THIN", "INVALID_URL"]
 
@@ -43,19 +43,21 @@ _DETAILS: dict[Reason, str] = {
     "PAGE_TOO_THIN": "The page shows too little without a browser to be checked.",
     "INVALID_URL": "That isn't a public web address.",
 }
+_UNREACHABLE = "The site couldn't be reached: its address doesn't lead anywhere (any more)."
 
 
 class PageUnreadableError(Exception):
     """The page can't be checked from a server-side fetch; ``reason`` says why."""
 
-    def __init__(self, reason: Reason) -> None:
+    def __init__(self, reason: Reason, detail: str = "") -> None:
         """
         Describe why the page can't be checked.
 
         :param reason: One of :data:`Reason`.
+        :param detail: A more precise message than the reason's own.
         """
         self.reason: Reason = reason
-        self.detail = _DETAILS[reason]
+        self.detail = detail or _DETAILS[reason]
         super().__init__(self.detail)
 
 
@@ -86,6 +88,8 @@ def is_too_thin(html: str, url: str) -> bool:
 
 
 def _reason_for(exc: Exception) -> Reason:
+    if isinstance(exc, UnresolvableHostError):
+        return "PAGE_UNAVAILABLE"  # a dead domain is unreachable, not a private address
     if isinstance(exc, UnsafeURLError):
         return "INVALID_URL"
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _BLOCKING_STATUSES:
@@ -104,7 +108,8 @@ async def fetch_page(url: str) -> str:
     try:
         raw = await fetch_public(url, max_bytes=settings.max_page_bytes)
     except Exception as exc:
-        raise PageUnreadableError(_reason_for(exc)) from exc
+        detail = _UNREACHABLE if isinstance(exc, UnresolvableHostError) else ""
+        raise PageUnreadableError(_reason_for(exc), detail) from exc
     html = raw.decode("utf-8", errors="replace")
     if is_challenge_page(html):
         raise PageUnreadableError("PAGE_BLOCKED")

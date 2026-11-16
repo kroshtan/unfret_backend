@@ -320,6 +320,17 @@ async def test_assessment_is_returned(client: httpx.AsyncClient, graph: FakeGrap
     assert response.json()["assessment"] == assessment
 
 
+async def test_the_response_says_what_kind_of_page_was_checked(
+    client: httpx.AsyncClient, graph: Any, wallet: Any
+) -> None:
+    _, headers = await wallet(PRICE)
+    graph.result = {**graph.result, "page_type": "p2p_listing"}
+
+    response = await client.post("/v1/analyze", json=PAGE, headers=headers)
+
+    assert response.json()["page_type"] == "p2p_listing"
+
+
 async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool: asyncpg.Pool, wallet: Any) -> None:
     address, headers = await wallet(PRICE)
 
@@ -338,6 +349,7 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert result == {
         "score": 80,
         "explanation": "Looks legitimate.",
+        "page_type": "storefront",  # as the classify step said
         "balance_usd_micros": 0,
         "balance_lamports": 0,
         "charged": True,

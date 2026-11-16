@@ -118,6 +118,18 @@
       "title": "Explanation",
       "type": "string"
      },
+     "page_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What kind of page was checked: aggregate_listing (a product on a marketplace), storefront (a shop's own product page), p2p_listing (a private person's ad), service_listing (a service provider on a platform), service_site (a service company's own site), article or non_product (not analysed). The same value the stream's classify step carries; new values may be added.",
+      "title": "Page Type"
+     },
      "report_token": {
       "anyOf": [
        {

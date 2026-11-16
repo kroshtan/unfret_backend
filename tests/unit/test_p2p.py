@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from bs4 import BeautifulSoup
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, SecretStr
 
 from unfret import ad_store, image_store, market_prices, shopper, shopper_p2p
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
+from unfret.facts import p2p as p2p_facts
 from unfret.facts._parse import parse_since
 from unfret.facts.p2p import ad_signals
 from unfret.facts.schema import ListingDetails, SellerProfile
@@ -20,7 +22,7 @@ from unfret.graph.skills import ANALYSED_PAGES, Skill, SkillOutput, Tier, conten
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.duplicate_ads import DuplicateAdsSkill, contact_hashes, drain
 from unfret.graph.skills.injection import InjectionSkill
-from unfret.graph.skills.off_platform import _ABROAD_RE, OffPlatformSkill
+from unfret.graph.skills.off_platform import _ABROAD_RE, OffPlatformSkill, names_a_way_off
 from unfret.graph.skills.price_outlier import PriceOutlierSkill, reference
 from unfret.graph.skills.seller_profile import SellerProfileSkill
 from unfret.graph.state import AnalysisState, Finding
@@ -38,6 +40,8 @@ URLS = {
     "vinted-jas": "https://www.vinted.nl/items/5123456789-winterjas-only-maat-m",
     "craigslist-apartment": "https://sfbay.craigslist.org/sfc/apa/d/san-francisco-sunny-2br-apartment/7801234567.html",
     "facebook-ps5": "https://www.facebook.com/marketplace/item/123456789012345/",
+    "marktplaats-config": "https://www.marktplaats.nl/v/fietsen-en-brommers/fietsen-dames-damesfietsen/"
+    "m2400000001-gazelle-damesfiets-opknapper",
 }
 # The sellers' names (and the visitor's) in the fixtures: none may end up in the facts.
 NAMES = ("Kevin", "Marleen", "pdx_photo_guy", "lisa_closet", "Thomas van Dijk", "Jane", "jane.doe@example.org")
@@ -51,6 +55,7 @@ def facts_of(name: str) -> PageFacts:
 @pytest.fixture(autouse=True)
 def fixed_day(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(seller_profile, "today", lambda: TODAY)
+    monkeypatch.setattr(p2p_facts, "_today", lambda: TODAY)
     monkeypatch.setattr("unfret.shop_store.today", lambda: TODAY)
 
 
@@ -767,3 +772,121 @@ def test_facts_only_ads_give_the_llm_the_ad_text() -> None:
 )
 def test_abroad_means_the_seller_not_where_the_item_was_bought(text: str, abroad: bool) -> None:
     assert (_ABROAD_RE.search(text) is not None) == abroad
+
+
+# ── Marktplaats and 2dehands: the ad's JSON ─────────────────────────────────────────────────────────────────
+
+
+def test_marktplaats_ad_from_its_json() -> None:
+    facts = facts_of("marktplaats-config")
+
+    listing, profile = facts.listing, facts.seller_profile
+    assert listing is not None and profile is not None
+    assert (facts.price, facts.currency, facts.title) == (135.0, "EUR", "Gazelle damesfiets, opknapper")
+    assert (listing.bidding, listing.delivery, listing.listed) == (True, ["pickup"], date(2026, 11, 10))
+    assert (listing.location, listing.category) == ("Groningen", "Fietsen en Brommers > Damesfietsen")
+    assert listing.payment_protection is None  # "not offered" in the JSON is no claim either way
+    assert (profile.seller_type, profile.member_since) == ("private", TODAY - timedelta(days=11 * 365))
+    assert len(facts.image_urls) == 2 and all("$_85" in u for u in facts.image_urls)
+
+
+def test_no_name_or_profile_link_survives_the_json() -> None:
+    html = (FIXTURES / "marktplaats-config.html").read_text()
+    assert "Kees Testverkoper" in html
+
+    facts, text = parse_page(html, URLS["marktplaats-config"])
+    ad = p2p_facts.adevinta_listing(BeautifulSoup(html, "html.parser"))
+
+    for kept in (facts.model_dump_json(), text, repr(ad)):
+        for leak in ("Kees", "Testverkoper", "kees-testverkoper", "60000001", "D27A7E36", "53.2"):
+            assert leak not in kept, leak
+
+
+@pytest.mark.parametrize(
+    ("since", "years", "expected"),
+    [
+        ("4 maanden", 0, TODAY - timedelta(days=120)),
+        ("3 weken", 0, TODAY - timedelta(days=21)),
+        ("5 jours", 0, TODAY - timedelta(days=5)),
+        ("2 ans", 2, TODAY - timedelta(days=730)),
+        ("2 jaar", 2, TODAY - timedelta(days=730)),
+        ("", 5, TODAY - timedelta(days=5 * 365)),
+        ("", 0, None),
+    ],
+)
+def test_the_accounts_age_from_the_json(since: str, years: int, expected: date | None) -> None:
+    assert p2p_facts._member_since({"activeSinceDiff": since, "activeYears": years}) == expected
+
+
+async def test_an_old_marktplaats_account_with_pickup_is_not_little_to_go_on() -> None:
+    _, verdict = await _verdict(facts_of("marktplaats-config"))
+
+    assert verdict.band == "concerns"  # no ratings in the JSON, so not "Looks fine"
+    assert {p.type for p in verdict.positives} >= {"p2p_established", "p2p_pickup"}
+    assert [r.type for r in verdict.reasons] == ["p2p_little_known"]  # a band below "Looks fine" says why
+
+
+# ── Real ads that were flagged wrongly ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "advance"),
+    [
+        (
+            "12-month lease, deposit equal to one month's rent, due at lease signing after a viewing.",
+            False,
+        ),
+        (
+            "Kamer te huur. Borg van een maand, te betalen bij ondertekening van het contract na de bezichtiging.",
+            False,
+        ),
+        ("Lovely apartment. Once the deposit is wired the keys will be sent to you right away.", True),
+        ("Deposit required before any viewing, the rest at signing.", True),
+        ("Aanbetaling vooraf via overboeking, dan verstuur ik het.", True),
+    ],
+)
+async def test_a_rental_deposit_at_signing_after_a_viewing_is_normal(text: str, advance: bool) -> None:
+    out = await OffPlatformSkill().run(state_of(_ad(URLS["craigslist-apartment"], text, "craigslist")))
+
+    assert out["features"]["off_platform.advance_payment"] == advance
+
+
+@pytest.mark.parametrize(
+    ("text", "flagged"),
+    [
+        ("Betalen kan met ✅ Pinnen in de winkel ✅ Contant betalen ✅ Betalen via bankoverschrijving.", False),
+        ("Betalen via overboeking, daarna verstuur ik hem.", True),
+        ("Alleen verzenden. Betalen via overboeking of contant.", True),  # a transfer for an item never seen
+    ],
+)
+async def test_a_bank_transfer_among_other_ways_to_pay_is_not_a_sign(text: str, flagged: bool) -> None:
+    out = await OffPlatformSkill().run(state_of(_ad(URLS["marktplaats-iphone"], text)))
+
+    assert out["features"]["off_platform.bank_transfer"] == flagged
+
+
+@pytest.mark.parametrize(
+    ("quote", "counts"),
+    [
+        ("Neem contact op voor specifieke prijzen en beschikbaarheid.", False),
+        ("Stuur een bericht voor meer foto's.", False),
+        ("Stuur me een WhatsApp op 06-12345678.", True),
+        ("Betaling via Tikkie vooraf.", True),
+    ],
+)
+def test_the_llm_off_platform_reading_needs_a_way_off_named(quote: str, counts: bool) -> None:
+    assert names_a_way_off(quote) == counts
+
+
+async def test_contact_us_for_prices_is_not_a_deal_off_the_platform() -> None:
+    facts = _ad(URLS["marktplaats-iphone"], "Diverse PS4 en PS5 games. Neem contact op voor specifieke prijzen.")
+    quote = "Neem contact op voor specifieke prijzen."
+    llm_read = SkillOutput(
+        features={"content.off_platform_push": 0.8},
+        findings=[Finding(skill="content", type="off_platform_quote", evidence=quote)],
+        skill_results=[],
+    )
+
+    _, verdict = await _verdict(facts, llm_read)
+
+    assert "p2p_llm_off_platform" not in {r.type for r in verdict.reasons}

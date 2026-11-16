@@ -37,6 +37,9 @@ class FakeLLM:
             if schema is nodes._ClassifyOutputExpanded and schema not in self.outputs:
                 # With the expansion classes on, a product page's classification comes in the wider schema.
                 return schema(**self.outputs[nodes._ClassifyOutput].model_dump())
+            if schema is nodes._NewClassOutput and schema not in self.outputs:
+                # With the expansion classes on, a page the product step skips is asked about the service classes.
+                return schema(page_type="none", reasoning="r")
             return self.outputs[schema]
 
         return RunnableLambda(respond)

@@ -6,8 +6,10 @@ The corpus is also training data for the feature scorer, so the test set must me
 - Only items whose label came from people or was independently confirmed (``dataset``, ``agreed``, ``human``)
   can be in **test**. Items labelled purely by a rule always go to **train**, because a scorer would learn the
   rule back and test metrics on them would be meaningless.
-- Within each label × source stratum, eligible items are ordered by a seeded hash of their id and the first
-  ``test_fraction`` go to test, so the split is stratified, reproducible, and independent of file order.
+- Within each label × source × origin dataset stratum, eligible items are ordered by a seeded hash of their id and
+  the first ``test_fraction`` go to test, so the split is stratified, reproducible, and independent of file order.
+  Each dataset is its own stratum, so adding a dataset never moves an existing page between train and test (each
+  label × source stratum held exactly one dataset when the origin dataset joined the key, so no page moved then).
 - Unlabelled items get no split.
 - The new page classes (``p2p_listing``, ``service_site``, ``service_listing``) are stratified per class as well, so
   adding them never moves a product page between train and test.
@@ -53,7 +55,8 @@ def assign_splits(records: list[LabelRecord], test_fraction: float, seed: str) -
             out[r.id] = r.model_copy(update={"split": None})
         elif r.label_source in TEST_ELIGIBLE:
             cls = page_class(r)
-            strata[(r.label, r.source) if cls == PRODUCT_CLASS else (cls, r.label, r.source)].append(r)
+            key = (r.label, r.source, r.origin_dataset)
+            strata[key if cls == PRODUCT_CLASS else (cls, *key)].append(r)
         else:
             out[r.id] = r.model_copy(update={"split": "train"})
     for members in strata.values():

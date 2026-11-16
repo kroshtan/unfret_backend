@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops new-classes markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -55,6 +55,12 @@ corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 
 eu-shops:  ## Add legitimate EU shops to the corpus, fetched live (robots.txt respected; no LLM calls)
 	uv run python -m evals.sources.eu_shops
+
+balance:  ## Add archived product pages of established US shops (legit) and ČOI-warned shops (scam), strict second opinion, split
+	uv run python -m evals.sources.us_shops
+	uv run python -m evals.sources.coi_shops
+	for d in us-established-shops coi-risky-eshops; do uv run python -m evals.second_opinion --dataset $$d; done
+	uv run python -m evals.split
 
 new-classes:  ## Collect labelled p2p and service pages (pattern sources, synthetic, ACM, OSM), then second opinion and split
 	uv run python -m evals.sources.patterns

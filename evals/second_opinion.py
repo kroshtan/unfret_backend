@@ -14,9 +14,11 @@ The queue is capped (``--queue-size``) and ranked so the most informative cases 
 The new page classes (``p2p_listing``, ``service_site``, ``service_listing``) are stricter, because nobody labels
 them by hand: each class has its own rubric, a page keeps its source label only when the second opinion confidently
 agrees, and any other outcome (disagreement, unsure, not confident) **drops** the label with the reason in
-``notes``. Nothing of theirs goes to the review queue.
+``notes``. Nothing of theirs goes to the review queue. The same strict rule holds for the product datasets in
+:data:`STRICT_DATASETS`, added to balance the corpus without anyone reviewing them.
 
-Usage: ``uv run python -m evals.second_opinion [--limit N] [--queue-size 25] [--class p2p_listing]``.
+Usage: ``uv run python -m evals.second_opinion [--limit N] [--queue-size 25] [--class p2p_listing]
+[--dataset us-established-shops]``.
 """
 
 import argparse
@@ -51,6 +53,9 @@ logger = structlog.get_logger("unfret.evals")
 
 _MAX_CHARS = 7_000
 _CONFIDENT = 0.75
+# Product datasets whose labels nobody reviews by hand: kept only when the second opinion confidently agrees, like the
+# new page classes (evals.sources.us_shops, evals.sources.coi_shops).
+STRICT_DATASETS: frozenset[str] = frozenset({"us-established-shops", "coi-risky-eshops"})
 
 RUBRIC = """\
 You label e-commerce pages for a consumer-protection test set. Read the page text and choose ONE label:
@@ -136,7 +141,7 @@ def reconcile(record: LabelRecord) -> tuple[LabelRecord, QueueItem | None]:
     :param record: A record with ``llm_label`` set (``None`` meaning unsure).
     :return: The updated record, and a queue item if a human should decide.
     """
-    if page_class(record) in NEW_CLASSES:
+    if page_class(record) in NEW_CLASSES or record.origin_dataset in STRICT_DATASETS:
         return reconcile_strict(record), None
     prior = record.prior_label
     llm_side = unreliable(record.llm_label) if record.llm_confidence >= _CONFIDENT else None
@@ -171,7 +176,9 @@ _DROPPED = "dropped: "
 
 def reconcile_strict(record: LabelRecord) -> LabelRecord:
     """
-    Keep a new-class page's source label only when the second opinion confidently agrees; drop it otherwise.
+    Keep a strict page's label only when the second opinion confidently agrees; drop it otherwise.
+
+    Strict pages are the new page classes and the product pages of :data:`STRICT_DATASETS`.
 
     Nobody labels these classes by hand, so a dispute is never queued: the label goes (``label=None``) and the
     reason is kept in ``notes`` so the drop can be counted and reconsidered after a rubric change (``--reset``).
@@ -304,7 +311,7 @@ def agreement_report(records: list[LabelRecord]) -> dict[str, dict[str, float]]:
 
 def class_report(records: list[LabelRecord], requested: int) -> dict[str, object]:
     """
-    Kept and dropped counts of one new page class, per source label, source and origin dataset.
+    Kept and dropped counts of one new page class or strict dataset, per source label, source and origin dataset.
 
     :param records: The class's records.
     :param requested: Opinions asked for in this run (LLM calls, cache hits included).
@@ -344,6 +351,7 @@ def main() -> None:
     parser.add_argument(
         "--class", dest="page_class", choices=PAGE_CLASSES, default=None, help="only ask about pages of this class"
     )
+    parser.add_argument("--dataset", default=None, help="only ask about pages of this origin dataset")
     parser.add_argument(
         "--reset", action="store_true", help="discard all LLM opinions first (e.g. after a rubric change)"
     )
@@ -356,7 +364,10 @@ def main() -> None:
     pending = [
         r
         for r in corpus.labels().values()
-        if not r.llm_reason and r.label_source != "human" and args.page_class in {None, page_class(r)}
+        if not r.llm_reason
+        and r.label_source != "human"
+        and args.page_class in {None, page_class(r)}
+        and args.dataset in {None, r.origin_dataset}
     ][: args.limit]
     logger.info("opinion_start", pending=len(pending), model=eval_settings.labeller_model)
     asyncio.run(collect_opinions(corpus, pending, args.concurrency))
@@ -381,10 +392,17 @@ def main() -> None:
         dump_json(corpus.root / "reports" / "second_opinion.json", report)
     for cls in NEW_CLASSES:
         members = [r for r in corpus.labels().values() if page_class(r) == cls]
-        if members and args.page_class in {None, cls}:
+        if members and args.page_class in {None, cls} and args.dataset is None:
             out = corpus.root / "reports" / cls
             out.mkdir(exist_ok=True)
             asked = sum(1 for r in pending if page_class(r) == cls)
+            dump_json(out / "second_opinion.json", class_report(members, asked))
+    for dataset in sorted(STRICT_DATASETS):
+        members = [r for r in corpus.labels().values() if r.origin_dataset == dataset]
+        if members and args.dataset in {None, dataset} and args.page_class in {None, PRODUCT_CLASS}:
+            out = corpus.root / "reports" / dataset
+            out.mkdir(exist_ok=True)
+            asked = sum(1 for r in pending if r.origin_dataset == dataset)
             dump_json(out / "second_opinion.json", class_report(members, asked))
     logger.info("opinion_done", **{k: v for k, v in report.items() if k != "agreement"})
     for dataset, a in agreement.items():

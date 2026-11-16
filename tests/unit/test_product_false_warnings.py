@@ -220,6 +220,36 @@ def test_missing_and_present_trust_info_are_mutually_exclusive() -> None:
     assert "trust_info_present" not in {p.type for p in missing.positives}
 
 
+def test_a_decade_old_shop_with_a_return_policy_is_not_short_of_shop_information() -> None:
+    # fonq.nl (20 years): its company details are on legal pages that can't always be read in time.
+    lacking = {"eu_registry.withdrawal_right": 1.0, "eu_registry.imprint": 0.0, "content.missing_trust_info": 1.0}
+    links = PageFacts(policy_links=BEVER_LINKS)  # legal pages linked but not read: no "no company details" either
+    assert "missing_trust_info" not in types(build(lacking | {"domain_age.age_years": 20.0}, facts=links))
+    assert "missing_trust_info" in types(build(lacking | {"domain_age.age_years": 4.0}, facts=links))
+    no_policy = lacking | {"eu_registry.withdrawal_right": 0.0, "domain_age.age_years": 20.0}
+    assert {"missing_trust_info", "no_withdrawal"} & types(build(no_policy, facts=links))  # (one of a group)
+
+
+CLAIM = Finding(skill="content", type="implausible_claim", evidence="Reduziert Mikroplastik um bis zu 90 %")
+
+
+@pytest.mark.parametrize(
+    ("features", "score", "shown"),
+    [
+        ({"domain_age.age_years": 11.0}, 90, False),  # mrmarvis.nl: fine, established, the claim the only note
+        ({"eu_registry.withdrawal_right": 1.0, "eu_registry.imprint": 1.0}, 90, False),  # shop details present
+        ({}, 90, True),  # nothing known about the shop
+        ({"domain_age.age_years": 11.0}, 70, True),  # not "Looks fine": the claim is one of the reasons why
+    ],
+)
+def test_a_measurable_claim_on_an_established_shop_that_looks_fine(
+    features: dict[str, float], score: int, shown: bool
+) -> None:
+    verdict = build(features | {"content.implausible_claims": 0.7}, score=score, findings=[CLAIM])
+
+    assert ("implausible_claims" in types(verdict)) == shown
+
+
 def test_a_bedrijfsgegevens_link_is_the_imprint() -> None:
     # mrmarvis.nl's footer: "Bedrijfsgegevens" (company details) is its imprint page.
     facts, _ = parse_page(

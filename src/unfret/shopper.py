@@ -531,7 +531,10 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["no_imprint"] = {"where": e.phrase("imprint_where_legal_pages" if checked else "imprint_where_page")}
     # The LLM's "little shop information" reads the page text without its footer; when the page's legal information
     # shows both a return policy and company details ("Shop details present"), that impression is wrong.
-    if e.f("content.missing_trust_info") >= 0.6 and not _trust_info_present(e):
+    # And a shop that has been around for a decade and shows its return policy is not short of shop information
+    # when its legal pages couldn't be read this time (fonq.nl: imprint from its legal pages, which can time out).
+    vouched_for = e.f("eu_registry.withdrawal_right") >= 1 and _long_established(e)
+    if e.f("content.missing_trust_info") >= 0.6 and not _trust_info_present(e) and not vouched_for:
         fired["missing_trust_info"] = {}
     # Not in VIES, or a number that can't exist (eu_registry gives a made-up one no credit as a VAT number).
     if e.has("eu_registry.vat_valid") and e.f("eu_registry.vat_valid") < 1:
@@ -554,6 +557,12 @@ ESTABLISHED_DOMAIN_YEARS = 3
 def _trust_info_present(e: _Evidence) -> bool:
     """The page's legal information shows a return policy and company details (eu_registry)."""
     return e.f("eu_registry.withdrawal_right") >= 1 and e.f("eu_registry.imprint") >= 1
+
+
+def _vouched_shop(e: _Evidence) -> bool:
+    """A web shop with a track record: its address has existed for years, or it shows its return policy and company."""
+    established = e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS
+    return e.storefront and (established or _trust_info_present(e))
 
 
 # A shop address older than this is no fly-by-night shop: its company is not in doubt for want of an imprint.
@@ -794,6 +803,10 @@ def build(
         band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
+    if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):
+        # The one note on a page the scorer calls fine, from the content read's impression of a manufacturer's
+        # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.
+        del fired["implausible_claims"]
     order = list(REASON_SEVERITY)
     keys = sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
     reasons = [_reason(k, fired[k]) for k in keys]

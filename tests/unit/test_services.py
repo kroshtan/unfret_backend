@@ -9,7 +9,7 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, SecretStr
 
-from unfret import fact_cache, shop_store, shopper
+from unfret import fact_cache, page_fetch, shop_store, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
 from unfret.facts.schema import Email, Link, Phone, Testimonial
@@ -555,6 +555,12 @@ def test_verdict_rules(features: dict[str, Any], findings: list[Finding], band: 
     assert _verdict(features, findings).band == band
 
 
+def test_text_aimed_at_ai_needs_the_injection_skills_quote() -> None:
+    # The content read's yes/no "addresses an AI" has no quote to show; product pages dropped it for that reason.
+    assert "ai_text" not in {r.type for r in _verdict({"content.addresses_ai": 1}).reasons}
+    assert "ai_text" in {r.type for r in _verdict({"injection.instruction_visible": 1}).reasons}
+
+
 def test_looks_fine_needs_concrete_positives() -> None:
     fine: dict[str, Any] = {
         "domain_age.age_years": 8,
@@ -873,6 +879,52 @@ def test_a_town_called_evergreen_is_not_a_countdown() -> None:
 def test_fastly_client_challenge_is_a_blocked_page() -> None:
     html = '<!doctype html><html><head><title>Client Challenge</title><link href="/_fs-ch-1T1/assets/styles.css">'
     assert is_challenge_page(html)
+
+
+# Houzz's page frame without the provider (what a server gets for some /professionals/ pages): navigation, footer,
+# and no rating, reviews or membership.
+HOUZZ_FRAME = (
+    "<html><head><title>Houzz - Home Design, Decorating and Remodeling Ideas</title></head><body>"
+    "<header><a href='/'>Houzz</a><nav>Get Ideas · Find Professionals · Shop · Sign In</nav></header><main><p>"
+    + "Find the right local pro for your project, browse photos and get inspired. " * 8
+    + "</p></main><footer><p>© 2026 Houzz Inc.</p></footer></body></html>"
+)
+HOUZZ_PRO = "https://www.houzz.com/professionals/handyman/24-7-lightning-locksmith-chicago-pfvwus-pf~1707147861"
+
+
+@pytest.mark.parametrize("expansion", [True, False])
+def test_a_platform_frame_without_the_profile_is_withheld(monkeypatch: pytest.MonkeyPatch, expansion: bool) -> None:
+    monkeypatch.setattr(settings, "expansion_classes", expansion)
+    html, url = page("houzz-profile")
+
+    assert page_fetch.is_withheld_profile(HOUZZ_FRAME, HOUZZ_PRO) == expansion  # off: production is unchanged
+    assert not page_fetch.is_withheld_profile(html, url)  # the profile came with it
+    assert not page_fetch.is_withheld_profile(HOUZZ_FRAME, "https://www.houzz.com/photos/kitchen")  # not a profile
+
+
+async def test_a_link_to_a_withheld_profile_is_blocked_before_any_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "expansion_classes", True)
+
+    async def frame(url: str, **_: Any) -> bytes:
+        return HOUZZ_FRAME.encode()
+
+    monkeypatch.setattr(page_fetch, "fetch_public", frame)
+    with pytest.raises(page_fetch.PageUnreadableError) as raised:
+        await page_fetch.fetch_page(HOUZZ_PRO)
+
+    assert raised.value.reason == "PAGE_BLOCKED"
+    assert "extension" in raised.value.detail and "houzz" not in raised.value.detail.lower()
+
+
+async def test_a_profile_page_with_nothing_read_is_not_checked() -> None:
+    # The extension's path: the page sent as it is, with nothing of the provider in it. Not "a few things to check"
+    # about nothing: not analysed, so not charged.
+    result = await build_graph(skills(None)).ainvoke({"page_content": HOUZZ_FRAME, "url": HOUZZ_PRO, "flags": []})
+
+    assert result["page_type"] == "service_listing"
+    assert result["score"] == -1
+    assert result["explanation"] == services.PROFILE_NOT_READ
+    assert (await check("houzz-profile"))["score"] >= 0  # a profile that was read is checked as before
 
 
 def test_us_directionals_are_not_dutch_postcodes() -> None:

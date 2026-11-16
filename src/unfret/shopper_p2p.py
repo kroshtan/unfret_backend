@@ -13,10 +13,16 @@ The rules, from the p2p skills' features (``seller_profile``, ``off_platform``, 
   seen in other ads) or a price far below the usual; a photo from other ads with a price far below the usual; or
   three serious reasons at once.
 - **Some warning signs** (``careful``): any serious reason on its own, or two of the middling ones.
-- **Looks fine** (``reliable``) only when nothing at all fired and the positives are concrete: an account of two
-  years or more, well rated, and the platform's payment protection, pickup or a checked normal price; and the ad's
-  own text was read. Never for lack of evidence.
+- **Looks fine** (``reliable``) only when nothing at all fired, the ad's own text was read, the content read doesn't
+  lean towards payment off the platform, and the positives are concrete: an account of two years or more with the
+  platform's payment protection or pickup (a well-rated one may also show a checked normal price instead). Many
+  platforms show no rating count (Marktplaats and 2dehands don't); a low or missing rating is its own reason, so an
+  old account without one is not held back. Never for lack of evidence.
 - **A few things to check** (``concerns``) otherwise, with "little to go on" as the reason when nothing fired.
+
+The same ad text in other ads only counts when something else about the ad or seller is off: an account of years
+with nothing else against it is a seller with several things for sale (three bikes, one description), and the ad
+store keeps no seller to tell its own ads from someone else's.
 
 Wording is factual, never "scam": what the ad says or shows, and what that usually means for a buyer.
 """
@@ -27,6 +33,7 @@ from typing import Any
 from unfret import shopper
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
+from unfret.graph.skills import seller_profile
 from unfret.graph.skills.off_platform import names_a_way_off
 from unfret.graph.state import Finding
 
@@ -71,6 +78,13 @@ class _Ad:
     def quote(self, finding_type: str) -> str:
         return shopper._quoted(self.first(finding_type)) or "…"
 
+    def account_days(self) -> float:
+        """The account's real age in days: the feature is capped at ten years for the scorer, the wording isn't."""
+        profile = self.facts.seller_profile
+        if profile is not None and profile.member_since is not None:
+            return float(max((seller_profile.today() - profile.member_since).days, 0))
+        return self.f("seller_profile.account_days")
+
 
 def _severity(key: str) -> shopper.Severity:
     return shopper.REASON_SEVERITY[key]
@@ -113,7 +127,7 @@ def _payment(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
 
 def _seller(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
     """The seller's account as the platform shows it."""
-    days = ad.f("seller_profile.account_days")
+    days = ad.account_days()
     if ad.f("seller_profile.new_account") >= 1:
         fired["p2p_new_account"] = {"age": _age(days)}
     if ad.f("seller_profile.no_ratings") >= 1:
@@ -156,11 +170,23 @@ def _copies(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
         fired["p2p_shared_contact"] = {"count": f"{shared:,}"}
 
 
+def _own_copies(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
+    """Drop "same ad text" when it is all there is against an account of years: that seller's own other ads."""
+    if (
+        "p2p_duplicate_text" in fired
+        and set(fired) == {"p2p_duplicate_text"}
+        and ad.f("seller_profile.established") >= 1
+    ):
+        del fired["p2p_duplicate_text"]
+
+
 def _shared(ad: _Ad, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools and pressure wording, as on product pages."""
     if ad.f("injection.instruction_hidden") >= 1:
         fired["hidden_ai_text"] = {}
-    if ad.f("injection.instruction_visible") >= 1 or ad.f("content.addresses_ai") >= 1:
+    # Only the quoted phrase the injection skill found, as on product pages: the content read's yes/no
+    # ``addresses_ai`` has no quote to show and fires on ordinary text.
+    if ad.f("injection.instruction_visible") >= 1:
         fired["ai_text"] = {}
     if ad.f("content.scam_copy") >= 0.6:
         fired["pushy_copy"] = {}
@@ -181,7 +207,7 @@ def _positives(ad: _Ad) -> dict[str, dict[str, str]]:
     found: dict[str, dict[str, str]] = {}
     profile = ad.facts.seller_profile
     if ad.f("seller_profile.established") >= 1:
-        found["p2p_established"] = {"age": _age(ad.f("seller_profile.account_days"))}
+        found["p2p_established"] = {"age": _age(ad.account_days())}
     if ad.f("seller_profile.well_rated") >= 1 and profile is not None:
         count = f"{profile.rating_count or 0:,}"
         if profile.rating is not None:
@@ -213,11 +239,13 @@ def _band(fired: dict[str, dict[str, str]], positives: dict[str, Any], ad: _Ad) 
         return "junk_or_scam"
     if high or len(medium) >= 2 or (cheap and weak):
         return "careful"
+    safe_to_pay = bool({"p2p_protection", "p2p_pickup"} & set(positives))
+    checked_price = "p2p_well_rated" in positives and "p2p_normal_price" in positives
     concrete = (
         "p2p_established" in positives
-        and "p2p_well_rated" in positives
-        and bool({"p2p_protection", "p2p_pickup", "p2p_normal_price"} & set(positives))
+        and (safe_to_pay or checked_price)
         and ad.f("off_platform.text_read") >= 1
+        and ad.f("content.off_platform_push") < LLM_PUSH_MIN
     )
     return "reliable" if not keys and concrete else "concerns"
 
@@ -260,7 +288,7 @@ def build(*, features: dict[str, float], findings: list[Finding], facts: PageFac
         by_type.setdefault(finding.type, []).append(finding)
     ad = _Ad(features, by_type, facts)
     fired: dict[str, dict[str, str]] = {}
-    for rules in (_payment, _seller, _copies, _shared):
+    for rules in (_payment, _seller, _copies, _shared, _own_copies):
         rules(ad, fired)
     positives = _positives(ad)
     band = _band(fired, positives, ad)

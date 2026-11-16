@@ -12,7 +12,7 @@ import pytest
 
 from unfret import page_fetch
 from unfret.main import app
-from unfret.net import UnsafeURLError
+from unfret.net import UnresolvableHostError, UnsafeURLError
 from unfret.routes.pages import STATIC_DIR, asset_tag
 
 
@@ -163,6 +163,7 @@ def _refusal(code: int) -> httpx.HTTPStatusError:
         (httpx.ConnectError("x"), "PAGE_UNAVAILABLE"),
         (ValueError("too big"), "PAGE_UNAVAILABLE"),
         (UnsafeURLError("private"), "INVALID_URL"),
+        (UnresolvableHostError("dead"), "PAGE_UNAVAILABLE"),
     ],
 )
 async def test_fetch_failures_are_named(monkeypatch: pytest.MonkeyPatch, error: Exception, reason: str) -> None:
@@ -174,6 +175,17 @@ async def test_fetch_failures_are_named(monkeypatch: pytest.MonkeyPatch, error: 
         await page_fetch.fetch_page("https://shop.test/p")
     assert raised.value.reason == reason
     assert "shop.test" not in raised.value.detail
+
+
+async def test_a_dead_domain_couldnt_be_reached_and_a_private_address_isnt_public() -> None:
+    with pytest.raises(page_fetch.PageUnreadableError) as dead:
+        await page_fetch.fetch_page("https://no-such-host.invalid/p")
+    with pytest.raises(page_fetch.PageUnreadableError) as private:
+        await page_fetch.fetch_page("http://127.0.0.1/admin")
+
+    assert (dead.value.reason, private.value.reason) == ("PAGE_UNAVAILABLE", "INVALID_URL")
+    assert "couldn't be reached" in dead.value.detail and "public" not in dead.value.detail
+    assert private.value.detail == "That isn't a public web address."
 
 
 @pytest.mark.parametrize(

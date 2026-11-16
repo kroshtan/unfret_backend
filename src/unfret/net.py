@@ -17,6 +17,10 @@ class UnsafeURLError(ValueError):
     """Raised when a URL points at a non-public address or uses a disallowed scheme."""
 
 
+class UnresolvableHostError(UnsafeURLError):
+    """Raised when a URL's host doesn't resolve at all (a dead or mistyped domain), not to a private address."""
+
+
 def hostname(url: str) -> str:
     """
     Return the lowercase hostname of a URL without a leading ``www.``.
@@ -40,6 +44,7 @@ async def _assert_public(url: str) -> str:
     :param url: Absolute URL to validate.
     :return: One of the validated addresses, for the caller to connect to.
     :raises UnsafeURLError: If the scheme or any resolved address is not allowed.
+    :raises UnresolvableHostError: If the host doesn't resolve.
     """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -48,7 +53,7 @@ async def _assert_public(url: str) -> str:
     try:
         infos = await asyncio.get_running_loop().getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
-        raise UnsafeURLError(f"Cannot resolve host {parsed.hostname!r}") from exc
+        raise UnresolvableHostError(f"Cannot resolve host {parsed.hostname!r}") from exc
     addresses = [ipaddress.ip_address(sockaddr[0]) for *_, sockaddr in infos]
     if not addresses or not all(address.is_global for address in addresses):
         raise UnsafeURLError(f"Host {parsed.hostname!r} resolves to a non-public address")

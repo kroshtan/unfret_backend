@@ -11,6 +11,7 @@ from evals.second_opinion import class_report, reconcile, reconcile_strict, rese
 from evals.sources import acm_traders, osm_trades, p2p_ads, patterns, service_pages
 from evals.split import assign_splits
 from unfret.facts import parse_page
+from unfret.facts.vat_ids import check_digits_ok
 from unfret.graph.platforms import platform_rule, service_site_signals
 from unfret.html_cleaner import clean_html
 
@@ -137,6 +138,17 @@ def test_service_sites_read_as_service_sites_and_scam_sites_are_doorways() -> No
             assert text.count(page.trade.nl if market == "nl" else page.trade.en.title()) > 10  # city pages
         else:
             assert ("KvK" in text) if market == "nl" else ("Licensed" in text)
+
+
+def test_legit_dutch_service_sites_show_vat_numbers_with_valid_check_digits() -> None:
+    rng = random.Random(13)
+    shown = []
+    for _ in range(60):
+        page = service_pages._site(rng, "nl", rng.choice(service_pages.TRADES), "legit", _ALL_SCAM_SERVICE)
+        facts, _ = parse_page(service_pages.render(page), page.url)
+        shown += facts.vat_ids
+    assert len(shown) >= 50
+    assert all(check_digits_ok(v) for v in shown), [v for v in shown if not check_digits_ok(v)]
 
 
 def test_service_listings_sit_on_their_platform() -> None:

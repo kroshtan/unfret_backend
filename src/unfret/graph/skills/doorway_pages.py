@@ -21,6 +21,7 @@ weighs them together with the company's identity.
 
 import re
 
+from unfret.graph.platforms import TRADES as _TRADES
 from unfret.graph.skills import SERVICE_SITES, Observation, Skill, SkillOutput
 from unfret.graph.skills.service_identity import has_street_address
 from unfret.graph.state import AnalysisState
@@ -29,17 +30,6 @@ from unfret.net import hostname
 
 MIN_CITY_PAGES = 5
 _SHOWN = 3
-# Trades as their landing pages name them (Dutch and US English).
-_TRADES = (
-    r"loodgieters?(?:bedrijf)?|slotenmakers?|elektriciens?|installateurs?|cv[- ]monteur|ontstoppingsdienst|ontstopping"
-    r"|rioolservice|riool ontstoppen|dakdekkers?|glaszetters?|schilders?|stukadoors?|timmerman|klusjesman|klusbedrijf"
-    r"|verhuisbedrijf|verhuizers?|schoonmaakbedrijf|glazenwassers?|ongediertebestrijding|hoveniers?"
-    r"|witgoed reparatie|wasmachine reparatie|plumbers?|plumbing|locksmiths?|electricians?|electrical|hvac"
-    r"|ac repair|air conditioning repair|furnace repair|heating and cooling|roofers?|roofing|movers|moving company"
-    r"|cleaning services?|house cleaning|maid service|handyman|garage door repair|pest control"
-    r"|water damage(?: restoration)?|carpet cleaning|painters?|painting|towing|appliance repair|drain cleaning"
-    r"|junk removal|tree service|landscaping|pressure washing|window cleaning"
-)
 _CITY_LINK_RE = re.compile(
     rf"^(?:emergency |24/7 |24 hour |spoed |24 uurs? )?(?:{_TRADES})"
     r"(?: (?:service|services|company|bedrijf|dienst|repair))?(?: (?:in|near|te|nabij|voor|regio))? "

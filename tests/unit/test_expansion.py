@@ -201,18 +201,74 @@ async def test_service_company_structured_data_is_a_service_site(llm: _LLM) -> N
 
 
 @pytest.mark.usefixtures("expansion")
-@pytest.mark.parametrize("page_type", ["p2p_listing", "service_listing", "service_site"])
-async def test_the_llm_may_name_the_new_classes(llm: _LLM, page_type: str) -> None:
-    llm.outputs[nodes._ClassifyOutputExpanded] = nodes._ClassifyOutputExpanded(
-        page_type=page_type,  # type: ignore[arg-type]
+@pytest.mark.parametrize("product_answer", ["aggregate_listing", "storefront"])
+async def test_the_product_classification_decides_product_pages_as_without_the_flag(
+    llm: _LLM, product_answer: str
+) -> None:
+    llm.outputs[nodes._ClassifyOutput] = nodes._ClassifyOutput(
+        page_type=product_answer,  # type: ignore[arg-type]
         platform="",
         reasoning="r",
     )
+    page = "<html><body><h1>Lamps</h1><p>Our collection. Add to cart.</p></body></html>"
 
-    result = await build_graph([_Skill("a")]).ainvoke(_state("https://unknown.example/"))
+    result = await build_graph([_Skill("a")]).ainvoke(_state("https://lamps.example/", page=page))
+
+    assert result["page_type"] == product_answer
+    assert llm.asked[0] is nodes._ClassifyOutput  # the same prompt as with the flag off
+    assert nodes._ClassifyOutputExpanded not in llm.asked and nodes._NewClassOutput not in llm.asked
+
+
+@pytest.mark.usefixtures("expansion")
+@pytest.mark.parametrize(
+    ("page", "answer", "page_type"),
+    [
+        ("<h1>Loodgieter Utrecht</h1><p>Lekkage? Wij komen snel.</p>", "service_site", "service_site"),
+        ("<h1>Profiel: Jansen Klussen</h1><p>12 klussen gedaan.</p>", "service_listing", "service_listing"),
+        ("<h1>Get your money back</h1><p>We help you recover funds.</p>", "service_site", "non_product"),  # no trade
+        ("<h1>Cheap flights</h1><p>Book now.</p>", "none", "non_product"),
+    ],
+)
+async def test_a_page_the_product_step_would_skip_is_asked_about_the_service_classes(
+    llm: _LLM, page: str, answer: str, page_type: str
+) -> None:
+    llm.outputs[nodes._ClassifyOutput] = nodes._ClassifyOutput(page_type="non_product", platform="", reasoning="r")
+    llm.outputs[nodes._NewClassOutput] = nodes._NewClassOutput(page_type=answer, reasoning="r")  # type: ignore[arg-type]
+
+    result = await build_graph([_Skill("a")]).ainvoke(_state("https://unknown.example/", page=f"<body>{page}</body>"))
 
     assert result["page_type"] == page_type
-    assert result["verdict"]["band"] in {"concerns", "careful"}
+    assert llm.asked[:2] == [nodes._ClassifyOutput, nodes._NewClassOutput]
+
+
+@pytest.mark.usefixtures("expansion")
+async def test_a_shop_without_anything_to_buy_that_names_a_trade_may_be_a_service_site(llm: _LLM) -> None:
+    llm.outputs[nodes._ClassifyOutput] = nodes._ClassifyOutput(page_type="storefront", platform="", reasoning="r")
+    llm.outputs[nodes._NewClassOutput] = nodes._NewClassOutput(page_type="service_site", reasoning="r")
+    plumber = PageFacts(title="Loodgieter Amersfoort | Snel ter plaatse")
+    shop = PageFacts(title="Loodgieter Amersfoort | Snel ter plaatse", price=19.95)
+
+    as_service = await build_graph([_Skill("a")]).ainvoke(_state("https://lekkage.example/", plumber))
+    as_shop = await build_graph([_Skill("a")]).ainvoke(_state("https://lekkage.example/", shop))
+
+    assert (as_service["page_type"], as_shop["page_type"]) == ("service_site", "storefront")
+
+
+@pytest.mark.usefixtures("expansion")
+@pytest.mark.parametrize("answer", ["p2p_listing", "service_listing"])
+async def test_an_ad_or_a_profile_only_on_a_platform_of_that_kind(llm: _LLM, answer: str) -> None:
+    # A shop the LLM took for "a private seller on eBay" is no ad; only the platform table makes one.
+    llm.outputs[nodes._ClassifyOutputExpanded] = nodes._ClassifyOutputExpanded(
+        page_type=answer,  # type: ignore[arg-type]
+        platform="eBay",
+        reasoning="r",
+    )
+    facts = PageFacts(platform="vinted", url="https://www.vinted.nl/catalog", title="Jassen")
+
+    result = await build_graph([_Skill("a")]).ainvoke(_state(facts.url, facts))
+
+    expected = "p2p_listing" if answer == "p2p_listing" else "non_product"
+    assert result["page_type"] == expected
 
 
 @pytest.mark.usefixtures("expansion")

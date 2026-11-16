@@ -51,6 +51,34 @@ _ON_COLLECTION_RE = re.compile(
     r"|when (?:you )?(?:collect|pick)|bei abholung|à la remise",
     re.IGNORECASE,
 )
+# A rental deposit paid when the lease is signed, after a viewing or at the key handover is how renting works; a
+# deposit before anyone has seen the place, or wired so the keys can be posted, is the rental scam.
+_AT_SIGNING_RE = re.compile(
+    r"(?:at|upon|on|after|with) (?:the )?(?:lease|contract) signing|(?:at|upon|on) signing|when (?:you |we )?sign"
+    r"|after (?:a |the |your )?(?:viewing|showing|tour|visit)|(?:at|during) (?:the )?(?:viewing|showing|move[- ]in)"
+    r"|(?:at|on|upon) move[- ]in|in person|at key handover"
+    r"|bij (?:de |het )?(?:ondertekening|tekenen|contractondertekening|sleuteloverdracht|bezichtiging)"
+    r"|na (?:de |een )?bezichtiging|bij het ondertekenen",
+    re.IGNORECASE,
+)
+_UNSEEN_RE = re.compile(
+    r"before (?:a |the |any )?(?:viewing|showing|tour|visit)|without (?:a |the )?(?:viewing|showing|seeing)"
+    r"|(?:keys?|contract) (?:will be )?(?:sent|mailed|posted)|(?:send|mail|post) (?:you )?the keys|wire[ds]?"
+    r"|(?:voor|vóór|zonder) (?:de |een )?bezichtiging|sleutels? (?:op|per) (?:de )?post"
+    r"|(?:sleutels?|contract) opsturen|western union|moneygram|gift ?cards?",
+    re.IGNORECASE,
+)
+# Other ways to pay the ad offers next to a bank transfer: then the transfer is one option, not the demand.
+_OTHER_PAYMENT_RE = re.compile(
+    r"(?<![a-z])(?:contant|cash|pinnen|pinbetaling|pin(?![a-z])|creditcard|credit card|debit card|ideal|bancontact"
+    r"|gelijk oversteken|betaal veilig|(?:betalen|betaling) via (?:marktplaats|2dehands)|in de winkel|in store"
+    r"|paypal(?! (?:vrienden|friends))|klarna|apple pay|google pay)(?![a-z])",
+    re.IGNORECASE,
+)
+# What makes a bank transfer a risk: paying before seeing the item, in ways that can't be undone.
+_RISKS_WITH_TRANSFER = frozenset(
+    {"advance_payment", "untraceable_payment", "shipping_only", "abroad", "protection_refused"}
+)
 _PAYMENT_LABELS = {
     "bank_transfer": "bank transfer",
     "payment_link": "a payment request link",
@@ -90,6 +118,49 @@ def _first(pattern: re.Pattern[str], text: str, *, negatable: bool = True) -> re
 
 def _on_collection(text: str, match: re.Match[str]) -> bool:
     return bool(_ON_COLLECTION_RE.search(quote(text, *match.span())))
+
+
+def _at_signing(text: str, match: re.Match[str]) -> bool:
+    sentence = quote(text, *match.span())
+    return bool(_AT_SIGNING_RE.search(sentence)) and not _UNSEEN_RE.search(sentence)
+
+
+def _advance(pattern: re.Pattern[str], text: str) -> re.Match[str] | None:
+    """The first deposit or up-front payment the ad asks for, leaving out a deposit at signing after a viewing."""
+    return next((m for m in pattern.finditer(text) if not negated(text, m.start()) and not _at_signing(text, m)), None)
+
+
+def names_a_way_off(sentence: str) -> bool:
+    """
+    Whether a sentence names a concrete way off the platform: a channel, a payment method or a refusal.
+
+    The LLM's off-platform reading counts only for such a sentence: "neem contact op voor de prijzen" (contact
+    through the platform's own messages) names none, "app me op 06…" or "betaling via Tikkie vooraf" does.
+
+    :param sentence: The sentence the LLM quoted.
+    :return: ``True`` when it names a contact channel or payment outside the platform, shipping only, the seller
+        being abroad, or a refusal of the platform's payment.
+    """
+    patterns = [p for _, p in CONTACT_PATTERNS] + [p for _, p in PAYMENT_PATTERNS]
+    patterns += [EMAIL_RE, _SHIPPING_ONLY_RE, _ABROAD_RE, _REFUSES_PROTECTION_RE]
+    return bool(phones_in(sentence)) or any(p.search(sentence) for p in patterns)
+
+
+def _payment_match(name: str, pattern: re.Pattern[str], text: str) -> tuple[re.Match[str] | None, bool]:
+    """
+    Where the ad asks for this payment, and whether it is paid at the handover (then it doesn't count at all).
+
+    A rental deposit at signing after a viewing is no up-front payment either (:func:`_advance`).
+    """
+    if name == "deposit":
+        return _advance(pattern, text), False
+    match = _first(pattern, text)
+    return match, match is not None and name in _TRANSFER and _on_collection(text, match)
+
+
+def _transfer_is_one_option(fired: set[str], text: str) -> bool:
+    """A bank transfer among cash, card or the platform's payment, with nothing else risky: the buyer's choice."""
+    return "bank_transfer" in fired and not fired & _RISKS_WITH_TRANSFER and bool(_OTHER_PAYMENT_RE.search(text))
 
 
 class OffPlatformSkill(Skill):
@@ -143,10 +214,8 @@ class OffPlatformSkill(Skill):
         # The ad's own words decide; the extractor's list only when the text didn't come along.
         requested = set(listing.payment_requests) if listing is not None and not own else set()
         for name, pattern in PAYMENT_PATTERNS:
-            match = _first(pattern, text)
-            if match is not None and name in _TRANSFER and _on_collection(text, match):
-                continue  # paid at the handover, with the item in hand
-            if match is None and name not in requested:
+            match, at_handover = _payment_match(name, pattern, text)
+            if at_handover or (match is None and name not in requested):
                 continue
             kind = (
                 "advance_payment"
@@ -174,6 +243,9 @@ class OffPlatformSkill(Skill):
             _first(_REFUSES_PROTECTION_RE, text, negatable=False),
             "The ad refuses the platform's payment",
         )
+        if _transfer_is_one_option(fired, text):
+            fired.discard("bank_transfer")
+            observations[:] = [o for o in observations if o.type != "bank_transfer"]
         return self.output(
             {
                 "text_read": bool(own),

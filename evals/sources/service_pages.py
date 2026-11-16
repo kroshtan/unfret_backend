@@ -327,6 +327,22 @@ def _us_phone(rng: random.Random, scam: bool, state: str = "") -> str:
     return f"({area}) 555-01{rng.randint(10, 99)}"
 
 
+def _nl_vat(drawn: int) -> str:
+    """
+    A Dutch VAT number with a valid check digit (the "elfproef"), made from a drawn nine-digit number.
+
+    The ninth digit becomes the check digit of the first eight; when that would be 10, the eighth digit moves up
+    by one until it isn't. Deterministic, so the generator draws exactly as many random numbers as before.
+
+    :param drawn: A nine-digit number.
+    :return: E.g. ``NL123456782B01``.
+    """
+    digits = [int(d) for d in str(drawn)[:8]]
+    while (check := sum(d * w for d, w in zip(digits, range(9, 1, -1), strict=True)) % 11) == 10:
+        digits[7] = (digits[7] + 1) % 10
+    return f"NL{''.join(map(str, digits))}{check}B01"
+
+
 def _us_zip(rng: random.Random, state: str) -> str:
     prefix = _US_AREA.get(state, ("", "9"))[1]
     return prefix + "".join(str(rng.randint(0, 9)) for _ in range(5 - len(prefix)))
@@ -592,7 +608,7 @@ def _legit_site_parts(rng: random.Random, who: _Who) -> tuple[list[str], str, st
         postcode = f"{rng.randint(1000, 9999)} {rng.choice('ABCDEFGHJK')}{rng.choice('ABCDEFGHJK')}"
         contact = (
             f"{e(who.name)} · {e(street)} {number}, {postcode} {e(who.town)} · Tel. {e(who.phone)} · "
-            f"KvK {rng.randint(10_000_000, 99_999_999)} · btw NL{rng.randint(100_000_000, 999_999_999)}B01 · "
+            f"KvK {rng.randint(10_000_000, 99_999_999)} · btw {_nl_vat(rng.randint(100_000_000, 999_999_999))} · "
             f"{e(member)}"
         )
         address = f"{street} {number}"

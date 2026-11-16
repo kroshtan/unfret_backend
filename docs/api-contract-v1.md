@@ -684,3 +684,11 @@ valid 7 days. Nothing is stored when a check runs.
 - New features: `doorway_pages.trade_town_name`, `.not_local`, `.national_number_only`, `.local_page`,
   `.address_elsewhere`; `service_terms.details_on_request`; `platform_profile.unproven`, `.low_rating`.
 - A Houzz `/professionals/` page fetched by the server is a bot challenge and now answers `PAGE_BLOCKED`.
+
+## Changes (page type in the analysis response, backwards-compatible)
+
+- `POST /v1/analyze` (and the stream's `event: result`) adds `page_type`: `aggregate_listing`, `storefront`,
+  `p2p_listing`, `service_listing`, `service_site`, `article` or `non_product`, the value the stream's `classify` step
+  already carried. New values may be added; treat an unknown one like `storefront`.
+- A link check of a domain that doesn't resolve answers `PAGE_UNAVAILABLE` ("The site couldn't be reached: …")
+  instead of `INVALID_URL`, which stays for addresses that resolve to private or internal networks.

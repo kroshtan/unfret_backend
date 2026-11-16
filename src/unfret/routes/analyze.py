@@ -33,7 +33,7 @@ logger = structlog.get_logger("unfret")
 router = APIRouter(prefix="/v1/analyze", tags=["Analyze"])
 
 _SKILL_TAG_RE = re.compile(r"\[([^\]]+)\]")
-_RESULT_KEYS = ("score", "explanation", "assessment", "verdict")
+_RESULT_KEYS = ("score", "explanation", "page_type", "assessment", "verdict")
 # Kept with a result (in memory, as the cache entry) for its share token: the product's title, from the page.
 _TITLE = "title"
 # Kept with a result: it is about a service provider's business, so it gets no share token (results stay private).
@@ -195,6 +195,7 @@ def _response(
     response = AnalyzeResponse(
         score=result["score"],
         explanation=result["explanation"],
+        page_type=result.get("page_type"),
         assessment=result.get("assessment"),
         verdict=result.get("verdict"),
         balance_usd_micros=balance,

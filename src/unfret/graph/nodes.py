@@ -229,6 +229,11 @@ async def classify_node(state: AnalysisState) -> dict:
     platform profile or a service company's own site. Rules decide first (:func:`_settled_by_rules`: known
     marketplaces and platforms, product facts); the LLM only classifies the pages they leave open.
 
+    With the expansion classes on, a page the rules leave open still gets the product classification first,
+    exactly as without them (:func:`_classify_with_llm`), so no product page changes class; only a page that step
+    would not analyse, or a "shop" without anything to buy that names a trade, is asked about the service
+    classes in a second step (:func:`_new_class`). A peer-to-peer ad comes only from the platform table.
+
     :param state: Current graph state; uses ``cleaned_content``, ``facts`` and ``url``.
     :return: ``page_type`` and a classification entry in ``skill_results`` (and, for a peer-to-peer ad, the facts
         without the seller's name).
@@ -241,7 +246,16 @@ async def classify_node(state: AnalysisState) -> dict:
     settled = _settled_by_rules(state, facts, expansion=expansion)
     if settled is not None:
         return settled
-    return await _classify_with_llm(state, facts, expansion=expansion)
+    if expansion and platforms.is_known_platform(facts):
+        return await _classify_with_llm(state, facts, expansion=True)
+    product = await _classify_with_llm(state, facts)
+    if not expansion:
+        return product
+    text = state["cleaned_content"]
+    early_exit = product["page_type"] in _EARLY_EXIT_TYPES
+    if early_exit or (product["page_type"] == "storefront" and platforms.strong_service_evidence(facts, text)):
+        return await _new_class(state, facts, product, early_exit=early_exit)
+    return product
 
 
 async def classify_by_rules_node(state: AnalysisState) -> dict:
@@ -280,14 +294,73 @@ async def _classify_with_llm(state: AnalysisState, facts: PageFacts | None, *, e
     )
 
     page_type: PageType = output.page_type
+    known = platforms.PLATFORMS.get(facts.platform) if facts is not None else None
+    if page_type in {"p2p_listing", "service_listing"} and (known is None or known.page_type != page_type):
+        # A peer-to-peer ad or a provider profile only on a platform of that kind (never "a private seller on eBay"
+        # for a shop that isn't on eBay).
+        page_type = "non_product"
+    label: str = page_type
+    if output.platform:
+        label = f"{page_type} ({output.platform})"
     if page_type in _EARLY_EXIT_TYPES and _addresses_an_ai(facts, state["cleaned_content"]):
         # The page talks to an AI and the AI says there's nothing to check: don't take its word for it.
         page_type = "storefront"
-
-    label: str = output.page_type
-    if output.platform:
-        label = f"{output.page_type} ({output.platform})"
     return _classified(page_type, label, output.reasoning, facts)
+
+
+class _NewClassOutput(BaseModel):
+    """The second classification step (expansion classes on): whether a page that isn't a shop is a service's."""
+
+    page_type: Literal["service_site", "service_listing", "none"] = Field(
+        description=(
+            "service_site: a company's own website offering a trade service done for customers (plumbing, "
+            "cleaning, locksmith, removals, roofing, repairs, …); "
+            "service_listing: the profile of one service provider on a platform listing many providers; "
+            "none: anything else."
+        )
+    )
+    reasoning: str = Field(description="One sentence explaining the classification.")
+
+
+_NEW_CLASS_SYSTEM = """\
+You are a web-page classifier. Decide whether the page is one of these:
+   - service_site: a company's own website offering a trade or home service it carries out for customers: \
+plumbing, cleaning, locksmith work, removals, roofing, electrical work, gardening, pest control, repairs and the like
+   - service_listing: the profile of one such service provider on a platform that lists many providers \
+(Werkspot, Thumbtack, Angi, HomeAdvisor, Checkatrade, …)
+   - none: anything else. That includes shops and web stores, travel and booking sites, banks, loans, investing, \
+insurance, software and apps, online services, advertising platforms, coupon and deal sites, charities, blogs, \
+news, search results and a platform's own home page.
+
+Answer none when unsure.
+
+{UNTRUSTED_NOTICE}\
+"""
+
+
+async def _new_class(state: AnalysisState, facts: PageFacts | None, product: dict, *, early_exit: bool) -> dict:
+    """
+    The second step with the expansion classes on: ask whether the page is a service provider's.
+
+    :param state: Current graph state.
+    :param facts: The page facts.
+    :param product: The product classification (kept when this step finds nothing).
+    :param early_exit: Whether the product step would not analyse the page; otherwise it called the page a shop
+        without anything to buy, and only a service site may replace that.
+    :return: The classification update.
+    """
+    text = state["cleaned_content"]
+    output = await get_structured_llm(_NewClassOutput).ainvoke(
+        [
+            SystemMessage(content=_NEW_CLASS_SYSTEM.format(UNTRUSTED_NOTICE=UNTRUSTED_NOTICE)),
+            HumanMessage(content=untrusted(text[:8_000])),
+        ]
+    )
+    if output.page_type == "service_site" and platforms.service_evidence(facts, text):
+        return _classified("service_site", "service_site", output.reasoning, facts)
+    if output.page_type == "service_listing" and early_exit:
+        return _classified("service_listing", "service_listing", output.reasoning, facts)
+    return product
 
 
 _EARLY_EXIT_EXPLANATIONS: dict[str, str] = {

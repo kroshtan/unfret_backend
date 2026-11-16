@@ -108,6 +108,9 @@ class _LLM:
                 return schema(page_type=self.page_type, platform="", reasoning="r")
             if schema is nodes._ClassifyOutput:
                 return schema(page_type="storefront", platform="generic", reasoning="r")
+            if schema is nodes._NewClassOutput:  # the second step, for a "shop" without anything to buy
+                kind = self.page_type if self.page_type in {"service_site", "service_listing"} else "none"
+                return schema(page_type=kind, reasoning="r")
             return nodes._JudgeOutput(score=70, explanation="Fine.")
 
         return RunnableLambda(respond)

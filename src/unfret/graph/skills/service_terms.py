@@ -4,9 +4,10 @@ A service provider's payment and pricing terms: what the page says about paying,
 The patterns behind most complaints about emergency trades (locksmiths, plumbers, pest control): pay in full
 before the work, cash only, a call-out "from €0" that turns into a large bill, a price set only once the technician
 is at the door, and "24/7, there in 20 minutes" pressure, often with a premium-rate (0900, 1-900) phone number. A
-written quote or fixed price up front is the reassuring opposite. Read from the page text and the pricing and
-promise snippets in the facts (on a platform profile, from the profile's own text only). The site's testimonials
-are left out: a customer's "no call-out fee, he was there in 20 minutes" is not the company's terms.
+written quote or fixed price up front is the reassuring opposite; company details given only "on request" are not.
+Read from the page text and the pricing and promise snippets in the facts (on a platform profile, from the
+profile's own text only). The site's testimonials are left out: a customer's "no call-out fee, he was there in 20
+minutes" is not the company's terms.
 """
 
 import re
@@ -33,15 +34,16 @@ _CASH_ONLY_RE = re.compile(
 )
 _CALLOUT = r"call-?out(?:\s+(?:fee|charge))?|voorrijkosten|service\s+call|trip\s+(?:fee|charge)"
 _BAIT_CALLOUT_RE = re.compile(
-    rf"(?:{_CALLOUT})\s*(?:from|vanaf|van|:)?\s*(?:€|\$)\s?(\d{{1,2}})(?:[.,]\d\d)?(?![0-9.,])"
+    rf"(?:{_CALLOUT})\s*(?:from|vanaf|van|:)?\s*(?:€|\$)\s?(\d{{1,2}})(?:[.,]\d\d)?(?![0-9]|[.,]\d)"
     rf"|(?:€|\$)\s?(\d{{1,2}})(?:[.,]\d\d)?\s*(?:{_CALLOUT})"
     rf"|(?:geen|no|free|gratis)\s+(?:{_CALLOUT})",
     re.IGNORECASE,
 )
 _BAIT_MAX = 29  # a call-out fee this low (or none) is the advertised bait, not the bill
 _QUOTE_ON_SITE_RE = re.compile(
-    r"prijs\s+(?:wordt\s+)?ter\s+plaatse\s+(?:bepaald|vastgesteld|afgesproken)"
-    r"|(?:price|prices|cost)\s+(?:is\s+)?(?:quoted|determined|given|set|confirmed)\s+on\s+(?:site|arrival)"
+    r"prijs\s+(?:wordt\s+)?ter\s+plaatse\s+(?:bepaald|vastgesteld|afgesproken)|prijs\s+in\s+overleg\s+ter\s+plaatse"
+    r"|(?:price|prices|cost)\s+(?:is\s+)?(?:quoted|determined|given|set|confirmed|discussed|agreed)\s+on\s+"
+    r"(?:site|arrival)"
     r"|quote\s+on\s+arrival|geen\s+offerte\s+(?:nodig|vooraf)"
     r"|no\s+(?:written\s+)?(?:quotes?|estimates?)\s+(?:needed|required|necessary)",
     re.IGNORECASE,
@@ -49,6 +51,12 @@ _QUOTE_ON_SITE_RE = re.compile(
 _VAGUE_RE = re.compile(
     r"prijs\s+op\s+aanvraag|price\s+on\s+request|call\s+for\s+(?:a\s+)?price|bel\s+voor\s+(?:de\s+)?prijs"
     r"|prices\s+vary",
+    re.IGNORECASE,
+)
+# Who the business is, only "on request": "Bedrijfsgegevens op aanvraag", "Company details available on request".
+_DETAILS_ON_REQUEST_RE = re.compile(
+    r"(?:bedrijfsgegevens|bedrijfsinformatie|kvk-?gegevens|company\s+details|business\s+details|company\s+information)"
+    r"\s+(?:zijn\s+|are\s+)?(?:available\s+|beschikbaar\s+)?(?:op|on|upon)\s+(?:aanvraag|request)",
     re.IGNORECASE,
 )
 _AMOUNT_RE = re.compile(r"(?:€|\$)\s?\d{2,}")
@@ -129,6 +137,7 @@ class ServiceTermsSkill(Skill):
         "written_quote",
         "emergency_pressure",
         "premium_number",
+        "details_on_request",
     )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
@@ -168,6 +177,7 @@ class ServiceTermsSkill(Skill):
             and found(_VAGUE_RE, "vague_pricing") is not None
         )
         written = found(_WRITTEN_QUOTE_RE, "written_quote") is not None
+        on_request = found(_DETAILS_ON_REQUEST_RE, "details_on_request") is not None
         fast = [m for m in _FAST_RE.finditer(text) if int(m.group(1)) <= _FAST_MAX]
         emergency = bool(fast) and _ALWAYS_OPEN_RE.search(text) is not None
         if emergency:
@@ -185,6 +195,7 @@ class ServiceTermsSkill(Skill):
                 "written_quote": written,
                 "emergency_pressure": emergency,
                 "premium_number": bool(premium),
+                "details_on_request": on_request,
             },
             observations,
         )

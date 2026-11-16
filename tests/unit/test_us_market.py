@@ -75,7 +75,7 @@ def _walmart_page(product: dict[str, Any], reviews: dict[str, Any] | None = None
     return (
         f'<html><head><script type="application/ld+json">{json.dumps(ld)}</script></head><body>'
         f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script>'
-        '<script>var p = {"pageId":"global_evergreen"};</script></body></html>'
+        '<script>var p = {"pageId":"global_evergreen_timer"};</script></body></html>'
     )
 
 
@@ -131,7 +131,7 @@ def test_walmart_marketplace_seller_and_no_was_price() -> None:
 
 async def test_walmart_is_a_marketplace_so_its_script_timers_never_count() -> None:
     facts, text = parse_page(_walmart_page(WALMART_PRODUCT), "https://www.walmart.com/ip/-/11381374703")
-    assert facts.timers  # "global_evergreen" in a page script would read as a restarting countdown on a shop
+    assert facts.timers  # "global_evergreen_timer" in a page script would read as a restarting countdown on a shop
     classified = await classify_node(state(facts, text or "Apple AirPods 4"))
     assert classified["page_type"] == "aggregate_listing"
     out = await DarkPatternsSkill().run(state(facts, page_type="aggregate_listing"))

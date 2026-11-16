@@ -18,8 +18,8 @@ from unfret.net import UnsafeURLError, fetch_public
 
 Reason = Literal["PAGE_UNAVAILABLE", "PAGE_BLOCKED", "PAGE_TOO_THIN", "INVALID_URL"]
 
-# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon); markers, not generic captchas,
-# so a shop with a reCAPTCHA newsletter form still counts as a page.
+# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon, Fastly's client challenge);
+# markers, not generic captchas, so a shop with a reCAPTCHA newsletter form still counts as a page.
 CHALLENGE_MARKERS = (
     "/cdn-cgi/challenge-platform/",
     "<title>just a moment...</title>",
@@ -28,6 +28,8 @@ CHALLENGE_MARKERS = (
     "px-captcha",
     "/errors/validatecaptcha",
     "<title>robot check</title>",
+    "<title>client challenge</title>",
+    "/_fs-ch-",
 )
 # Answers that mean "not for robots" rather than "no such page": refused, rate limited, or a bot wall's status
 # (Cloudflare and DataDome answer 403 or 503, LinkedIn-style walls 999).

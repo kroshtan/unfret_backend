@@ -66,7 +66,7 @@ def shop_market(facts: PageFacts, url: str = "", text: str = "") -> Market:
 
 ServiceMarket = Literal["nl", "us", "other"]
 _NL_POSTCODE_RE = re.compile(r"(?<![0-9])[1-9]\d{3}\s?[A-Z]{2}(?![A-Za-z])")
-_US_STATE_ZIP_RE = re.compile(r"(?<![A-Za-z])[A-Z]{2},?\s+\d{5}(?:-\d{4})?(?![0-9])|,\s*US$")
+_US_STATE_ZIP_RE = re.compile(r"(?<![A-Za-z])[A-Z]{2},?\s+\d{5}(?:-\d{4})?(?![0-9])|,\s*(?:US|USA|United States)$")
 
 
 def service_market(facts: PageFacts, url: str = "") -> ServiceMarket:
@@ -87,7 +87,8 @@ def service_market(facts: PageFacts, url: str = "") -> ServiceMarket:
         tld == "nl"
         or bool(facts.kvk_numbers)
         or (bool(countries) and countries.count("NL") > countries.count("US"))
-        or any(_NL_POSTCODE_RE.search(a) for a in facts.addresses)
+        # Not a US address's ZIP and directional ("2500 SW 7th Ave Amarillo, TX 79106" has no Dutch postcode).
+        or any(_NL_POSTCODE_RE.search(a) and not _US_STATE_ZIP_RE.search(a) for a in facts.addresses)
     )
     if nl:
         return "nl"

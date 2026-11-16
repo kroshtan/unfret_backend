@@ -673,3 +673,14 @@ valid 7 days. Nothing is stored when a check runs.
   country header (never the IP) and is neither stored nor logged.
 - `POST /v1/credits/fiat-checkout` is unchanged; clients that let the visitor choose send the explicit `currency` (and
   `payment_method` for a local method), as `/checkout` does.
+
+## Changes (service providers: new reasons, HomeGuide; backwards-compatible, behind `UNFRET_EXPANSION_CLASSES`)
+
+- `PageFacts.platform` may also be `homeguide` (snapshot updated). An older server rejects the value (422), as for
+  the other platform values.
+- Service verdicts may carry the reason types `not_local` (high), `trade_town_name`, `national_number_only`,
+  `address_elsewhere`, `shared_address_sites`, `details_on_request`, `unproven_profile` and `low_platform_rating`
+  (medium). Clients render `title`/`detail` as for every reason.
+- New features: `doorway_pages.trade_town_name`, `.not_local`, `.national_number_only`, `.local_page`,
+  `.address_elsewhere`; `service_terms.details_on_request`; `platform_profile.unproven`, `.low_rating`.
+- A Houzz `/professionals/` page fetched by the server is a bot challenge and now answers `PAGE_BLOCKED`.

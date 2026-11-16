@@ -72,8 +72,11 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
   - **service providers** get a full verdict from cautious hand-written rules (`graph/services.py`), for the
     Netherlands and the US: "many warning signs" only for the combinations behind fake local businesses (town
     landing pages without an address plus links to other sites with the same phone numbers or tracking IDs; a
-    premium-rate number plus payment up front or cash only; copied photos plus one of those or a brand-new site),
-    "some warning signs" for one serious or two medium signals, "looks fine" only with concrete positives (an
+    premium-rate number plus payment up front or cash only; copied photos plus one of those or a brand-new site; a
+    page saying its tradesperson isn't necessarily local plus another call-centre mark), "some warning signs" for
+    one serious or two medium signals, an anonymous local site (named after a trade and a town, or only national
+    numbers, with no KvK number or licence and no street address) or a new platform profile without reviews that
+    makes emergency, call-out or payment promises, "looks fine" only with concrete positives (an
     established domain, a complete identity with KvK or licence number, a street address, no doorway pattern, no
     upfront or cash-only terms; on a platform, two years and twenty reviews averaging four stars), and "a few things
     to check" otherwise. Their triage runs the photo search, by rules, when the cheap skills found something copied
@@ -116,7 +119,7 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `brand_presence` | Product pages: the brand on Wikidata (a business or brand item with that label or alias) and its own `<brand>.com`/`.nl` in RDAP (registered, and how long ago), both cached as store-level facts. "No presence" is told to the shopper only on marketplace listings with other white-label signs. A network lookup: off in evaluation; not in the scorer yet |
 | `safety_gate` | Product pages: the product in the EU Safety Gate alerts (dangerous non-food products), from the vendored index: the barcode exactly, or the brand and a whole model number (5+ characters with a letter and a digit, or 6+ digits) in the title, model, MPN or SKU. Local; not in the scorer yet |
 | `service_identity` | Service sites, NL and US: what the site says about who it is. NL: a KvK number (Dutch businesses must show it on their website) of eight digits, a VAT number, the company name and legal form, a street address; US: the company name, a street address, and a licence number when the site says it is licensed ("says licensed but shows no licence number", never "unlicensed"); two different company names on one site. Nothing is looked up |
-| `doorway_pages` | Service sites: landing pages for five or more towns ("Loodgieter Utrecht", "Plumber Austin", from the site's own links) with no street address, and whether its only number is a central one (national, toll-free, premium): the classic fake local business |
+| `doorway_pages` | Service sites: landing pages for five or more towns ("Loodgieter Utrecht", "Plumber Austin", from the site's own links) with no street address, and whether its only number is a central one (national, toll-free, premium): the classic fake local business. On a single page: a site named after a trade and a town rather than a company, the page saying its tradesperson isn't necessarily local, only national numbers, an address in another town |
 | `service_terms` | Service sites and profiles: payment in full or a deposit of half or more before the work, cash only, a call-out fee of (almost) nothing, a price set only on the doorstep, prices only on request, "24/7, there within 30 minutes", a premium-rate (0900, 1-900) number; a written quote or fixed price as the positive |
 | `testimonials` | Service sites and profiles: testimonials (on a platform, its reviews) that repeat each other with a town or name swapped, all 5 stars, repeated or placeholder names, dates within a week |
 | `platform_profile` | Platform profiles (Werkspot, Thumbtack, Angi, …): member since, jobs completed, rating and count, badges, response rate, as the platform shows them |

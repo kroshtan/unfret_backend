@@ -24,8 +24,11 @@ _ADDON_RE = re.compile(
 )
 _CONSENT_RE = re.compile(r"newsletter|terms|privacy|remember|subscribe|agree|voorwaarden|agb|cookie", re.IGNORECASE)
 # A script countdown that keeps its deadline per visitor (storage) or makes one up (random) restarts for everyone.
-# Cookies alone prove nothing: every big site's scripts mention them.
-_EVERGREEN_RE = re.compile(r"localstorage|sessionstorage|math\.random|evergreen", re.IGNORECASE)
+# Cookies alone prove nothing: every big site's scripts mention them. "Evergreen" only as a timer's name: Evergreen,
+# Colorado is a town on many service sites' lists of areas served.
+_EVERGREEN_RE = re.compile(
+    r"localstorage|sessionstorage|math\.random|evergreen[\s_-]?(?:timer|countdown|clock)", re.IGNORECASE
+)
 # The extension reads each countdown twice; this note means it went up between the readings.
 _LIVE_RESTART = "[live: countdown restarted"
 _LIVE_RESTART_RE = re.compile(r"\[live: countdown restarted \(([\d:]+) → ([\d:]+)\)")

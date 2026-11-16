@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.12.0](https://github.com/kroshtan/unfret_backend/compare/0.11.1...0.12.0) (2026-11-16)
+
 ### Bug fixes
 
 * **Verdict polish from real pages on dev** (corpus replay with URLs, `--split all`: the 1,582 product pages with the new classes off and on and the 879 p2p and service pages score exactly as before, ROC AUC 0.897 and 0.932, precision/recall at <50 0.838 / 0.804 and 0.938 / 0.756, p2p 1.0 / 0.476 with no legit ad under 50; one legit product page loses a "Hard-to-believe claims" note)

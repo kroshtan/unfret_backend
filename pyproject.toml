@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "unfret"
 description = "LLM-powered API that scores e-commerce product pages for scam and dropshipping signals"
-version = "0.11.1"
+version = "0.12.0"
 authors = [
     { name = "Floris van Beers", email = "freelancing@kroshtan.com" },
 ]

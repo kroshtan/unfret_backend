@@ -62,6 +62,10 @@ let mode = "new";
 let pricing = null;
 let pack = null; // the chosen pack from /v1/pricing
 let currency = "SOL";
+// The country card payments are for: Cloudflare's hint as a suggestion, shown and changeable ("Paying from: … (change)").
+// It decides the card currency and the local method; it lives in this page only and is never stored.
+let payCountry = "";
+let countryNames = new Map(); // ISO code → English name
 // Signed in on /connect in this tab: phone payments credit that wallet, whoever pays.
 const signedIn = recallAny();
 let forKey = false; // the crypto tab: to a key (true) or to a wallet
@@ -299,9 +303,10 @@ function cardAvailable() {
   return Boolean(pricing?.fiat?.available);
 }
 
-// Card prices are in euros for visitors from the euro area (/v1/pricing's card_currency), in dollars elsewhere.
+// Card prices are in euros for the euro area (/v1/pricing's euro_area), in dollars elsewhere, for the chosen country.
 function cardCurrency() {
-  return pricing?.card_currency === "eur" && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
+  const euros = (pricing?.euro_area ?? []).includes(payCountry);
+  return euros && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
 }
 
 function priceIn(currency, option) {
@@ -312,10 +317,10 @@ function cardPrice(option) {
   return priceIn(cardCurrency(), option);
 }
 
-// The visitor's local way to pay (/v1/pricing's local_payment_method, e.g. iDEAL | Wero in the Netherlands), shown
-// as its own button above the card one; null for everyone else. The server decides which country gets which method.
+// The chosen country's local way to pay (/v1/pricing's local_payment_methods, e.g. iDEAL | Wero in the Netherlands),
+// shown as its own button above the card one; null for other countries. The server's table says which country has which.
 function localMethod() {
-  const method = pricing?.local_payment_method;
+  const method = payCountry ? pricing?.local_payment_methods?.[payCountry] : null;
   if (!method?.id || !method.label) return null;
   return pricing.packs.every((p) => priceIn(method.currency, p)) ? method : null;
 }
@@ -471,6 +476,11 @@ function refreshTarget() {
   const local = cardOn ? localMethod() : null;
   const label = `Pay${pack ? ` ${cardPrice(pack)}` : ""} by card`;
   const localLabel = local ? `Pay${pack ? ` ${priceIn(local.currency, pack)}` : ""} with ${local.label}` : "";
+  for (const prefix of CARD_COUNTRY) $(`${prefix}-country-box`).parentElement.hidden = !cardOn;
+  for (const price of packs.querySelectorAll(".price.card-only")) {
+    const option = pricing?.packs.find((p) => String(p.checks) === price.dataset.checks);
+    if (option) price.textContent = cardPrice(option); // follows the chosen country's currency
+  }
   const topupId = keyIdOf(topupKey.value);
   for (const [cardButton, localButton, ok] of [
     [newPay, newLocal, Boolean(pack)],
@@ -588,6 +598,7 @@ function renderPacks() {
       const name = element("strong", ` ${checksWord(option.checks)}`);
       // The card price is the price; the crypto tab shows the crypto price (a discount, never a card surcharge).
       const price = element("span", cardPrice(option), "price card-only");
+      price.dataset.checks = String(option.checks);
       const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
       const crypto = element("span", "+ VAT where it applies", "muted crypto crypto-only");
       label.append(input, name, price, cryptoPrice, crypto);
@@ -597,6 +608,8 @@ function renderPacks() {
   );
   refreshTarget();
 }
+
+const CARD_COUNTRY = ["new", "topup"]; // the "Paying from" line in Buy checks and Top up my key
 
 function renderCountries() {
   let names = null;
@@ -608,13 +621,44 @@ function renderCountries() {
   const options = COUNTRIES.map((code) => ({ code, name: names?.of(code) ?? code })).sort((a, b) =>
     a.name.localeCompare(b.name, "en"),
   );
-  const blank = new Option("Choose…", "");
-  countryField.replaceChildren(blank, ...options.map(({ code, name }) => new Option(name, code)));
+  countryNames = new Map(options.map(({ code, name }) => [code, name]));
+  for (const select of [countryField, ...CARD_COUNTRY.map((p) => $(`${p}-country`))]) {
+    select.replaceChildren(new Option("Choose…", ""), ...options.map(({ code, name }) => new Option(name, code)));
+  }
   const hint = pricing.vat.country_hint;
-  if (hint && COUNTRIES.includes(hint)) countryField.value = hint;
+  setPayCountry(hint && COUNTRIES.includes(hint) ? hint : "");
 }
 
-countryField.addEventListener("change", refreshTarget);
+// One chosen country for the whole page: the card lines and the crypto tab's VAT country follow each other.
+function setPayCountry(code) {
+  payCountry = COUNTRIES.includes(code) ? code : "";
+  countryField.value = payCountry;
+  for (const prefix of CARD_COUNTRY) {
+    $(`${prefix}-country`).value = payCountry;
+    $(`${prefix}-country-from`).hidden = !payCountry;
+    $(`${prefix}-country-name`).textContent = payCountry ? countryNames.get(payCountry) : "Choose your country";
+    $(`${prefix}-country-change`).textContent = payCountry ? "change" : "choose";
+  }
+}
+
+for (const prefix of CARD_COUNTRY) {
+  const change = $(`${prefix}-country-change`);
+  const box = $(`${prefix}-country-box`);
+  change.addEventListener("click", () => {
+    box.hidden = !box.hidden;
+    change.setAttribute("aria-expanded", String(!box.hidden));
+    if (!box.hidden) $(`${prefix}-country`).focus();
+  });
+  $(`${prefix}-country`).addEventListener("change", (event) => {
+    setPayCountry(event.target.value);
+    refreshTarget();
+  });
+}
+
+countryField.addEventListener("change", () => {
+  setPayCountry(countryField.value);
+  refreshTarget();
+});
 currencyField.addEventListener("change", (event) => {
   currency = event.target.value === "SOL" && pricing.sol ? "SOL" : "USDC";
   refreshTarget();

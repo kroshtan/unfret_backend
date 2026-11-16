@@ -23,7 +23,7 @@ from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import fiat, invites, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
-from unfret.credits.packs import CardCurrency, Pack, card_currency, euros_on, pack, packs
+from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
@@ -130,13 +130,18 @@ class QuoteStatusResponse(BaseModel):
     invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
 
 
+def _method_document(method: local_methods.LocalMethod) -> dict[str, str]:
+    return {"id": method.id, "label": method.label, "currency": method.currency}
+
+
 @router.get("/v1/pricing")
 async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     """
     The price of a check and everything derived from it.
 
-    The x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), the card currency this
-    visitor gets, the VAT rules for crypto, exact USDC amounts and a live SOL quote.
+    The x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), which countries pay by card
+    in euros and which have a local payment method, the suggested country and its card currency, the VAT rules for
+    crypto, exact USDC amounts and a live SOL quote.
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it carries the visitor's likely country).
@@ -145,14 +150,21 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     door = get_credits(request)
     document = await pricing(settings, door.hot if door.purchases_enabled else None, door.book, door.usdc_mint)
     country = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
+    # Only a suggestion: the page shows it and lets the visitor pick another country, which then decides the card
+    # currency and the local method from the two tables below. Never stored or logged.
     document["vat"]["country_hint"] = country
-    # The card currency this visitor gets by default: euros from the euro area, dollars elsewhere.
+    # The countries whose card prices are in euros (empty while euro prices are off); dollars everywhere else.
+    document["euro_area"] = sorted(EURO_AREA) if euros_on(settings) else []
+    # Each country's local way to pay (iDEAL | Wero in the Netherlands), offered next to the card.
+    document["local_payment_methods"] = {
+        country_code: _method_document(method)
+        for country_code, method in sorted(local_methods.LOCAL_METHODS.items())
+        if local_methods.offered(settings, method)
+    }
+    # For the suggested country (kept for clients that don't pick a country themselves).
     document["card_currency"] = card_currency(settings, country)
-    # A local way to pay for this visitor's country (iDEAL | Wero in the Netherlands), offered next to the card.
     method = local_methods.local_method(settings, country)
-    document["local_payment_method"] = (
-        {"id": method.id, "label": method.label, "currency": method.currency} if method else None
-    )
+    document["local_payment_method"] = _method_document(method) if method else None
     document["api_keys"] = door.sign_in_enabled
     smallest = packs(settings)[0]
     document["fiat"] = {
@@ -418,8 +430,8 @@ class FiatCheckoutRequest(BaseModel):
         default=local_methods.CARD,
         max_length=32,
         description="card (default: the buyer picks their country on the provider's page), or a local method's id "
-        "from /v1/pricing's local_payment_method (e.g. wero: iDEAL | Wero, a EUR checkout with the Netherlands "
-        "prefilled as billing country). A local method is charged in its own currency.",
+        "from /v1/pricing's local_payment_methods for the buyer's chosen country (e.g. wero: iDEAL | Wero, a EUR "
+        "checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
     )
 
     @field_validator("currency", "payment_method", mode="before")

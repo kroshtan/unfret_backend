@@ -500,6 +500,9 @@ label { color: var(--ink-2); }
 
 /* Pricing. */
 .pricing { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.25rem; align-items: stretch; }
+.price-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.price-list .prices { flex: 1; }
+.price-note { margin: 0; }
 .prices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
 .prices li { display: flex; }
 .prices a {
@@ -915,6 +918,11 @@ h2.step { margin: 1.5rem 0 0.75rem; font-size: 1.1rem; border: 0; padding: 0; }
 #panel-code h2.step { margin-top: 0; }
 button.wide { width: 100%; }
 .pay-buttons { display: grid; gap: 0.6rem; }
+.pay-country { margin: 0 0 0.75rem; }
+.pay-country p { margin: 0 0 0.4rem; }
+.pay-country button.link { margin-left: 0.25rem; font-size: inherit; }
+.pay-country-box { display: grid; gap: 0.3rem; font-size: 0.9rem; }
+.pay-country-box select { width: 100%; max-width: 22rem; }
 .reassure-line { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.92rem; text-align: center; }
 label.field { display: grid; gap: 0.15rem; margin-bottom: 0.4rem; color: var(--ink); font-weight: 600; }
 label.field .small { font-weight: 400; }

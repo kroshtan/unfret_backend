@@ -413,7 +413,7 @@
      },
      "payment_method": {
       "default": "card",
-      "description": "card (default: the buyer picks their country on the provider's page), or a local method's id from /v1/pricing's local_payment_method (e.g. wero: iDEAL | Wero, a EUR checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
+      "description": "card (default: the buyer picks their country on the provider's page), or a local method's id from /v1/pricing's local_payment_methods for the buyer's chosen country (e.g. wero: iDEAL | Wero, a EUR checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
       "maxLength": 32,
       "title": "Payment Method",
       "type": "string"
@@ -3828,7 +3828,7 @@
   },
   "/v1/pricing": {
    "get": {
-    "description": "The price of a check and everything derived from it.\n\nThe x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), the card currency this\nvisitor gets, the VAT rules for crypto, exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it carries the visitor's likely country).\n:return: The price list.",
+    "description": "The price of a check and everything derived from it.\n\nThe x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), which countries pay by card\nin euros and which have a local payment method, the suggested country and its card currency, the VAT rules for\ncrypto, exact USDC amounts and a live SOL quote.\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable: it carries the visitor's likely country).\n:return: The price list.",
     "operationId": "get_pricing_v1_pricing_get",
     "responses": {
      "200": {

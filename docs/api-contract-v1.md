@@ -658,3 +658,18 @@ valid 7 days. Nothing is stored when a check runs.
   disputes are exactly those of a euro card checkout.
 - Adding a country is one entry in that table (visitor country → method id, label, billing country, currency), after
   checking by hand that Polar really shows that method for that billing country and currency.
+
+## Changes (the visitor's country is a visible, changeable suggestion; backwards-compatible)
+
+- `GET /v1/pricing` adds two tables, the same for every visitor, so a client can price and offer payment methods for
+  the country the visitor *chooses* rather than only for Cloudflare's guess:
+  - `euro_area`: the sorted ISO codes whose card prices are in euros (the 21 euro countries; `[]` while euro prices
+    are off). Card price in `price_eur` for these, `price_usd` for every other country (or none chosen).
+  - `local_payment_methods`: `{ISO code: {"id", "label", "currency"}}`, each country's local method (today
+    `{"NL": {"id": "wero", "label": "iDEAL | Wero", "currency": "eur"}}`; `{}` while euro prices are off).
+- `vat.country_hint` is the **suggested** country only: show it, let the visitor change it, and let the chosen country
+  decide the card currency and the local method. `card_currency` and `local_payment_method` stay, unchanged, as the
+  values **for the suggested country**, for clients that don't offer a choice. The hint comes from Cloudflare's
+  country header (never the IP) and is neither stored nor logged.
+- `POST /v1/credits/fiat-checkout` is unchanged; clients that let the visitor choose send the explicit `currency` (and
+  `payment_method` for a local method), as `/checkout` does.

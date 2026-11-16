@@ -49,6 +49,15 @@
 
       <!-- New here: pay by card (or the visitor's local method); the key is made for you and shown after paying. -->
       <section id="panel-new" role="tabpanel" aria-labelledby="tab-new">
+        <div class="pay-country">
+          <p class="small"><span id="new-country-from" hidden>Paying from: </span><strong id="new-country-name">Choose your country</strong>
+            <button type="button" class="link" id="new-country-change" aria-expanded="false"
+              aria-controls="new-country-box">choose</button></p>
+          <p id="new-country-box" class="pay-country-box" hidden>
+            <label for="new-country">Your country <span class="muted">(sets the card currency and payment options)</span></label>
+            <select id="new-country" class="pay-country-select" autocomplete="country"></select>
+          </p>
+        </div>
         <div class="pay-buttons">
           <button id="new-local" class="primary large wide" type="button" hidden></button>
           <button id="new-pay" class="primary large wide" type="button">Pay by card</button>
@@ -79,6 +88,15 @@
         </label>
         <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="ufk_…">
         <p id="topup-status" class="small" role="status" aria-live="polite"></p>
+        <div class="pay-country">
+          <p class="small"><span id="topup-country-from" hidden>Paying from: </span><strong id="topup-country-name">Choose your country</strong>
+            <button type="button" class="link" id="topup-country-change" aria-expanded="false"
+              aria-controls="topup-country-box">choose</button></p>
+          <p id="topup-country-box" class="pay-country-box" hidden>
+            <label for="topup-country">Your country <span class="muted">(sets the card currency and payment options)</span></label>
+            <select id="topup-country" class="pay-country-select" autocomplete="country"></select>
+          </p>
+        </div>
         <div class="pay-buttons">
           <button id="topup-local" class="primary large wide" type="button" hidden></button>
           <button id="topup-pay" class="primary large wide" type="button">Pay by card</button>

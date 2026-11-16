@@ -14,6 +14,7 @@ from tests.unit import test_polar  # Polar's sample payloads
 from unfret.config import settings
 from unfret.credits import fiat, keys, polar
 from unfret.credits.fiat import FakeFiatProvider, FiatEvent
+from unfret.credits.packs import EURO_AREA
 from unfret.credits.polar import PolarProvider
 from unfret.main import app
 from unfret.migrations import MIGRATIONS, migrate
@@ -404,6 +405,24 @@ async def test_pricing_names_the_visitors_local_payment_method(
     body = (await client.get("/v1/pricing", headers=from_country(country) if country else {})).json()
     expected = {"id": "wero", "label": "iDEAL | Wero", "currency": "eur"} if method else None
     assert body["local_payment_method"] == expected
+
+
+@pytest.mark.parametrize("headers", [{}, from_country("US"), from_country("NL")])
+async def test_pricing_lists_every_countrys_card_currency_and_local_method(
+    client: httpx.AsyncClient, headers: dict[str, str]
+) -> None:
+    # The same tables whatever the visitor's country: the page picks from them for the country the visitor chose.
+    body = (await client.get("/v1/pricing", headers=headers)).json()
+    assert body["euro_area"] == sorted(EURO_AREA) and "NL" in body["euro_area"] and "US" not in body["euro_area"]
+    assert body["local_payment_methods"] == {"NL": {"id": "wero", "label": "iDEAL | Wero", "currency": "eur"}}
+
+
+async def test_no_euro_countries_or_euro_methods_while_euro_prices_are_off(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "card_prices_eur", "")
+    body = (await client.get("/v1/pricing", headers=from_country("NL"))).json()
+    assert (body["euro_area"], body["local_payment_methods"]) == ([], {})
 
 
 async def test_no_local_method_while_its_currency_is_off(

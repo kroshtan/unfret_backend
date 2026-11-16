@@ -27,7 +27,9 @@ _HIDDEN_STYLE_RE = re.compile(
 )
 _TIMER_ATTR_RE = re.compile(r"countdown|count-down|timer|hurry|urgency|limited-time|flash-?sale", re.IGNORECASE)
 _TIMER_SCRIPT_RE = re.compile(
-    r"countdown|setInterval\s*\(.{0,200}?(?:hours|minutes|seconds)|evergreen|deadline\s*=", re.IGNORECASE | re.DOTALL
+    r"countdown|setInterval\s*\(.{0,200}?(?:hours|minutes|seconds)|evergreen[\s_-]?(?:timer|countdown|clock)"
+    r"|deadline\s*=",
+    re.IGNORECASE | re.DOTALL,
 )
 _FEE_RE = re.compile(
     r"(?:service fee|handling fee|processing fee|booking fee|convenience fee|admin(?:istration)? fee"
@@ -88,6 +90,7 @@ _HOST_PATTERNS: tuple[tuple[Platform, str], ...] = (
     ("bark", r"bark\.com"),
     ("houzz", r"houzz\.[a-z.]+"),
     ("myhammer", r"my-hammer\.de|myhammer\.de"),
+    ("homeguide", r"homeguide\.com"),
 )
 _PLATFORM_HOSTS: tuple[tuple[Platform, re.Pattern[str]], ...] = (
     ("bol.com", _BOL_HOST_RE),

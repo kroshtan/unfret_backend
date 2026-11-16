@@ -8,10 +8,18 @@ come in:
 - **Many warning signs** only for the combinations behind fake local businesses: town landing pages without an
   address *and* links to other sites run with the same phone numbers or tracking IDs; a premium-rate number *and*
   payment up front or in cash only; work photos copied from other sites together with doorway pages, operator links
-  or a brand-new site; or three or more serious signals of any kind.
+  or a brand-new site; a page saying its tradesperson isn't necessarily local together with another mark of a call
+  centre (a trade-and-town name, only a national number, an address in another town, doorway pages, linked sites);
+  or three or more serious signals of any kind.
 - **Some warning signs** for one serious signal (doorway pages, copied photos, text aimed at AI tools, a VAT
-  number that can't exist) or two of the medium ones (payment up front, cash only, price set on the doorstep, a
-  premium-rate number, copied testimonials, a malformed KvK number, "licensed" without a licence number, …).
+  number that can't exist, a page saying its tradesperson isn't necessarily local) or two of the medium ones
+  (payment up front, cash only, price set on the doorstep, a premium-rate number, copied testimonials, a malformed
+  KvK number, "licensed" without a licence number, a site named after a trade and a town, only a national number on
+  a local page, an address in another town, company details "on request", …). Also for the anonymous local site:
+  a trade-and-town name or only a national number on a page that shows no way to tell who the company is (NL: no
+  KvK number and no street address; US: no street address, licence number or legal company name). And on a
+  platform, a profile without a track record (new, under five reviews) that makes emergency, call-out, payment or
+  pricing promises, or gives its company details only on request.
 - **Looks fine** only with concrete positives and nothing of medium weight: on a site, an established domain, a
   complete identity (NL: KvK number, company name, street address; US: company name, street address and a licence
   number when it says it is licensed), a street address and no doorway pattern, and no upfront or cash-only terms;
@@ -38,8 +46,16 @@ REASON_SEVERITY: dict[str, shopper.Severity] = {
     "hidden_ai_text": "high",
     "invalid_vat": "high",
     "timer_resets": "high",
+    "not_local": "high",
     "linked_sites": "medium",
+    "shared_address_sites": "medium",
+    "trade_town_name": "medium",
+    "address_elsewhere": "medium",
     "premium_number": "medium",
+    "national_number_only": "medium",
+    "details_on_request": "medium",
+    "unproven_profile": "medium",
+    "low_platform_rating": "medium",
     "upfront_payment": "medium",
     "cash_only": "medium",
     "quote_on_site": "medium",
@@ -81,7 +97,34 @@ _GROUPS = (
     ("kvk_malformed", "kvk_missing"),
     ("hidden_ai_text", "ai_text"),
     ("copied_testimonials", "placeholder_names", "testimonial_dates", "all_five_testimonials"),
+    ("premium_number", "national_number_only"),
+    ("unproven_profile", "new_on_platform", "few_platform_reviews"),
 )
+# Payment, pricing and pressure terms: on a profile without a track record, any of them is a warning sign.
+_TERMS = frozenset(
+    {
+        "upfront_payment",
+        "cash_only",
+        "quote_on_site",
+        "bait_callout",
+        "emergency_pressure",
+        "vague_pricing",
+        "premium_number",
+        "details_on_request",
+    }
+)
+# The marks of a call centre posing as a local business, which a "not necessarily local" statement confirms.
+_CALL_CENTRE = frozenset(
+    {
+        "trade_town_name",
+        "national_number_only",
+        "address_elsewhere",
+        "doorway_pages",
+        "linked_sites",
+        "shared_address_sites",
+    }
+)
+_SHARED_ADDRESS_SITES = 2
 _RANK = {"high": 0, "medium": 1, "low": 2}
 _ESTABLISHED_YEARS = 2
 _PLATFORM_YEARS = 2
@@ -97,6 +140,7 @@ _PLATFORM_NAMES = {
     "bark": "Bark",
     "houzz": "Houzz",
     "myhammer": "MyHammer",
+    "homeguide": "HomeGuide",
 }
 
 
@@ -154,6 +198,36 @@ def _site_reasons(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["new_site"] = {"age": _age(days)}
     if e.has("eu_registry.vat_valid") and e.f("eu_registry.vat_valid") < 1:
         fired["invalid_vat"] = {}
+    _call_centre(e, fired)
+
+
+def _call_centre(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """The single-page marks of a call centre posing as a local business."""
+    if e.f("doorway_pages.not_local") >= 1:
+        fired["not_local"] = {"quote": _quoted(e.first("not_local"))}
+    # A keyword domain is worth noting only when the site doesn't say which company it is.
+    complete = e.f("service_identity.complete") >= 1
+    if e.f("doorway_pages.trade_town_name") >= 1 and not complete and (named := e.first("trade_town_name")):
+        fired["trade_town_name"] = {"site": named.evidence.partition(": ")[2].rstrip(".")}
+    if e.f("doorway_pages.national_number_only") >= 1:
+        fired["national_number_only"] = {}
+    if e.f("doorway_pages.address_elsewhere") >= 1 and (where := e.first("address_elsewhere")):
+        fired["address_elsewhere"] = {"where": where.evidence.rstrip(".")}
+    if e.f("shop_links.shared_address_shops") >= _SHARED_ADDRESS_SITES:
+        fired["shared_address_sites"] = {"count": str(int(e.f("shop_links.shared_address_shops")))}
+
+
+def _anonymous(e: _Evidence) -> bool:
+    """A site that shows no way to tell who the company is (NL: no KvK, no street address; US: nor a licence)."""
+    no_address = e.has("service_identity.address_shown") and e.f("service_identity.address_shown") < 1
+    if e.f("service_identity.market_nl") >= 1:
+        return no_address and e.has("service_identity.kvk_shown") and e.f("service_identity.kvk_shown") < 1
+    return (
+        e.f("service_identity.market_us") >= 1
+        and no_address
+        and e.f("service_identity.licence_shown") < 1
+        and not e.facts.legal_form
+    )
 
 
 def _age(days: int) -> str:
@@ -169,6 +243,7 @@ def _age(days: int) -> str:
 def _terms(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Payment, quote and call-out terms, emergency pressure, premium-rate numbers."""
     for feature, key in (
+        ("details_on_request", "details_on_request"),
         ("premium_number", "premium_number"),
         ("upfront_payment", "upfront_payment"),
         ("cash_only", "cash_only"),
@@ -195,7 +270,7 @@ def _testimonials(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 
 
 def _everywhere(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
-    """Copied photos, pressure, text aimed at AI tools, a platform profile's track record."""
+    """Copied photos, pressure, text aimed at AI tools, and a platform profile's track record."""
     photo = e.first("photo_on_other_shops")
     if photo is not None and e.f("reverse_image.other_shops") >= 1:
         count = int(e.f("reverse_image.other_shops"))
@@ -213,6 +288,18 @@ def _everywhere(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["hidden_ai_text"] = {}
     if e.f("injection.instruction_visible") >= 1 or e.f("content.addresses_ai") >= 1:
         fired["ai_text"] = {}
+    _profile(e, fired)
+
+
+def _profile(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """A platform profile's track record: new, few reviews, a low rating, slow to answer."""
+    if e.f("platform_profile.unproven") >= 1:
+        fired["unproven_profile"] = {"count": str(int(e.f("platform_profile.rating_count")))}
+    if e.f("platform_profile.low_rating") >= 1 and e.facts.seller_profile is not None:
+        fired["low_platform_rating"] = {
+            "rating": f"{e.facts.seller_profile.rating or 0:g}",
+            "count": f"{e.facts.seller_profile.rating_count or 0:,}",
+        }
     if e.f("platform_profile.new_member") >= 1:
         fired["new_on_platform"] = {}
     if e.f("platform_profile.few_reviews") >= 1:
@@ -228,10 +315,15 @@ def _band(e: _Evidence, fired: dict[str, dict[str, str]]) -> shopper.Band:
         {"doorway_pages", "linked_sites"} <= concrete,
         "premium_number" in concrete and bool({"upfront_payment", "cash_only"} & concrete),
         "copied_photo" in concrete and bool({"doorway_pages", "linked_sites", "new_site"} & concrete),
+        "not_local" in concrete and bool(_CALL_CENTRE & concrete),
     )
     if any(combos) or len(serious) >= 3:
         return "junk_or_scam"
-    if any(REASON_SEVERITY[k] == "high" for k in concrete) or len(serious) >= 2:
+    warning_combos = (
+        e.site and bool({"trade_town_name", "national_number_only"} & concrete) and _anonymous(e),
+        "unproven_profile" in concrete and bool(_TERMS & concrete),
+    )
+    if any(REASON_SEVERITY[k] == "high" for k in concrete) or len(serious) >= 2 or any(warning_combos):
         return "careful"
     if serious or len([k for k in fired if REASON_SEVERITY[k] == "low"]) > 1 or fired.keys() & ABSENCE_REASONS:
         return "concerns"
@@ -405,8 +497,8 @@ def suspicion(features: dict[str, float]) -> bool:
     Whether a service provider's page is worth a look-up of its photo (the triage's rule; no LLM).
 
     :param features: The cheap skills' features.
-    :return: ``True`` on doorway pages, operator links, a brand-new site, copied testimonials, or payment up front,
-        cash only or a premium-rate number.
+    :return: ``True`` on doorway pages, operator links, a brand-new site, copied testimonials, payment up front,
+        cash only or a premium-rate number, a new platform profile, or a page saying its tradesperson isn't local.
     """
     f = features.get
     return any(
@@ -419,5 +511,6 @@ def suspicion(features: dict[str, float]) -> bool:
             f("service_terms.cash_only", 0.0) >= 1,
             f("service_terms.premium_number", 0.0) >= 1,
             f("platform_profile.new_member", 0.0) >= 1,
+            f("doorway_pages.not_local", 0.0) >= 1,
         )
     )

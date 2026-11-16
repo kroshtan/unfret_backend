@@ -39,6 +39,8 @@ PLATFORMS: dict[Platform, KnownPlatform] = {
     "bark": KnownPlatform("Bark", "service_listing", re.compile(r"/company/")),
     "houzz": KnownPlatform("Houzz", "service_listing", re.compile(r"/(?:pro|professionals/[^/]+)/[^/]+")),
     "myhammer": KnownPlatform("MyHammer", "service_listing", re.compile(r"/(?:auftragnehmer|handwerker)/")),
+    # A pro's profile: /<state>/<city>/<trade>/<pro>; shorter paths are city and trade listings.
+    "homeguide": KnownPlatform("HomeGuide", "service_listing", re.compile(r"^/[a-z]{2}/[^/]+/[^/]+/[^/?#]+")),
 }
 
 # How eBay labels its sellers, in the languages of its sites.

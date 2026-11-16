@@ -13,11 +13,13 @@ from unfret import fact_cache, shop_store, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
 from unfret.facts.schema import Email, Link, Phone, Testimonial
+from unfret.facts.service_platforms import profile
 from unfret.graph import build_graph, nodes, services
+from unfret.graph.platforms import platform_rule
 from unfret.graph.skills import SERVICE_PAGES, Skill, SkillOutput
 from unfret.graph.skills import platform_profile as platform_profile_module
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
-from unfret.graph.skills.doorway_pages import DoorwayPagesSkill, city_pages
+from unfret.graph.skills.doorway_pages import DoorwayPagesSkill, address_elsewhere, city_pages, trade_town_name
 from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.injection import InjectionSkill
 from unfret.graph.skills.platform_profile import PlatformProfileSkill
@@ -28,6 +30,7 @@ from unfret.graph.skills.shop_links import ShopLinksSkill
 from unfret.graph.skills.testimonials import TestimonialsSkill
 from unfret.graph.state import AnalysisState, Finding, PageType
 from unfret.market import service_market
+from unfret.page_fetch import is_challenge_page
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.shop_store import MemoryShopStore
 
@@ -40,6 +43,14 @@ URLS = {
     "werkspot-profile": "https://www.werkspot.nl/profiel/loodgietersbedrijf-jansen",
     "thumbtack-profile": "https://www.thumbtack.com/tx/austin/plumbing/bluebonnet-plumbing/service/123456789",
     "angi-profile": "https://www.angi.com/companylist/us/tx/houston/lone-star-rooter-reviews-7654321.htm",
+    "werkspot-new-profile": "https://www.werkspot.nl/profiel/slotenservice-direct-7809630",
+    "werkspot-rated-profile": "https://www.werkspot.nl/profiel/bos-elektrotechniek-2152848",
+    "homeguide-profile": "https://homeguide.com/co/denver/plumbers/mile-high-rooter-llc",
+    "houzz-profile": "https://www.houzz.com/professionals/kitchen-and-bath-remodelers/lakeside-remodeling-llc-pfvwus-pf~1234567",
+    "homeadvisor-profile": "https://www.homeadvisor.com/rated.FrontRangeHeating.12345678.html",
+    "nl-locksmith-callcentre": "https://zwolle-slotenmakers.nl/inbraakschade/",
+    "nl-locksmith-callcentre-plain": "https://zwolle-slotenmakers.nl/inbraakschade/",
+    "nl-keyword-domain-established": "https://www.loodgieter-amsterdam.nl/",
 }
 TODAY = date(2026, 11, 15)
 
@@ -478,7 +489,7 @@ async def test_platform_profiles_are_never_recorded(setup: MemoryShopStore) -> N
         ("us-locksmith-doorway", 0.2, "junk_or_scam"),
         ("werkspot-profile", None, "reliable"),
         ("thumbtack-profile", None, "reliable"),
-        ("angi-profile", None, "concerns"),
+        ("angi-profile", None, "careful"),  # a month-old profile whose three reviews are one text
     ],
 )
 async def test_verdict_bands_on_fixture_pages(name: str, age: float | None, band: str) -> None:
@@ -706,3 +717,162 @@ async def test_service_terms_leave_the_customers_testimonials_out() -> None:
 
     assert out["features"]["service_terms.bait_callout"] == 0
     assert out["features"]["service_terms.emergency_pressure"] == 0
+
+
+# ── Platform profiles as the platforms write them, and the call centre's single page ────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("name", "platform", "member_since", "jobs", "rating", "count", "badges", "years"),
+    [
+        ("werkspot-new-profile", "werkspot", date(2026, 10, 1), 0, None, 0, [], None),
+        ("werkspot-rated-profile", "werkspot", date(2012, 1, 1), 356, 4.8, 163, ["KvK-nummer gecontroleerd"], None),
+        ("homeguide-profile", "homeguide", None, 41, 4.8, 27, [], 12),
+        ("houzz-profile", "houzz", None, None, 4.9, 38, ["Best of Houzz", "Verified License"], None),
+        ("homeadvisor-profile", "homeadvisor", None, None, 4.6, 312, ["Screened & Approved", "Elite Service",
+         "Top Rated"], 15),
+    ],
+)  # fmt: skip
+def test_platform_wording(
+    *,
+    name: str,
+    platform: str,
+    member_since: date | None,
+    jobs: int | None,
+    rating: float | None,
+    count: int,
+    badges: list[str],
+    years: int | None,
+) -> None:
+    facts = facts_of(name)
+    profile = facts.seller_profile
+
+    assert facts.platform == platform and profile is not None
+    assert (profile.member_since, profile.jobs_completed, profile.rating, profile.rating_count) == (
+        member_since,
+        jobs,
+        rating,
+        count,
+    )
+    assert (profile.badges, profile.years_in_business) == (badges, years)
+
+
+def test_a_rating_is_never_the_first_digit_of_the_count() -> None:
+    # "4.5 ★ uit 160 beoordelingen" was read as a 1 from 60 reviews.
+    found = profile("Lid sinds 2012 4.5 ★ uit 160 beoordelingen", [])
+    assert found is not None and (found.rating, found.rating_count) == (4.5, 160)
+    thumbtack = profile("Joined 2013 4.5 ★ (350 reviews) Responds within about 2 hours", [])
+    assert thumbtack is not None and (thumbtack.rating, thumbtack.rating_count) == (4.5, 350)
+    assert thumbtack.response_time == "within about 2 hours"
+    brackets = profile("Exceptional 4.9 ★★★★★ (143)", [])
+    assert brackets is not None and (brackets.rating, brackets.rating_count) == (4.9, 143)
+    empty = profile("Reviews 0.0 (0 reviews)", [])
+    assert empty is not None and (empty.rating, empty.rating_count) == (None, 0)
+
+
+def test_a_homeguide_profile_is_a_service_listing() -> None:
+    facts = facts_of("homeguide-profile")
+    assert platform_rule(facts, URLS["homeguide-profile"], "") == ("service_listing", "HomeGuide")
+    assert platform_rule(facts, "https://homeguide.com/co/denver/plumbers/", "") is None  # a city's list of pros
+
+
+@pytest.mark.parametrize(
+    ("name", "band", "reasons"),
+    [
+        # New, no reviews, "€0 call-out, price agreed on the spot", details only on request.
+        ("werkspot-new-profile", "junk_or_scam", {"unproven_profile", "details_on_request", "quote_on_site"}),
+        ("werkspot-rated-profile", "reliable", set()),
+        ("homeadvisor-profile", "reliable", set()),
+        ("homeguide-profile", "reliable", set()),
+        ("houzz-profile", "concerns", set()),  # no years on the platform or in business shown
+    ],
+)
+async def test_platform_profile_bands(name: str, band: str, reasons: set[str]) -> None:
+    result = await check(name)
+
+    assert result["page_type"] == "service_listing"
+    verdict = result["verdict"]
+    assert verdict["band"] == band, verdict
+    assert reasons <= {r["type"] for r in verdict["reasons"]}
+
+
+async def test_a_new_profile_alone_is_only_something_to_check() -> None:
+    html, url = page("werkspot-new-profile")
+    html = html.replace(
+        "24/7 spoedservice, binnen 20 minuten bij u. Voorrijkosten € 0. Prijs in overleg ter plaatse.", ""
+    )
+    html = html.replace("Bedrijfsgegevens op aanvraag.", "Vooraf een vaste prijs.")
+    result = await build_graph(skills(None)).ainvoke({"page_content": html, "url": url, "flags": []})
+
+    assert result["verdict"]["band"] == "concerns"
+    assert [r["type"] for r in result["verdict"]["reasons"]] == ["unproven_profile"]
+
+
+@pytest.mark.parametrize(
+    ("name", "band", "reasons"),
+    [
+        # Says its locksmith isn't necessarily in Zwolle: with a trade-and-town name and only an 085 number.
+        ("nl-locksmith-callcentre", "junk_or_scam", {"not_local", "trade_town_name"}),
+        # The same page without that sentence: a trade-and-town site with no KvK number and no address.
+        ("nl-locksmith-callcentre-plain", "careful", {"trade_town_name", "national_number_only"}),
+        # A keyword domain of a real firm: KvK number, its own address in the town, a local number.
+        ("nl-keyword-domain-established", "reliable", set()),
+    ],
+)
+async def test_call_centre_marks_on_one_page(name: str, band: str, reasons: set[str]) -> None:
+    result = await check(name, age=12.0)
+
+    assert result["page_type"] == "service_site"
+    verdict = result["verdict"]
+    assert verdict["band"] == band, verdict
+    assert reasons <= {r["type"] for r in verdict["reasons"]}
+    assert "scam" not in verdict["headline"].lower()
+
+
+async def test_call_centre_features() -> None:
+    features, found = await features_of(DoorwayPagesSkill(), "nl-locksmith-callcentre")
+
+    assert features["doorway_pages.trade_town_name"] == 1.0
+    assert features["doorway_pages.not_local"] == 1.0
+    assert features["doorway_pages.national_number_only"] == 1.0
+    assert {"trade_town_name", "not_local", "national_number_only"} <= found
+    established, _ = await features_of(DoorwayPagesSkill(), "nl-keyword-domain-established")
+    assert established["doorway_pages.trade_town_name"] == 1.0  # the domain is a keyword one…
+    assert established["doorway_pages.national_number_only"] == 0.0  # …but the number is local
+    assert established["doorway_pages.address_elsewhere"] == 0.0
+
+
+def test_trade_town_names() -> None:
+    assert trade_town_name("https://zwolle-slotenmakers.nl/x/", "Inbraakschade in Zwolle") == (True, "zwolle")
+    assert trade_town_name("https://denbosch-slotenmakers.nl/", "Sloten vervangen in Den Bosch") == (True, "denbosch")
+    assert trade_town_name("https://www.slotenmakerijarnhem.nl/", "Uw slotenmaker in Arnhem") == (True, "arnhem")
+    assert trade_town_name("https://kerkradeslotenmaker.nl/", "Sloten in Kerkrade") == (True, "kerkrade")
+    assert trade_town_name("https://www.loodgieters.nl/", "Loodgieters.nl") == (True, "")
+    assert trade_town_name("https://spoedslotenmakeramsterdam.com/", "Slotenmaker in Amsterdam") == (True, "amsterdam")
+    # A company or a person behind the trade, or a town the page never says it works in: not a trade-town name.
+    assert trade_town_name("https://robisonplumbing.com/", "Robison Plumbing in Austin") is None
+    assert trade_town_name("https://www.slotenmakergerard.nl/", "Slotenmaker Gerard") is None
+    assert trade_town_name("https://www.jonker-schilders.nl/", "Welkom bij Jonker Schilders") is None
+    assert address_elsewhere("barendrecht", ["Minoes erf 3 2907VG Capelle aan den IJssel"])
+    assert not address_elsewhere("amsterdam", ["Kinkerstraat 112, 1053 ED, Amsterdam"])
+    assert not address_elsewhere("nieuwegein", ["Nieuwe Boteringestraat 28 9712PM"])  # no town to compare
+
+
+def test_a_town_called_evergreen_is_not_a_countdown() -> None:
+    html = (
+        '<html><body><h1>Plumber Denver</h1><script>var areas = ["Englewood,CO", "Evergreen,CO", "Golden,CO"];'
+        "</script></body></html>"
+    )
+
+    assert parse_page(html, "https://www.example-plumber.com/denver/")[0].timers == []
+
+
+def test_fastly_client_challenge_is_a_blocked_page() -> None:
+    html = '<!doctype html><html><head><title>Client Challenge</title><link href="/_fs-ch-1T1/assets/styles.css">'
+    assert is_challenge_page(html)
+
+
+def test_us_directionals_are_not_dutch_postcodes() -> None:
+    facts = PageFacts(addresses=["2500 SW 7th Ave Amarillo, TX 79106"], phones=[Phone(number="+18063765098",
+                      kind="local", country="US")])  # fmt: skip
+    assert service_market(facts, "https://claytonsglass.com/") == "us"

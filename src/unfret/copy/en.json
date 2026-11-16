@@ -388,6 +388,38 @@
     "p2p_little_known": {
       "title": "Little to go on",
       "detail": "The ad shows too little about the seller or the payment to call it fine. Pay through the platform, or when you collect the item."
+    },
+    "not_local": {
+      "title": "May not be a local business",
+      "detail": "The page itself says the tradesperson you reach through it isn't necessarily based in the town it names ({quote}). Ask who will come, from which company, and where it is based."
+    },
+    "trade_town_name": {
+      "title": "Named after a trade, not a company",
+      "detail": "The site's name ({site}) is a trade and a place rather than a company name. Sites like this often pass calls on to whoever is free: ask for the company's name and details before you hire."
+    },
+    "national_number_only": {
+      "title": "Only a national phone number",
+      "detail": "The page gives only national phone numbers, no local or mobile one, so it doesn't show where the business is. Ask where the company is based and who will come."
+    },
+    "address_elsewhere": {
+      "title": "Address in another town",
+      "detail": "{where}. Ask who will actually come, and from where."
+    },
+    "details_on_request": {
+      "title": "Company details only on request",
+      "detail": "The page gives the company's details only on request ({quote}). A real business shows who it is: ask for its name and registration number before you hire."
+    },
+    "unproven_profile": {
+      "title": "New profile, no track record",
+      "detail": "This profile joined the platform less than six months ago and has {count} reviews, so the platform can't vouch for it yet."
+    },
+    "low_platform_rating": {
+      "title": "Low rating on the platform",
+      "detail": "Rated {rating} of 5 from {count} reviews on the platform. Read what earlier customers say before you hire."
+    },
+    "shared_address_sites": {
+      "title": "Address shared with other sites",
+      "detail": "{count} other, unrelated sites give the same postal address. A mail-forwarding or virtual office address can look like this: ask where the company really works from."
     }
   },
   "positives": {
@@ -673,7 +705,15 @@
     "duplicate_ads.text_copies": "Same text in other ads",
     "duplicate_ads.copy_platforms": "Platforms with the same text",
     "duplicate_ads.contacts": "Contact details in the ad",
-    "duplicate_ads.contact_ads": "Contact details in other ads"
+    "duplicate_ads.contact_ads": "Contact details in other ads",
+    "doorway_pages.trade_town_name": "Named after a trade and a town",
+    "doorway_pages.not_local": "Says it may not be local",
+    "doorway_pages.national_number_only": "Only national phone numbers",
+    "doorway_pages.local_page": "Page about a town",
+    "doorway_pages.address_elsewhere": "Address in another town",
+    "platform_profile.unproven": "New profile, few reviews",
+    "platform_profile.low_rating": "Low rating on the platform",
+    "service_terms.details_on_request": "Company details only on request"
   },
   "no_check_used": "No check was used.",
   "headline_reasons": "{label}: {reasons}.",

@@ -21,24 +21,44 @@ from unfret.facts.schema import PageFacts, Review, SellerProfile
 
 SERVICE_PLATFORMS: frozenset[str] = frozenset(
     {"werkspot", "thumbtack", "angi", "homeadvisor", "checkatrade", "taskrabbit", "bark", "houzz", "myhammer"}
+    | {"homeguide"}
 )
-_PLATFORM_NAMES = r"thumbtack|angi|homeadvisor|werkspot|bark|houzz|taskrabbit|checkatrade|myhammer"
+_PLATFORM_NAMES = r"thumbtack|angi|homeadvisor|werkspot|bark|houzz|taskrabbit|checkatrade|myhammer|homeguide"
 _MEMBER_SINCE_RE = re.compile(
     rf"(?:lid sinds|actief sinds|op werkspot sinds|member since|on (?:{_PLATFORM_NAMES}) since|joined(?: in)?)"
     r"\s*:?\s*(?:([a-zé]{3,10})\.?\s+)?((?:19|20)\d\d)(?![0-9])",
     re.IGNORECASE,
 )
 _JOBS_RES = (
-    re.compile(r"(\d[\d.,]*)\s+(?:klussen|opdrachten)\s+(?:uitgevoerd|afgerond|voltooid)", re.IGNORECASE),
+    re.compile(
+        r"(\d[\d.,]*)\s+(?:klussen|opdrachten)\s+(?:uitgevoerd|afgerond|voltooid|via werkspot|op werkspot)",
+        re.IGNORECASE,
+    ),
     re.compile(r"(\d[\d.,]*)\s+hires?(?![a-z])", re.IGNORECASE),
     re.compile(r"hired\s+(\d[\d.,]*)\s+times?", re.IGNORECASE),
     re.compile(r"(\d[\d.,]*)\s+(?:jobs|tasks|projects)\s+completed", re.IGNORECASE),
     re.compile(r"(\d[\d.,]*)\s+(?:completed|verified)\s+(?:jobs|tasks|projects)", re.IGNORECASE),
 )
-_YEARS_RE = re.compile(r"(\d{1,3})\s+(?:years? in business|jaar (?:actief|ervaring|in bedrijf))", re.IGNORECASE)
+_YEARS_RES = (
+    re.compile(r"(\d{1,3})\s+(?:years? in business|jaar (?:actief|ervaring|in bedrijf))", re.IGNORECASE),
+    re.compile(r"years? in business\s*:?\s*(\d{1,3})(?![\d])", re.IGNORECASE),
+)
+# A rating and its count: "4.8 (127 reviews)", "4,5 ★ uit 160 beoordelingen", "5.0 · 23 Reviews". The rating is never
+# the first digit of a longer number ("160 beoordelingen" is not a 1 from 60).
 _RATING_RE = re.compile(
-    r"(?<![\d.,])([0-5](?:[.,]\d)?)\s*(?:/\s*5|out of 5|uit 5|van 5)?(?:\s*(?:stars?|sterren))?\s*[(·|-]?\s*"
-    r"(\d[\d.,]*)\s*(?:reviews?|beoordelingen|ratings?|recensies)(?![a-z])",
+    r"(?<![\d.,])([0-5](?:[.,]\d{1,2})?)(?![\d])\s*(?:/\s*5|out of 5|uit 5|van 5)?(?![\d])"
+    r"(?:\s*(?:stars?|sterren|[★☆]+))?\s*(?:[(·|-]|uit|from|based on|op basis van)?\s*"
+    r"(\d[\d.,]*)\s*\)?\s*(?:verified\s+)?(?:reviews?|beoordelingen|ratings?|recensies)(?![a-z])"
+    # Thumbtack and Angi write the count alone in brackets after the stars: "4.9 ★★★★★ (143)".
+    r"|(?<![\d.,])([0-5][.,]\d{1,2})\s*[★☆]*\s*\((\d[\d.,]*)\)",
+    re.IGNORECASE,
+)
+# A count of reviews without a rating next to it ("2 reviews"), and a profile that says it has none yet.
+_REVIEW_COUNT_RE = re.compile(
+    r"(?<![\d.,])(\d[\d.,]*)\s+(?:verified\s+)?(?:reviews?|beoordelingen|recensies)(?![a-z])", re.IGNORECASE
+)
+_NO_REVIEWS_RE = re.compile(
+    r"(?<![a-z])(?:no reviews(?: yet)?|nog geen (?:beoordelingen|reviews|recensies)|geen beoordelingen)(?![a-z])",
     re.IGNORECASE,
 )
 _RESPONSE_RATE_RES = (
@@ -46,8 +66,9 @@ _RESPONSE_RATE_RES = (
     re.compile(r"(?:response rate|reactiepercentage)\s*:?\s*(\d{1,3})\s?%", re.IGNORECASE),
 )
 _RESPONSE_TIME_RE = re.compile(
-    r"(?:responds|reageert|reactietijd|response time)\s*:?\s*((?:within|in about|about|binnen|gemiddeld binnen)\s+"
-    r"(?:a|an|one|een|\d+)\s+(?:minutes?|hours?|days?|minuten|uur|uren|dag|dagen))",
+    r"(?:responds|reageert|reactietijd|response time)\s*:?\s*(?:usually|typically|meestal|gemiddeld)?\s*"
+    r"((?:within|in about|about|binnen)(?:\s+about)?\s+(?:a|an|one|een|\d+)\s+"
+    r"(?:minutes?|hours?|days?|minuten|uur|uren|dag|dagen))",
     re.IGNORECASE,
 )
 # Badges the platforms award, as they write them (matched case-insensitively, recorded as written here).
@@ -65,6 +86,9 @@ BADGES = (
     "KvK geverifieerd",
     "Identiteit geverifieerd",
     "Erkend vakman",
+    "KvK-nummer gecontroleerd",
+    "Best of Houzz",
+    "Verified License",
 )
 _BADGE_RES = tuple((badge, re.compile(rf"(?<![a-z]){re.escape(badge)}(?![a-z])", re.IGNORECASE)) for badge in BADGES)
 
@@ -100,8 +124,14 @@ def _rating(orgs: list[dict[str, Any]], text: str) -> tuple[float | None, int | 
             if value is not None and 0 <= value <= 5:
                 return value, int(count) if count is not None and count >= 0 else None
     if m := _RATING_RE.search(text):
-        value = parse_number(m.group(1))
-        return (value if value is not None and value <= 5 else None), parse_count(m.group(2))
+        value = parse_number(m.group(1) or m.group(3))
+        count = parse_count(m.group(2) or m.group(4))
+        # "0.0 (0 reviews)" is no rating at all.
+        return (value if value is not None and value <= 5 and count != 0 else None), count
+    if _NO_REVIEWS_RE.search(text):
+        return None, 0
+    if m := _REVIEW_COUNT_RE.search(text):
+        return None, parse_count(m.group(1))
     return None, None
 
 
@@ -121,7 +151,7 @@ def profile(text: str, orgs: list[dict[str, Any]]) -> SellerProfile | None:
     :return: The profile, or ``None`` when the page shows none of it.
     """
     rating, count = _rating(orgs, text)
-    years = _YEARS_RE.search(text)
+    years = next((m for pattern in _YEARS_RES if (m := pattern.search(text))), None)
     rate = _response_rate(text)
     response_time = _RESPONSE_TIME_RE.search(text)
     found = SellerProfile(

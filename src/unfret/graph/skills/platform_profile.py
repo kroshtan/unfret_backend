@@ -3,7 +3,9 @@ A service provider's profile on a platform (Werkspot, Thumbtack, Angi, …): the
 
 How long they have been on the platform, how many jobs and reviews they have, their rating, the platform's badges
 (background checked, licence verified, KvK verified) and how often they answer. A new profile with few reviews is
-not a warning on its own (everyone starts somewhere): it only means the platform can't vouch for much yet.
+not a warning on its own (everyone starts somewhere): it only means the platform can't vouch for much yet. Both at
+once (``unproven``) weigh more in the verdict next to emergency or payment terms; a low rating over a fair number of
+reviews (``low_rating``) is what earlier customers say.
 """
 
 from datetime import date
@@ -14,7 +16,9 @@ from unfret.graph.state import AnalysisState
 NEW_DAYS = 180
 FEW_REVIEWS = 5
 LOW_RESPONSE_RATE = 50.0
-_VERIFIED_WORDS = ("verified", "geverifieerd", "background", "certified", "screened", "erkend")
+LOW_RATING = 3.5
+LOW_RATING_MIN_REVIEWS = 10
+_VERIFIED_WORDS = ("verified", "geverifieerd", "gecontroleerd", "background", "certified", "screened", "erkend")
 
 
 def today() -> date:
@@ -40,6 +44,8 @@ class PlatformProfileSkill(Skill):
         "rating",
         "rating_count",
         "few_reviews",
+        "unproven",
+        "low_rating",
         "low_response_rate",
         "verified_badges",
         "years_in_business",
@@ -81,6 +87,13 @@ class PlatformProfileSkill(Skill):
         features["verified_badges"] = len(verified)
         if profile.badges:
             observations.append(Observation(type="badges", evidence=f"Badges: {', '.join(profile.badges[:5])}."))
+        new = profile.member_since is not None and (today() - profile.member_since).days < NEW_DAYS
+        features["unproven"] = new and profile.rating_count is not None and profile.rating_count < FEW_REVIEWS
+        features["low_rating"] = (
+            profile.rating is not None
+            and profile.rating < LOW_RATING
+            and (profile.rating_count or 0) >= LOW_RATING_MIN_REVIEWS
+        )
         if profile.years_in_business is not None:
             features["years_in_business"] = profile.years_in_business
         return self.output(features, observations)

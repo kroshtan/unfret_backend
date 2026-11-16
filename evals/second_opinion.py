@@ -392,7 +392,7 @@ def main() -> None:
         dump_json(corpus.root / "reports" / "second_opinion.json", report)
     for cls in NEW_CLASSES:
         members = [r for r in corpus.labels().values() if page_class(r) == cls]
-        if members and args.page_class in {None, cls}:
+        if members and args.page_class in {None, cls} and args.dataset is None:
             out = corpus.root / "reports" / cls
             out.mkdir(exist_ok=True)
             asked = sum(1 for r in pending if page_class(r) == cls)

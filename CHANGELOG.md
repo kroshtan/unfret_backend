@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.11.1](https://github.com/kroshtan/unfret_backend/compare/0.11.0...0.11.1) (2026-11-16)
+
 ### Bug fixes
 
 * Fewer false warnings on service companies' sites, found by checking real sites on dev: a street address written out in the footer or contact block (several branches, "12111 Menchaca Rd Austin, Texas 78748", "Tingietersweg 129 2031 ER Haarlem") now counts, so an established firm with many branch pages is no longer "pages for many towns, no address"; a licence number with a dot ("License #MP.00188386") counts as shown; and the payment and call-out checks no longer read the customers' testimonials ("no call-out fee, he was there in 20 minutes" is a customer's story, not the company's terms). On a private seller's ad, "bought abroad" is no longer read as "the seller is abroad"

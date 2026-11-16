@@ -39,7 +39,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "review_velocity": "high",
     "review_shape": "medium",
     "duplicate_reviews": "medium",
-    "off_topic_reviews": "high",
+    "off_topic_reviews": "medium",
     "review_import_app": "medium",
     "word_soup": "medium",
     "generic_brand": "medium",
@@ -142,6 +142,7 @@ CONTEXT_FEATURES = frozenset(
         "eu_registry.vat_name_match",
         "eu_registry.withdrawal_right",
         "eu_registry.imprint",
+        "eu_registry.legal_pages_checked",
         "domain_age.known",
         "domain_age.age_years",
         "domain_age.term_years",
@@ -420,8 +421,12 @@ def _reviews(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["review_shape"] = {}
     if e.f("reviews.duplicate_share") >= 0.15:
         fired["duplicate_reviews"] = {"pct": _pct(e.f("reviews.duplicate_share"))}
-    if e.f("reviews.off_topic_share") >= 0.3:
-        fired["off_topic_reviews"] = {"pct": _pct(e.f("reviews.off_topic_share"))}
+    # Reviews pooled from other products are a marketplace trick (variations merged, listings hijacked), and the
+    # similarity measure is calibrated on marketplace reviews. A shop's own reviews of its product often talk about
+    # delivery, size and service instead, so there it takes a majority of clear outliers (see the reviews skill).
+    off_topic = e.f("reviews.off_topic_share")
+    if off_topic >= (0.3 if e.marketplace else 0.5):
+        fired["off_topic_reviews"] = {"pct": _pct(off_topic)}
     if e.f("html_source_signals.review_import_app") >= 1:
         fired["review_import_app"] = {}
 
@@ -434,7 +439,7 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     # so as a reason it's only said on marketplace listings, where it means white-label goods. The model still
     # weighs it everywhere.
     llm_says_generic = e.marketplace and e.f("content.generic_brand") >= settings.verdict_llm_signal_min
-    if llm_says_generic or e.first("brand_name"):
+    if (llm_says_generic or e.first("brand_name")) and not _brand_exists(e):
         fired["generic_brand"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
     if e.f("content.generic_product") >= 0.7:
         fired["generic_product"] = {}
@@ -445,6 +450,24 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["seller_not_brand"] = {"seller": _quote(e.facts.seller)}
     if e.f("listing.ships_from_china") >= 1:
         fired["ships_from_far"] = {"place": e.facts.ships_from[:60] or "China"}
+
+
+# A brand whose own domain is at least this old has existed for years: not a name made up for one listing.
+BRAND_DOMAIN_MIN_YEARS = 5
+
+
+def _brand_exists(e: _Evidence) -> bool:
+    """
+    Evidence that the brand is real, which outweighs a name that merely looks generated ("HKLIVING").
+
+    The content read knows the brand, Wikidata has it as a business or brand, or its own ``.com``/``.nl`` domain has
+    been registered for :data:`BRAND_DOMAIN_MIN_YEARS` years or more (brand_presence).
+    """
+    return (
+        e.f("content.brand_recognized") >= 1
+        or e.f("brand_presence.wikidata") >= 1
+        or e.f("brand_presence.own_domain_age_years") >= BRAND_DOMAIN_MIN_YEARS
+    )
 
 
 def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
@@ -503,18 +526,60 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         # Only EU law requires a withdrawal right. Outside the EU, eu_registry reports a missing policy as not
         # applicable, so this fires there only for features recorded before that (never citing EU law).
         fired["no_withdrawal" if e.market == "eu" else "no_return_policy"] = {}
-    if e.has("eu_registry.imprint") and e.f("eu_registry.imprint") < 1:
-        fired["no_imprint"] = {}
-    if e.f("content.missing_trust_info") >= 0.6:
+    if e.has("eu_registry.imprint") and e.f("eu_registry.imprint") < 1 and _imprint_really_missing(e):
+        checked = e.f("eu_registry.legal_pages_checked") >= 1
+        fired["no_imprint"] = {"where": e.phrase("imprint_where_legal_pages" if checked else "imprint_where_page")}
+    # The LLM's "little shop information" reads the page text without its footer; when the page's legal information
+    # shows both a return policy and company details ("Shop details present"), that impression is wrong.
+    if e.f("content.missing_trust_info") >= 0.6 and not _trust_info_present(e):
         fired["missing_trust_info"] = {}
     # Not in VIES, or a number that can't exist (eu_registry gives a made-up one no credit as a VAT number).
     if e.has("eu_registry.vat_valid") and e.f("eu_registry.vat_valid") < 1:
         fired["invalid_vat"] = {}
     if e.f("domain_age.under_6_months") >= 1:
         fired["new_domain"] = {"age": e.age(max(round(e.f("domain_age.age_years") * 365), 1))}
-    if e.f("domain_age.known") >= 1 and e.has("domain_age.term_years") and e.f("domain_age.term_years") <= 1.1:
+    # Registered for at most a year in all (registration to expiry), so the shop is itself less than a year old. A
+    # term of 0 means the registry doesn't publish an expiry date (.nl doesn't); an established domain renewing year
+    # by year is normal and never says this.
+    term = e.f("domain_age.term_years")
+    if e.f("domain_age.known") >= 1 and 0 < term <= 1.1 and e.f("domain_age.age_years") < ESTABLISHED_DOMAIN_YEARS:
         fired["short_registration"] = {}
     _policies(e, fired)
+
+
+# A web shop whose address has existed this long is "established" (the positive), and never "registered for a year".
+ESTABLISHED_DOMAIN_YEARS = 3
+
+
+def _trust_info_present(e: _Evidence) -> bool:
+    """The page's legal information shows a return policy and company details (eu_registry)."""
+    return e.f("eu_registry.withdrawal_right") >= 1 and e.f("eu_registry.imprint") >= 1
+
+
+# A shop address older than this is no fly-by-night shop: its company is not in doubt for want of an imprint.
+LONG_ESTABLISHED_YEARS = 10
+
+
+def _long_established(e: _Evidence) -> bool:
+    """The shop's domain has existed for a decade, or it is the brand's own site and the brand is on Wikidata."""
+    own_site = e.f("brand_presence.shop_is_brand") >= 1 and e.f("brand_presence.wikidata") >= 1
+    return e.f("domain_age.age_years") >= LONG_ESTABLISHED_YEARS or own_site
+
+
+def _imprint_really_missing(e: _Evidence) -> bool:
+    """
+    Whether "No company details" is a fair thing to say, beyond "not on this page".
+
+    Established shops keep their company details on a separate contact or legal page, not on every product page. So
+    a page that links to such a page counts as missing them only when eu_registry read those pages too and found
+    nothing there either. A VAT number that the EU register knows identifies the company anyway, and so does a
+    long-established shop (see :func:`_long_established`) whose legal pages just don't name it in their HTML (ikea.nl
+    renders them with scripts).
+    """
+    if e.f("eu_registry.vat_valid") >= 1 or _long_established(e):
+        return False
+    links_to_legal = bool({"contact", "terms", "imprint"} & set(e.facts.policy_links))
+    return not links_to_legal or e.f("eu_registry.legal_pages_checked") >= 1
 
 
 def _policies(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
@@ -598,13 +663,19 @@ def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools, hidden or visible."""
     if e.f("injection.instruction_hidden") >= 1:
         fired["hidden_ai_text"] = {}
-    if e.f("injection.instruction_visible") >= 1 or e.f("content.addresses_ai") >= 1:
+    # Only the quoted phrase the injection skill found ("ignore previous instructions", "dear AI"): the content read's
+    # own yes/no on "addresses an AI" fires as often on honest shops (cookie banners, chat widgets) as on scams.
+    if e.f("injection.instruction_visible") >= 1:
         fired["ai_text"] = {}
 
 
 def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     fired: dict[str, dict[str, str]] = {}
-    generic = e.f("content.generic_brand") >= 0.4 or e.first("brand_name") is not None
+    # Outside evidence that the brand exists (not the LLM's own say-so) outweighs a name that looks generated.
+    outside = (
+        e.f("brand_presence.wikidata") >= 1 or e.f("brand_presence.own_domain_age_years") >= BRAND_DOMAIN_MIN_YEARS
+    )
+    generic = (e.f("content.generic_brand") >= 0.4 or e.first("brand_name") is not None) and not outside
     known = e.f("content.brand_recognized") >= 1 or e.f("brand_presence.wikidata") >= 1
     if known and not generic and e.facts.brand:
         fired["known_brand"] = {"brand": _quote(e.facts.brand)}
@@ -617,9 +688,9 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     company = e.first("business_entity")
     if e.storefront and e.f("us_identity.us_address") >= 1 and company:
         fired["us_business"] = {"company": _quote(company.evidence.removeprefix("Company: "))}
-    if e.storefront and e.f("domain_age.age_years") >= 3:
+    if e.storefront and e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS:
         fired["established_domain"] = {"years": str(int(e.f("domain_age.age_years")))}
-    if e.storefront and e.f("eu_registry.withdrawal_right") >= 1 and e.f("eu_registry.imprint") >= 1:
+    if e.storefront and _trust_info_present(e):
         fired["trust_info_present"] = {}
     natural = (
         e.f("reviews.has_reviews") >= 1

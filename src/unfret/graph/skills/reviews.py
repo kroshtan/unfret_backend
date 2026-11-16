@@ -4,10 +4,16 @@ Review intelligence: whether the review record is plausible for this listing.
 Deterministic statistics (reviews per day since the listing appeared, rating shape, duplicate and very short
 reviews, bursts) plus embedding similarity between each review and the product title, which exposes reviews
 pooled from other products: the classic "5,000 glowing reviews on a listing that is three weeks old".
+
+The off-topic threshold was calibrated on marketplace listings, where pooling happens (variations merged, listings
+hijacked). A shop's own page shows its own buyers' reviews, which often talk about delivery, size or washing in a
+few words (and in Dutch or German score lower against the title anyway: IKEA's reviews of a duvet cover sit at 0.3
+to 0.5). There a review counts as off-topic only when it is also a clear outlier among the page's reviews.
 """
 
 import math
 import re
+import statistics
 from datetime import UTC, date, datetime, timedelta
 
 import structlog
@@ -24,6 +30,8 @@ _WS_RE = re.compile(r"\s+")
 _MAX_EMBEDDED_REVIEWS = 20
 _EMBED_CHARS = 600
 _OFF_TOPIC_SIMILARITY = 0.35
+# On a shop's own page, a review is off-topic only when it is also this far below the page's median review.
+_OUTLIER_MARGIN = 0.1
 
 
 def _normalise(text: str) -> str:
@@ -154,7 +162,7 @@ class ReviewsSkill(Skill):
         _velocity(facts, features, observations)
         _shape(facts, features, observations)
         _texts(facts, features, observations)
-        await _similarity(facts, features, observations)
+        await _similarity(facts, features, observations, marketplace=state.get("page_type") == "aggregate_listing")
         return self.output(features, observations)
 
 
@@ -200,7 +208,26 @@ def _texts(facts: PageFacts, features: dict[str, float | bool], observations: li
     features["burst_share"] = burst_share(facts.reviews)
 
 
-async def _similarity(facts: PageFacts, features: dict[str, float | bool], observations: list[Observation]) -> None:
+def off_topic_share(similarities: list[float], *, marketplace: bool) -> float:
+    """
+    Share of reviews that don't seem to be about the product.
+
+    :param similarities: Each review's similarity to the product title.
+    :param marketplace: A marketplace listing (an absolute threshold); otherwise a review must also sit
+        ``_OUTLIER_MARGIN`` below the page's median review.
+    :return: The share (0 without similarities).
+    """
+    if not similarities:
+        return 0.0
+    threshold = _OFF_TOPIC_SIMILARITY
+    if not marketplace:
+        threshold = min(threshold, statistics.median(similarities) - _OUTLIER_MARGIN)
+    return sum(1 for s in similarities if s < threshold) / len(similarities)
+
+
+async def _similarity(
+    facts: PageFacts, features: dict[str, float | bool], observations: list[Observation], *, marketplace: bool
+) -> None:
     bodies = [r.body for r in facts.reviews if len(r.body) >= 20]
     if not facts.title or len(bodies) < 3:
         return
@@ -209,7 +236,7 @@ async def _similarity(facts: PageFacts, features: dict[str, float | bool], obser
     except Exception as exc:  # noqa: BLE001 - embeddings are one signal among many
         logger.warning("review_embeddings_failed", error=type(exc).__name__)
         return
-    off_topic = sum(1 for s in similarities if s < _OFF_TOPIC_SIMILARITY) / len(similarities)
+    off_topic = off_topic_share(similarities, marketplace=marketplace)
     features["title_similarity_mean"] = sum(similarities) / len(similarities)
     features["off_topic_share"] = off_topic
     if off_topic >= 0.3:

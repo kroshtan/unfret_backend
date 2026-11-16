@@ -120,9 +120,10 @@ class Settings(BaseSettings):
     # issuing off; invites already issued stay redeemable.
     invite_per_checks: int = Field(default=25, ge=0)
     invite_checks: int = Field(default=3, gt=0)
-    # Intro codes (named, operator-made, many uses each; see unfret.credits.invites): at most this many checks a UTC
-    # day across all codes, so a code shared too widely can't run up the LLM bill. 0 pauses every code.
-    intro_daily_checks_cap: int = Field(default=250, ge=0)  # 25 people a day at 10 checks
+    # Intro codes (named, operator-made, many uses each; see unfret.credits.invites): an emergency brake, off by
+    # default (each code already has its own max uses). Set, all codes together give at most this many checks a UTC
+    # day, so a code shared too widely can't run up the LLM bill; 0 pauses every code.
+    intro_daily_checks_cap: int | None = Field(default=None, ge=0)
     # VAT on crypto purchases (unfret.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
     # cross-border sales, every EU buyer pays Dutch VAT and everyone else none; "per_country": each EU buyer pays
     # their own country's rate (vendored from the EU's TEDB). Card purchases: the Merchant of Record handles VAT.

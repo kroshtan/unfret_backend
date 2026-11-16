@@ -1,4 +1,4 @@
-"""Intro codes: named, operator-made, many uses each; new accounts only, like an invite; a daily cap over all codes."""
+"""Intro codes: named, operator-made, many uses each; new accounts only, like an invite; an optional daily cap."""
 
 import asyncio
 
@@ -114,6 +114,24 @@ async def test_the_daily_cap_spans_all_codes(
     assert (await redeem(client, code, new_wallet())).status_code == 200
 
 
+async def test_no_daily_cap_by_default(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    assert settings.intro_daily_checks_cap is None  # an emergency brake, off unless set
+    await make(client, "MANY", uses=100)
+    replies = [await redeem(client, "MANY", new_wallet()) for _ in range(60)]  # 300 checks: past the old cap of 250
+    assert {r.status_code for r in replies} == {200}
+    listed = (await client.get("/v1/admin/codes", headers=ADMIN)).json()
+    assert listed["today"] == {"checks_given": 300, "cap": None}
+
+
+async def test_a_zero_cap_pauses_every_code(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "intro_daily_checks_cap", 0)
+    await make(client, "PAUSED", uses=10)
+    refused = await redeem(client, "PAUSED", new_wallet())
+    assert (refused.status_code, refused.json()["error_code"]) == (429, "INTRO_DAILY_CAP")
+
+
 async def test_racing_for_the_last_use(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     await make(client, "LAST", uses=1)
     replies = await asyncio.gather(*(redeem(client, "LAST", new_wallet()) for _ in range(4)))
@@ -134,6 +152,29 @@ async def test_the_operator_list_counts_uses_today_and_buyers(client: httpx.Asyn
     assert listed["today"] == {"checks_given": 5, "cap": settings.intro_daily_checks_cap}
     assert listed["accounts"] == {"via_code": 1, "via_code_bought": 1, "organic_bought": 1}
     assert (await client.get("/v1/admin/codes")).status_code == 401
+
+
+async def test_a_refunded_card_purchase_is_no_buyer(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    async def card(account: str, order: str, *, refunded: int = 0, disputed: bool = False) -> None:
+        await ledger.credit(pool, account, 5_000_000, purchase=True)
+        await pool.execute(
+            "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros, "
+            "refunded_cents, disputed) VALUES ('polar', $1, $2, 500, 5000000, $3, $4)",
+            order,
+            account,
+            refunded,
+            disputed,
+        )
+
+    refunded, disputed, partly, kept = (str(Keypair().pubkey()) for _ in range(4))
+    await card(refunded, "o-1", refunded=500)  # the owner's own test purchase, refunded in full
+    await card(disputed, "o-2", disputed=True)
+    await card(partly, "o-3", refunded=200)  # partly refunded: still a buyer
+    await card(kept, "o-4", refunded=500)
+    await card(kept, "o-5")  # a second order it kept
+    await ledger.credit(pool, str(Keypair().pubkey()), 5_000_000, purchase=True)  # crypto: never refunded
+    listed = (await client.get("/v1/admin/codes", headers=ADMIN)).json()
+    assert listed["accounts"]["organic_bought"] == 3
 
 
 async def test_names_are_checked_and_unique(client: httpx.AsyncClient) -> None:

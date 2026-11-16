@@ -30,8 +30,9 @@ means a wallet we've never credited or a key that was never funded, and the rede
 **Intro codes.** Named codes the operator makes per channel (``FRIENDS``, ``DEV``, one per newsletter), redeemed at
 the same endpoint under the same rule: new accounts only, one invite or code per account, setting the same
 ``invite_redeemed`` flag (never which code). Each has its own number of checks and ``max_uses``; the table keeps only
-the running count. All codes together give at most ``intro_daily_checks_cap`` checks a UTC day
-(``usage_counters``), so a code shared too widely can't run up the bill. ``kind="intro"`` in the log line.
+the running count. ``intro_daily_checks_cap`` is an emergency brake, off unless set: then all codes together give at
+most that many checks a UTC day (``usage_counters``, counted either way), so a code shared too widely can't run up the
+bill. ``kind="intro"`` in the log line.
 """
 
 import base64
@@ -363,7 +364,8 @@ async def _redeem_intro(db: asyncpg.Pool, settings: Settings, account: str, code
             _INTRO_COUNTER,
             today,
         )
-        if int(given) + checks > settings.intro_daily_checks_cap:
+        cap = settings.intro_daily_checks_cap
+        if cap is not None and int(given) + checks > cap:
             raise InviteError("daily_cap", "Today's free checks from codes are gone: they're back tomorrow (UTC).")
         amount = checks * settings.analysis_price_usd_micros
         opened = await conn.fetchval(
@@ -446,11 +448,11 @@ async def update_intro(
 
 async def list_intros(db: asyncpg.Pool, settings: Settings) -> dict[str, object]:
     """
-    Every intro code with its uses, today's checks given against the daily cap, and buyers by how they came.
+    Every intro code with its uses, today's checks given (and the daily cap, if set), and buyers by how they came.
 
     :param db: The database pool.
     :param settings: The service settings.
-    :return: ``{"codes": [...], "today": {...}, "accounts": {...}}``.
+    :return: ``{"codes": [...], "today": {...}, "accounts": {...}}``; ``today.cap`` is ``None`` without a daily cap.
     """
     rows = await db.fetch("SELECT * FROM intro_codes ORDER BY created_on, code")
     given = await db.fetchval(
@@ -466,10 +468,25 @@ async def list_intros(db: asyncpg.Pool, settings: Settings) -> dict[str, object]
 
 
 async def _accounts(db: asyncpg.Pool) -> dict[str, int]:
+    # A buyer is an account that bought and kept it: ``purchased``, unless every card order it has was refunded in full
+    # or disputed (the money went back). A crypto purchase can't be refunded, so it always counts; crypto sales aren't
+    # linked to an account, so an account with a crypto purchase and only reversed card orders isn't counted.
     row = await db.fetchrow(
-        "SELECT count(*) FILTER (WHERE invite_redeemed) AS via_code, "
-        "count(*) FILTER (WHERE invite_redeemed AND purchased) AS via_code_bought, "
-        "count(*) FILTER (WHERE purchased AND NOT invite_redeemed) AS organic_bought FROM wallets"
+        """
+        WITH buyers AS (
+            SELECT w.pubkey, w.invite_redeemed,
+                   w.purchased AND (
+                       NOT EXISTS (SELECT 1 FROM fiat_payments f WHERE f.account = w.pubkey)
+                       OR EXISTS (SELECT 1 FROM fiat_payments f WHERE f.account = w.pubkey
+                                  AND NOT f.disputed AND f.refunded_cents < f.amount_cents)
+                   ) AS bought
+            FROM wallets w
+        )
+        SELECT count(*) FILTER (WHERE invite_redeemed) AS via_code,
+               count(*) FILTER (WHERE invite_redeemed AND bought) AS via_code_bought,
+               count(*) FILTER (WHERE NOT invite_redeemed AND bought) AS organic_bought
+        FROM buyers
+        """
     )
     return {key: int(row[key]) for key in ("via_code", "via_code_bought", "organic_bought")}
 

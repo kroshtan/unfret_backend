@@ -138,6 +138,7 @@ def _params() -> dict[str, str]:
         "methods": "bank transfer and crypto",
         "copied": "3",
         "checked": "12",
+        "where": "on the page",
         "quote": "“Betaling vooraf via overboeking”",
         "method": "gift cards",
         "channel": "WhatsApp",

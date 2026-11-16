@@ -14,8 +14,16 @@ credit as a VAT number (``vat_present`` is 0) and is reported as not valid (``va
 finding) without a lookup. A number the page runs into other digits (a typo, "LT1000011381019") isn't judged, nor
 is one from a country without a known check. A bank account that starts like a VAT number (``LT70 4010 …``, an
 IBAN) is never looked up, judged or quoted as one; ``vat_present`` still counts it, as the scorer was trained.
+
+Established shops keep their company details on a contact or legal page, not on every product page (ikea.nl,
+bever.nl, fonq.nl). So when an EU shop's page shows no imprint but links to its contact page or terms on its own
+site, those pages are read too (at most two, cached per shop domain like the other store-level facts): company
+details there (a Chamber of Commerce number, a register entry, a VAT number) count as the imprint. Whether they
+were read is ``legal_pages_checked``, so the shopper is told "No company details" only when they really aren't
+there (:mod:`unfret.shopper`). A network lookup: off in evaluation runs and in the quick tier.
 """
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -24,12 +32,14 @@ import httpx
 
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
+from unfret.facts import parse_page
 from unfret.facts.vat_ids import check_digits_ok, is_iban_at
 from unfret.graph.skills import NOT_APPLICABLE, SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.skills.us_identity import find_identity, names_any_company
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
-from unfret.net import hostname
+from unfret.net import fetch_public, hostname
+from unfret.price_store import registrable_domain
 
 _WITHDRAWAL_RE = re.compile(
     r"withdraw|widerruf|herroeping|bedenktijd|rétractation|desistimiento|recesso|14[ -](?:day|dagen|tage|jours|días)",
@@ -42,6 +52,10 @@ _IMPRINT_RE = re.compile(
 _NAME_NOISE_RE = re.compile(r"\b(?:b\.?v\.?|gmbh|ltd|limited|s\.?a\.?r?\.?l?|s\.?l\.?|srl|spa|ug|ag|bv|nv|inc|co)\b")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _VIES_TIMEOUT_S = 10.0
+# The shop's own pages that hold its company details when the product page doesn't, in the order they're tried.
+_LEGAL_PAGE_KINDS = ("contact", "terms")
+_LEGAL_PAGE_TIMEOUT_S = 8.0
+_LEGAL_PAGE_MAX_BYTES = 3 * 1024 * 1024
 _SEPARATOR = r"[\s.]?"
 
 
@@ -84,6 +98,66 @@ def name_matches(registered: str, shop_names: list[str]) -> bool:
     return any(registered_tokens & _name_tokens(name) for name in shop_names if name)
 
 
+def legal_page_urls(policy_links: dict[str, str], page_url: str) -> list[str]:
+    """
+    The shop's contact and terms pages worth reading for its company details: on its own site, and not a PDF.
+
+    :param policy_links: The page's policy links (kind → URL).
+    :param page_url: The analysed page's URL.
+    :return: Up to two URLs, contact page first.
+    """
+    host = hostname(page_url)
+    if not host:
+        return []
+    shop = registrable_domain(host)
+    urls = []
+    for kind in _LEGAL_PAGE_KINDS:
+        url = policy_links.get(kind, "")
+        target = hostname(url)
+        if target and registrable_domain(target) == shop and not url.lower().split("?")[0].endswith(".pdf"):
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def shows_imprint(html: str, url: str) -> bool:
+    """
+    Whether a page names the company behind the shop: a register entry (KvK, Handelsregister, …) or a VAT number.
+
+    :param html: The page.
+    :param url: Its URL.
+    :return: ``True`` when it does.
+    """
+    facts, text = parse_page(html, url)
+    legal = " ".join(facts.legal_mentions)
+    return bool(_IMPRINT_RE.search(legal) or _IMPRINT_RE.search(text) or facts.vat_ids)
+
+
+async def read_legal_pages(urls: list[str]) -> dict[str, Any] | None:
+    """
+    Read the shop's contact and terms pages for its company details.
+
+    :param urls: From :func:`legal_page_urls`.
+    :return: ``{"imprint": bool}``, or ``None`` when no page could be read (not a finding either way).
+    """
+
+    async def one(url: str) -> bool | None:
+        try:
+            body = await fetch_public(
+                url,
+                timeout=_LEGAL_PAGE_TIMEOUT_S,
+                total_timeout=_LEGAL_PAGE_TIMEOUT_S,
+                max_bytes=_LEGAL_PAGE_MAX_BYTES,
+            )
+        except Exception:  # noqa: BLE001 - a page we can't read says nothing about the shop
+            return None
+        return await asyncio.to_thread(shows_imprint, body.decode("utf-8", "replace"), url)
+
+    results = await asyncio.gather(*(one(u) for u in urls))
+    if all(r is None for r in results):
+        return None
+    return {"imprint": any(r for r in results)}
+
+
 def _written(vat_id: str) -> str:
     # The ID as the page may write it: spaces or dots between its characters, as the extraction allows.
     return rf"(?<![A-Z0-9]){_SEPARATOR.join(map(re.escape, vat_id))}"
@@ -123,6 +197,19 @@ def fake_vat(vat_ids: list[str], text: str) -> bool:
     return bool(vat_ids) and all(shown_whole(v, text) and check_digits_ok(v) is False for v in vat_ids)
 
 
+def _legal_observations(withdrawal: bool, imprint: bool, *, checked: bool) -> list[Observation]:
+    observations = []
+    if not withdrawal:
+        observations.append(Observation(type="withdrawal_right", evidence="No return or withdrawal policy found."))
+    if imprint and checked:
+        evidence = "Company details are on the shop's contact or terms page."
+        observations.append(Observation(type="imprint_on_legal_page", evidence=evidence))
+    if not imprint:
+        where = " on the page or its contact and terms pages" if checked else ""
+        observations.append(Observation(type="imprint", evidence=f"No company identity (imprint) found{where}."))
+    return observations
+
+
 class EuRegistrySkill(Skill):
     """VAT ID presence and VIES validity, name match, withdrawal right and imprint, for storefronts."""
 
@@ -130,16 +217,34 @@ class EuRegistrySkill(Skill):
     description = "Checks the shop's VAT ID against EU VIES and the presence of legally required information."
     page_types = STOREFRONTS | SERVICE_SITES
     retry = True
-    features = ("vat_present", "vat_valid", "vat_name_match", "withdrawal_right", "imprint")
+    features = ("vat_present", "vat_valid", "vat_name_match", "withdrawal_right", "imprint", "legal_pages_checked")
 
-    def __init__(self, *, vies: bool = True) -> None:
+    def __init__(self, *, vies: bool = True, legal_pages: bool | None = None) -> None:
         """
         Configure the skill.
 
         :param vies: Whether to look the VAT ID up in VIES (an outbound request about the shop). The quick tier turns
             it off and keeps the local checks.
+        :param legal_pages: Whether to read the shop's contact and terms pages when the page shows no imprint;
+            follows ``vies`` unless given.
         """
         self.vies = vies
+        self.legal_pages = vies if legal_pages is None else legal_pages
+
+    async def _legal_pages(self, state: AnalysisState) -> dict[str, Any] | None:
+        """
+        What the shop's contact and terms pages say (cached per shop domain), when allowed and linked.
+
+        :param state: Current graph state; uses ``facts`` and ``url``.
+        :return: :func:`read_legal_pages`' answer, or ``None`` when they weren't (or couldn't be) read.
+        """
+        if not (self.legal_pages and settings.network_lookups):
+            return None
+        urls = legal_page_urls(state["facts"].policy_links, state.get("url", ""))
+        if not urls:
+            return None
+        shop = registrable_domain(hostname(state.get("url", "")))
+        return await cached_fact("legal_pages", shop, lambda: read_legal_pages(urls))
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -153,6 +258,8 @@ class EuRegistrySkill(Skill):
         withdrawal = bool(_WITHDRAWAL_RE.search(legal)) or "refund" in facts.policy_links
         imprint = bool(_IMPRINT_RE.search(legal)) or "imprint" in facts.policy_links
         eu = shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")) == "eu"
+        legal_pages = await self._legal_pages(state) if eu and not imprint else None
+        imprint = imprint or bool(legal_pages and legal_pages["imprint"])
         if not imprint and not eu:
             # Outside the EU there is no imprint by law; its equivalent is a named company or a US business address.
             # A copyright line names a company but is no imprint, so this reads neither ``copyright_lines`` nor
@@ -169,16 +276,14 @@ class EuRegistrySkill(Skill):
                 "withdrawal_right": withdrawal,
                 "imprint": imprint,
             }
+            if legal_pages is not None:
+                features["legal_pages_checked"] = True
         else:
             # None of this is required outside the EU, so lacking it says nothing: only what the page shows counts.
             features = {f"{name}.{NOT_APPLICABLE}": True for name in ("vat_present", "vat_valid", "vat_name_match")}
             features["imprint" if imprint else f"imprint.{NOT_APPLICABLE}"] = True
             features["withdrawal_right" if withdrawal else f"withdrawal_right.{NOT_APPLICABLE}"] = True
-        observations: list[Observation] = []
-        if not withdrawal and eu:
-            observations.append(Observation(type="withdrawal_right", evidence="No return or withdrawal policy found."))
-        if not imprint and eu:
-            observations.append(Observation(type="imprint", evidence="No company identity (imprint) found."))
+        observations = _legal_observations(withdrawal, imprint, checked=legal_pages is not None) if eu else []
 
         if fake:
             features["vat_valid"] = False

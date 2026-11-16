@@ -12,7 +12,6 @@ Releases are signed CRX packages built by the extension repository (``make relea
 ungoogled-chromium flag) and keeps them updated from ``updates.xml``; no store is involved.
 """
 
-import html
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -22,7 +21,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from unfret.config import settings
-from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned
+from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned, with_store_links
 
 RELEASE_DIR = STATIC_DIR / "extension"
 
@@ -103,10 +102,7 @@ def install_page() -> HTMLResponse:
 
     :return: The page.
     """
-    template = (STATIC_DIR / "extension.html").read_text(encoding="utf-8")
-    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url)).replace(
-        "{{firefox_url}}", html.escape(settings.firefox_store_url)
-    )
+    page = with_store_links((STATIC_DIR / "extension.html").read_text(encoding="utf-8"))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

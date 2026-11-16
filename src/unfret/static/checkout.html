@@ -83,10 +83,14 @@
 
       <!-- Bought before: top up the key you have. -->
       <section id="panel-topup" role="tabpanel" aria-labelledby="tab-topup" hidden>
-        <label class="field" for="topup-key">Your Unfret key
-          <span class="muted small">It starts with ufk_. The 10-letter key ID works too.</span>
-        </label>
-        <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+        <p id="topup-for" class="topup-for" hidden>Topping up key <strong id="topup-for-id"></strong>
+          · <button type="button" class="link" id="topup-other">use another key</button></p>
+        <div id="topup-key-field">
+          <label class="field" for="topup-key">Your Unfret key
+            <span class="muted small">It starts with ufk_. The 10-letter key ID works too.</span>
+          </label>
+          <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+        </div>
         <p id="topup-status" class="small" role="status" aria-live="polite"></p>
         <div class="pay-country">
           <p class="small"><span id="topup-country-from" hidden>Paying from: </span><strong id="topup-country-name">Choose your country</strong>
@@ -163,6 +167,12 @@
         <div id="pay-message" role="status" aria-live="polite"></div>
       </div>
     </div>
+
+    <!-- Shown with a new key when no Unfret extension answered the hand-off (handoff.js). -->
+    <template id="extension-get">
+      <p class="small">Don't have the extension yet? <a href="{{store_url}}" rel="noopener">Add Unfret to Chrome</a>
+        or <a href="{{firefox_url}}" rel="noopener">Firefox</a>.</p>
+    </template>
   </main>
 
   <footer class="site-footer">

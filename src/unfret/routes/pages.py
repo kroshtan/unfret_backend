@@ -1,9 +1,10 @@
 """
 The site's pages: home, sign-in, checkout, privacy and the link checker.
 
-``/`` introduces Unfret, ``/connect`` signs in and hands the session to the extension, then ``/checkout`` and
-``/privacy``. ``/check`` checks a link from any browser, phones first; with its web app manifest and service worker
-it can be installed and shows up in Android's share sheet.
+``/`` introduces Unfret, ``/welcome`` greets a new extension install, ``/connect`` signs in and hands the session to
+the extension, then ``/checkout`` (which hands a new API key to the extension) and ``/privacy``. ``/check`` checks a
+link from any browser, phones first; with its web app manifest and service worker it can be installed and shows up in
+Android's share sheet.
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -75,15 +76,24 @@ def home() -> HTMLResponse:
 
     :return: The page.
     """
-    template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    page = template.replace("{{store_url}}", html.escape(settings.chrome_store_url)).replace(
+    return _page("index.html")
+
+
+def with_store_links(template: str) -> str:
+    """
+    Fill in the extension's store listings (Chrome Web Store, Firefox Add-ons).
+
+    :param template: A page's HTML with ``{{store_url}}`` and ``{{firefox_url}}``.
+    :return: The HTML with both filled in.
+    """
+    return template.replace("{{store_url}}", html.escape(settings.chrome_store_url)).replace(
         "{{firefox_url}}", html.escape(settings.firefox_store_url)
     )
-    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 def _page(name: str) -> HTMLResponse:
-    return HTMLResponse(versioned((STATIC_DIR / name).read_text(encoding="utf-8")), headers=PAGE_HEADERS)
+    page = with_store_links((STATIC_DIR / name).read_text(encoding="utf-8"))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 @router.get("/key", include_in_schema=False)
@@ -121,11 +131,23 @@ def privacy() -> HTMLResponse:
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout() -> HTMLResponse:
     """
-    Buy credits with SOL from a browser wallet or, by Solana Pay QR code, from a phone.
+    Get checks: by card, with an intro code, as a top-up of a key, or with SOL or USDC.
+
+    A new key shown there is handed to the Unfret extension in this browser, if it answers (``handoff.js``).
 
     :return: The page.
     """
     return _page("checkout.html")
+
+
+@router.get("/welcome", response_class=HTMLResponse)
+def welcome() -> HTMLResponse:
+    """
+    The first page after installing the extension (it opens it once): a code, buying checks, or a key you have.
+
+    :return: The page.
+    """
+    return _page("welcome.html")
 
 
 @router.get("/check", response_class=HTMLResponse)

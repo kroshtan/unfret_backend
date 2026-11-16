@@ -228,7 +228,9 @@ the older `unfret:credit:<beneficiary>` memo still names who gets it. The cursor
 transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored.
 
 [`/connect`](https://unfret.net/connect) signs a wallet in and hands the session to the browser extension
-(`window.postMessage`, relayed by the extension's content script). Both pages are static HTML and vanilla JS with a
+(`window.postMessage`, relayed by the extension's content script); [`/checkout`](https://unfret.net/checkout) hands
+every new API key it shows to the extension the same way (`unfret-key`, API contract), so a new user never pastes a key,
+and [`/welcome`](https://unfret.net/welcome) is the page the extension opens once after installing. The pages are static HTML and vanilla JS with a
 strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs one check ($0.20),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 

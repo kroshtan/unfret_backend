@@ -692,3 +692,20 @@ valid 7 days. Nothing is stored when a check runs.
   already carried. New values may be added; treat an unknown one like `storefront`.
 - A link check of a domain that doesn't resolve answers `PAGE_UNAVAILABLE` ("The site couldn't be reached: …")
   instead of `INVALID_URL`, which stays for addresses that resolve to private or internal networks.
+
+## Changes (onboarding: key hand-off to the extension, `/welcome`; backwards-compatible)
+
+- `GET /welcome` — the page the extension opens once after a new install (Unfret Dev: `https://dev.unfret.net/welcome`):
+  an intro code (`/checkout?mode=code`), buying checks (`/checkout`), or signing in with a key you have. Static, no
+  script.
+- `/checkout` hands every new API key it shows (an intro code, a card payment's return, a recovery, the crypto tab's
+  "Make a new key") to the extension: `window.postMessage({"type": "unfret-key", "key": "ufk_…"}, location.origin)`,
+  and once the user agreed to switch accounts, the same with `"replace": true`. The extension's content script, injected
+  only on `<site>/checkout*`, accepts it only from that window on the configured origin, and answers
+  `{"type": "unfret-key-received", "status"}` with `status` one of `signed-in`, `already` (it uses this key),
+  `other-account` (signed in with another key or a wallet: nothing changed; ask the user, then post again with
+  `replace: true`) or `invalid`. The answer never carries a key, an account or a balance. No answer within 2 s: no
+  extension (or one older than 0.11.0); the page shows the store links and "choose API key and paste your key".
+- `/checkout?mode=topup&key_id=<10-letter key ID>` opens "Top up my key" with that key filled in ("Topping up key …",
+  "use another key"). Only the public key ID goes in the link, never the key. The extension (0.11.0) and `/check` link
+  there for a signed-in key; a wallet's link stays `/checkout`.

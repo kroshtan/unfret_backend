@@ -25,7 +25,7 @@
   </header>
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: 15 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
+    <p><em>Last updated: 16 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
 
     <h2>What a check sends</h2>
     <p>Nothing leaves your browser until you click <strong>Check this page</strong> in the extension (or an agent calls
@@ -48,6 +48,11 @@
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
       your browser until you tap Check. The page keeps no history; only your sign-in or API key stays in your browser,
       until you sign out.</p>
+
+    <p>When the checkout page shows you a new API key, it hands it to the Unfret extension in the same browser, if
+      you have it, so you don't have to paste it there: the key goes from the page to the extension only, in your
+      browser, and nowhere else. If the extension is signed in with another key or wallet, the page asks you first.
+      The extension reads nothing else from the page and tells it only whether it signed in.</p>
 
     <h2>What we keep</h2>
     <ul>

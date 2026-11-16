@@ -123,8 +123,11 @@ function checksText(n) {
   return n === 1 ? "1 check left" : `${n} checks left`;
 }
 
+// Signed in with a key: its top-up, the key's ID filled in (the ID only: never the key itself in an address).
 function buyPath() {
-  return account?.kind === "key" ? "/checkout?for=key" : "/checkout";
+  if (account?.kind !== "key") return "/checkout";
+  const id = account.address.slice("key:".length);
+  return /^[a-z2-7]{10}$/.test(id) ? `/checkout?mode=topup&key_id=${id}` : "/checkout?mode=topup";
 }
 
 function renderAccount() {
@@ -140,7 +143,9 @@ function renderAccount() {
   $("sign-in-note").textContent = expired
     ? "Your sign-in expired; your checks are still there. Sign in again to use them."
     : "Use an API key, or sign in with a Solana wallet. Your link stays here while you do.";
-  $("buy-crypto").href = buyPath();
+  // Out of checks with a key: "Pay by card" tops that key up; crypto opens the crypto tab.
+  $("buy-card").href = account?.kind === "key" ? buyPath() : "/checkout?for=key";
+  $("buy-crypto").href = account?.kind === "key" ? "/checkout?mode=crypto" : buyPath();
   $("buy-card-note").hidden = account?.kind === "key";
   const card = Boolean(pricing?.fiat?.available);
   $("buy-card").hidden = !card;

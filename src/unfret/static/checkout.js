@@ -4,11 +4,13 @@
 //                   after paying, so nobody has to understand keys before they've paid.
 //   I have a code   one field and one button: a new key is made and the invite or intro code is redeemed onto it.
 //   Top up my key   paste the key you have, pick a pack, pay by card (and recover a lost key with its recovery code).
+//                   A link from the extension or /check names the key's ID (?mode=topup&key_id=<id>): it is filled in.
 //   Pay with crypto SOL or USDC to a wallet or a key, from a wallet in this browser or by QR code on a phone.
 //
 // A key made here waits in localStorage ("unfret-new-key") until its owner says it's saved, so a card checkout's round
 // trip or a closed tab can't lose it; it is also signed in on /check (if nothing else is) so a link can be checked at
-// once. Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on
+// once. Every new key shown here is also offered to the Unfret extension in this browser (handoff.js), which signs in
+// with it, so nobody has to paste it there. Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on
 // chain, never sent to the card provider); the first status poll after payment that carries it (X-Unfret-Claim)
 // returns the codes, once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto
 // payments have a quote, polled at /v1/credits/quotes/<id> until the transfer is final.
@@ -27,6 +29,7 @@ import {
   setStatus,
   walletButton,
 } from "./wallet.js";
+import { handOffKey, topupKeyId } from "./handoff.js";
 
 const $ = (id) => document.getElementById(id);
 const main = document.querySelector("main.checkout");
@@ -262,6 +265,50 @@ function useSteps() {
   return steps;
 }
 
+// The new key, handed to the Unfret extension in this browser if there is one: it signs in with it by itself. With
+// no answer, how to get the extension (or paste the key into it); signed in with something else, it asks first.
+function handoffBox(issued, steps = null) {
+  const box = element("div", "", "handoff");
+  box.setAttribute("role", "status");
+  box.setAttribute("aria-live", "polite");
+  const say = (kind, ...nodes) => {
+    box.dataset.kind = kind;
+    box.replaceChildren(...nodes);
+  };
+  const signedIn = () => {
+    say("ok", element("p", "✓ Your Unfret extension is signed in with this key — you can start checking pages now.", "handoff-ok"));
+    steps?.firstElementChild?.replaceChildren(
+      element("b", "In the Unfret extension: "),
+      document.createTextNode("you're signed in. On a product page, click its icon and choose “Check this page”."),
+    );
+  };
+  const offer = async (replace) => {
+    const status = await handOffKey(issued.key, { replace });
+    if (status === "signed-in" || status === "already") return signedIn();
+    if (status === "other-account") {
+      const actions = element("div", "", "handoff-actions");
+      const use = button("Use this key in the extension", () => {
+        use.disabled = keep.disabled = true;
+        offer(true);
+      }, "primary");
+      const keep = button("Keep its current sign-in", () =>
+        say("info", element("p", "Your extension keeps its current sign-in. To use this key there later, choose “API key” in the extension and paste it.", "small")),
+      );
+      actions.append(use, keep);
+      say("ask", element("p", "Your Unfret extension is signed in with another key or wallet. Switch it to this new key?"), actions);
+      return;
+    }
+    say(
+      "info",
+      $("extension-get").content.cloneNode(true),
+      element("p", "Have it already? In the extension, choose “API key” and paste your key.", "small"),
+    );
+  };
+  say("info", element("p", "Looking for the Unfret extension in this browser…", "muted small"));
+  offer(false);
+  return box;
+}
+
 // ── Tabs ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const tabs = [...document.querySelectorAll('[role="tab"]')];
@@ -371,6 +418,21 @@ topupPay.addEventListener("click", () => payTopup(null));
 topupLocal.addEventListener("click", () => payTopup(localMethod()));
 topupKey.addEventListener("input", refreshTarget);
 
+// "Topping up key abcdefghij · use another key": the key a link named (its ID only), in place of the field.
+function setTopupFor(id) {
+  $("topup-for").hidden = !id;
+  $("topup-key-field").hidden = Boolean(id);
+  $("topup-for-id").textContent = id ?? "";
+  if (id) topupKey.value = id;
+}
+
+$("topup-other").addEventListener("click", () => {
+  topupKey.value = "";
+  setTopupFor(null);
+  refreshTarget();
+  topupKey.focus();
+});
+
 // Lost key: the recovery code gets a new key with the same balance (the old key stops working).
 $("recover").addEventListener("click", async (event) => {
   const recoverButton = event.currentTarget;
@@ -379,6 +441,7 @@ $("recover").addEventListener("click", async (event) => {
   try {
     const code = $("recovery-input").value.trim();
     const issued = await api("/v1/keys/recover", { method: "POST", body: JSON.stringify({ recovery_code: code }) });
+    setTopupFor(null);
     topupKey.value = issued.key;
     $("recovery-input").value = "";
     $("recover-box").open = false;
@@ -432,7 +495,10 @@ $("invite-redeem").addEventListener("click", async (event) => {
 function showResult(headline, issued, extra = [], { saveFirst = false, invites = [] } = {}) {
   stopWatching();
   const nodes = [element("p", headline, "headline")];
-  if (issued) nodes.push(keyCard(issued), element("h3", "How to use your key"), useSteps());
+  if (issued) {
+    const steps = useSteps();
+    nodes.push(handoffBox(issued, steps), keyCard(issued), element("h3", "How to use your key"), steps);
+  }
   nodes.push(...extra);
   if (invites.length) nodes.push(...inviteNodes(invites));
   const done = button(
@@ -515,7 +581,7 @@ $("new-key").addEventListener("click", async (event) => {
   try {
     setStatus(keyStatus, "Making your key (a few seconds of work in this browser keeps out bots)…");
     const issued = await makeKey();
-    keyReveal.replaceChildren(keyCard(issued));
+    keyReveal.replaceChildren(handoffBox(issued), keyCard(issued));
     keyReveal.hidden = false;
     savedRow.hidden = false;
     saved.checked = false;
@@ -1026,6 +1092,7 @@ async function collectEarlier() {
 function initialMode(params) {
   const asked = params.get("mode");
   if (MODES.includes(asked)) return asked;
+  if (topupKeyId(params)) return "topup";
   if (params.get("code")) return "code";
   if (params.get("for") === "wallet" || (!params.get("for") && signedIn)) return "crypto";
   return cardAvailable() ? "new" : "crypto";
@@ -1048,6 +1115,7 @@ async function start() {
   const params = new URLSearchParams(window.location.search);
   const shared = params.get("code");
   if (shared && normaliseCode(shared)) $("invite-input").value = normaliseCode(shared);
+  setTopupFor(topupKeyId(params));
   const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');
   if (pricing.sol) {

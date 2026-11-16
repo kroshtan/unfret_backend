@@ -955,4 +955,42 @@ label.field .small { font-weight: 400; }
 .secret-value button { flex: none; min-height: 2.5rem; }
 .key-card > p { margin: 0; }
 .result-actions { margin-top: 1.25rem; }
+
+/* The new key handed to the extension: signed in, a question before switching accounts, or how to get it. */
+.handoff {
+  margin: 1rem 0 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.handoff[data-kind="ok"] { border-left-color: var(--ok); background: var(--good-soft); }
+.handoff[data-kind="ask"] { border-left-color: var(--note); }
+.handoff p { margin: 0 0 0.4rem; }
+.handoff p:last-child { margin-bottom: 0; }
+.pay-panel .handoff .handoff-ok { margin: 0; color: var(--good); font-weight: 650; }
+.handoff-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.topup-for { margin: 0 0 0.6rem; }
+.topup-for button.link { font-size: inherit; }
+
+/* /welcome: the first page after installing, three ways in. */
+.welcome { max-width: var(--page); }
+.welcome h1 { font-size: clamp(2rem, 1.5rem + 2vw, 2.8rem); letter-spacing: -0.03em; margin: 0.5rem 0 0.5rem; }
+.paths { list-style: none; margin: 1.75rem 0 2.5rem; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.paths li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.35rem 1.25rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.paths li.main { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft), var(--shadow-sm); }
+.paths h2 { margin: 0; font-size: 1.15rem; }
+.paths p { margin: 0; color: var(--ink-2); }
+.paths .button { margin-top: auto; align-self: flex-start; }
+@media (max-width: 48rem) { .paths { grid-template-columns: 1fr; } }
 .pay-panel .howto { margin-top: 0.5rem; }

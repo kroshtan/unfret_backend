@@ -150,6 +150,9 @@ def test_looks_like_shop() -> None:
     shop += "<span>$19.99</span><span>$24.99</span><button>Add to cart</button></body></html>"
     assert looks_like_shop(shop)
     assert not looks_like_shop("<html><body><p>Donate to our cause today.</p></body></html>")
+    czech = "<html><body>" + "<p>Ručně vyráběné svíčky do každého pokoje vašeho domova.</p>" * 5
+    czech += "<span>1 299 Kč</span><span>899 Kč</span><button>Přidat do košíku</button></body></html>"
+    assert looks_like_shop(czech)
 
 
 def test_mendeley_read_rows(tmp_path: Path) -> None:

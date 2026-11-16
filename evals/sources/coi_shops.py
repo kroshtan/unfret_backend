@@ -35,8 +35,8 @@ import structlog
 from evals.corpus import Corpus, LabelRecord, page_id
 from evals.shopcheck import looks_like_shop
 from evals.sources._http import PoliteClient
-from evals.sources.us_shops import is_product_page, page_links, platform_of, product_path
-from evals.sources.wayback import fetch_closest
+from evals.sources.us_shops import is_product_page, page_links, platform_of, product_path, read_misses
+from evals.sources.wayback import WaybackUnavailableError, fetch_closest
 from unfret.facts import parse_page
 from unfret.html_cleaner import clean_html
 
@@ -171,9 +171,7 @@ async def build(corpus: Corpus, target: int, seed_value: int) -> int:
             dates_path.write_text(json.dumps(warning_dates(response.text), indent=1, sort_keys=True) + "\n")
         reasons = read_list(list_path.read_bytes())
         dates = json.loads(dates_path.read_text())
-        misses = (
-            dict(line.split("\t", 1) for line in misses_path.read_text().splitlines()) if misses_path.exists() else {}
-        )
+        misses = read_misses(misses_path)
         domains = sorted(d for d in reasons if d in dates)
         random.Random(seed_value).shuffle(domains)
         rng = random.Random(seed_value + 1)
@@ -184,7 +182,10 @@ async def build(corpus: Corpus, target: int, seed_value: int) -> int:
                 break
             if page_id("coi", domain) in done or domain in misses:
                 continue
-            result = await collect(client, domain, dates[domain], reasons[domain], rng)
+            try:
+                result = await collect(client, domain, dates[domain], reasons[domain], rng)
+            except WaybackUnavailableError:
+                continue  # the archive didn't answer: tried again on the next run
             if isinstance(result, str):
                 misses[domain] = result
                 with misses_path.open("a") as f:

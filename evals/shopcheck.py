@@ -4,10 +4,13 @@ import re
 
 from unfret.html_cleaner import clean_html
 
-_PRICE_RE = re.compile(r"(?:[$€£¥]\s?\d{1,5}(?:[.,]\d{2})?)|(?:\d{1,5}(?:[.,]\d{2})\s?(?:€|EUR|USD|GBP|kr|zł))")
+_PRICE_RE = re.compile(
+    r"(?:[$€£¥]\s?\d{1,5}(?:[.,]\d{2})?)|(?:\d{1,5}(?:[.,]\d{2})\s?(?:€|EUR|USD|GBP|kr|zł|Kč|CZK))"
+    r"|(?:\d{1,3}(?:[ .\u00a0]\d{3})*(?:,\d{2}|,-)?\s?(?:Kč|CZK))"
+)
 _CART_RE = re.compile(
     r"add[\s_-]?to[\s_-]?(?:cart|bag|basket)|shopping[\s_-]?cart|checkout|in den warenkorb|in winkelwagen"
-    r"|ajouter au panier|añadir al carrito|aggiungi al carrello|buy now|shop now",
+    r"|ajouter au panier|añadir al carrito|aggiungi al carrello|buy now|shop now|do košíku|vložit do košíku",
     re.IGNORECASE,
 )
 _PLATFORM_RE = re.compile(

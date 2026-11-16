@@ -9,10 +9,11 @@ and platforms (Shopify brands, WooCommerce, Magento and BigCommerce independents
   retail or consumer-goods industry and not dissolved; and OpenStreetMap (ODbL) independent shops (no ``brand``
   tag) with a website in a set of US states.
 - **Product page**: the shop's home page as archived closest to :data:`CAPTURE_AT` (within :data:`CAPTURE_FROM` to
-  :data:`CAPTURE_TO`), then one of the product pages it links to (``/products/…``, ``/product/…``, ``/p/…``,
-  ``/shop/…``, ``/item/…``; through one category page when the home page links none), as archived closest to the
-  home page. It counts only when its raw HTML reads as a product page (a price in the page facts, product JSON-LD or
-  ``og:type`` product or a title, a cart) of a shop selling into the US market (:func:`unfret.market.shop_market`).
+  :data:`CAPTURE_TO`), then one of the product pages it links to (one slug under :data:`PRODUCT_PATHS`:
+  ``/products/…``, ``/product/…``, ``/p/…`` and the like; through one category page when the home page links
+  none), as archived closest to the home page. It counts only when its raw HTML reads as a product page (a price in
+  the page facts, product JSON-LD or ``og:type`` product or a title, a cart) of a shop selling into the US market
+  (:func:`unfret.market.shop_market`).
   The archive's redirects find the captures, so the slow index (CDX) is never queried.
 - **Established**: the archive's first capture of the domain's home page is at least :data:`MIN_AGE_YEARS` years
   older than the product capture, and a Wikidata founding date, when there is one, too.
@@ -41,7 +42,7 @@ from evals.corpus import Corpus, LabelRecord, page_id
 from evals.shopcheck import shop_signals
 from evals.sources._http import PoliteClient
 from evals.sources.osm_trades import OVERPASS_ENDPOINTS, domain_of
-from evals.sources.wayback import earliest_capture, fetch_closest
+from evals.sources.wayback import WaybackUnavailableError, earliest_capture, fetch_closest
 from unfret.facts import PageFacts, parse_page
 from unfret.market import shop_market
 
@@ -125,7 +126,7 @@ CAPTURE_AT = "20230701"  # the Mendeley shops' collection date, so the labels do
 CAPTURE_FROM = "20210101"
 CAPTURE_TO = "20250630"
 MIN_AGE_YEARS = 5
-PRODUCT_PATHS = ("/products/", "/product/", "/p/", "/shop/", "/item/")
+PRODUCT_PATHS = ("/products/", "/product/", "/p/", "/shop/", "/item/", "/pd/", "/prod/", "/ip/", "/dp/", "/w/")
 # Marketplaces, social sites and platforms are not a shop's own website.
 _NOT_OWN_SITE = re.compile(
     r"facebook\.|instagram\.|linkedin\.|google\.|yelp\.|etsy\.|ebay\.|amazon\.|youtube\.|twitter\.|x\.com"
@@ -402,6 +403,21 @@ async def collect(client: PoliteClient, seed: Seed, rng: random.Random) -> tuple
     return "no product page"
 
 
+async def attempt(client: PoliteClient, seed: Seed, rng: random.Random) -> tuple[LabelRecord, str] | str | None:
+    """
+    :func:`collect`, with ``None`` when the archive didn't answer.
+
+    :param client: A rate-limited client.
+    :param seed: The shop.
+    :param rng: Picks among the product links.
+    :return: What :func:`collect` returns, or ``None``.
+    """
+    try:
+        return await collect(client, seed, rng)
+    except WaybackUnavailableError:
+        return None
+
+
 def interleave(seeds: list[Seed], rng: random.Random) -> list[Seed]:
     """
     The order to try shops in: Wikidata and OpenStreetMap seeds alternately, each shuffled, then the rest.
@@ -433,6 +449,26 @@ async def load_seeds(client: PoliteClient, path: Path) -> list[Seed]:
     return seeds
 
 
+def read_misses(path: Path) -> dict[str, str]:
+    """The shops skipped before, with the reason (``domain<TAB>reason`` lines), empty when there is no file yet."""
+    return dict(line.split("\t", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+
+
+def skip_reason(result: tuple[LabelRecord, str] | str, platforms: list[str], target: int) -> str:
+    """
+    Why a collected shop is skipped (``""`` to keep it): its miss reason, or its platform already has its share.
+
+    :param result: What :func:`collect` returned.
+    :param platforms: The platforms of the pages kept so far.
+    :param target: The number of pages wanted.
+    :return: The reason, or ``""``.
+    """
+    if isinstance(result, str):
+        return result
+    platform = json.loads(result[0].notes)["platform"]
+    return f"platform cap ({platform})" if platforms.count(platform) >= max(10, _MAX_PLATFORM_SHARE * target) else ""
+
+
 async def build(corpus: Corpus, target: int, seed_value: int) -> int:
     """
     Add up to ``target`` product pages, alternating Wikidata and OpenStreetMap seeds and capping each platform.
@@ -450,12 +486,11 @@ async def build(corpus: Corpus, target: int, seed_value: int) -> int:
     stored = 0
     try:
         seeds = await load_seeds(client, seeds_path)
-        misses = (
-            dict(line.split("\t", 1) for line in misses_path.read_text().splitlines()) if misses_path.exists() else {}
-        )
+        misses = read_misses(misses_path)
         order = interleave(seeds, random.Random(seed_value))
         mine = [r for r in corpus.labels().values() if r.origin_dataset == DATASET]
-        platforms = [json.loads(r.notes).get("platform", "custom") for r in mine]
+        # A dropped page's notes start with the reason: the source's JSON follows the last " | ".
+        platforms = [json.loads(r.notes.rsplit(" | ", 1)[-1]).get("platform", "custom") for r in mine]
         done = {r.id for r in mine}
         batch: list[tuple[LabelRecord, str]] = []
         pending = [s for s in order if page_id("uss", s.domain) not in done and s.domain not in misses]
@@ -465,22 +500,18 @@ async def build(corpus: Corpus, target: int, seed_value: int) -> int:
             chunk = pending[start : start + _PARALLEL]
             # A few shops at a time, so the client's one request a second isn't spent waiting on slow captures.
             results = await asyncio.gather(
-                *(collect(client, s, random.Random(f"{seed_value}:{s.domain}")) for s in chunk)
+                *(attempt(client, s, random.Random(f"{seed_value}:{s.domain}")) for s in chunk)
             )
             for seed, result in zip(chunk, results, strict=True):
-                reason = result if isinstance(result, str) else ""
-                if not isinstance(result, str):
-                    if len(done) >= target:
-                        break
-                    platform = json.loads(result[0].notes)["platform"]
-                    if platforms.count(platform) >= max(10, _MAX_PLATFORM_SHARE * target):
-                        reason = f"platform cap ({platform})"
-                if reason or isinstance(result, str):
+                if result is None or len(done) >= target:
+                    continue  # None: the archive didn't answer, tried again on the next run
+                if reason := skip_reason(result, platforms, target):
                     misses[seed.domain] = reason
                     with misses_path.open("a") as f:
                         f.write(f"{seed.domain}\t{reason}\n")
                     continue
-                platforms.append(platform)
+                assert not isinstance(result, str)
+                platforms.append(json.loads(result[0].notes)["platform"])
                 done.add(result[0].id)
                 batch.append(result)
             if len(batch) >= 10:

@@ -77,6 +77,10 @@ async def first_capture(client: PoliteClient, domain: str) -> str | None:
     return str(rows[1][0]) if len(rows) > 1 else None
 
 
+class WaybackUnavailableError(Exception):
+    """The archive didn't answer (every attempt failed): try the page again later rather than counting it a miss."""
+
+
 _CAPTURE_RE = re.compile(r"web\.archive\.org/web/(\d{14})(?:id_)?/(.+)$")
 
 
@@ -101,10 +105,11 @@ async def earliest_capture(client: PoliteClient, domain: str) -> str | None:
     :param client: A rate-limited client.
     :param domain: The domain.
     :return: ``YYYYMMDDhhmmss``, or ``None`` when it was never archived.
+    :raises WaybackUnavailableError: When the archive didn't answer.
     """
     response = await client.get(f"https://web.archive.org/web/1996id_/http://{domain}/", follow_redirects=False)
     if response is None:
-        return None
+        raise WaybackUnavailableError(domain)
     target = response.headers.get("location", "") if response.is_redirect else str(response.url)
     found = parse_capture_url(target) if response.is_redirect or response.status_code == 200 else None
     return found[0] if found else None
@@ -118,9 +123,12 @@ async def fetch_closest(client: PoliteClient, timestamp: str, url: str) -> tuple
     :param timestamp: Target time, ``YYYYMMDD`` (or any prefix of ``YYYYMMDDhhmmss``).
     :param url: The page URL.
     :return: ``(capture timestamp, captured URL, HTML)``, or ``None`` when there is no usable HTML capture.
+    :raises WaybackUnavailableError: When the archive didn't answer.
     """
     response = await client.get(f"https://web.archive.org/web/{timestamp}id_/{url}")
-    if response is None or response.status_code != 200 or len(response.content) > _MAX_HTML_BYTES:
+    if response is None:
+        raise WaybackUnavailableError(url)
+    if response.status_code != 200 or len(response.content) > _MAX_HTML_BYTES:
         return None
     if "html" not in response.headers.get("content-type", "html"):
         return None

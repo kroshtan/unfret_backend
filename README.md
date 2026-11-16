@@ -526,6 +526,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
 | `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
+| `UNFRET_INTRO_DAILY_CHECKS_CAP` | unset (no cap) | Emergency brake for intro codes (`make codes`): when set, all codes together give at most this many checks a UTC day (0 pauses them all); each code already has its own max uses |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
 | `UNFRET_CARD_PRICES_EUR` | `25=5.50,50=10.00,100=19.00` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack, or empty for dollars only. Each Polar product needs the same EUR price |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |

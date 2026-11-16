@@ -66,7 +66,10 @@ _POLICY_KINDS: dict[str, re.Pattern[str]] = {
     "terms": re.compile(r"terms|conditions|voorwaarden|\bagb\b|cgv|condiciones|termini", re.IGNORECASE),
     "privacy": re.compile(r"privacy|datenschutz|confidentialit|privacidad", re.IGNORECASE),
     "contact": re.compile(r"contact|kontakt|contacto|contatti", re.IGNORECASE),
-    "imprint": re.compile(r"impressum|imprint|legal notice|mentions légales|colofon|aviso legal", re.IGNORECASE),
+    "imprint": re.compile(
+        r"impressum|imprint|legal notice|mentions légales|colofon|aviso legal|bedrijfsgegevens|company details",
+        re.IGNORECASE,
+    ),
 }
 _SHOPIFY_RE = re.compile(r"cdn\.shopify\.com|Shopify\.theme|myshopify\.com", re.IGNORECASE)
 _WOO_RE = re.compile(r"woocommerce|wp-content/plugins/woocommerce", re.IGNORECASE)

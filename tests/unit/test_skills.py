@@ -22,7 +22,7 @@ from unfret.graph.skills.eu_registry import EuRegistrySkill, check_vat, name_mat
 from unfret.graph.skills.html_source_signals import HtmlSourceSignalsSkill
 from unfret.graph.skills.injection import InjectionSkill
 from unfret.graph.skills.listing import ListingSkill, generated_brand_score
-from unfret.graph.skills.reviews import ReviewsSkill, burst_share, duplicate_share, reviews_per_day
+from unfret.graph.skills.reviews import ReviewsSkill, burst_share, duplicate_share, off_topic_share, reviews_per_day
 from unfret.image_hash import dhash
 
 
@@ -289,6 +289,32 @@ async def test_reviews_velocity_shape_and_off_topic(monkeypatch: pytest.MonkeyPa
     assert f["reviews.off_topic_share"] == 0.75
     assert f["reviews.verified_share"] == 0.0
     assert {"review_velocity", "rating_shape", "off_topic_reviews"} <= {o.type for o in out["findings"]}
+
+
+# IKEA's own reviews of a duvet cover (ikea.nl, 2026-11): short Dutch reviews about the fabric and washing, all on
+# topic, yet 40% of them under the marketplace threshold of 0.35.
+IKEA_SIMILARITIES = [0.455, 0.376, 0.356, 0.338, 0.418, 0.452, 0.457, 0.47, 0.331, 0.329, 0.306, 0.464, 0.329, 0.317]
+IKEA_SIMILARITIES += [0.334, 0.39, 0.402, 0.307, 0.515, 0.491]
+
+
+def test_a_shops_own_reviews_are_off_topic_only_as_clear_outliers() -> None:
+    assert off_topic_share(IKEA_SIMILARITIES, marketplace=True) == 0.4  # as calibrated for marketplaces
+    assert off_topic_share(IKEA_SIMILARITIES, marketplace=False) == 0.0  # none far below the page's own median
+    pooled = [0.6, 0.62, 0.58, 0.61, 0.15, 0.2]  # two reviews about something else entirely
+    assert off_topic_share(pooled, marketplace=False) == pytest.approx(2 / 6)
+    assert off_topic_share([], marketplace=False) == 0.0
+
+
+async def test_off_topic_reviews_on_a_shops_own_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    title = "Duvet cover"
+    bodies = [f"Review number {i} about the fabric and the washing." for i in range(4)]
+    vectors = {title: [1.0, 0.0], **{b: [0.36, 0.93] for b in bodies[:2]}, **{b: [0.3, 0.95] for b in bodies[2:]}}
+    monkeypatch.setattr(reviews, "get_embeddings", lambda: FakeEmbeddings(vectors))
+    facts = PageFacts(title=title, reviews=[Review(rating=4, body=b) for b in bodies])
+    shop = await ReviewsSkill().run(state(facts, page_type="storefront"))
+    marketplace = await ReviewsSkill().run(state(facts))
+    assert shop["features"]["reviews.off_topic_share"] == 0.0
+    assert marketplace["features"]["reviews.off_topic_share"] == 0.5
 
 
 async def test_reviews_without_any() -> None:

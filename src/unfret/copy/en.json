@@ -123,7 +123,7 @@
     },
     "no_imprint": {
       "title": "No company details",
-      "detail": "No company name or address found on the page."
+      "detail": "No company name or address found {where}."
     },
     "invalid_vat": {
       "title": "Invalid VAT number",
@@ -134,8 +134,8 @@
       "detail": "This web shop's address was registered only {age} ago."
     },
     "short_registration": {
-      "title": "Registered for a year",
-      "detail": "The shop's web address is only registered for one year."
+      "title": "New, short registration",
+      "detail": "The shop's web address was registered less than a year ago, and only for one year: short-lived shops are often set up this way."
     },
     "hidden_ai_text": {
       "title": "Hidden text to fool checks",
@@ -534,6 +534,8 @@
       "years"
     ]
   },
+  "imprint_where_page": "on the page",
+  "imprint_where_legal_pages": "on the page or on the shop's contact and terms pages",
   "this_brand": "This brand",
   "an_urgency_tool": "an urgency tool",
   "features": {
@@ -591,6 +593,7 @@
     "eu_registry.vat_name_match": "VAT name matches the shop",
     "eu_registry.withdrawal_right": "Return policy shown",
     "eu_registry.imprint": "Company details shown",
+    "eu_registry.legal_pages_checked": "Contact and terms pages read",
     "domain_age.known": "Domain registration found",
     "domain_age.age_years": "Age of the web address",
     "domain_age.under_6_months": "Brand-new web address",

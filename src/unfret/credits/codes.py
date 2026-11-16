@@ -6,7 +6,7 @@ account, usable a set number of times (see :mod:`unfret.credits.invites`).
 
 Commands::
 
-    list                              every code, its uses, today's checks against the cap, buyers by how they came
+    list                              every code, its uses, today's checks (and the daily cap, if set), buyers
     create CODE --uses N [--checks 5] make a code
     off CODE / on CODE                switch a code off (it answers "ended") or back on
     add CODE N                        give a code N more uses (negative takes them away)
@@ -68,9 +68,12 @@ def describe(body: dict[str, Any]) -> str:
     today, accounts = body["today"], body["accounts"]
     lines += [
         "",
-        f"today: {today['checks_given']} of {today['cap']} free checks given (UTC day)",
+        f"today: {today['checks_given']} free checks given (UTC day), no daily cap"
+        if today["cap"] is None
+        else f"today: {today['checks_given']} of {today['cap']} free checks given (UTC day)",
         f"accounts via an invite or code: {accounts['via_code']}, of which bought: {accounts['via_code_bought']}",
         f"organic buyers: {accounts['organic_bought']}",
+        "(buyers: a crypto purchase, or a card order not refunded in full or disputed)",
     ]
     return "\n".join(lines)
 

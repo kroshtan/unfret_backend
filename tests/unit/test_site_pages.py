@@ -109,6 +109,38 @@ async def test_the_terms_are_marked_as_a_draft_only_while_the_setting_is_on(
     assert "Draft, not in force." not in final and "draft-note" not in final
 
 
+async def test_the_terms_spell_out_the_affiliate_program_from_the_settings(client: httpx.AsyncClient) -> None:
+    text = " ".join((await client.get("/terms")).text.split())
+    section = text[text.index("<h2>7. Affiliates</h2>") : text.index("<h2>8.")]
+    assert "{{" not in section
+    minimum = settings.affiliate_min_payout_cents // 100
+    for phrase in (
+        'apply by writing to <a href="mailto:hello@unfret.net">hello@unfret.net</a>',
+        f"{settings.affiliate_bonus_pct}% more checks on their first pack",
+        f"earns {settings.affiliate_commission_pct}% of the net revenue",
+        f"for {settings.affiliate_months} months after the pass was attributed",
+        "after VAT and the payment provider's fees",
+        f"payable {settings.affiliate_hold_days} days after the purchase",
+        "monthly, by hand",
+        f"${minimum} or €{minimum} is payable in a currency",
+        "never converted",
+        "A refund or a chargeback reverses the commission",
+        "comes off your next payouts",
+        "everything earned is paid out",
+        "FTC",
+        "ACM",
+        "Reclame Code",
+        "misleading claims",
+        "calling a shop a scam",
+        "spam",
+        "bid on Unfret's name",
+        "self-referral rings",
+        "end the affiliate program",
+    ):
+        assert phrase in section, phrase
+    assert "<mark" not in section  # the affiliate terms are written; only the company details wait for the owner
+
+
 def test_dev_shows_the_terms_as_a_draft_and_production_doesnt() -> None:
     dev = yaml.safe_load((CONFIG / "deploy.dev.yml").read_text())["env"]["clear"]
     production = yaml.safe_load((CONFIG / "deploy.production.yml").read_text())["env"]["clear"]
@@ -133,7 +165,7 @@ async def test_the_terms_cover_what_was_asked(client: httpx.AsyncClient) -> None
         assert phrase in text, phrase
     # Company details are left for the owner to fill in, never made up.
     assert "intro code" not in text and "gift code can't be used on the buyer's own pass" in text
-    assert 'href="/affiliates"' in text and '<mark class="placeholder">[Affiliate terms:' in text
+    assert 'href="/affiliates"' in text and "[Affiliate terms" not in text
     for placeholder in ("[business address]", "[KvK number]", "[VAT number]", "[court]"):
         assert f'<mark class="placeholder">{placeholder}</mark>' in text, placeholder
 

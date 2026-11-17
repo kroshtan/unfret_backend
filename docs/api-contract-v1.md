@@ -557,11 +557,11 @@ valid 7 days. Nothing is stored when a check runs.
   `thumbtack`, `angi`, `homeadvisor`, `checkatrade`, `taskrabbit`, `bark`, `houzz` or `myhammer`. An older server
   ignores the new fields (unknown fields are dropped) but rejects the new platform values (422), so a server with
   this change must be deployed before an extension that sends them; an older client keeps working unchanged.
-- While the server runs with `UNFRET_EXPANSION_CLASSES` on (off by default), `page_type` (stream `step` of
-  `classify`, x402 `page_type`) may also be `p2p_listing`, `service_listing` or `service_site`. Those pages are
-  analysed and charged like product pages; their `verdict` band is `concerns` or `careful` (no `assessment`: there is
-  no trained scorer for them yet). Stream `step` events keep their shape; the skills of every class report their
-  steps as before.
+- While the server runs with `UNFRET_EXPANSION_CLASSES` on (off by default; on for dev.unfret.net and unfret.net),
+  `page_type` (stream `step` of `classify`, x402 `page_type`) may also be `p2p_listing`, `service_listing` or
+  `service_site`. Those pages are analysed and charged like product pages; their `verdict` band is `concerns` or
+  `careful` (no `assessment`: there is no trained scorer for them yet). Stream `step` events keep their shape; the
+  skills of every class report their steps as before.
 
 ## Changes (product-page upgrades, backwards-compatible)
 

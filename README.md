@@ -62,7 +62,8 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
   or a private seller on eBay) and **service** (`service_listing`: a provider's profile on Werkspot, Thumbtack, Angi,
   HomeAdvisor, …; `service_site`: a service company's own website). These exist only while
   `UNFRET_EXPANSION_CLASSES` is on (default **off**: classification is then exactly as before, and such pages are
-  treated as they always were). No scorer is trained for them yet:
+  treated as they always were; dev and production set it on in `config/deploy.*.yml`). No scorer is trained for
+  them yet:
   - **ads** get a full verdict from cautious hand-written rules (`src/unfret/shopper_p2p.py`): "Looks fine" only
     when nothing fired and the positives are concrete (an account of two years or more with the platform's
     payment protection or pickup, or well rated with a checked normal price); "many warning signs" only for strong

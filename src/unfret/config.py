@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # The page classes beyond product pages: peer-to-peer listings (Marktplaats, Vinted, eBay private sellers),
     # service providers on a platform (Werkspot, Thumbtack) and service companies' own sites. Off: classification
     # behaves exactly as before, and those pages are treated as they always were (as a product page, or not analysed).
+    # Dev and production turn it on (config/deploy.*.yml).
     expansion_classes: bool = False
 
     # Shopper verdict bands (0–100 reliability score): reliable ≥ this, concerns ≥, careful ≥, else junk_or_scam

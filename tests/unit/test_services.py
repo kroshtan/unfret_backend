@@ -917,7 +917,7 @@ async def test_a_link_to_a_withheld_profile_is_blocked_before_any_check(monkeypa
 
 
 async def test_a_profile_page_with_nothing_read_is_not_checked() -> None:
-    # The extension's path: the page sent as it is, with nothing of the provider in it. Not "a few things to check"
+    # The extension's path: the page sent as it is, with nothing of the provider in it. Not "Worth a look"
     # about nothing: not analysed, so not charged.
     result = await build_graph(skills(None)).ainvoke({"page_content": HOUZZ_FRAME, "url": HOUZZ_PRO, "flags": []})
 

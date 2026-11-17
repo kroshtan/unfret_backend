@@ -98,7 +98,7 @@ def is_withheld_profile(html: str, url: str) -> bool:
     Whether this is a service platform's profile page that came without the profile.
 
     A platform (Houzz, behind Fastly) may answer a server with its page frame but none of the provider's rating,
-    reviews or membership: a check of that would say "a few things to check" about nothing at all. Only while the
+    reviews or membership: a check of that would say "Worth a look" about nothing at all. Only while the
     page classes beyond products are on (with them off these pages aren't checked as profiles anyway).
 
     :param html: The page.

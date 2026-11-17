@@ -773,3 +773,25 @@ valid 7 days. Nothing is stored when a check runs.
   and descriptions from the same settings as `/.well-known/x402`. Linked from every page's menu and footer and from
   the OpenAPI document's `info.description` (so from `/docs`).
 - Roadmap: x402 on Base (USDC), next to Solana.
+
+## Changes (the four verdict names; backwards-compatible)
+
+- **Words only.** `verdict.label` reads **"Looks fine"** (`reliable`), **"Worth a look"** (`concerns`), **"Think
+  twice"** (`careful`) or **"Serious concerns"** (`junk_or_scam`), replacing "Looks fine", "A few things to check",
+  "Some warning signs" and "Many warning signs". The band identifiers in `verdict.band`, `/v1/check`'s `band` and
+  `never_warns_on_bands` are unchanged, so a client that maps bands to its own words keeps working; clients should
+  use these words when a result comes without a label. `/check`, `/r/{id}` and the extension use them.
+- **"Serious concerns" only at high confidence.** For a page the trained scorer judged, `junk_or_scam` needs the
+  scorer's `assessment.confidence` to be at least 0.6 (deep tier; the quick tier's scorer 0.7: settings
+  `verdict_serious_min_confidence[_quick]`); below that the same score is `careful`. `score` and `/v1/check`'s
+  `risk_score` and `action` are unchanged (the action never depended on `careful` versus `junk_or_scam`). Peer-to-peer
+  ads and service providers keep their rule-based bands, where `junk_or_scam` already needs one of the listed strong
+  combinations.
+- **A reason below "Looks fine".** Every verdict whose band isn't `reliable` has at least one entry in `reasons`: for
+  products "Several small signals" (`overall`) when nothing else fired, for ads "Little to go on"
+  (`p2p_little_known`), and now for service providers "Little to go on" (`service_little_known`, new). A
+  `service_listing` page that came without the provider's profile is still not analysed (score -1).
+- **Shared results** (`/v1/shares/preview`, `GET /v1/shares/{id}`, `/r/{id}`) name the verdict with the same four
+  words in `label` and `result.verdict.label`, also for shares stored before ("Unfret would warn you about this
+  listing" before); a stored headline that starts with a former label loses it. The share token and what is stored
+  are unchanged. The public `band` stays `warning` for `junk_or_scam`.

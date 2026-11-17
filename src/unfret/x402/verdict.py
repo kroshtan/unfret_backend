@@ -115,7 +115,9 @@ class Verdict(BaseModel):
     checked_at: datetime
     model_version: str | None = Field(default=None, description="The scorer model that set risk_score, if any.")
     band: str | None = Field(
-        default=None, description="reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees."
+        default=None,
+        description='reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees, in words "Looks '
+        'fine", "Worth a look", "Think twice" or "Serious concerns".',
     )
     summary: str | None = Field(default=None, description="One plain sentence for the human you're buying for.")
     page_type: str | None = Field(

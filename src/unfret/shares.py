@@ -12,7 +12,9 @@ so a share can only show a verdict Unfret really gave for that page. It is sent 
 Unfret would tell a shopper about the listing, no score, never "scam" or "fraud"), without the page's own words:
 a reason whose detail quotes the page keeps only its title, a headline that quotes the page is replaced by the
 band's catalogue headline, and the details keep their labels but lose their evidence. A check that included the
-shopper's checkout page is never shared. The page says "Checked by an Unfret user on <day>".
+shopper's checkout page is never shared. The page says "Checked by an Unfret user on <day>". It names the verdict
+as every other page does ("Looks fine", "Worth a look", "Think twice", "Serious concerns": the catalogue's labels),
+also for shares stored with an earlier wording; the stored result, and so the token's hash, keep theirs.
 
 **What is stored** (``shared_results``, migration 16): the id (128 random bits), the shop's host, the product
 address (without fragment, credentials and tracking parameters), the title, the day of the check, that public
@@ -51,6 +53,12 @@ MAX_OBJECTION_CHARS = 500
 _QUOTE_RE = re.compile(r"“[^”]*”|\"[^\"]*\"|„[^“”]*[“”]|«[^»]*»")
 _INTERNAL_BAND = {public: internal for internal, (public, _, _) in showcase.SHOWCASE_BANDS.items()}
 _COLUMNS = "id, host, product_url, title, checked_on, result, expires_at, hidden_reason"
+# The labels before the verdicts got their current names: a share stored before may start its headline with one.
+_FORMER_LABELS = {
+    "concerns": "A few things to check",
+    "careful": "Some warning signs",
+    "junk_or_scam": "Many warning signs",
+}
 
 DeleteOutcome = Literal["deleted", "wrong_code", "missing"]
 
@@ -269,7 +277,15 @@ def preview(claim: Claim, response: dict[str, Any]) -> dict[str, Any]:
 
 
 def _view(title: str, host: str, product_url: str, checked_on: date, result: dict[str, Any]) -> dict[str, Any]:
-    verdict = result["verdict"]
+    stored = result["verdict"]
+    band = _INTERNAL_BAND.get(stored["band"])
+    verdict = dict(stored)
+    if band is not None:
+        # The verdict's name as the link checker and the extension say it (a stored share keeps its own wording).
+        verdict["label"] = str(shopper.catalogue()["labels"][band])
+        if band in _FORMER_LABELS:
+            verdict["headline"] = shopper.without_label(str(stored["headline"]), _FORMER_LABELS[band])
+        result = result | {"verdict": verdict}
     return {
         "title": title,
         "host": host,

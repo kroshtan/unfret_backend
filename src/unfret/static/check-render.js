@@ -44,13 +44,28 @@ export function card(className, title, detail, thumbs = []) {
 
 /**
  * The headline without the label in front: results checked before headlines stopped repeating the label (cached,
- * shared or shown) still read "Many warning signs: fake countdown.", right under "Many warning signs".
+ * shared or shown) still read "Many warning signs: fake countdown.", right under "Many warning signs" (the label
+ * before the four verdicts got their current names).
  */
 export function headlineOf(headline, label) {
   const text = String(headline ?? "");
   if (!label || !text.toLowerCase().startsWith(label.toLowerCase())) return text;
   const rest = text.slice(label.length).replace(/^\s*[:,.;!—–-]\s*(but\s+)?/i, "");
   return rest.split(/\s+/).length >= 2 ? rest[0].toUpperCase() + rest.slice(1) : text;
+}
+
+// Every verdict below "Looks fine" names at least one reason. The server always sends one (the catalogue's "Several
+// small signals" when nothing else fired); a result without any (from before verdicts had reasons) gets the same words.
+const OVERALL_REASON = {
+  severity: "low",
+  title: "Several small signals",
+  detail: "No single big problem, but several smaller signals together lowered the score.",
+};
+
+/** The reasons to show: the verdict's, or OVERALL_REASON for a band below "Looks fine" without any. */
+export function reasonsOf(result, band) {
+  const reasons = result.verdict?.reasons ?? [];
+  return reasons.length || !band || band === "reliable" ? reasons : [OVERALL_REASON];
 }
 
 /**
@@ -66,10 +81,11 @@ export function resultNodes(result, { band, label, symbol }) {
   head.append(sign, el("p", "label", label));
   const nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
 
-  const reasons = verdict?.reasons?.length
+  const shown = reasonsOf(result, band);
+  const reasons = shown.length
     ? [
         el("h2", undefined, "What we noticed"),
-        listOf(verdict.reasons.map((r) => card(r.severity, r.title, r.detail, ownThumbnails(r.thumbnails, location.origin)))),
+        listOf(shown.map((r) => card(r.severity, r.title, r.detail, ownThumbnails(r.thumbnails, location.origin)))),
       ]
     : [];
   const positives = verdict?.positives?.length

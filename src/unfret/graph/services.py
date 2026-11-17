@@ -5,13 +5,13 @@ Those are ``service_site`` and ``service_listing`` pages. No scorer is trained f
 from cautious hand-written rules over the skills' findings, to be replaced by a trained model once labelled pages
 come in:
 
-- **Many warning signs** only for the combinations behind fake local businesses: town landing pages without an
-  address *and* links to other sites run with the same phone numbers or tracking IDs; a premium-rate number *and*
-  payment up front or in cash only; work photos copied from other sites together with doorway pages, operator links
-  or a brand-new site; a page saying its tradesperson isn't necessarily local together with another mark of a call
-  centre (a trade-and-town name, only a national number, an address in another town, doorway pages, linked sites);
-  or three or more serious signals of any kind.
-- **Some warning signs** for one serious signal (doorway pages, copied photos, text aimed at AI tools, a VAT
+- **Serious concerns** (``junk_or_scam``) only for the combinations behind fake local businesses: town landing
+  pages without an address *and* links to other sites run with the same phone numbers or tracking IDs; a
+  premium-rate number *and* payment up front or in cash only; work photos copied from other sites together with
+  doorway pages, operator links or a brand-new site; a page saying its tradesperson isn't necessarily local
+  together with another mark of a call centre (a trade-and-town name, only a national number, an address in another
+  town, doorway pages, linked sites); or three or more serious signals of any kind.
+- **Think twice** (``careful``) for one serious signal (doorway pages, copied photos, text aimed at AI tools, a VAT
   number that can't exist, a page saying its tradesperson isn't necessarily local) or two of the medium ones
   (payment up front, cash only, price set on the doorstep, a premium-rate number, copied testimonials, a malformed
   KvK number, "licensed" without a licence number, a site named after a trade and a town, only a national number on
@@ -24,7 +24,7 @@ come in:
   complete identity (NL: KvK number, company name, street address; US: company name, street address and a licence
   number when it says it is licensed), a street address and no doorway pattern, and no upfront or cash-only terms;
   on a platform profile, two years or more of track record with twenty or more reviews averaging four stars.
-- **A few things to check** otherwise, including whenever all we have is something missing (no KvK number found).
+- **Worth a look** (``concerns``) otherwise, including whenever all we have is something missing (no KvK number found).
 
 The wording is about a business: what the page shows, never an accusation, and never the word "scam". The reasons
 and positives come from the copy catalogue (``copy/en.json``), so the extension and ``/check`` show them unchanged.
@@ -77,7 +77,10 @@ REASON_SEVERITY: dict[str, shopper.Severity] = {
     "new_on_platform": "low",
     "few_platform_reviews": "low",
     "low_response_rate": "low",
+    "service_little_known": "low",
 }
+# The reason a verdict below "Looks fine" gives when nothing else fired: every such verdict names at least one.
+LITTLE_KNOWN = "service_little_known"
 # The positives a service verdict can show (besides the shops' VAT check, ``vat_registered``).
 POSITIVE_KEYS = (
     "service_established",
@@ -89,7 +92,7 @@ POSITIVE_KEYS = (
     "platform_verified",
     "service_nothing_found",
 )
-# Only say something is missing: never more than "a few things to check" on their own.
+# Only say something is missing: never more than "Worth a look" on their own.
 ABSENCE_REASONS = frozenset({"kvk_missing", "no_street_address"})
 # Reasons that tell the same story; only the first of each group is shown.
 _GROUPS = (
@@ -449,7 +452,7 @@ def build(
         reasons = reasons[:1]
         positives = positives[:3] or ([] if reasons else [_positive("service_nothing_found", {})])
     else:
-        reasons = reasons[:3]
+        reasons = reasons[:3] or [_reason(LITTLE_KNOWN, {})]  # never "Worth a look" (or worse) without a reason
         positives = positives[: 2 if band == "concerns" else 1]
     copy = shopper.catalogue()
     headline = shopper.template_headline(band, keys[:2], reasons, copy | {"headlines": copy["service_headlines"]})
@@ -472,7 +475,7 @@ def service_verdict(state: AnalysisState) -> dict[str, Any]:
         features=state.get("features", {}), findings=state.get("findings", []), facts=facts, page_type=page_type
     )
     if page_type == "service_listing" and nothing_read(facts, verdict):
-        # A platform page without the provider's profile (Houzz's frame without its data): "a few things to check"
+        # A platform page without the provider's profile (Houzz's frame without its data): "Worth a look"
         # would be about nothing. Not analysed, so not charged; the extension reads the page the user sees.
         return {"score": -1, "explanation": PROFILE_NOT_READ}
     return {"score": score, "explanation": verdict.headline, "verdict": verdict.model_dump()}
@@ -489,7 +492,8 @@ def nothing_read(facts: PageFacts, verdict: shopper.Verdict) -> bool:
     :param verdict: The verdict built from them.
     :return: ``True`` when the verdict would be about nothing.
     """
-    return facts.seller_profile is None and not facts.reviews and not verdict.reasons and not verdict.positives
+    found = [r for r in verdict.reasons if r.type != LITTLE_KNOWN]
+    return facts.seller_profile is None and not facts.reviews and not found and not verdict.positives
 
 
 def make_service_judge() -> Callable[[AnalysisState], Awaitable[dict[str, Any]]]:

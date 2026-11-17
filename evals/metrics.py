@@ -31,6 +31,8 @@ class Outcome:
     output_tokens: int = 0
     error: str = ""
     note: str = ""
+    band: str = ""
+    confidence: float | None = None
 
     @property
     def scored(self) -> bool:
@@ -152,6 +154,38 @@ def page_type_confusion(outcomes: Sequence[Outcome]) -> dict[str, dict[str, int]
     return {expected: dict(counts) for expected, counts in sorted(confusion.items())}
 
 
+BANDS = ("reliable", "concerns", "careful", "junk_or_scam")
+
+
+def band_precision(outcomes: Sequence[Outcome]) -> dict[str, dict[str, float]]:
+    """
+    How many legit and unreliable pages each shopper verdict band holds, and its precision.
+
+    A band's precision is the share of its pages that are unreliable: for the warning bands, how often the warning
+    was right. ``careful+`` counts "careful" and "junk_or_scam" together.
+
+    :param outcomes: Pipeline results.
+    :return: Per band (only bands with pages): ``n``, ``legit``, ``unreliable`` and ``precision``.
+    """
+    counts: dict[str, Counter[bool]] = defaultdict(Counter)
+    for o in outcomes:
+        if o.scored and o.band:
+            unreliable = o.label in UNRELIABLE
+            counts[o.band][unreliable] += 1
+            if o.band in {"careful", "junk_or_scam"}:
+                counts["careful+"][unreliable] += 1
+    return {
+        band: {
+            "n": counts[band].total(),
+            "legit": counts[band][False],
+            "unreliable": counts[band][True],
+            "precision": round(counts[band][True] / counts[band].total(), 3),
+        }
+        for band in (*BANDS, "careful+")
+        if counts[band].total()
+    }
+
+
 def summarise(outcomes: Sequence[Outcome]) -> dict[str, object]:
     """
     Every metric in one JSON-serialisable report.
@@ -182,6 +216,7 @@ def summarise(outcomes: Sequence[Outcome]) -> dict[str, object]:
             for m in (binary_metrics(outcomes, t) for t in THRESHOLDS)
         ],
         "score_distributions": score_distributions(outcomes),
+        "bands": band_precision(outcomes),
         "page_type_confusion": page_type_confusion(outcomes),
         "latency_s": {
             "mean": round(mean(latencies), 2) if latencies else None,
@@ -220,6 +255,16 @@ def to_markdown(report: dict[str, object], title: str = "Unfret evaluation") -> 
     lines += ["", "## Score per label", "", "| label | n | mean | median | p10 | p90 |", "|---|---|---|---|---|---|"]
     for label, d in report["score_distributions"].items():  # type: ignore[attr-defined]
         lines.append(f"| {label} | {d['n']} | {d['mean']} | {d['median']} | {d['p10']} | {d['p90']} |")
+    if report.get("bands"):
+        lines += [
+            "",
+            "## Verdict per band",
+            "",
+            "| band | n | legit | unreliable | precision |",
+            "|---|---|---|---|---|",
+        ]
+        for band, b in report["bands"].items():  # type: ignore[attr-defined]
+            lines.append(f"| {band} | {b['n']} | {b['legit']} | {b['unreliable']} | {b['precision']} |")
     lines += ["", "## Page type (expected → predicted)", ""]
     for expected, counts in report["page_type_confusion"].items():  # type: ignore[attr-defined]
         lines.append(f"- {expected}: {counts}")

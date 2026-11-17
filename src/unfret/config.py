@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     # Below this scorer confidence, a page whose only reasons are things missing from it (no imprint, no return
     # policy, …) is shown as "concerns", never "careful" or worse (0 turns this off)
     verdict_absence_only_min_confidence: float = Field(default=0.2, ge=0, le=1)
+    # "Serious concerns" (junk_or_scam) only when the scorer is at least this sure (its ``confidence``, 0–1); below it
+    # a page scored as junk_or_scam is shown as "Think twice" (careful), still a warning. One per scorer, since their
+    # confidences differ: the deep tier's and the quick tier's (model-quick.json). 0 turns the rule off. Set where
+    # "Serious concerns" is right more often, not less (corpus replay with URLs, all 1,582 product pages: deep 0.937
+    # → 0.947, legit pages called "Serious concerns" 25 → 15; quick, its scorer on the same pages' features, 0.717 →
+    # 0.950, 26 → 1). See shopper.build.
+    verdict_serious_min_confidence: float = Field(default=0.6, ge=0, le=1)
+    verdict_serious_min_confidence_quick: float = Field(default=0.7, ge=0, le=1)
     # An LLM judgement (0–1) this strong is shown to the shopper as a reason, whatever its model weight
     verdict_llm_signal_min: float = 0.6
     # Tell the content read which policy pages a shop's page links to (returns, contact, …): its text has the footer

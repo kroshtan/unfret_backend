@@ -1,5 +1,11 @@
 # Changelog (unfret-mcp)
 
+## Unreleased
+
+* `check_store`'s description names the verdict's `band` and the words a shopper sees for it: `reliable` "Looks
+  fine", `concerns` "Worth a look", `careful` "Think twice", `junk_or_scam` "Serious concerns". The band values are
+  unchanged.
+
 ## [0.1.1]
 
 * A check that was paid but whose analysis failed on Unfret's side now has `status: "refunded"` (was `"ok"` with

@@ -118,7 +118,7 @@ async def test_preview_share_and_view_without_anything_about_the_shopper(
     body = public.json()
     assert {k: v for k, v in body.items() if k not in {"id", "link", "expires_at"}} == shown
     assert body["product_url"] == PRODUCT and body["host"] == "shop.example"
-    assert body["title"] == "LED <b>mask</b>" and body["label"] == "Unfret would warn you about this listing"
+    assert body["title"] == "LED <b>mask</b>" and body["label"] == "Serious concerns"
     reasons = {r["title"]: r["detail"] for r in body["result"]["verdict"]["reasons"]}
     assert reasons["Hard-to-believe claims"] == ""  # the page's words are left out, the finding stays
     assert body["result"]["assessment"]["flags"] == [{"label": "Pushy sales talk", "evidence": "", "kind": "signal"}]

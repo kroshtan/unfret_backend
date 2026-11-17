@@ -6,7 +6,8 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from unfret import shopper
+from unfret import shopper, shopper_p2p
+from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph import SKILLS, services
 from unfret.graph.state import Finding
@@ -297,7 +298,7 @@ def test_written_headlines_are_capped() -> None:
 
 def test_labels_and_headline_are_english() -> None:
     verdict = build(10, {"dark_patterns.timer_resets": 1.0})
-    assert (verdict.label, verdict.reasons[0].title) == ("Many warning signs", "Fake countdown")
+    assert (verdict.label, verdict.reasons[0].title) == ("Serious concerns", "Fake countdown")
     assert verdict.headline == "Fake countdown."  # the label is shown above the headline, never repeated in it
     assert verdict.language == "en"  # kept on the wire for clients that read it
     assert sorted(p.name for p in shopper.COPY_DIR.iterdir()) == ["en.json"]  # no other catalogue
@@ -344,13 +345,71 @@ def test_flags_get_labels_and_context_reads_neutral() -> None:
 @pytest.mark.parametrize(
     ("written", "shown"),
     [
-        ("Many warning signs: a fake countdown and an unknown brand.", "A fake countdown and an unknown brand."),
-        ("Many warning signs - the shop is three weeks old.", "The shop is three weeks old."),
-        ("many warning signs, but the brand is real.", "The brand is real."),
+        ("Serious concerns: a fake countdown and an unknown brand.", "A fake countdown and an unknown brand."),
+        ("Serious concerns - the shop is three weeks old.", "The shop is three weeks old."),
+        ("serious concerns, but the brand is real.", "The brand is real."),
         ("The shop is three weeks old.", "The shop is three weeks old."),
-        ("Many warning signs.", "Many warning signs."),  # nothing else to say: kept
+        ("Serious concerns.", "Serious concerns."),  # nothing else to say: kept
     ],
 )
 def test_a_written_headline_never_repeats_the_label(written: str, shown: str) -> None:
-    assert shopper.fit_headline(written, "Many warning signs") == shown
+    assert shopper.fit_headline(written, "Serious concerns") == shown
     assert build(10, {"dark_patterns.timer_resets": 1.0}, headline=written).headline == shown
+
+
+# ── The four verdicts: "Serious concerns" only at high confidence, a reason below "Looks fine" ────────────────────
+
+
+def test_the_four_verdicts_have_the_websites_names_and_keep_their_band_ids() -> None:
+    assert shopper.catalogue()["labels"] == {
+        "reliable": "Looks fine",
+        "concerns": "Worth a look",
+        "careful": "Think twice",
+        "junk_or_scam": "Serious concerns",
+    }
+
+
+def test_serious_concerns_only_when_the_scorer_is_sure(monkeypatch: pytest.MonkeyPatch) -> None:
+    features = {"dark_patterns.timer_resets": 1.0, "content.generic_brand": 0.9}
+    sure = settings.verdict_serious_min_confidence
+    assert 0 < sure < 1
+
+    serious = build(10, features, confidence=sure)
+    assert (serious.band, serious.label) == ("junk_or_scam", "Serious concerns")
+    unsure = build(10, features, confidence=sure - 0.01)
+    assert (unsure.band, unsure.label) == ("careful", "Think twice")  # still a warning, not the harshest word
+    assert [r.type for r in unsure.reasons] == [r.type for r in serious.reasons]  # the same reasons
+    assert build(10, features).band == "junk_or_scam"  # no scorer (the LLM judge): the score alone
+    assert build(30, features, confidence=0.01).band == "careful"  # only the harshest band waits
+    # The quick tier's scorer has its own threshold.
+    quick = settings.verdict_serious_min_confidence_quick
+    assert build(10, features, confidence=quick, concrete_only=True).band == "junk_or_scam"
+    assert build(10, features, confidence=quick - 0.01, concrete_only=True).band == "careful"
+    monkeypatch.setattr(settings, "verdict_serious_min_confidence", 0.0)
+    assert build(10, features, confidence=0.01).band == "junk_or_scam"  # 0 turns the rule off
+
+
+def test_an_unsure_serious_concern_on_absences_alone_is_worth_a_look() -> None:
+    # Below both confidence rules: not "Serious concerns", and with only absences not even "Think twice".
+    verdict = build(10, {"eu_registry.imprint": 0.0}, confidence=0.1)
+    assert verdict.band == "concerns" and verdict.reasons
+
+
+@pytest.mark.parametrize("score", [79, 60, 49, 30, 10])
+def test_a_verdict_below_looks_fine_always_names_a_reason(score: int) -> None:
+    verdict = build(score, {})  # nothing fired
+    assert verdict.band != "reliable"
+    assert [r.title for r in verdict.reasons] == ["Several small signals"]
+
+
+def test_service_and_ad_verdicts_below_looks_fine_always_name_a_reason() -> None:
+    for page_type in ("service_site", "service_listing"):
+        _, verdict = services.build(features={}, findings=[], facts=PageFacts(), page_type=page_type)
+        assert verdict.band == "concerns"
+        assert [r.type for r in verdict.reasons] == [services.LITTLE_KNOWN], page_type
+        assert verdict.reasons[0].title == "Little to go on"
+    # A platform page that came without the provider's profile is still not judged (no reason of its own).
+    assert services.nothing_read(PageFacts(), verdict)
+
+    _, ad = shopper_p2p.build(features={}, findings=[], facts=PageFacts())
+    assert ad.band == "concerns" and [r.type for r in ad.reasons] == ["p2p_little_known"]

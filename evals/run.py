@@ -122,6 +122,8 @@ async def evaluate(
         if features is not None:
             features[record.id] = dict(result.get("features", {}))
         tokens = list(usage.usage_metadata.values())
+        verdict = result.get("verdict") or {}
+        assessment = result.get("assessment") or {}
         unavailable = sum(1 for r in result.get("skill_results", []) if r.endswith("Skill unavailable."))
         return Outcome(
             id=record.id,
@@ -133,6 +135,8 @@ async def evaluate(
             input_tokens=sum(t.get("input_tokens", 0) for t in tokens),
             output_tokens=sum(t.get("output_tokens", 0) for t in tokens),
             note=f"{unavailable} skill(s) unavailable" if unavailable else "",
+            band=str(verdict.get("band", "")),
+            confidence=assessment.get("confidence"),
         )
 
     outcomes: list[Outcome] = []

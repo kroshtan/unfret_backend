@@ -57,7 +57,10 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
 
 - **product** (marketplace listings and storefronts): the cheap skills, the triage (rules first, the LLM only for
   unclear cases) that decides whether the reverse image search is worth it, and the judge (the trained scorer's
-  band; an LLM writes the headline).
+  band; an LLM writes the headline). The four bands read "Looks fine" (`reliable`), "Worth a look" (`concerns`),
+  "Think twice" (`careful`) and "Serious concerns" (`junk_or_scam`); "Serious concerns" only when the scorer is sure
+  (`UNFRET_VERDICT_SERIOUS_MIN_CONFIDENCE`, 0.6; the quick tier's scorer 0.7), otherwise "Think twice". Every band
+  below "Looks fine" names at least one reason.
 - **p2p** (`p2p_listing`: a private seller's ad on Marktplaats, 2dehands, Vinted, Craigslist, Facebook Marketplace,
   or a private seller on eBay) and **service** (`service_listing`: a provider's profile on Werkspot, Thumbtack, Angi,
   HomeAdvisor, …; `service_site`: a service company's own website). These exist only while
@@ -66,21 +69,21 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
   them yet:
   - **ads** get a full verdict from cautious hand-written rules (`src/unfret/shopper_p2p.py`): "Looks fine" only
     when nothing fired and the positives are concrete (an account of two years or more with the platform's
-    payment protection or pickup, or well rated with a checked normal price); "many warning signs" only for strong
+    payment protection or pickup, or well rated with a checked normal price); "Serious concerns" only for strong
     combinations (payment pushed off the platform with a new or copied seller, or a bait price; a photo from other
-    ads with a bait price); "some warning signs" for one serious sign or two middling ones; "a few things to check"
+    ads with a bait price); "Think twice" for one serious sign or two middling ones; "Worth a look"
     otherwise. The photo check (reverse image) runs whenever the ad has a photo, within the per-analysis budget.
   - **service providers** get a full verdict from cautious hand-written rules (`graph/services.py`), for the
-    Netherlands and the US: "many warning signs" only for the combinations behind fake local businesses (town
+    Netherlands and the US: "Serious concerns" only for the combinations behind fake local businesses (town
     landing pages without an address plus links to other sites with the same phone numbers or tracking IDs; a
     premium-rate number plus payment up front or cash only; copied photos plus one of those or a brand-new site; a
-    page saying its tradesperson isn't necessarily local plus another call-centre mark), "some warning signs" for
+    page saying its tradesperson isn't necessarily local plus another call-centre mark), "Think twice" for
     one serious or two medium signals, an anonymous local site (named after a trade and a town, or only national
     numbers, with no KvK number or licence and no street address) or a new platform profile without reviews that
-    makes emergency, call-out or payment promises, "looks fine" only with concrete positives (an
+    makes emergency, call-out or payment promises, "Looks fine" only with concrete positives (an
     established domain, a complete identity with KvK or licence number, a street address, no doorway pattern, no
-    upfront or cash-only terms; on a platform, two years and twenty reviews averaging four stars), and "a few things
-    to check" otherwise. Their triage runs the photo search, by rules, when the cheap skills found something copied
+    upfront or cash-only terms; on a platform, two years and twenty reviews averaging four stars), and "Worth a
+    look" otherwise. Their triage runs the photo search, by rules, when the cheap skills found something copied
     photos would confirm. No register is looked up (no KvK API, Companies House or state licence boards): the
     signals come from the page itself, the fingerprint store and the photo index, plus VIES for a VAT number. Their
     results carry no share token.

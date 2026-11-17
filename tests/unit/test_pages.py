@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
+from unfret import shopper
 from unfret.config import settings
 from unfret.credits import siws
 from unfret.main import app
@@ -354,6 +355,40 @@ def test_results_never_repeat_the_label_and_follow_the_page_type(tmp_path: Path)
     ]
     assert out["kinds"] == ["shop", "shop", "ad", "service", "service", "shop"]
     assert "Page code" not in out["labels"]  # no technical words in the progress list
+
+
+@pytest.mark.usefixtures("node")
+def test_the_four_verdicts_and_a_reason_below_looks_fine(tmp_path: Path) -> None:
+    for name in ("check-render.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    render, core = (tmp_path / "check-render.js").as_uri(), (tmp_path / "check-core.js").as_uri()
+    reason = {"title": "Fake countdown", "detail": "", "severity": "high"}
+    script = (
+        f"import {{ reasonsOf }} from {json.dumps(render)};"
+        f"import {{ BAND_WORD }} from {json.dumps(core)};"
+        f"const reason = {json.dumps(reason)};"
+        "const titles = (result, band) => reasonsOf(result, band).map((r) => r.title);"
+        "process.stdout.write(JSON.stringify({"
+        "words: BAND_WORD,"
+        "middle: ['concerns', 'careful', 'junk_or_scam']"
+        ".map((band) => titles({ verdict: { band, reasons: [] } }, band)),"
+        "older: titles({ score: 30 }, 'careful'),"
+        "kept: titles({ verdict: { band: 'careful', reasons: [reason] } }, 'careful'),"
+        "reliable: titles({ verdict: { band: 'reliable', reasons: [] } }, 'reliable'),"
+        "unassessed: titles({ score: -1 }, null)}));"
+    )
+    out = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert out["words"] == shopper.catalogue()["labels"]  # the site's words are the API's labels
+    assert list(out["words"].values()) == ["Looks fine", "Worth a look", "Think twice", "Serious concerns"]
+    assert out["middle"] == [["Several small signals"]] * 3
+    assert out["older"] == ["Several small signals"]
+    assert out["kept"] == ["Fake countdown"]
+    assert out["reliable"] == [] and out["unassessed"] == []
+    assert shopper.catalogue()["reasons"]["overall"]["title"] == "Several small signals"  # the same words
 
 
 # ── Card and Wero first; crypto one quiet step away ────────────────────────────────────────────────────────────

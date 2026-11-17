@@ -226,6 +226,55 @@ async def test_a_quick_check_is_free_for_everyone_and_never_charged(
     assert await free.used_today(pool) == 0
 
 
+async def test_a_cached_result_uses_a_free_check(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+) -> None:
+    first, second = await free_pass(client), await free_pass(client)
+    await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
+
+    cached = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
+    repeat = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
+
+    assert cached.json()["charged"] is True and cached.json()["free_check"] is True
+    assert repeat.json()["charged"] is False and "free_check" not in repeat.json()
+    assert len(graph.calls) == 1
+    assert await free.left(pool, second["key_id"]) == 4
+    assert await free.used_today(pool) == 2
+
+
+async def test_a_cached_result_isnt_served_while_free_checks_are_paused(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budget(monkeypatch, 1)
+    first, second = await free_pass(client), await free_pass(client)
+    await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
+
+    refused = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
+    repeat = await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
+
+    assert refused.status_code == 429 and refused.json()["error_code"] == "FREE_CHECKS_PAUSED"
+    assert repeat.status_code == 200 and repeat.json()["charged"] is False  # the pass that paid gets it again
+    assert await free.left(pool, second["key_id"]) == 5
+
+
+async def test_a_cached_quick_check_is_still_free(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, quick: FakeGraph
+) -> None:
+    first, second = await free_pass(client), await free_pass(client)
+    body = {**PAGE, "tier": "quick"}
+
+    responses = [
+        await client.post("/v1/analyze", json=body, headers=bearer(first["key"])),
+        await client.post("/v1/analyze", json=body, headers=bearer(second["key"])),
+        await client.post("/v1/analyze", json=body),
+    ]
+
+    assert [r.json()["charged"] for r in responses] == [False, False, False]
+    assert len(quick.calls) == 1  # the others came from the cache
+    assert await free.left(pool, second["key_id"]) == 5
+    assert await free.used_today(pool) == 0
+
+
 async def test_a_deep_check_still_needs_a_sign_in(client: httpx.AsyncClient) -> None:
     response = await client.post("/v1/analyze", json=PAGE)
     assert response.status_code == 401

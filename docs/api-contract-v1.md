@@ -157,7 +157,8 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
   describe the page, e.g. "Marketplace listing", and must be shown neutrally) and `severity`. `evidence` is never a
   raw `name = value` any more (may be empty: show `label`).
 - New `charged` (bool) on the analyze response and the stream's `result`: false when no check was used (score -1, or
-  a result served from the 1-hour cache, which is now free). Show "No check was used" for those.
+  a result served from the 1-hour cache, which is now free; since "a cached result costs a check" below, only to the
+  account that paid for it). Show "No check was used" for those.
 - A cache hit on `/v1/analyze/stream` sends only the `result` event, immediately.
 - x402 `POST /v1/check` verdict gains `summary` (one sentence), `page_type`, `band`, `assessed` (false for pages that
   couldn't be assessed, with `risk_score: null` instead of 0.0) and `flags[].label` / `flags[].severity`. Flags are
@@ -212,7 +213,8 @@ no on-chain transaction; ordinary SIWS. All pairing state is in the server's mem
 
 - **Stream steps carry progress, not evidence:** `event: step` findings are `{"skill", "type"}` only. The evidence
   arrives with the charged `result` (`verdict.reasons[].detail`, `assessment.flags[].evidence`). A client that hangs
-  up before the result is refunded; a finished result is cached first, so repeating the request gets it free.
+  up before the result is refunded; a finished result is cached first, so repeating the request (with the same
+  account) gets it free.
 - **Cache:** results are reused only for identical input (same listing, page content, facts, checkout page, tier,
   language and flags). Tracking parameters (`utm_*`, `gclid`, `fbclid`, `ref`, …) don't make a new listing; product
   IDs in the query (`?id=`, `?product_id=`, `?variant=`) do.
@@ -963,3 +965,21 @@ client are unchanged.
   `base_pay_to_usdc_units`. `GET /v1/admin/x402/alerts` gains `base` (status, network, payTo, its USDC, alerts and
   flagged transactions); `POST /v1/admin/x402/clear-alerts` takes `?network=solana|base` (both by default) and
   answers `base_cleared` and `x402_base` next to the existing fields.
+
+## Changes (a cached result costs a check; backwards-compatible)
+
+- A deep result served from the 1-hour result cache (`POST /v1/analyze`, `/v1/analyze/stream`) now **uses a check**
+  like a fresh analysis: one bought check, or a free check on a pass with free checks (and from the day's free
+  budget). The response is `charged: true` (and `free_check: true` for a free one), with the balance after it;
+  the stream still sends only the `result` event, at once.
+- Without a check, a cached result isn't served: the account gets the same `402 INSUFFICIENT_CREDITS` or `429
+  FREE_CHECKS_PAUSED` as for a page nobody checked, so it can't tell whether a page was checked recently.
+- **Exception:** the account (pass or wallet) that already paid for that listing within the hour gets it again
+  free, `charged: false` (a reopened result, a page refresh, the extension rendering it again, a stream repeated after
+  the connection dropped). The listing is the URL without tracking parameters or fragment, as for the cache. The
+  server notes this in memory only, as a keyed hash of the account and the listing, for as long as the result lives.
+- Unchanged: quick checks (`"tier": "quick"`) are free, cached or not; a page that couldn't be assessed (score -1) is
+  never charged, cached or not (a cached one still needs a check to be available); pages that can't be read are free
+  422s; shared results (`/r/…`) are public. x402 `POST /v1/check` was already paid on every answer, the known-listing
+  fast path (`cached: true`) included: the payment settles before the answer.
+- Clients: show "No check was used" only when `charged` is false, as before; nothing else changes.

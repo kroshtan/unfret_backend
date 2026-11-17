@@ -438,7 +438,7 @@ function renderResult(result, because = null) {
   if (result.tier === "quick") {
     nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere. Free, and no check was used."));
   } else if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
-  else if (result.charged === false) nodes.push(el("p", "small", "Checked recently: no check was used."));
+  else if (result.charged === false) nodes.push(el("p", "small", "You checked this page recently: no new check was used."));
   else if (result.free_check) nodes.push(el("p", "small", "One of your free checks."));
   const reason = because ? QUICK_BECAUSE[because] : null;
   if (reason) {

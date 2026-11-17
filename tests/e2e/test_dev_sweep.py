@@ -272,8 +272,8 @@ async def test_analyze_needs_an_account(api: httpx.AsyncClient, target: Target) 
 # ── Analyses paid from credits ─────────────────────────────────────────────────────────────────────────────────
 
 
-async def test_an_analysis_is_charged_once_and_then_served_free(
-    api: httpx.AsyncClient, account: Account, target: Target
+async def test_an_analysis_is_charged_once_per_pass_and_a_cached_one_for_another(
+    api: httpx.AsyncClient, account: Account, target: Target, config: E2EConfig
 ) -> None:
     price = (await pricing(api))["analysis_usd_micros"]
     body = {"url": page(target, PRODUCT_PAGE, "analyze")}
@@ -288,11 +288,39 @@ async def test_an_analysis_is_charged_once_and_then_served_free(
     assert result["report_token"]
     assert result["balance_usd_micros"] == before - price == await key_balance(api, account.key)
 
-    again = await api.post("/v1/analyze", json=body, headers=bearer(account.key))
+    again = await api.post("/v1/analyze", json=body, headers=bearer(account.key))  # the same pass: paid already
     assert again.status_code == 200
     assert again.json()["charged"] is False
     assert again.json()["score"] == result["score"]
     assert await key_balance(api, account.key) == before - price
+
+    # Another pass gets the cached result only for a check of its own; without one, the same 402 as any page.
+    admin = bearer(config.need("admin_token"))
+    challenge = (await api.get("/v1/keys/challenge")).json()
+    created = await api.post(
+        "/v1/keys",
+        json={"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], challenge["bits"])},
+    )
+    assert created.status_code == 201, created.text
+    other = created.json()
+    try:
+        empty = await api.post("/v1/analyze", json=body, headers=bearer(other["key"]))
+        assert empty.status_code == 402, empty.text
+        assert empty.json()["error_code"] == "INSUFFICIENT_CREDITS"
+        granted = await api.post(f"/v1/admin/keys/{other['key_id']}/grant", json={"usd_micros": price}, headers=admin)
+        assert granted.status_code == 200, granted.text
+
+        cached = await api.post("/v1/analyze", json=body, headers=bearer(other["key"]))
+        assert cached.status_code == 200, cached.text
+        assert cached.json()["charged"] is True
+        assert cached.json()["score"] == result["score"]
+        assert cached.json()["balance_usd_micros"] == 0 == await key_balance(api, other["key"])
+        repeat = await api.post("/v1/analyze", json=body, headers=bearer(other["key"]))
+        assert repeat.json()["charged"] is False
+    finally:  # leave the throwaway key empty
+        left = await key_balance(api, other["key"])
+        if left > 0:
+            await api.post(f"/v1/admin/keys/{other['key_id']}/debit", json={"usd_micros": left}, headers=admin)
 
 
 async def test_a_streamed_analysis_reports_steps_then_the_charged_result(

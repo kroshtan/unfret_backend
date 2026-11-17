@@ -9,9 +9,16 @@ The key covers everything the result depends on: the listing (URL without tracki
 exact input that was analysed (page text and client-supplied facts), the tier and the flags. Results
 built from what one caller sent are therefore only ever served for byte-identical input: someone who sends crafted
 "clean" facts for a scam shop's URL only poisons the entry for their own crafted input, never for other callers.
+
+A deep result served from here costs a check like a fresh one, except for the account that already paid for that
+listing within the hour (a reopened result, a page refresh): :func:`mark_paid` notes that, for as long as a result
+lives here, as a keyed hash of the account and the listing (the key is random per process), so the note names
+neither and a restart forgets it with the results.
 """
 
 import hashlib
+import hmac
+import secrets
 import time
 from collections import OrderedDict
 from typing import Any
@@ -58,6 +65,10 @@ _TRACKING_PARAMS = frozenset(
 )
 
 _entries: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+# Accounts that paid for a listing within the hour: keyed hash of (account, listing) → expiry (monotonic).
+_paid: OrderedDict[str, float] = OrderedDict()
+_MAX_PAID = 20_000
+_PAID_KEY = secrets.token_bytes(32)
 
 
 def is_tracking_param(name: str) -> bool:
@@ -153,6 +164,46 @@ def put(key: str, result: dict[str, Any], ttl_s: float = RESULT_TTL_S) -> None:
         _entries.popitem(last=False)
 
 
+def _paid_key(account: str, url: str) -> str:
+    return hmac.new(_PAID_KEY, f"{account}\n{_listing(url)}".encode(), hashlib.sha256).hexdigest()
+
+
+def mark_paid(account: str, url: str, ttl_s: float = RESULT_TTL_S) -> None:
+    """
+    Note that an account paid for a listing, so its own repeat within ``ttl_s`` is served from here without a charge.
+
+    :param account: The paying account (a wallet or a pass).
+    :param url: The page URL; without one nothing is noted.
+    :param ttl_s: How long the note lasts, in seconds (as long as a result).
+    """
+    if not url.strip():
+        return
+    key = _paid_key(account, url)
+    _paid[key] = time.monotonic() + ttl_s
+    _paid.move_to_end(key)
+    while len(_paid) > _MAX_PAID:
+        _paid.popitem(last=False)
+
+
+def paid_for(account: str, url: str) -> bool:
+    """
+    Whether an account paid for this listing within the hour (see :func:`mark_paid`).
+
+    :param account: The account.
+    :param url: The page URL.
+    :return: ``True`` while the note lasts; never for a request without a URL.
+    """
+    if not url.strip():
+        return False
+    key = _paid_key(account, url)
+    expires = _paid.get(key)
+    if expires is None or expires < time.monotonic():
+        _paid.pop(key, None)
+        return False
+    return True
+
+
 def clear() -> None:
-    """Drop every cached result."""
+    """Drop every cached result, and every note of who paid for one."""
     _entries.clear()
+    _paid.clear()

@@ -800,8 +800,9 @@ a rollback, deploy that release's image by hand with `kamal deploy -d production
 
 `tests/e2e/test_dev_sweep.py` (`make e2e`, marker `e2e`; never part of `make test`) checks every path a customer or
 an agent takes against a deployed dev, with real infrastructure: health and readiness, the x402 discovery document and
-`llms.txt`; API keys (proof-of-work creation, an empty key's 402, an operator grant, recovery); analyses charged once,
-served free from the cache, streamed, and every page the server can't read (`PAGE_BLOCKED`, `PAGE_UNAVAILABLE`,
+`llms.txt`; API keys (proof-of-work creation, an empty key's 402, an operator grant, recovery); analyses charged once
+per pass (the same pass's repeat free, a cached result charged to another pass, which without a check gets a 402),
+streamed, and every page the server can't read (`PAGE_BLOCKED`, `PAGE_UNAVAILABLE`,
 `INVALID_URL`, `PAGE_TOO_THIN`, a validation error) free; sign-in with the payer's wallet; x402 with the MCP client
 (quick in USDC, deep in wSOL, confirmed on devnet, a replayed payment answered once and debited once, an underpayment
 and a malformed header refused, a bot-check page free); credit packs bought in USDC (memo) and in SOL by the Solana Pay

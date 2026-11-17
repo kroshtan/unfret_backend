@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Unfret reads a web shop, a second-hand ad or a tradesperson's website for you before you buy or hire, and tells you in plain words whether it all adds up. For your browser and your phone.">
-  <title>Unfret · shop without the worry</title>
+  <meta name="description" content="Unfret checks the seller before you pay: on Amazon and other marketplaces, in web shops you've never heard of and in second-hand ads, in plain words. For your browser and your phone, and pay-per-check for AI agents over x402.">
+  <title>Unfret · check the seller before you pay</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/home.js"></script>
@@ -19,17 +19,20 @@
     <section class="hero">
       <div class="wrap">
         <div>
-          <p class="eyebrow">For calmer shopping, new or second-hand</p>
-          <h1>Shop without <span class="soft">the worry.</span></h1>
-          <p class="lead">Before you buy or hire, ask Unfret. It reads the web shop, the second-hand ad or the
-            tradesperson's website for you and tells you in plain words whether it all adds up. When it does, it shows
-            you what looks good.</p>
+          <p class="eyebrow">Shop without the worry, in web shops and on marketplaces</p>
+          <h1>Check the seller <span class="soft">before you pay.</span></h1>
+          <p class="lead">On Amazon, bol.com or eBay, the seller is often someone other than the platform, and a web
+            shop you've never heard of can be anyone. Before you pay, ask Unfret: it reads the page for you and tells
+            you in plain words who you'd be buying from and whether it all adds up. When it does, it shows you what
+            looks good.</p>
           <div class="buttons">
             <a class="button primary large" data-get="main" href="{{store_url}}" rel="noopener">Add to Chrome</a>
             <a class="button large quiet" data-get="link" href="/check">Check a link instead</a>
           </div>
           <p class="also" data-get="also">Also for <a href="{{firefox_url}}" rel="noopener">Firefox</a> and
             <a href="/extension#phone">your phone</a>.</p>
+          <p class="also agents">Building a shopping agent? <a href="/developers">Let it pay per check with x402</a>:
+            one HTTP call, no account.</p>
           <ul class="reassure">
             <li>Free to install</li>
             <li>Pay per check, no subscription</li>
@@ -67,12 +70,12 @@
       <div class="wrap">
         <div class="section-head">
           <h2 id="how-heading">One click, a calm answer</h2>
-          <p>On Amazon, bol.com and most web shops, including the ones you've never heard of; on second-hand ads on
-            Marktplaats, Vinted, eBay and Facebook Marketplace; and on the websites of local tradespeople.</p>
+          <p>On Amazon, bol.com and other marketplaces, where the seller behind a listing is often a stranger, and in
+            web shops you've never heard of. Second-hand ads work too.</p>
         </div>
         <ol class="steps-row">
-          <li><h3>Find what you're after</h3><p>A product in a web shop, a second-hand bargain, or someone to fix
-            the roof.</p></li>
+          <li><h3>Find what you're after</h3><p>A product on a marketplace or in a web shop, or a second-hand
+            bargain.</p></li>
           <li><h3>Ask Unfret</h3><p>Click it in your browser, or share the link to it on your phone. It reads that one
             page, only when you ask.</p></li>
           <li><h3>Read it in plain words</h3><p>“Looks fine”, or a few things worth a second look. Never a cryptic score.</p></li>
@@ -89,7 +92,7 @@
         <div class="tiles">
           <div class="tile">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-6h4v6"/></svg>
-            <div><h3>Who's behind the shop</h3><p>Company details, a real address, and how long the shop has been around.</p></div>
+            <div><h3>Who's really selling</h3><p>The seller behind the listing, not just the platform: company details, a real address, and how long they've been around.</p></div>
           </div>
           <div class="tile">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
@@ -108,24 +111,22 @@
           decide for yourself.</p>
       </div>
     </section>
-
-    <section class="section" aria-labelledby="beyond-heading">
+    <section class="section" aria-labelledby="dev-heading">
       <div class="wrap">
-        <div class="section-head">
-          <h2 id="beyond-heading">Not just web shops</h2>
-          <p>The same calm answer for a bargain from a stranger, or a company you're about to let into your home.</p>
-        </div>
-        <div class="tiles">
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10l1.5 13h-13z"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7"/><path d="M9.5 12.5l1.8 1.8 3.2-3.3"/></svg>
-            <div><h3>Second-hand ads</h3><p>Photos taken from other ads, prices too good to be true, and sellers who
-              want you to pay outside the platform or have the item sent from abroad.</p></div>
+        <div class="dev">
+          <div>
+            <h2 id="dev-heading">For developers and AI agents</h2>
+            <p>Shopping agents can ask Unfret before they pay: one HTTP call per check over x402, paid in USDC or SOL
+              with no account, or the MCP server that does it for them. The answer is an action (allow, warn or block) and the evidence
+              behind it. Open source, MIT licensed.</p>
+            <p class="buttons"><a class="button primary" href="/developers">Developer guide</a>
+              <a class="button quiet" href="/docs">API reference</a></p>
           </div>
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>
-            <div><h3>Tradespeople</h3><p>Call centres posing as the plumber around the corner, payment before the
-              work, prices only named at your door, and reviews copied from site to site.</p></div>
-          </div>
+          <pre class="terminal"><span class="c"># Any MCP client: the agent pays from its own wallet</span>
+<span class="k">uvx</span> unfret-mcp
+
+<span class="c"># Or call the API yourself</span>
+<span class="k">POST</span> https://unfret.net/v1/check</pre>
         </div>
       </div>
     </section>
@@ -177,6 +178,26 @@
         <p class="aside-note"><a href="/privacy">Read the privacy statement</a></p>
       </div>
     </section>
+    <section class="section" aria-labelledby="beyond-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="beyond-heading">Not just web shops</h2>
+          <p>The same calm answer for a bargain from a stranger, or a company you're about to let into your home.</p>
+        </div>
+        <div class="tiles">
+          <div class="tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10l1.5 13h-13z"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7"/><path d="M9.5 12.5l1.8 1.8 3.2-3.3"/></svg>
+            <div><h3>Second-hand ads</h3><p>Photos taken from other ads, prices too good to be true, and sellers who
+              want you to pay outside the platform or have the item sent from abroad.</p></div>
+          </div>
+          <div class="tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>
+            <div><h3>Tradespeople</h3><p>Call centres posing as the plumber around the corner, payment before the
+              work, prices only named at your door, and reviews copied from site to site.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section id="spotted" class="section spotted" aria-labelledby="spotted-heading" hidden>
       <div class="wrap">
@@ -189,29 +210,9 @@
       </div>
     </section>
 
-    <section class="section" aria-labelledby="dev-heading">
-      <div class="wrap">
-        <div class="dev">
-          <div>
-            <h2 id="dev-heading">For developers and AI agents</h2>
-            <p>Shopping agents can ask Unfret before they pay: an MCP server, or one HTTP call per check over x402,
-              paid in USDC or SOL with no account. The answer is an action (allow, warn or block) and the evidence
-              behind it. Open source, MIT licensed.</p>
-            <p class="buttons"><a class="button primary" href="/developers">Developer guide</a>
-              <a class="button quiet" href="/docs">API reference</a></p>
-          </div>
-          <pre class="terminal"><span class="c"># Any MCP client: the agent pays from its own wallet</span>
-<span class="k">uvx</span> unfret-mcp
-
-<span class="c"># Or call the API yourself</span>
-<span class="k">POST</span> https://unfret.net/v1/check</pre>
-        </div>
-      </div>
-    </section>
-
     <section class="closing" aria-labelledby="closing-heading">
       <h2 id="closing-heading">Less double-checking, more enjoying.</h2>
-      <p>Let Unfret do the homework the next time you're about to buy, or about to hire someone.</p>
+      <p>Let Unfret check the seller the next time you're about to pay.</p>
       <div class="buttons">
         <a class="button primary large" data-get="main" href="{{store_url}}" rel="noopener">Add to Chrome</a>
         <a class="button large quiet" data-get="link" href="/check">Check a link instead</a>

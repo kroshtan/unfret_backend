@@ -422,3 +422,11 @@ def test_small_words_match_across_checkout() -> None:
     assert 'import { copyButton } from "./pass.js";' in (STATIC_DIR / "wallet.js").read_text()
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.count("SOL for a small discount") == 2 and "a little less" not in checkout
+
+
+def test_the_home_page_leads_with_the_seller_then_agents_and_keeps_ads_and_trades_lower() -> None:
+    page = (STATIC_DIR / "index.html").read_text()
+    hero = page.split('<section class="hero">', 1)[1].split("</section>", 1)[0]
+    assert "Check the seller" in hero and 'href="/developers"' in hero  # agents get a way in right at the top
+    order = [page.index(f'aria-labelledby="{name}-heading"') for name in ("how", "looks", "dev", "price", "beyond")]
+    assert order == sorted(order)  # ads and tradespeople: a secondary section below pricing

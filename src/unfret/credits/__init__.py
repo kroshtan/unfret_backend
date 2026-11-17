@@ -29,6 +29,8 @@ from unfret.x402.solana import SolanaRpc, usdc_mint
 
 logger = structlog.get_logger("unfret")
 
+_NO_DAILY_CAP = 2**62
+
 
 class CreditsDoor:
     """Configuration and state of the credits door for one process."""
@@ -50,8 +52,10 @@ class CreditsDoor:
             secret=self.secret,
             bits=settings.key_pow_bits,
             ttl_s=settings.key_pow_ttl_s,
+            # The daily cap sets the proof of work's growth (KeyGuard), so creations are refused per network only.
             creations=DailyLimit(settings.key_create_per_ip_per_day, settings.key_create_daily_cap),
-            recoveries=DailyLimit(settings.key_recover_per_ip_per_day, 10 * settings.key_create_daily_cap),
+            # Backup codes can't be guessed: per network only, so nobody can use up a global allowance for everyone.
+            recoveries=DailyLimit(settings.key_recover_per_ip_per_day, _NO_DAILY_CAP),
         )
         self.scanner: CreditScanner | None = None
         self.usdc_scanner: CreditScanner | None = None

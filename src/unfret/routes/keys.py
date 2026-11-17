@@ -101,7 +101,7 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     door = _door(request)
     if not door.key_guard.redeem(body.challenge, body.solution):
         raise BadRequestError("Challenge invalid, expired or unsolved; get a new one.", error_code="BAD_CHALLENGE")
-    if not door.key_guard.creations.allow(_ip(request)):
+    if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
     issued = await keys.create(request.app.db_pool)
     logger.info("api_key_created")

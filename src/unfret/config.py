@@ -160,7 +160,8 @@ class Settings(BaseSettings):
     usdc_sweep_max_interval_s: float = 24 * 3600.0
     credits_scan_interval_s: float = 20.0
     # API keys (they start empty, like wallets). Creating one takes a small proof of work in the browser (a few
-    # seconds at 18 bits) and is limited per visitor network (IPv6 /64) and in total per day; recovery attempts too.
+    # seconds at 18 bits) and is limited per visitor network (IPv6 /64), as are recovery attempts. Past
+    # key_create_daily_cap new keys in a UTC day, each doubling of the day's count adds a bit of work (at most 6).
     key_pow_bits: int = 18
     key_pow_ttl_s: int = 600
     key_create_per_ip_per_day: int = 5

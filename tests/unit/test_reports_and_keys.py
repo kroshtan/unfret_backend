@@ -154,3 +154,33 @@ def test_proof_of_work_is_checked_once_and_expires() -> None:
     assert not g.redeem(late, solve(late, bits))  # expired
     easier = challenge.replace(".6.", ".1.")
     assert not g.redeem(easier, solve(easier, 1))  # the difficulty is under the HMAC
+
+
+def test_past_the_daily_cap_keys_get_harder_to_make_not_impossible() -> None:
+    # A hard daily cap let anyone with a few hundred addresses (one IPv6 /56) stop every new pass for the day: the
+    # card checkout makes its pass first. Past the cap, the proof of work grows instead.
+    now = [1000.0]
+    g = KeyGuard(secret="s", bits=6, ttl_s=60, creations=DailyLimit(1, 4), recoveries=DailyLimit(5, 100),
+                 clock=lambda: now[0])  # fmt: skip
+    for n in range(4):
+        assert g.creations.allow(f"10.0.0.{n}", daily_cap=False)  # as POST /v1/keys counts them
+    assert g.challenge()[1] == 7  # at the cap: one bit more
+    for n in range(4, 8):
+        assert g.creations.allow(f"10.0.0.{n}", daily_cap=False)  # still allowed, one per network
+    assert g.challenge()[1] == 8  # twice the cap: two bits more
+    assert not g.creations.allow("10.0.0.1", daily_cap=False)  # the per-network limit stays
+
+
+def test_recovery_attempts_have_no_global_cap() -> None:
+    # Backup codes are 256 random bits: only the per-network limit matters, and a global one could be used up by a
+    # stranger to keep everyone from recovering (or picking up a card purchase) for the day.
+    from pydantic import SecretStr  # noqa: PLC0415
+
+    from unfret.config import Settings  # noqa: PLC0415
+    from unfret.credits import CreditsDoor  # noqa: PLC0415
+    from unfret.x402.solana import SolanaRpc  # noqa: PLC0415
+
+    door = CreditsDoor(
+        Settings(session_secret=SecretStr("s"), key_create_daily_cap=2), SolanaRpc("http://rpc.invalid"), None
+    )
+    assert all(door.key_guard.recoveries.allow(f"10.0.{n // 250}.{n % 250}") for n in range(1000))

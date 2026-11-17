@@ -60,6 +60,8 @@ class CreditsDoor:
         # New passes that come with free checks (unfret.credits.free), per visitor network only: a global cap would let
         # one actor with many networks use them up for everyone; the day's budget for free deep checks bounds the cost.
         self.free_passes = DailyLimit(settings.free_passes_per_ip_per_day, _NO_DAILY_CAP)
+        # Developer passes (more free checks, for building an agent): the same idea, their own allowance per network.
+        self.developer_passes = DailyLimit(settings.developer_passes_per_ip_per_day, _NO_DAILY_CAP)
         self.scanner: CreditScanner | None = None
         self.usdc_scanner: CreditScanner | None = None
 

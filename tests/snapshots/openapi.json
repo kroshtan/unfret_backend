@@ -443,6 +443,12 @@
       "title": "Challenge",
       "type": "string"
      },
+     "developer": {
+      "default": false,
+      "description": "Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and testing an agent against /v1/check, the MCP server or the clients. One a day per network; past that the pass is made empty. Takes the place of free.",
+      "title": "Developer",
+      "type": "boolean"
+     },
      "free": {
       "default": false,
       "description": "Ask for the free checks a new pass comes with (the browser extension does on install). Given only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
@@ -3694,7 +3700,7 @@
   },
   "/v1/check": {
    "post": {
-    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header, app state).\n:return: The verdict, or an x402 payment-required / error response.",
+    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an\nUnfret pass as ``Authorization: Bearer ufk_\u2026`` instead of paying: charged like ``POST /v1/analyze`` (a deep check\nuses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,\n``free_check``, ``balance_usd_micros`` and ``free_checks_left``.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header or pass, app state).\n:return: The verdict, or an x402 payment-required / error response.",
     "operationId": "check_v1_check_post",
     "requestBody": {
      "content": {
@@ -3717,8 +3723,11 @@
       },
       "description": "Successful Response"
      },
+     "401": {
+      "description": "Not a valid Unfret pass (only with Authorization)"
+     },
      "402": {
-      "description": "Payment required (x402)"
+      "description": "Payment required (x402), or the pass has no checks left"
      },
      "422": {
       "content": {

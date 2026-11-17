@@ -54,6 +54,7 @@ dev = [
     "pytest-asyncio>=1.4",
     "pytest-cov>=7.1",
     "pytest-env>=1.8",
+    "pytest-timeout>=2.4",
     "ruff>=0.17",
     "scikit-learn>=1.9.1",
 ]
@@ -194,6 +195,10 @@ should-document-star-arguments = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# A test that hangs fails the run after two minutes, printing every thread's stack (pytest-timeout), instead of
+# stalling CI until the runner gives up. The slowest test takes a few seconds.
+timeout = 120
+timeout_method = "thread"
 # tests/e2e (the dev sweep, `make e2e`) runs only when asked for: `pytest -m e2e tests/e2e`.
 testpaths = ["tests/unit", "tests/integration"]
 addopts = [

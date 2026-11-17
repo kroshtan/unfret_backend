@@ -802,6 +802,24 @@ make train             # retrain the scorer into the model store outside the rep
 Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection, x402
 payment verification and SIWS. Integration tests exercise the HTTP API end-to-end against a real Postgres (sign-in,
 concurrent debits, the credits scanner), with the analysis graph replaced by a test double so no LLM calls are made.
+A test that hangs fails the run after two minutes, printing every thread's stack (pytest-timeout).
+
+### Pull requests and CI
+
+CI (`.forgejo/workflows/ci.yaml`) checks a pull request once it is ready to merge, not every push while it's being
+worked on:
+
+- **Open it as a draft:** start the title with `WIP:` (for example `WIP: Shorter result card`). Forgejo shows it as
+  a work in progress and CI skips it, however often you push.
+- **Ready to merge? Take `WIP:` off the title.** That starts CI on the newest commit. Merge when it's green.
+- A push to a ready pull request runs CI again and cancels the run still going for the commit before. Editing its
+  description or title doesn't check it again: that run reports the result the commit already has (to retry a
+  failure that wasn't the code's, re-run its run under Actions).
+- Back to work on it: put `WIP:` back in front.
+
+On `main`, runs queue one behind the other and are never cancelled, so a dev deploy is never cut off or dropped. A
+run whose commit is no longer `main`'s newest when it starts checks nothing and doesn't deploy: the newest commit's
+run checks and deploys it.
 
 ```
 src/unfret/

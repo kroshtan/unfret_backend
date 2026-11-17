@@ -21,7 +21,7 @@ from datetime import date
 
 import structlog
 
-from unfret import image_index, image_store, shop_store
+from unfret import background, image_index, image_store, shop_store
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.platforms import PLATFORMS
@@ -95,8 +95,7 @@ def _record_later(where: Listing, fp: ImagePrint, image_url: str, day: date) -> 
 
 async def drain() -> None:
     """Wait for background writes (tests and shutdown)."""
-    while _pending:
-        await asyncio.gather(*list(_pending), return_exceptions=True)
+    await background.drain(_pending)
 
 
 def main_photo(facts: PageFacts, page_type: str) -> str | None:

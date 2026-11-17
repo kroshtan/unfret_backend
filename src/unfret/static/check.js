@@ -226,8 +226,9 @@ async function useKey() {
   signedIn({ kind: "key", token: pass, address: `key:${id}` });
 }
 
-// A pass from a QR code on /my-checks (/check#pass=ufk_…): kept like a pasted one. If this device already uses
-// another pass or a wallet, it asks first: the one here may be the only copy of a pass with checks on it.
+// A pass from a QR code on /my-checks (/check#pass=ufk_…): kept like a pasted one, once the visitor says so. Any site
+// can open such a link, so it always asks; and if this device already uses another pass or a wallet, it says so: the
+// one here may be the only copy of a pass with checks on it.
 async function receivePass(pass) {
   const id = passIdOf(pass);
   if (!id || account?.token === pass) return;
@@ -240,8 +241,8 @@ async function receivePass(pass) {
     signedIn({ kind: "key", token: pass, address: `key:${id}` });
     showPassAdded(`Your pass ${showPassId(id)} is on this device now.`);
   };
-  if (!account) return take();
   $("pass-offer-id").textContent = showPassId(id);
+  $("pass-offer-other").hidden = !account;
   $("pass-offer").hidden = false;
   $("pass-offer-use").onclick = () => void take();
   $("pass-offer-keep").onclick = () => {

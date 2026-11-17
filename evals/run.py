@@ -124,7 +124,9 @@ async def evaluate(
         tokens = list(usage.usage_metadata.values())
         verdict = result.get("verdict") or {}
         assessment = result.get("assessment") or {}
-        unavailable = sum(1 for r in result.get("skill_results", []) if r.endswith("Skill unavailable."))
+        unavailable = sorted(
+            r.split("]", 1)[0].lstrip("[") for r in result.get("skill_results", []) if r.endswith("Skill unavailable.")
+        )
         return Outcome(
             id=record.id,
             label=record.label,
@@ -134,7 +136,7 @@ async def evaluate(
             latency_s=round(time.perf_counter() - start, 2),
             input_tokens=sum(t.get("input_tokens", 0) for t in tokens),
             output_tokens=sum(t.get("output_tokens", 0) for t in tokens),
-            note=f"{unavailable} skill(s) unavailable" if unavailable else "",
+            note=f"{len(unavailable)} skill(s) unavailable: {', '.join(unavailable)}" if unavailable else "",
             band=str(verdict.get("band", "")),
             confidence=assessment.get("confidence"),
         )
@@ -200,6 +202,32 @@ def write_reports(
     return markdown
 
 
+def configure(corpus: Corpus, *, replay: bool) -> None:
+    """
+    Set the service up for scoring corpus pages: recorded LLM responses and embeddings, no network lookups.
+
+    :param corpus: The corpus whose ``llm_cache.sqlite`` records (or, with ``replay``, serves) the responses.
+    :param replay: Serve only cached responses; a page that would need a new call fails.
+    """
+    set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=replay))
+    settings.network_lookups = False
+    settings.price_observations = False  # archived pages aren't today's prices
+    settings.fingerprints = False  # the corpus isn't shops seen in use, and must not fill the store
+    # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
+    # turning them into "skill unavailable" findings or failed pages.
+    settings.llm_max_retries = max(settings.llm_max_retries, 6)
+    llm.get_llm.cache_clear()
+    if replay and not settings.llm_api_key.get_secret_value():
+        # The client refuses to start without a key; in replay mode it never sends one.
+        settings.llm_api_key = SecretStr("replay")
+        llm.get_llm.cache_clear()
+    llm.use_embeddings(
+        CachedEmbeddings(
+            llm.get_embeddings(), settings.embedding_model, corpus.root / "llm_cache.sqlite", strict=replay
+        )
+    )
+
+
 def main() -> None:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
@@ -223,25 +251,9 @@ def main() -> None:
     product_only = args.classes == [PRODUCT_CLASS]
 
     corpus = Corpus()
-    set_llm_cache(SQLiteLLMCache(corpus.root / "llm_cache.sqlite", strict=args.replay))
-    settings.network_lookups = False
-    settings.price_observations = False  # archived pages aren't today's prices
-    settings.fingerprints = False  # the corpus isn't shops seen in use, and must not fill the store
-    # Each page fans out to several parallel LLM calls; let the client back off on rate limits (429) instead of
-    # turning them into "skill unavailable" findings or failed pages.
-    settings.llm_max_retries = max(settings.llm_max_retries, 6)
+    configure(corpus, replay=args.replay)
     if not product_only:
         settings.expansion_classes = True  # the new classes' subgraphs only run with the flag on
-    llm.get_llm.cache_clear()
-    if args.replay and not settings.llm_api_key.get_secret_value():
-        # The client refuses to start without a key; in replay mode it never sends one.
-        settings.llm_api_key = SecretStr("replay")
-        llm.get_llm.cache_clear()
-    llm.use_embeddings(
-        CachedEmbeddings(
-            llm.get_embeddings(), settings.embedding_model, corpus.root / "llm_cache.sqlite", strict=args.replay
-        )
-    )
 
     labelled = [
         r

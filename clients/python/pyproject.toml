@@ -1,0 +1,53 @@
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "unfret-client"
+description = "Minimal client for Unfret: check a store or product page before an AI agent buys (allow, warn or block)"
+version = "0.1.0"
+authors = [{ name = "Floris van Beers", email = "hello@unfret.net" }]
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["unfret", "scam-detection", "ai-agents", "shopping", "dropshipping"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = ["httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://unfret.net/developers"
+Source = "https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/python"
+Mirror = "https://github.com/kroshtan/unfret_backend/tree/main/clients/python"
+Issues = "https://git.kroshtan.com/kroshtan/unfret_backend/issues"
+Changelog = "https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/python/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4",
+    "pytest>=9.2",
+    "pytest-asyncio>=1.4",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = ["live: calls a real Unfret server (UNFRET_LIVE_URL); makes a developer pass and spends its free checks"]
+addopts = "-m 'not live'"
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+# Inherit the repository rules, but format for the oldest Python this package supports.
+extend = "../../pyproject.toml"
+target-version = "py310"

@@ -52,6 +52,26 @@ jobs:
           uv run --project mcp mypy mcp/src mcp/tests
           uv run --project mcp pytest mcp/tests
 
+  clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Python client (clients/python)
+        run: |
+          uv sync --project clients/python --all-groups --frozen
+          uv run --project clients/python mypy clients/python/src clients/python/tests
+          uv run --project clients/python pytest clients/python/tests
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: TypeScript client (clients/typescript)
+        working-directory: clients/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm test
+
   docker:
     runs-on: ubuntu-latest
     steps:

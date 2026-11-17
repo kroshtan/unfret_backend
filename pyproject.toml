@@ -141,6 +141,10 @@ ignore = [
     # Same as tests/
     "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "S311",
 ]
+"clients/python/tests/**" = [
+    # Same as tests/
+    "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "T201",
+]
 # Owned by the analysis work (wave B): its RDAP fallback loop is deliberate; it can move into the file there.
 "src/unfret/graph/skills/domain_age.py" = ["S112"]
 "evals/**" = [

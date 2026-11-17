@@ -259,7 +259,18 @@ def affiliates_page() -> HTMLResponse:
 
     :return: The page.
     """
-    page = with_store_links(template("affiliates.html", "/affiliates"))
+    page = with_affiliate_numbers(with_store_links(template("affiliates.html", "/affiliates")))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+def with_affiliate_numbers(page: str) -> str:
+    """
+    Fill in the affiliate program's numbers from the settings, so the program page and the terms say the same.
+
+    :param page: A page's HTML with ``{{bonus_pct}}``, ``{{commission_pct}}``, ``{{months}}``, ``{{hold_days}}`` and
+        ``{{min_payout}}``.
+    :return: The HTML with them filled in.
+    """
     minimum = settings.affiliate_min_payout_cents // 100
     for name, value in {
         "bonus_pct": settings.affiliate_bonus_pct,
@@ -269,7 +280,7 @@ def affiliates_page() -> HTMLResponse:
         "min_payout": f"${minimum} or €{minimum}",
     }.items():
         page = page.replace("{{" + name + "}}", str(value))
-    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+    return page
 
 
 @router.get("/affiliates/stats", response_class=HTMLResponse)
@@ -329,9 +340,12 @@ def terms() -> HTMLResponse:
     """
     The terms of use for the site, the extension, the app and the API; marked as a draft while ``terms_draft`` is on.
 
+    The affiliate section's numbers come from the same settings as ``/affiliates``.
+
     :return: The page.
     """
     page = template("terms.html", "/terms").replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else "")
+    page = with_affiliate_numbers(page)
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

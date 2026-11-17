@@ -3,6 +3,8 @@
 import asyncio
 import ipaddress
 import socket
+import zlib
+from collections.abc import Callable
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -11,6 +13,16 @@ _USER_AGENT = "Mozilla/5.0 (compatible; Unfret/1.0)"
 _DEFAULT_TIMEOUT = 10.0  # seconds
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 _MAX_REDIRECTS = 5
+# Only encodings whose decoding can be stopped at the size limit: zlib takes an output cap, httpx's own decoders (and
+# zstd's or brotli's, should those libraries be installed) expand a whole chunk at once, so a few kilobytes of zstd
+# could fill the memory before the size check sees them.
+_ACCEPT_ENCODING = "gzip, deflate"
+# IPv6 prefixes that carry an IPv4 address in their last 32 bits (NAT64, IPv4-compatible): judged by that address.
+_EMBEDDED_IPV4 = (
+    ipaddress.IPv6Network("64:ff9b::/96"),
+    ipaddress.IPv6Network("64:ff9b:1::/48"),
+    ipaddress.IPv6Network("::/96"),
+)
 
 
 class UnsafeURLError(ValueError):
@@ -55,9 +67,21 @@ async def _assert_public(url: str) -> str:
     except socket.gaierror as exc:
         raise UnresolvableHostError(f"Cannot resolve host {parsed.hostname!r}") from exc
     addresses = [ipaddress.ip_address(sockaddr[0]) for *_, sockaddr in infos]
-    if not addresses or not all(address.is_global for address in addresses):
+    if not addresses or not all(_is_public(address) for address in addresses):
         raise UnsafeURLError(f"Host {parsed.hostname!r} resolves to a non-public address")
     return str(addresses[0])
+
+
+def _is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """
+    Whether an address is globally reachable, judging IPv6 forms of an IPv4 address by that IPv4 address.
+
+    :param address: A resolved address.
+    :return: ``True`` for a public address.
+    """
+    if isinstance(address, ipaddress.IPv6Address) and any(address in net for net in _EMBEDDED_IPV4):
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF).is_global
+    return address.is_global
 
 
 def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.Request:
@@ -78,7 +102,7 @@ def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.
     return client.build_request(
         "GET",
         target.copy_with(host=address),
-        headers={"Host": host_header},
+        headers={"Host": host_header, "Accept-Encoding": _ACCEPT_ENCODING},
         extensions={"sni_hostname": target.host},
     )
 
@@ -119,12 +143,62 @@ async def _fetch(url: str, *, timeout: float, max_bytes: int, transport: httpx.A
                     url = urljoin(url, response.headers["location"])
                     continue
                 response.raise_for_status()
-                body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > max_bytes:
-                        raise ValueError(f"Response from {url} exceeds {max_bytes} bytes")
-                return bytes(body)
+                return await _read_bounded(response, max_bytes, url)
             finally:
                 await response.aclose()
     raise httpx.TooManyRedirects(f"More than {_MAX_REDIRECTS} redirects fetching {url}")
+
+
+def _decoder(encoding: str) -> Callable[[bytes, int], bytes] | None:
+    """
+    A size-capped decoder for a ``Content-Encoding``.
+
+    :param encoding: The header's value.
+    :return: ``decode(chunk, max_out)``, or ``None`` for an unencoded body.
+    :raises ValueError: For an encoding we didn't ask for and can't decode within a limit.
+    """
+    name = encoding.strip().lower()
+    if name in {"", "identity"}:
+        return None
+    if name not in {"gzip", "x-gzip", "deflate"}:
+        raise ValueError(f"Unsupported content encoding {name!r}")
+    # 32 + MAX_WBITS reads a gzip or a zlib header, whichever comes.
+    state = zlib.decompressobj(32 + zlib.MAX_WBITS)
+
+    def decode(chunk: bytes, max_out: int) -> bytes:
+        out = bytearray()
+        data = chunk
+        while data and len(out) < max_out:
+            out += state.decompress(data, max_out - len(out))
+            data = state.unconsumed_tail
+        return bytes(out)
+
+    return decode
+
+
+async def _read_bounded(response: httpx.Response, max_bytes: int, url: str) -> bytes:
+    """
+    Read and decode a body, never holding more than ``max_bytes`` (plus one chunk of the encoded stream).
+
+    :param response: A streamed response.
+    :param max_bytes: Largest accepted decoded body.
+    :param url: The URL, for the error message.
+    :return: The decoded body.
+    :raises ValueError: If the decoded body exceeds ``max_bytes`` or its encoding isn't supported.
+    """
+    if response.is_stream_consumed:
+        # Already read and decoded in memory: a response built from bytes (test transports), never one off the network.
+        if len(response.content) > max_bytes:
+            raise ValueError(f"Response from {url} exceeds {max_bytes} bytes")
+        return response.content
+    decode = _decoder(response.headers.get("content-encoding", ""))
+    body = bytearray()
+    try:
+        async for chunk in response.aiter_raw():
+            # One byte over the limit is enough to know the body is too large.
+            body += chunk if decode is None else decode(chunk, max_bytes + 1 - len(body))
+            if len(body) > max_bytes:
+                raise ValueError(f"Response from {url} exceeds {max_bytes} bytes")
+    except zlib.error as exc:
+        raise ValueError(f"Response from {url} could not be decoded") from exc
+    return bytes(body)

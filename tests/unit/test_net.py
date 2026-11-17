@@ -90,3 +90,76 @@ async def test_rejects_oversized_body(fake_dns: dict[str, str]) -> None:
     transport = httpx.MockTransport(lambda _: httpx.Response(200, content=b"x" * 100))
     with pytest.raises(ValueError, match="exceeds"):
         await fetch_public("https://shop.test/big", transport=transport, max_bytes=10)
+
+
+def _zstd_bomb(size: int) -> bytes:
+    import zstandard  # noqa: PLC0415 - a dependency of a dependency; only this test needs it
+
+    return zstandard.ZstdCompressor().compress(b"\0" * size)
+
+
+async def test_compressed_body_is_bounded_while_decoding(fake_dns: dict[str, str]) -> None:
+    """A small compressed answer that expands enormously is refused before it is expanded in memory."""
+    import tracemalloc  # noqa: PLC0415
+
+    fake_dns["shop.test"] = "93.184.216.34"
+    bomb = _zstd_bomb(64 * 1024 * 1024)  # 64 MB of zeros in a few kB
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, stream=httpx.ByteStream(bomb), headers={"content-encoding": "zstd"})
+    )
+    tracemalloc.start()
+    try:
+        with pytest.raises(ValueError):
+            await fetch_public("https://shop.test/bomb", transport=transport, max_bytes=1024 * 1024)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 * 1024 * 1024
+
+
+async def test_asks_only_for_encodings_it_can_bound(fake_dns: dict[str, str]) -> None:
+    fake_dns["shop.test"] = "93.184.216.34"
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, content=b"ok")
+
+    await fetch_public("https://shop.test/", transport=httpx.MockTransport(respond))
+    assert seen[0].headers["accept-encoding"] == "gzip, deflate"
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate"])
+async def test_decodes_gzip_and_deflate(fake_dns: dict[str, str], encoding: str) -> None:
+    import gzip  # noqa: PLC0415
+    import zlib  # noqa: PLC0415
+
+    fake_dns["shop.test"] = "93.184.216.34"
+    page = b"<html>" + b"product " * 5000 + b"</html>"
+    body = gzip.compress(page) if encoding == "gzip" else zlib.compress(page)
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, stream=httpx.ByteStream(body), headers={"content-encoding": encoding})
+    )
+    assert await fetch_public("https://shop.test/", transport=transport) == page
+
+
+async def test_gzip_bomb_is_refused(fake_dns: dict[str, str]) -> None:
+    import gzip  # noqa: PLC0415
+
+    fake_dns["shop.test"] = "93.184.216.34"
+    bomb = gzip.compress(b"\0" * (8 * 1024 * 1024))
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, stream=httpx.ByteStream(bomb), headers={"content-encoding": "gzip"})
+    )
+    with pytest.raises(ValueError, match="exceeds"):
+        await fetch_public("https://shop.test/bomb", transport=transport, max_bytes=1024 * 1024)
+
+
+@pytest.mark.parametrize("address", ["64:ff9b::a9fe:a9fe", "64:ff9b::7f00:1", "::127.0.0.1", "::ffff:10.0.0.1"])
+async def test_rejects_ipv6_forms_of_private_ipv4(monkeypatch: pytest.MonkeyPatch, address: str) -> None:
+    async def getaddrinfo(self: object, host: str, port: int, **_: object) -> list[tuple]:
+        return [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", (address, port, 0, 0))]
+
+    monkeypatch.setattr("asyncio.base_events.BaseEventLoop.getaddrinfo", getaddrinfo)
+    with pytest.raises(UnsafeURLError):
+        await net._assert_public("http://nat64.test/")

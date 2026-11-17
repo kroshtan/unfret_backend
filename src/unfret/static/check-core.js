@@ -43,6 +43,59 @@ export function sharedLink(params) {
   return "";
 }
 
+// ── What kind of page a link is, before or without opening it ─────────────────────────────────────────────
+
+// Marketplaces: on these, any link but the home page or a search names one listing, ad or seller.
+const MARKETPLACE_RE =
+  /(?:^|\.)(?:amazon|ebay|bol|aliexpress|temu|shein|etsy|wish|walmart|zalando|vinted|marktplaats|2dehands|kleinanzeigen|leboncoin|wallapop|subito|allegro|cdiscount|rakuten|otto)\.[a-z.]+$/i;
+// A product, an ad or a profile by its path: /item/, /itm/ (eBay), /dp/ and /gp/product/ (Amazon), /p/, /pd/,
+// /ip/ (Walmart), /product/, /products/ (Shopify), /listing/ (Etsy), /goods (Temu), /v/…/m123 (Marktplaats), a
+// seller's /profile/, /seller/ or /user/.
+const ITEM_PATH_RE =
+  /\/(?:items?|itm|dp|gp\/product|p|pd|ip|products?|listings?|goods|offer|ads?|aanbod|v|profile|sellers?|users?|usr|members?|professionals?)(?:\/[^/]|\.html)/i;
+const ITEM_FILE_RE = /(?:-p-\d+|\/goods)\.html$/i;
+// A search or a category, never one item: /s, /search, /sch/, /w/ (AliExpress), /wholesale, /q/, /c/, /category…
+const SEARCH_PATH_RE = /^\/(?:[a-z]{2}(?:[-_][a-z]{2})?\/)*(?:s|search|sch|w|wholesale|q|c|l|category|categories|catalog|b|browse)(?:[/.?]|$)/i;
+const SEARCH_PARAM_RE = /^(?:q|k|query|search|searchtext|search_key|keyword|keywords|_nkw|text)$/i;
+
+function parsed(link) {
+  try {
+    const url = new URL(link);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a link looks like one product, ad or seller's page, rather than a search, a category or a home page. */
+export function looksLikeItem(link) {
+  const url = parsed(link);
+  if (!url) return false;
+  const path = url.pathname;
+  if ([...url.searchParams.keys()].some((key) => SEARCH_PARAM_RE.test(key)) || SEARCH_PATH_RE.test(path)) return false;
+  if (ITEM_PATH_RE.test(path) || ITEM_FILE_RE.test(path)) return true;
+  return MARKETPLACE_RE.test(url.hostname) && path.replace(/\/+$/, "") !== "";
+}
+
+/** The shop of `shops` ([{name, hosts}]) a link is on, matching its host or a subdomain of one; null if none. */
+export function shopOf(link, shops) {
+  const url = parsed(link);
+  if (!url) return null;
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  return shops.find((shop) => shop.hosts.some((h) => host === h || host.endsWith(`.${h}`))) ?? null;
+}
+
+/**
+ * Which words a page the server couldn't read gets: "shop" (a listed shop that turns the server away: name it),
+ * "item" (a product, ad or profile that came back empty: the shop builds its pages in the browser) or "reason" (the
+ * reason's own words, with their hint for searches and home pages).
+ */
+export function unreadableKind(code, link, shops) {
+  if (shopOf(link, shops)) return "shop";
+  if (code === "PAGE_TOO_THIN" && looksLikeItem(link)) return "item";
+  return "reason";
+}
+
 // The same words and symbols as the extension, so a verdict never relies on colour alone.
 export const BAND_WORD = {
   reliable: "Looks fine",

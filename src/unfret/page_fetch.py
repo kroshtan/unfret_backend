@@ -16,12 +16,13 @@ from unfret.config import settings
 from unfret.facts.extract import parse_page
 from unfret.facts.service_platforms import SERVICE_PLATFORMS
 from unfret.graph.platforms import platform_rule
-from unfret.net import UnresolvableHostError, UnsafeURLError, fetch_public
+from unfret.net import RefusedError, UnresolvableHostError, UnsafeURLError, fetch_public
 
 Reason = Literal["PAGE_UNAVAILABLE", "PAGE_BLOCKED", "PAGE_TOO_THIN", "INVALID_URL"]
 
-# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon, Fastly's client challenge);
-# markers, not generic captchas, so a shop with a reCAPTCHA newsletter form still counts as a page.
+# Interstitials served instead of the page (Cloudflare, DataDome, PerimeterX, Amazon, Fastly's client challenge,
+# Akamai's and Imperva's); markers, not generic captchas, so a shop with a reCAPTCHA newsletter form still counts as a
+# page.
 CHALLENGE_MARKERS = (
     "/cdn-cgi/challenge-platform/",
     "<title>just a moment...</title>",
@@ -32,12 +33,22 @@ CHALLENGE_MARKERS = (
     "<title>robot check</title>",
     "<title>client challenge</title>",
     "/_fs-ch-",
+    "/_sec/cp_challenge/",
+    "<title>pardon our interruption</title>",
+    "incapsula incident id",
 )
+# In the body of a refusal (any 4xx or 5xx) a bot wall's script is enough to tell it from a missing page: Kasada
+# (Otto answers 400 with it) and Akamai's "Access Denied". On a page that did load these may be legitimate scripts.
+_REFUSAL_MARKERS = (*CHALLENGE_MARKERS, "window.kpsdk", "errors.edgesuite.net")
 # Answers that mean "not for robots" rather than "no such page": refused, rate limited, or a bot wall's status
 # (Cloudflare and DataDome answer 403 or 503, LinkedIn-style walls 999).
 _BLOCKING_STATUSES = frozenset({401, 403, 405, 406, 429, 503, 999})
 # Below this much visible text, without a price or product data either, the page is a shell its scripts fill in.
 MIN_TEXT_CHARS = 400
+# A shop answers within seconds or not at all: a shop's own page takes a second or two, and some bot walls (Best
+# Buy's) let an automatic visit hang until it gives up. So the shopper waits seconds, not half a minute, for "no".
+FETCH_TIMEOUT_S = 6.0  # each connect and each read
+FETCH_TOTAL_S = 12.0  # the whole fetch, redirects included
 
 _DETAILS: dict[Reason, str] = {
     "PAGE_UNAVAILABLE": "The page couldn't be fetched.",
@@ -50,6 +61,7 @@ _PROFILE_WITHHELD = (
     "The platform doesn't show this profile to automatic checks: check it in your browser with the Unfret extension."
 )
 _UNREACHABLE = "The site couldn't be reached: its address doesn't lead anywhere (any more)."
+_NO_ANSWER = "The shop didn't answer an automatic check of this page."
 
 
 class PageUnreadableError(Exception):
@@ -119,24 +131,41 @@ def _reason_for(exc: Exception) -> Reason:
         return "PAGE_UNAVAILABLE"  # a dead domain is unreachable, not a private address
     if isinstance(exc, UnsafeURLError):
         return "INVALID_URL"
-    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _BLOCKING_STATUSES:
-        return "PAGE_BLOCKED"
+    if isinstance(exc, httpx.ReadTimeout):
+        return "PAGE_BLOCKED"  # connected and asked, and no answer: how some bot walls turn a server away
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code in _BLOCKING_STATUSES:
+            return "PAGE_BLOCKED"
+        if isinstance(exc, RefusedError) and any(marker in exc.head.lower() for marker in _REFUSAL_MARKERS):
+            return "PAGE_BLOCKED"
     return "PAGE_UNAVAILABLE"
+
+
+def _detail_for(exc: Exception) -> str:
+    if isinstance(exc, UnresolvableHostError):
+        return _UNREACHABLE
+    if isinstance(exc, httpx.ReadTimeout):
+        return _NO_ANSWER
+    return ""
 
 
 async def fetch_page(url: str) -> str:
     """
     Fetch a page for analysis, refusing anything that isn't the real, readable page.
 
+    A shop that keeps the connection waiting is given up on after :data:`FETCH_TIMEOUT_S` (``PAGE_BLOCKED``), the
+    whole fetch after :data:`FETCH_TOTAL_S`.
+
     :param url: The page's absolute http(s) URL.
     :return: Its HTML.
     :raises PageUnreadableError: If it can't be fetched, the shop refuses us, it is a bot check or it is too thin.
     """
     try:
-        raw = await fetch_public(url, max_bytes=settings.max_page_bytes)
+        raw = await fetch_public(
+            url, timeout=FETCH_TIMEOUT_S, total_timeout=FETCH_TOTAL_S, max_bytes=settings.max_page_bytes
+        )
     except Exception as exc:
-        detail = _UNREACHABLE if isinstance(exc, UnresolvableHostError) else ""
-        raise PageUnreadableError(_reason_for(exc), detail) from exc
+        raise PageUnreadableError(_reason_for(exc), _detail_for(exc)) from exc
     html = raw.decode("utf-8", errors="replace")
     if is_challenge_page(html):
         raise PageUnreadableError("PAGE_BLOCKED")

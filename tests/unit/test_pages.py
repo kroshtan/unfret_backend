@@ -531,3 +531,59 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
         "unfret-free-pass",
         "unfret-ref",
     }
+
+
+# ── What a tester found on 0.12.0: honest promises, the phone's main button, who handles a card ────────────────
+
+
+async def test_the_home_page_says_which_shops_need_the_extension_or_app(client: httpx.AsyncClient) -> None:
+    hero = (await client.get("/")).text.split('<section class="hero">', 1)[1].split("</section>", 1)[0]
+    assert "On Amazon, bol.com or eBay" in hero
+    note = " ".join(hero.split("turn automatic checks away", 1)[1].split("</p>", 1)[0].split())
+    assert "browser extension and the Android app still read them" in note
+    assert 'href="/check"' in note  # where the list is
+
+
+def _button_plans(tmp_path: Path, cases: list[tuple[str, bool]]) -> list[dict[str, object]]:
+    module = tmp_path / "install-button.mjs"
+    module.write_text((STATIC_DIR / "install-button.js").read_text())
+    calls = ",".join(
+        f"m.buttonPlan(m.browserChoice({json.dumps(agent)}, false), {json.dumps(small)})" for agent, small in cases
+    )
+    script = f"import * as m from {json.dumps(module.as_uri())}; process.stdout.write(JSON.stringify([{calls}]));"
+    run = subprocess.run(
+        ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True, timeout=30
+    )
+    plans: list[dict[str, object]] = json.loads(run.stdout)
+    return plans
+
+
+@pytest.mark.usefixtures("node")
+def test_on_a_phone_or_narrow_screen_check_a_link_is_the_main_button(tmp_path: Path) -> None:
+    android = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36"
+    chrome = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+    firefox = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+
+    phone, narrow, narrow_firefox, desktop, desktop_firefox = _button_plans(
+        tmp_path, [(android, False), (chrome, True), (firefox, True), (chrome, False), (firefox, False)]
+    )
+
+    assert phone == {"linkFirst": True, "store": "chrome", "mainText": "Add to Chrome", "linkText": "Check a link",
+                     "also": "computer"}  # fmt: skip
+    assert narrow["linkFirst"] and narrow["linkText"] == "Check a link" and narrow["mainText"] == "Add to Chrome"
+    assert narrow_firefox["linkFirst"] and narrow_firefox["mainText"] == "Add to Firefox"
+    assert not desktop["linkFirst"] and desktop["linkText"] == "Check a link instead"
+    assert desktop_firefox["store"] == "firefox" and desktop_firefox["also"] == "chrome"
+    script = (STATIC_DIR / "install-button.js").read_text()
+    assert '"(max-width: 40rem)", "(pointer: coarse)"' in script  # narrow or touch, the same rule on every page
+
+
+def test_the_card_buttons_say_who_handles_the_payment_and_why_the_email() -> None:
+    page = (STATIC_DIR / "checkout.html").read_text()
+    line = "Card payments are handled by Polar for Kroshtan, Unfret's maker; they ask for your email for the receipt."
+    notes = [" ".join(note.split()) for note in re.findall(r'<p class="pay-note">(.*?)</p>', page, re.DOTALL)]
+    assert notes == [line, line]  # under Buy checks' and Add to my pass's card button
+    for panel in ("new", "topup"):
+        assert page.index(f'id="{panel}-pay"') < page.index('class="pay-note"', page.index(f'id="{panel}-pay"'))
+    home = " ".join((STATIC_DIR / "index.html").read_text().split())
+    assert "asks for your email for the receipt" in home  # the same words as the home page

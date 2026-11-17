@@ -25,6 +25,8 @@ import {
   checklistFor,
   extractLink,
   sharedLink,
+  shopOf,
+  unreadableKind,
 } from "./check-core.js";
 import { el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
@@ -49,6 +51,17 @@ const UNREADABLE = {
     body: "The address may be wrong, the page gone or the site down. Check the link and try again.",
   },
 };
+// A product, an ad or a profile that came back empty: the shop builds its pages in the browser, so a hint to try the
+// product's own link would send the shopper round in circles.
+const BROWSER_ONLY_ITEM = {
+  heading: "This shop only shows its pages in a browser",
+  body: "Opened by Unfret's server, the page was almost empty: the shop builds it in your browser. Pages from this shop only work with the Unfret browser extension or the Android app.",
+};
+// The big shops known to turn the server away (listed on the page, from the server: routes/pages.py).
+const BROWSER_ONLY_SHOPS = [...document.querySelectorAll("#browser-only [data-hosts]")].map((item) => ({
+  name: item.textContent.trim(),
+  hosts: item.dataset.hosts.split(" ").filter(Boolean),
+}));
 
 const $ = (id) => document.getElementById(id);
 const form = $("form");
@@ -468,8 +481,21 @@ function showError(message, refunded) {
   showOnly("error", "again-row");
 }
 
+/** What to say about a page the server couldn't read: by the reason, the shop and whether the link is one item. */
+function unreadableText(code, link) {
+  const kind = unreadableKind(code, link, BROWSER_ONLY_SHOPS);
+  if (kind === "shop") {
+    return {
+      heading: UNREADABLE[code === "PAGE_TOO_THIN" ? code : "PAGE_BLOCKED"].heading,
+      body: `${shopOf(link, BROWSER_ONLY_SHOPS).name} turns automatic checks away, so its pages only work with the Unfret browser extension or the Android app.`,
+    };
+  }
+  if (kind === "item") return BROWSER_ONLY_ITEM;
+  return UNREADABLE[code] ?? UNREADABLE.PAGE_UNAVAILABLE;
+}
+
 function showUnreadable(code, link) {
-  const text = UNREADABLE[code] ?? UNREADABLE.PAGE_UNAVAILABLE;
+  const text = unreadableText(code, link);
   $("unreadable-heading").textContent = text.heading;
   $("unreadable-body").textContent = text.body;
   let shop = "";
@@ -539,6 +565,9 @@ async function check(link) {
   buildSteps();
   updateSteps(checklistDone([], false));
   try {
+    // A first check makes a free pass first (seconds of proof of work on a phone); for a shop known to turn the
+    // server away, ask the server first, so its "no" comes at once and the free pass waits for a page it can read.
+    if (freeAvailable() && shopOf(link, BROWSER_ONLY_SHOPS) && (await unreadableFirst(link, abort))) return;
     if (freeAvailable()) await getFreePass();
     if (!account) return await run(link, "quick", abort, "none");
     const outcome = await run(link, "deep", abort);
@@ -546,6 +575,33 @@ async function check(link) {
   } finally {
     running = null;
     busy(false);
+  }
+}
+
+// Whether the server can't read `link`, asked with a free quick check (no pass needed): true when that's on screen.
+// A page it can read after all is left for the usual check (the quick check's stream is dropped unread).
+async function unreadableFirst(link, abort) {
+  $("progress-status").textContent = "Opening the shop's page…";
+  try {
+    const response = await fetch("/v1/analyze/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ url: link, tier: "quick" }),
+      signal: abort.signal,
+      cache: "no-store",
+    });
+    if (response.ok) {
+      void response.body?.cancel();
+      return false;
+    }
+    const error = await failure(response);
+    if (!(error.code in UNREADABLE)) return false;
+    showUnreadable(error.code, link);
+    return true;
+  } catch {
+    if (!abort.signal.aborted) return false; // the usual check says what went wrong
+    showError("Cancelled. A check that hadn't finished costs nothing.", false);
+    return true;
   }
 }
 

@@ -12,8 +12,8 @@ import pytest
 
 from unfret import page_fetch
 from unfret.main import app
-from unfret.net import UnresolvableHostError, UnsafeURLError
-from unfret.routes.pages import STATIC_DIR, asset_tag
+from unfret.net import RefusedError, UnresolvableHostError, UnsafeURLError
+from unfret.routes.pages import BROWSER_ONLY_SHOPS, STATIC_DIR, asset_tag
 
 
 @pytest.fixture
@@ -156,9 +156,9 @@ def test_the_link_is_found_in_shared_text(tmp_path: Path) -> None:
 # ── Fetching the page ─────────────────────────────────────────────────────────────────────────────────────────
 
 
-def _refusal(code: int) -> httpx.HTTPStatusError:
+def _refusal(code: int, body: bytes = b"") -> httpx.HTTPStatusError:
     request = httpx.Request("GET", "https://shop.test/")
-    return httpx.HTTPStatusError("x", request=request, response=httpx.Response(code, request=request))
+    return RefusedError(httpx.Response(code, request=request), body)
 
 
 @pytest.mark.parametrize(
@@ -168,6 +168,11 @@ def _refusal(code: int) -> httpx.HTTPStatusError:
         (_refusal(999), "PAGE_BLOCKED"),
         (_refusal(404), "PAGE_UNAVAILABLE"),
         (_refusal(500), "PAGE_UNAVAILABLE"),
+        (_refusal(400), "PAGE_UNAVAILABLE"),
+        (_refusal(400, b"<script>window.KPSDK={};</script><script src='/149e/2d20/ips.js'></script>"), "PAGE_BLOCKED"),
+        (_refusal(404, b"<H1>Access Denied</H1> Reference https://errors.edgesuite.net/18.1"), "PAGE_BLOCKED"),
+        (httpx.ReadTimeout("x"), "PAGE_BLOCKED"),
+        (httpx.ConnectTimeout("x"), "PAGE_UNAVAILABLE"),
         (httpx.ConnectError("x"), "PAGE_UNAVAILABLE"),
         (ValueError("too big"), "PAGE_UNAVAILABLE"),
         (UnsafeURLError("private"), "INVALID_URL"),
@@ -183,6 +188,39 @@ async def test_fetch_failures_are_named(monkeypatch: pytest.MonkeyPatch, error: 
         await page_fetch.fetch_page("https://shop.test/p")
     assert raised.value.reason == reason
     assert "shop.test" not in raised.value.detail
+
+
+async def test_a_shop_that_keeps_the_fetch_waiting_is_given_up_on_in_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    async def hang(url: str, **kwargs: Any) -> bytes:
+        seen.update(kwargs)
+        raise httpx.ReadTimeout("no answer")
+
+    monkeypatch.setattr(page_fetch, "fetch_public", hang)
+    with pytest.raises(page_fetch.PageUnreadableError) as raised:
+        await page_fetch.fetch_page("https://shop.test/p")
+
+    assert seen["timeout"] <= 6 and seen["total_timeout"] <= 12  # was 10 s a read and 25 s in all
+    assert raised.value.reason == "PAGE_BLOCKED"
+    assert raised.value.detail == "The shop didn't answer an automatic check of this page."
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<html><head><title>Pardon Our Interruption</title></head><body>As you were browsing…</body></html>",
+        "<html><body>Request unsuccessful. Incapsula incident ID: 123-456</body></html>",
+        "<html><body><div id='sec-if-cpt-container'><script src='/_sec/cp_challenge/sec-4-4.js'></script></div>",
+    ],
+)
+def test_more_bot_walls_are_recognised(html: str) -> None:
+    assert page_fetch.is_challenge_page(html)
+
+
+def test_a_kasada_script_on_a_page_that_loaded_is_not_a_bot_wall() -> None:
+    # Only in a refusal's body: a shop's real page may carry the same script.
+    assert not page_fetch.is_challenge_page("<html><script>window.KPSDK={}</script><p>Wool sweater</p></html>")
 
 
 async def test_a_dead_domain_couldnt_be_reached_and_a_private_address_isnt_public() -> None:
@@ -220,3 +258,103 @@ def test_httpx_never_logs_the_urls_it_fetches() -> None:
     # full URL, are below its level.
     assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
     assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING
+
+
+# ── Shops whose pages only the extension and the Android app can read; the hint for an unreadable page ──────────
+
+
+async def test_the_page_lists_the_shops_that_turn_the_server_away(client: httpx.AsyncClient) -> None:
+    text = (await client.get("/check")).text
+
+    section = text.split('id="browser-only"', 1)[1].split("</details>", 1)[0]
+    for name in ("bol.com", "Coolblue", "Allbirds", "AliExpress", "Temu", "eBay"):
+        assert f">{name.replace('&', '&amp;')}</li>" in section
+    assert 'data-hosts="bol.com"' in section
+    assert "Unfret browser extension" in section and "Android app" in section
+    assert "not a judgement" in section
+    assert "scam" not in section.lower()
+    assert "{{" not in text
+
+
+def _run_core(tmp_path: Path, expression: str) -> Any:
+    module = tmp_path / "check-core.mjs"
+    module.write_text((STATIC_DIR / "check-core.js").read_text())
+    script = f"import * as core from {json.dumps(module.as_uri())};process.stdout.write(JSON.stringify({expression}));"
+    run = subprocess.run(
+        ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True, timeout=30
+    )
+    return json.loads(run.stdout)
+
+
+@pytest.mark.usefixtures("node")
+def test_a_product_ad_or_profile_link_is_told_from_a_search_or_home_page(tmp_path: Path) -> None:
+    cases = {
+        "https://www.aliexpress.com/item/1005006144375553.html": True,
+        "https://www.amazon.nl/dp/B07WTQ4YT5": True,
+        "https://www.bol.com/nl/nl/p/koptelefoon/9300000181761399/": True,
+        "https://shop.example/products/wool-sweater": True,
+        "https://shop.example/product/wool-sweater/": True,
+        "https://www.ebay.com/itm/266000000000": True,
+        "https://www.etsy.com/listing/123/mug": True,
+        "https://www.temu.com/nl-en/goods.html?goods_id=601099512345678": True,
+        "https://www.marktplaats.nl/v/fietsen/m2243708464-fiets": True,
+        "https://www.ebay.com/usr/some-seller": True,
+        "https://www.zalando.nl/tommy-jeans-jas-black-tob22t0fk-q11.html": True,  # a marketplace's listing
+        "https://www.aliexpress.com/": False,
+        "https://www.aliexpress.com/w/wholesale-airpods.html": False,
+        "https://www.amazon.nl/s?k=airpods": False,
+        "https://www.bol.com/nl/nl/s/?searchtext=airpods": False,
+        "https://www.ebay.com/sch/i.html?_nkw=airpods": False,
+        "https://shop.example/": False,
+        "https://shop.example/search?q=sweater": False,
+        "https://shop.example/collections/all": False,
+        "not a link": False,
+    }
+
+    out = _run_core(tmp_path, f"{json.dumps(list(cases))}.map((link) => core.looksLikeItem(link))")
+
+    assert dict(zip(cases, out, strict=True)) == cases
+
+
+@pytest.mark.usefixtures("node")
+def test_a_link_is_matched_to_a_listed_shop_by_its_host(tmp_path: Path) -> None:
+    shops = [{"name": name, "hosts": list(hosts)} for name, hosts in BROWSER_ONLY_SHOPS]
+    links = [
+        "https://www.bol.com/nl/nl/p/x/1/",
+        "https://www2.hm.com/nl_nl/productpage.1.html",
+        "https://nl.aliexpress.com/item/1.html",
+        "https://www.coolblue.be/nl/product/1",
+        "https://notbol.com/p/1",
+        "https://bol.com.example/p/1",
+        "https://www.zalando.nl/x.html",
+    ]
+
+    out = _run_core(
+        tmp_path, f"{json.dumps(links)}.map((link) => core.shopOf(link, {json.dumps(shops)})?.name ?? null)"
+    )
+
+    assert out == ["bol.com", "H&M", "AliExpress", "Coolblue", None, None, None]
+
+
+@pytest.mark.usefixtures("node")
+def test_an_unreadable_product_link_gets_the_extension_and_app_not_the_search_hint(tmp_path: Path) -> None:
+    shops = [{"name": "bol.com", "hosts": ["bol.com"]}]
+    cases = [
+        ("PAGE_TOO_THIN", "https://www.aliexpress.com/item/1005006144375553.html", "item"),  # the tester's case
+        ("PAGE_TOO_THIN", "https://shop.example/products/wool-sweater", "item"),
+        ("PAGE_TOO_THIN", "https://shop.example/", "reason"),  # a home page keeps "try the product's own link"
+        ("PAGE_TOO_THIN", "https://www.amazon.nl/s?k=airpods", "reason"),
+        ("PAGE_BLOCKED", "https://shop.example/products/wool-sweater", "reason"),
+        ("PAGE_BLOCKED", "https://www.bol.com/nl/nl/p/x/1/", "shop"),
+        ("PAGE_UNAVAILABLE", "https://www.bol.com/", "shop"),
+    ]
+    calls = ",".join(f"core.unreadableKind({json.dumps(c)}, {json.dumps(link)}, shops)" for c, link, _ in cases)
+
+    out = _run_core(tmp_path, f"(() => {{ const shops = {json.dumps(shops)}; return [{calls}]; }})()")
+
+    assert out == [kind for *_, kind in cases]
+    script = (STATIC_DIR / "check.js").read_text()
+    assert "If this was a search or home page" in script  # the old hint, still there for searches and home pages
+    assert "only work with the Unfret browser extension or the Android app" in script
+    # A first check of a listed shop asks the server before the free pass's proof of work.
+    assert "shopOf(link, BROWSER_ONLY_SHOPS) && (await unreadableFirst(link, abort))" in script

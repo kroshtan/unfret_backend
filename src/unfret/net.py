@@ -13,6 +13,8 @@ _USER_AGENT = "Mozilla/5.0 (compatible; Unfret/1.0)"
 _DEFAULT_TIMEOUT = 10.0  # seconds
 _DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 _MAX_REDIRECTS = 5
+# Read of a refusal's body: enough for a bot wall's markers, never a whole error page.
+_REFUSAL_HEAD_BYTES = 32 * 1024
 # Only encodings whose decoding can be stopped at the size limit: zlib takes an output cap, httpx's own decoders (and
 # zstd's or brotli's, should those libraries be installed) expand a whole chunk at once, so a few kilobytes of zstd
 # could fill the memory before the size check sees them.
@@ -31,6 +33,20 @@ class UnsafeURLError(ValueError):
 
 class UnresolvableHostError(UnsafeURLError):
     """Raised when a URL's host doesn't resolve at all (a dead or mistyped domain), not to a private address."""
+
+
+class RefusedError(httpx.HTTPStatusError):
+    """A non-2xx answer, with the start of its body: a bot wall often says who it is only there."""
+
+    def __init__(self, response: httpx.Response, head: bytes) -> None:
+        """
+        Describe the refusal (without the URL, which the caller may not want in a log).
+
+        :param response: The answer.
+        :param head: The first bytes of its decoded body (empty when it couldn't be read).
+        """
+        super().__init__(f"HTTP {response.status_code}", request=response.request, response=response)
+        self.head = head.decode("utf-8", errors="replace")
 
 
 def hostname(url: str) -> str:
@@ -119,8 +135,9 @@ async def fetch_public(
     GET a public URL, validating the target of every redirect hop.
 
     Raises ``ValueError`` if the body exceeds ``max_bytes`` (``UnsafeURLError`` if a hop targets a non-public
-    address), ``httpx.HTTPError`` on network errors and non-2xx answers (``httpx.TooManyRedirects`` for a long
-    redirect chain), and ``TimeoutError`` once ``total_timeout`` has passed.
+    address), ``httpx.HTTPError`` on network errors and non-2xx answers (:class:`RefusedError`, with the start of
+    the body, for 4xx and 5xx; ``httpx.TooManyRedirects`` for a long redirect chain), and ``TimeoutError`` once
+    ``total_timeout`` has passed.
 
     :param url: Absolute http(s) URL to fetch.
     :param timeout: Per-request timeout in seconds (each read, connect, …).
@@ -142,6 +159,8 @@ async def _fetch(url: str, *, timeout: float, max_bytes: int, transport: httpx.A
                 if response.is_redirect:
                     url = urljoin(url, response.headers["location"])
                     continue
+                if response.is_error:
+                    raise RefusedError(response, await _read_head(response, _REFUSAL_HEAD_BYTES))
                 response.raise_for_status()
                 return await _read_bounded(response, max_bytes, url)
             finally:
@@ -174,6 +193,28 @@ def _decoder(encoding: str) -> Callable[[bytes, int], bytes] | None:
         return bytes(out)
 
     return decode
+
+
+async def _read_head(response: httpx.Response, limit: int) -> bytes:
+    """
+    Read and decode the start of a body, best effort: whatever arrived before the limit or a failure.
+
+    :param response: A streamed response.
+    :param limit: Most bytes to keep.
+    :return: The first ``limit`` decoded bytes at most.
+    """
+    if response.is_stream_consumed:
+        return response.content[:limit]
+    body = bytearray()
+    try:
+        decode = _decoder(response.headers.get("content-encoding", ""))
+        async for chunk in response.aiter_raw():
+            body += chunk if decode is None else decode(chunk, limit - len(body))
+            if len(body) >= limit:
+                break
+    except ValueError, zlib.error, httpx.HTTPError:
+        pass  # what arrived is enough, or nothing is
+    return bytes(body[:limit])
 
 
 async def _read_bounded(response: httpx.Response, max_bytes: int, url: str) -> bytes:

@@ -163,3 +163,17 @@ async def test_rejects_ipv6_forms_of_private_ipv4(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("asyncio.base_events.BaseEventLoop.getaddrinfo", getaddrinfo)
     with pytest.raises(UnsafeURLError):
         await net._assert_public("http://nat64.test/")
+
+
+async def test_a_refusal_carries_the_start_of_its_body(fake_dns: dict[str, str]) -> None:
+    fake_dns["shop.test"] = "93.184.216.34"
+    wall = b"<script>window.KPSDK={};</script>" + b"x" * 100_000
+    transport = httpx.MockTransport(lambda _: httpx.Response(400, content=wall))
+
+    with pytest.raises(net.RefusedError) as refused:
+        await fetch_public("https://shop.test/p/1", transport=transport)
+
+    assert refused.value.response.status_code == 400
+    assert refused.value.head.startswith("<script>window.KPSDK")
+    assert len(refused.value.head) == 32 * 1024  # the start only
+    assert "shop.test" not in str(refused.value)  # the message names no page

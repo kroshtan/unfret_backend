@@ -396,6 +396,50 @@ def welcome(free: int = 0, setup: int = 0, note: str = "") -> HTMLResponse:
     return HTMLResponse(versioned(page.replace("{{free_note}}", shown)), headers=PAGE_HEADERS)
 
 
+# Big shops that turn the server's fetch away (a refusal, a bot check, or a page that only its scripts fill in), so a
+# link from them can't be checked on /check: the extension and the Android app read them in the shopper's own browser.
+# Each was tried with a product page and its home page from unfret.net's server (2026-11-17). Technical notes, never a
+# judgement of the shop. ``hosts`` let /check's script recognise a link before it asks (check.js).
+BROWSER_ONLY_SHOPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("AliExpress", ("aliexpress.com", "aliexpress.us")),
+    ("Allbirds", ("allbirds.com", "allbirds.eu", "allbirds.co.uk", "allbirds.ca", "allbirds.com.au")),
+    ("Best Buy", ("bestbuy.com", "bestbuy.ca")),
+    ("bol.com", ("bol.com",)),
+    ("Coolblue", ("coolblue.nl", "coolblue.be", "coolblue.de")),
+    ("Costco", ("costco.com", "costco.ca", "costco.co.uk")),
+    ("De Bijenkorf", ("debijenkorf.nl", "debijenkorf.be")),
+    (
+        "Decathlon",
+        ("decathlon.com", "decathlon.nl", "decathlon.be", "decathlon.fr", "decathlon.de", "decathlon.es"),
+    ),
+    (
+        "eBay",
+        ("ebay.com", "ebay.nl", "ebay.de", "ebay.co.uk", "ebay.fr", "ebay.it", "ebay.es", "ebay.be", "ebay.at"),
+    ),
+    ("Etsy", ("etsy.com",)),
+    ("Fnac", ("fnac.com", "fnac.be", "fnac.es", "fnac.pt")),
+    ("Gamma", ("gamma.nl", "gamma.be")),
+    ("H&M", ("hm.com",)),
+    ("Home Depot", ("homedepot.com", "homedepot.ca")),
+    ("MediaMarkt", ("mediamarkt.nl", "mediamarkt.de", "mediamarkt.be", "mediamarkt.es", "mediamarkt.at")),
+    ("Otto", ("otto.de",)),
+    ("Temu", ("temu.com",)),
+    ("Wehkamp", ("wehkamp.nl",)),
+)
+
+
+def browser_only_list() -> str:
+    """
+    The shops of :data:`BROWSER_ONLY_SHOPS` as list items, each with its hosts for the page's script.
+
+    :return: ``<li>`` elements.
+    """
+    return "\n          ".join(
+        f'<li data-hosts="{html.escape(" ".join(hosts))}">{html.escape(name)}</li>'
+        for name, hosts in BROWSER_ONLY_SHOPS
+    )
+
+
 @router.get("/check", response_class=HTMLResponse)
 def check_page() -> HTMLResponse:
     """
@@ -410,7 +454,11 @@ def check_page() -> HTMLResponse:
         f'<li><button type="button" class="link" data-example="{html.escape(link)}">{html.escape(label)}</button></li>'
         for label, link in settings.check_examples
     )
-    page = template("check.html", "/check").replace("{{examples}}", examples)
+    page = (
+        template("check.html", "/check")
+        .replace("{{examples}}", examples)
+        .replace("{{browser_only_shops}}", browser_only_list())
+    )
     return HTMLResponse(versioned(page), headers=CHECK_PAGE_HEADERS)
 
 

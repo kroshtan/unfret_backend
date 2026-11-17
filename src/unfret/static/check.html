@@ -54,6 +54,19 @@
       <p id="hint" class="muted small">One check per link. Nothing is sent until you tap Check.</p>
     </form>
 
+    <details id="browser-only" class="browser-only small">
+      <summary>Shops that only work with the extension or the app</summary>
+      <p>These big shops turn automatic checks away, so a link from them can't be checked on this page. Use the
+        <a href="/extension">Unfret browser extension</a> or the
+        <a href="https://git.kroshtan.com/kroshtan/unfret_android" rel="noopener">Android app</a> for these: they
+        read the page in your own browser, as you see it.</p>
+      <ul class="shop-list">
+          {{browser_only_shops}}
+      </ul>
+      <p class="muted">A technical note about how these shops answer automatic visits, not a judgement of the
+        shops.</p>
+    </details>
+
     <section id="examples" class="examples small" aria-labelledby="examples-heading">
       <h2 id="examples-heading" class="small">Or try one of these</h2>
       <ul class="example-links">
@@ -147,8 +160,9 @@
       <p id="unreadable-body"></p>
       <p id="unreadable-shop" class="small"></p>
       <p><strong>No check was used.</strong></p>
-      <p>For a full check, open the page on a computer with the <a href="/extension">Unfret browser extension</a>: it
-        reads the page as your browser shows it.</p>
+      <p>For a full check, open the page with the <a href="/extension">Unfret browser extension</a> on a computer, or
+        in the <a href="https://git.kroshtan.com/kroshtan/unfret_android" rel="noopener">Unfret Android app</a>: both
+        read the page in your own browser, as you see it.</p>
     </section>
 
 

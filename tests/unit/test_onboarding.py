@@ -39,7 +39,11 @@ async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> N
     assert f'"/static/{asset_tag()}/site.css"' in page and '"/static/site.css"' not in page
     # Nothing loaded from elsewhere: no script at all, and the only outside addresses are the footer's links.
     assert "<script" not in page
-    for footer_link in ('href="https://git.kroshtan.com/kroshtan/unfret_backend"', 'href="https://kroshtan.com"'):
+    sources = [
+        f'href="https://git.kroshtan.com/kroshtan/{repo}"'
+        for repo in ("unfret_backend", "unfret_extension", "unfret_android")
+    ]
+    for footer_link in (*sources, 'href="https://kroshtan.com"'):
         page = page.replace(footer_link, "")
     assert "http://" not in page and "https://" not in page
 

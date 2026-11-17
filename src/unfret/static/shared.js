@@ -9,12 +9,11 @@ const shareId = window.location.pathname.split("/").pop();
 try {
   const result = JSON.parse($("case-data")?.textContent ?? "null");
   if (result?.verdict) {
-    const { nodes, details } = resultNodes(result, {
+    const { nodes } = resultNodes(result, {
       band: result.verdict.band,
       label: result.verdict.label,
       symbol: result.verdict.symbol,
     });
-    if (details) nodes.push(details);
     $("result-body").replaceChildren(...nodes);
   }
 } catch {

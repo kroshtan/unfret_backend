@@ -218,9 +218,11 @@ HEADLINE_MAX_WORDS = 25
 
 def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy: dict[str, Any]) -> str:
     """
-    The headline without an LLM: the verdict label and its (up to two) strongest concerns, else the band's sentence.
+    The headline without an LLM: the verdict's (up to two) strongest concerns, else the band's sentence.
 
-    A reliable page names its one note ("Looks fine, but one thing to note: …") rather than saying nothing stood out.
+    Every client shows the verdict's label right above the headline, so the headline never repeats it: "Fake
+    countdown and unknown brand.", not "Many warning signs: fake countdown and unknown brand.". A reliable page names
+    its one note ("One thing to note: …") rather than saying nothing stood out.
 
     :param band: The verdict band.
     :param fired: The keys of the reasons that fired, strongest first.
@@ -239,20 +241,41 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
     for count in (2, 1):
         if len(titles) >= count:
             joined = f" {copy['and']} ".join(titles[:count])
+            joined = joined[0].upper() + joined[1:]
             headline = str(copy["headline_reasons"].format(label=copy["labels"][band], reasons=joined))
             if len(headline.split()) <= HEADLINE_MAX_WORDS:
                 return headline
     return sentence
 
 
-def fit_headline(text: str) -> str | None:
+def without_label(text: str, label: str) -> str:
+    """
+    A headline without the verdict's label in front ("Many warning signs: fake countdown." → "Fake countdown.").
+
+    Clients show the label right above the headline; repeating it reads as a stutter.
+
+    :param text: The headline.
+    :param label: The verdict's label.
+    :return: The headline, its first letter capitalised, or ``text`` unchanged if it doesn't start with the label.
+    """
+    match = re.match(rf"\s*{re.escape(label)}\s*(?:[:,.;!—–-]\s*(?:but\s+)?)?", text, flags=re.IGNORECASE)
+    rest = text[match.end() :] if match else ""
+    if not match or len(rest.split()) < 2:
+        return text
+    return rest[0].upper() + rest[1:]
+
+
+def fit_headline(text: str, label: str | None = None) -> str | None:
     """
     A written headline, if it is one sentence of at most :data:`HEADLINE_MAX_WORDS` words.
 
     :param text: The LLM's sentence.
+    :param label: The verdict's label, taken off the front if the sentence starts with it (:func:`without_label`).
     :return: The sentence, stripped, or ``None`` when it is empty or too long (the template is used instead).
     """
     text = " ".join(text.split())
+    if label:
+        text = without_label(text, label)
     if not text or len(text.split()) > HEADLINE_MAX_WORDS:
         return None
     return text
@@ -824,7 +847,8 @@ def build(
     return Verdict(
         band=band,
         label=copy["labels"][band],
-        headline=headline or template_headline(band, keys[:2], reasons, copy),
+        headline=(without_label(headline, copy["labels"][band]) if headline else "")
+        or template_headline(band, keys[:2], reasons, copy),
         reasons=reasons,
         positives=positives,
     )

@@ -2,7 +2,7 @@
   "id": "/check",
   "name": "Unfret",
   "short_name": "Unfret",
-  "description": "Check a product link before you buy: fake discounts, made-up brands, generic factory goods and pushy tricks.",
+  "description": "Check a link before you buy or hire: a web shop, a second-hand ad or a tradesperson. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.",
   "lang": "en",
   "start_url": "/check",
   "scope": "/",

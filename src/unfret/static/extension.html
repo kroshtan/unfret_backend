@@ -4,49 +4,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>Install the extension · Unfret</title>
+  <title>Get Unfret · for your browser and your phone</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
-  <header class="site-header">
-    <div class="inner">
-      <a class="wordmark" href="/" aria-label="Unfret home">
-        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Unfret</span>
-      </a>
-      <nav class="site-nav" aria-label="Main">
-        <a class="optional" href="/check">Check a link</a>
-        <a href="/checkout">Buy checks</a>
-        <a class="optional" href="/connect">Sign in</a>
-        <a class="cta" href="/extension">Get Unfret</a>
-      </nav>
-    </div>
-  </header>
+  {{header}}
   <main class="install">
     <div class="install-grid">
       <div>
         <p class="eyebrow">Free to install</p>
-        <h1>Get Unfret for your browser</h1>
-        <p class="lead">Unfret is in the Chrome Web Store and on Firefox Add-ons, and keeps itself up to date. Pick the
-          store for your browser.</p>
+        <h1>Get Unfret</h1>
+        <p class="lead">In your browser on a computer, or as an app on your phone. Either way Unfret reads a product
+          page, an ad or a company's site when you ask, and tells you in plain words whether it adds up.</p>
+
+        <h2 id="browser">In your browser</h2>
         <p class="buttons">
           <a class="button primary large" href="{{store_url}}" rel="noopener">Add to Chrome</a>
           <a class="button primary large" href="{{firefox_url}}" rel="noopener">Add to Firefox</a>
         </p>
-        <p class="muted small"><b>Chrome Web Store:</b> Chrome, Brave, Edge, Vivaldi, Opera and other Chromium
-          browsers. <b>Firefox Add-ons:</b> Firefox.</p>
-        <h2>After installing</h2>
+        <p class="muted small">The Chrome Web Store also serves Edge, Brave, Opera and Vivaldi. Unfret keeps itself up
+          to date.</p>
         <ol class="howto">
           <li><b>Pin it.</b> Click the puzzle piece in your browser's toolbar and pin Unfret, so it's one click away.</li>
-          <li><b>Get some checks.</b> <a href="/checkout">Buy a pack</a> by card or crypto, or use an intro code if
-            someone shared one with you.</li>
-          <li><b>Click Unfret on a product page.</b> It reads that page, only when you click, and answers in plain
-            words.</li>
+          <li><b>Get some checks.</b> <a href="/checkout">Buy a pack</a>, or use a code if someone shared one with
+            you.</li>
+          <li><b>Click Unfret on a page you're about to buy from.</b> It reads that page, only when you click, and
+            answers in plain words.</li>
         </ol>
-        <p class="muted small">On a phone, or a computer where you can't add extensions? <a href="/check">Check a
-          link</a> on the web instead; a few shops block those checks, the extension isn't affected. The code is open
-          source.</p>
+
+        <h2 id="phone">On your phone</h2>
+        <div class="phone-get">
+          <div>
+            <p>Unfret installs as an app from your phone's browser: no app store needed. Once it's on your home screen,
+              share any product link to Unfret, from your browser or a shopping app, and it checks it for you.</p>
+            <ol class="howto">
+              <li><b>Open <a href="/check">{{check_link}}</a></b> on your phone<span class="on-computer">, or scan
+                the code</span>.</li>
+              <li><b>Android:</b> tap <b>Install</b> on the page, or <b>Add to Home screen</b> in the browser's menu.
+                <b>iPhone:</b> tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+            </ol>
+            <p class="buttons on-phone"><a class="button primary large" href="/check">Open Unfret</a></p>
+          </div>
+          <img class="qr on-computer" src="{{phone_qr}}" width="156" height="156"
+            alt="QR code that opens Unfret's link checker on your phone">
+        </div>
+        <p class="muted small">Some shops refuse automatic visits, so a few can only be checked from the browser
+          extension, which reads the page as your browser shows it.</p>
       </div>
       <div class="demo solo" role="img" aria-label="An example of Unfret's answer: Looks fine, with what looks good.">
           <div class="popup" aria-hidden="true">
@@ -67,32 +71,6 @@
     </div>
   </main>
 
-  <footer class="site-footer">
-    <div class="inner">
-      <div class="about">
-        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
-        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
-      </div>
-      <div>
-        <h2>Use Unfret</h2>
-        <ul>
-          <li><a href="/extension">Get the extension</a></li>
-          <li><a href="/check">Check a link</a></li>
-          <li><a href="/checkout">Buy checks</a></li>
-          <li><a href="/connect">Sign in</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>About</h2>
-        <ul>
-          <li><a href="/privacy">Privacy</a></li>
-          <li><a href="/llms.txt">For AI agents</a></li>
-          <li><a href="/docs">API reference</a></li>
-          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
-        </ul>
-      </div>
-      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
-    </div>
-  </footer>
+  {{footer}}
 </body>
 </html>

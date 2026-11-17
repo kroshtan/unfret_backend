@@ -196,8 +196,8 @@ async def test_agents_get_the_template_headline_without_an_llm_call(monkeypatch:
 
     result = await nodes.judge_node(state)
 
-    assert result["explanation"].startswith("Many warning signs: ")
-    assert "too-good discount" in result["explanation"]
+    assert result["explanation"].startswith("Too-good discount")  # the label is shown above it, never repeated
+    assert not result["explanation"].startswith("Many warning signs")
 
 
 async def test_a_rambling_headline_is_replaced_by_the_template(monkeypatch: pytest.MonkeyPatch) -> None:

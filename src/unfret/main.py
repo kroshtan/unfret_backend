@@ -133,6 +133,12 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
 app = UnfretAPI(
     title="Unfret API",
     version=__version__,
+    description=(
+        "Scam, dropshipping and dark-pattern signals for a web shop, a marketplace listing, a second-hand ad or a "
+        "service provider's site. Start with the [developer guide](/developers): the MCP server, pay-per-check over "
+        "x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as "
+        "`Authorization: Bearer ufk_…`, on `POST /v1/analyze`."
+    ),
     lifespan=lifespan,
 )
 

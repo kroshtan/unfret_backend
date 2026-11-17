@@ -1,5 +1,5 @@
-// How a result looks, shared by the link checker (/check) and the showcase pages (/showcase/{id}): the verdict band
-// as a word and a symbol, the headline, the findings as cards with an expandable "Why?", and the details.
+// How a result looks, shared by the link checker (/check), shared results (/r/{id}) and the showcase pages
+// (/showcase/{id}): the verdict band as a word and a sign, the headline, and the findings as cards.
 import { ownThumbnails } from "./check-core.js";
 
 export function el(tag, className, text) {
@@ -15,36 +15,48 @@ export function listOf(items) {
   return ul;
 }
 
+// A reason or a good point: its title, and what it means right below it (as the extension shows it: nothing to tap
+// open). Photos matched on other shops fold out, since they're a closer look rather than the point.
 export function card(className, title, detail, thumbs = []) {
   const li = el("li", `card ${className}`);
   li.append(el("span", "title", title));
-  if (detail || thumbs.length) {
-    const why = el("details");
-    why.append(el("summary", undefined, "Why?"));
-    if (detail) why.append(el("p", undefined, detail));
-    if (thumbs.length) {
-      const row = el("div", "thumbs");
-      for (const src of thumbs) {
-        const img = el("img");
-        img.src = src;
-        img.alt = "A matching photo on another shop";
-        img.width = 64;
-        img.height = 64;
-        img.loading = "lazy";
-        img.referrerPolicy = "no-referrer";
-        img.addEventListener("error", () => img.remove());
-        row.append(img);
-      }
-      why.append(row);
+  if (detail) li.append(el("p", "detail", detail));
+  if (thumbs.length) {
+    const photos = el("details");
+    photos.append(el("summary", undefined, thumbs.length === 1 ? "See the matching photo" : "See the matching photos"));
+    const row = el("div", "thumbs");
+    for (const src of thumbs) {
+      const img = el("img");
+      img.src = src;
+      img.alt = "A matching photo on another shop";
+      img.width = 64;
+      img.height = 64;
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      img.addEventListener("error", () => img.remove());
+      row.append(img);
     }
-    li.append(why);
+    photos.append(row);
+    li.append(photos);
   }
   return li;
 }
 
 /**
- * The verdict and findings of a result, and its details (or null): `band` is the CSS band (null: not assessed),
- * `label` and `symbol` the band in words and as a sign.
+ * The headline without the label in front: results checked before headlines stopped repeating the label (cached,
+ * shared or shown) still read "Many warning signs: fake countdown.", right under "Many warning signs".
+ */
+export function headlineOf(headline, label) {
+  const text = String(headline ?? "");
+  if (!label || !text.toLowerCase().startsWith(label.toLowerCase())) return text;
+  const rest = text.slice(label.length).replace(/^\s*[:,.;!—–-]\s*(but\s+)?/i, "");
+  return rest.split(/\s+/).length >= 2 ? rest[0].toUpperCase() + rest.slice(1) : text;
+}
+
+/**
+ * The verdict and its findings as nodes: `band` is the CSS band (null: not assessed), `label` and `symbol` the band
+ * in words and as a sign (drawn by the stylesheet). The scorer's details (signals, model, confidence) stay in the
+ * API for those who want them; a shopper gets the reasons, each with what it means.
  */
 export function resultNodes(result, { band, label, symbol }) {
   const verdict = result.verdict;
@@ -52,7 +64,7 @@ export function resultNodes(result, { band, label, symbol }) {
   const sign = el("span", "symbol", symbol);
   sign.setAttribute("aria-hidden", "true");
   head.append(sign, el("p", "label", label));
-  const nodes = [head, el("p", "headline", verdict?.headline ?? result.explanation)];
+  const nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
 
   const reasons = verdict?.reasons?.length
     ? [
@@ -64,29 +76,5 @@ export function resultNodes(result, { band, label, symbol }) {
     ? [el("h2", undefined, "What looks good"), listOf(verdict.positives.map((p) => card("good", p.title, p.detail)))]
     : [];
   nodes.push(...(band === "reliable" ? [...positives, ...reasons] : [...reasons, ...positives]));
-  return { nodes, details: detailsNode(result.assessment) };
-}
-
-function detailsNode(assessment) {
-  if (!assessment?.flags?.length) return null;
-  const details = el("details", "details");
-  details.append(el("summary", undefined, "Show details"));
-  const signals = assessment.flags.filter((f) => f.kind !== "context");
-  const context = assessment.flags.filter((f) => f.kind === "context");
-  for (const [title, flags] of [
-    ["Signals", signals],
-    ["About this page", context],
-  ]) {
-    if (!flags.length) continue;
-    const ul = el("ul");
-    for (const flag of flags) {
-      const li = el("li", undefined, flag.label ?? "Signal");
-      if (flag.evidence) li.append(document.createTextNode(`: ${flag.evidence}`));
-      ul.append(li);
-    }
-    details.append(el("h3", undefined, title), ul);
-  }
-  const confidence = typeof assessment.confidence === "number" ? `${Math.round(assessment.confidence * 100)}%` : "–";
-  details.append(el("p", "muted small", `Model ${assessment.model_version || "–"} · confidence ${confidence}`));
-  return details;
+  return { nodes };
 }

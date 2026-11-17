@@ -76,6 +76,9 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
     assert doc["suggested_packs"][0] == {"checks": 25, "usd_micros": 5_000_000}
     assert doc["vat"]["mode"] == "nl_under_threshold"
     assert doc["vat"]["eu_rates_pct"]["DE"] == "21"  # Dutch VAT for every EU buyer under the threshold
+    # By card the provider charges each buyer their own country's rate: the pages show card prices with that.
+    assert (doc["vat"]["card_rates_pct"]["DE"], doc["vat"]["card_rates_pct"]["FI"]) == ("19", "25.5")
+    assert "US" not in doc["vat"]["card_rates_pct"]
     usdc = doc["usdc"]
     assert (usdc["mint"], usdc["analysis_units"]) == (str(USDC), 200_000)
     assert usdc["x402"] == {"quick_units": 10_000, "deep_units": 200_000}

@@ -27,7 +27,14 @@ from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, e
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
-from unfret.schemas.errors import BadRequestError, NotFoundError, ServiceUnavailableError
+from unfret.schemas.errors import (
+    BadRequestError,
+    ConflictError,
+    GoneError,
+    NotFoundError,
+    ServiceUnavailableError,
+    TooManyRequestsError,
+)
 
 logger = structlog.get_logger("unfret")
 
@@ -484,6 +491,51 @@ class FiatCheckoutStatusResponse(BaseModel):
     paid: bool = Field(description="True once the provider's webhook confirmed the payment and the key was credited.")
     checks: int | None = Field(description="The pack size the checkout is for.")
     invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
+    reissued: bool = Field(
+        default=False,
+        description="True when the purchase was picked up in another browser (POST /v1/credits/fiat-checkouts/"
+        "{checkout_id}/pass): the key this browser made for it was replaced and no longer works.",
+    )
+
+
+class ReissuedPassResponse(BaseModel):
+    """A card purchase picked up in another browser: a fresh pass (API key) for it, shown this once."""
+
+    key_id: str = Field(description="The key's public id (unchanged).")
+    key: str = Field(description="The new key (the pass). Send as Authorization: Bearer <key>.")
+    recovery_code: str = Field(description="The new recovery code (the backup code).")
+    account: str = Field(description="The ledger account, key:<id>.")
+    checks: int | None = Field(description="The pack size the checkout paid for.")
+    checks_remaining: int = Field(description="The key's balance in checks.")
+    invites: list[str] = Field(default_factory=list, description="The pack's invite codes, if not collected yet.")
+
+
+class CheckoutNotPaidError(ConflictError):
+    """The checkout exists, but its payment hasn't been confirmed (yet)."""
+
+    error_code = "CHECKOUT_NOT_PAID"
+    headers = {"Cache-Control": "no-store", "Retry-After": "3"}
+
+
+class CheckoutToppedUpError(ConflictError):
+    """The checkout added checks to a pass that existed before it: that pass is never replaced from here."""
+
+    error_code = "CHECKOUT_TOPPED_UP"
+    headers = {"Cache-Control": "no-store"}
+
+
+class CheckoutCollectedError(ConflictError):
+    """The purchase was already picked up, in the browser that paid or by an earlier reissue."""
+
+    error_code = "CHECKOUT_COLLECTED"
+    headers = {"Cache-Control": "no-store"}
+
+
+class CheckoutExpiredError(GoneError):
+    """The payment is older than the reissue window."""
+
+    error_code = "CHECKOUT_EXPIRED"
+    headers = {"Cache-Control": "no-store"}
 
 
 class UnknownCheckoutError(NotFoundError):
@@ -542,7 +594,9 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     if currency == "eur" and not euros_on(settings):
         raise BadRequestError("Card payments are in US dollars only.")
     account = await _key_account(request, body.key_id)
-    return_url = f"{settings.public_base_url}/checkout?paid=1"
+    # The provider fills in the checkout's id: back in another browser (a bank app, a phone), which has neither the
+    # pass nor the claim token, /checkout can still pick the purchase up (fiat_checkout_pass).
+    return_url = f"{settings.public_base_url}/checkout?paid=1&checkout={provider.checkout_id_placeholder}"
     checkout, paid_with = None, body.payment_method
     # As asked first, then a dollar card checkout rather than no checkout.
     attempts = {(currency, method.billing_country if method else None): body.payment_method, ("usd", None): "card"}
@@ -602,7 +656,69 @@ async def fiat_checkout_status(
     found = await invites.checkout_status(request.app.db_pool, provider.name, checkout_id[:100], x_unfret_claim)
     if found is None:
         raise UnknownCheckoutError("Unknown checkout.")
-    return FiatCheckoutStatusResponse(paid=found.paid, checks=found.checks, invites=found.invites)
+    return FiatCheckoutStatusResponse(
+        paid=found.paid, checks=found.checks, invites=found.invites, reissued=found.reissued
+    )
+
+
+@router.post("/v1/credits/fiat-checkouts/{checkout_id}/pass", response_model=ReissuedPassResponse)
+async def fiat_checkout_pass(request: Request, response: Response, checkout_id: str) -> ReissuedPassResponse:
+    """
+    Pick up a card purchase in another browser: a fresh pass (API key) for the key it paid for, and its invites.
+
+    For a buyer whose bank app or phone brought them back to a browser without the pass that was made for the
+    purchase. The provider's return link names the checkout (``/checkout?paid=1&checkout=<id>``). Allowed once,
+    within 24 hours of the payment, and only while the browser that paid hasn't picked the purchase up itself (a
+    status poll with its claim token after payment); the key is rotated: a new key and recovery code, the same id
+    and balance, and the old key stops working. Only for a pass made for the purchase: a top-up of a pass that had
+    checks before (or got some since, from a code or another card order) is never rotated from here.
+
+    Refusals: 404 ``UNKNOWN_CHECKOUT``; 409 ``CHECKOUT_NOT_PAID`` (not confirmed yet: retry after a few seconds);
+    409 ``CHECKOUT_TOPPED_UP`` (the checks went to a pass in use: nothing to collect here); 409
+    ``CHECKOUT_COLLECTED`` (picked up already); 410 ``CHECKOUT_EXPIRED``; 429 (too many attempts from here).
+
+    :param request: The incoming request.
+    :param response: The response (marked uncacheable).
+    :param checkout_id: The checkout's id, from the return link.
+    :return: The new pass, shown this once.
+    :raises ServiceUnavailableError: While card payments are off.
+    :raises TooManyRequestsError: If this network tried too many times today.
+    :raises UnknownCheckoutError: For an unknown checkout.
+    :raises CheckoutNotPaidError: While the payment isn't confirmed.
+    :raises CheckoutToppedUpError: When the purchase topped up a pass in use.
+    :raises CheckoutCollectedError: When the purchase was picked up already.
+    :raises CheckoutExpiredError: After the window.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    provider = get_fiat(request)
+    if provider is None or request.app.db_pool is None:
+        raise ServiceUnavailableError("Card payments are not available yet.")
+    door = get_credits(request)
+    if not door.key_guard.recoveries.allow(request.client.host if request.client else "unknown"):
+        raise TooManyRequestsError("Too many attempts from here today; try again tomorrow.")
+    try:
+        reissued = await fiat.reissue_pass(request.app.db_pool, provider.name, checkout_id[:100])
+    except fiat.ReissueError as exc:
+        if exc.reason == "not_paid":
+            raise CheckoutNotPaidError("The payment isn't confirmed yet; try again in a few seconds.") from exc
+        if exc.reason == "topped_up":
+            raise CheckoutToppedUpError("These checks were added to your pass; open Unfret where you use it.") from exc
+        if exc.reason == "collected":
+            raise CheckoutCollectedError("These checks were already picked up, in the browser you paid from.") from exc
+        if exc.reason == "expired":
+            raise CheckoutExpiredError("This purchase is too old to pick up here; use your recovery code.") from exc
+        raise UnknownCheckoutError("Unknown checkout.") from exc
+    logger.info("fiat_pass_reissued")
+    balance = await keys.balance(request.app.db_pool, reissued.key.key_id)
+    return ReissuedPassResponse(
+        key_id=reissued.key.key_id,
+        key=reissued.key.key,
+        recovery_code=reissued.key.recovery_code,
+        account=reissued.key.account,
+        checks=reissued.checks,
+        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
+        invites=reissued.invites,
+    )
 
 
 @router.post("/v1/webhooks/fiat", include_in_schema=False)

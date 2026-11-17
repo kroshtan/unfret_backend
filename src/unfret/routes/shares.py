@@ -27,7 +27,7 @@ from unfret.schemas.errors import (
     ServiceUnavailableError,
     TooManyRequestsError,
 )
-from unfret.shopper import Verdict
+from unfret.shopper import Verdict, without_label
 from unfret.visitors import DailyLimit, RateLimit
 
 router = APIRouter(prefix="/v1/shares", tags=["Shares"])
@@ -265,14 +265,14 @@ def render_share_page(view: dict[str, Any]) -> str:
     """
     fields = {
         "title": view["title"],
-        "description": f"{view['label']}: {view['headline']}",
+        "description": f"{view['label']}: {without_label(view['headline'], view['label'])}",
         "host": view["host"],
         "product_url": view["product_url"],
         "checked_on": view["checked_on_text"],
         "band": view["band"],
         "symbol": view["symbol"],
         "label": view["label"],
-        "headline": view["headline"],
+        "headline": without_label(view["headline"], view["label"]),
         "robots": ROBOTS,
     }
     return fill_page("shared.html", fields, view["result"])

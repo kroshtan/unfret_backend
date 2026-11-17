@@ -89,6 +89,8 @@ class FiatProvider(Protocol):
     """A Merchant of Record's hosted checkout and its webhooks."""
 
     name: str
+    # What the provider replaces with the checkout's id in the return URL (Polar: ``{CHECKOUT_ID}``).
+    checkout_id_placeholder: str
 
     async def create_checkout(
         self,
@@ -184,6 +186,7 @@ class FakeFiatProvider:
     """
 
     name = "fake"
+    checkout_id_placeholder = "{CHECKOUT_ID}"
     _KINDS: dict[str, Literal["paid", "refunded", "disputed"]] = {
         "order.paid": "paid",
         "order.refunded": "refunded",
@@ -212,7 +215,12 @@ class FakeFiatProvider:
         amount = pack.card_cents(currency)
         if amount is None:
             raise FiatProviderError(f"No {currency} price for this pack.")
-        fields = {"id": checkout_id, "amount": amount, "currency": currency, "return": return_url}
+        fields = {
+            "id": checkout_id,
+            "amount": amount,
+            "currency": currency,
+            "return": return_url.replace(self.checkout_id_placeholder, checkout_id),
+        }
         query = urlencode(fields | ({"country": billing_country} if billing_country else {}))
         return FiatCheckout(checkout_id, f"https://fiat.invalid/checkout?{query}")
 
@@ -288,6 +296,9 @@ async def remember_checkout(
     """
     Keep which account a checkout is for, in case the order's webhook doesn't echo the metadata.
 
+    Also whether the account had never been credited (``new_pass``): a pass made for this purchase, which
+    :func:`reissue_pass` may hand to another browser, rather than a top-up of a pass in use, which it never touches.
+
     :param db: The database pool.
     :param provider: The provider's name.
     :param checkout: The checkout.
@@ -297,7 +308,8 @@ async def remember_checkout(
         (:mod:`unfret.credits.invites`).
     """
     await db.execute(
-        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash) VALUES ($1, $2, $3, $4, $5) "
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass) "
+        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3)) "
         "ON CONFLICT DO NOTHING",
         provider,
         checkout.checkout_id,
@@ -305,6 +317,85 @@ async def remember_checkout(
         checks,
         claim_hash,
     )
+
+
+REISSUE_WINDOW = timedelta(hours=24)
+
+
+class ReissueError(Exception):
+    """Why a pass can't be reissued: ``unknown``, ``not_paid``, ``topped_up``, ``collected`` or ``expired``."""
+
+    def __init__(self, reason: Literal["unknown", "not_paid", "topped_up", "collected", "expired"]) -> None:
+        """
+        Name the reason.
+
+        :param reason: The reason.
+        """
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class Reissued:
+    """A card purchase picked up in another browser: a fresh pass for its key, and the pack's invites."""
+
+    key: keys.IssuedKey
+    checks: int | None
+    invites: list[str]
+
+
+async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now: datetime | None = None) -> Reissued:
+    """
+    Give a card buyer who came back in another browser a working pass for what they paid for.
+
+    The pass (an API key) for a card purchase is made in the buying browser and kept only there, with the claim token
+    that collects the pack's invites. A bank app or a phone can send the buyer back to another browser, which has
+    neither: the provider's return link then names the checkout (``?checkout=<id>``), and this rotates the key the
+    checkout paid for (a new key and recovery code, the same id and balance; the old ones stop working) and hands
+    over the invites. Only once, only within :data:`REISSUE_WINDOW` of the payment, and only while the buying
+    browser hasn't picked the purchase up itself (:func:`unfret.credits.invites.checkout_status`): an old link in a
+    browser's history can't take over a pass that is in use. Never for a top-up: only a checkout whose key had no
+    credit when it was made (``new_pass``), and that has had none since but this purchase (no code redeemed on it,
+    no other card order), so a pass already in use elsewhere is never rotated.
+
+    :param db: The database pool.
+    :param provider: The provider's name.
+    :param checkout_id: The checkout, from the provider's return link.
+    :param now: The current time (tests).
+    :return: The new pass, the pack size and its invites.
+    :raises ReissueError: When it can't be (yet, or any longer) reissued.
+    """
+    async with db.acquire() as conn, conn.transaction():
+        row = await conn.fetchrow(
+            "SELECT c.account, c.checks, c.paid_at, c.collected_at, c.reissued_at, c.invite_codes, c.new_pass, "
+            "COALESCE(w.invite_redeemed, FALSE) AS invite_redeemed, "
+            "(SELECT COUNT(*) FROM fiat_payments p WHERE p.account = c.account) AS orders "
+            "FROM fiat_checkouts c LEFT JOIN wallets w ON w.pubkey = c.account "
+            "WHERE c.provider = $1 AND c.checkout_id = $2 FOR UPDATE OF c",
+            provider,
+            checkout_id,
+        )
+        if row is None or not keys.is_key_account(row["account"]):
+            raise ReissueError("unknown")
+        if row["paid_at"] is None:
+            raise ReissueError("not_paid")
+        if not row["new_pass"] or row["invite_redeemed"] or row["orders"] > 1:
+            raise ReissueError("topped_up")
+        if row["collected_at"] is not None or row["reissued_at"] is not None:
+            raise ReissueError("collected")
+        if row["paid_at"] < (now or datetime.now(UTC)) - REISSUE_WINDOW:
+            raise ReissueError("expired")
+        try:
+            issued = await keys.replace(conn, row["account"].removeprefix(keys.ACCOUNT_PREFIX))
+        except keys.ApiKeyError as exc:
+            raise ReissueError("unknown") from exc
+        await conn.execute(
+            "UPDATE fiat_checkouts SET reissued_at = NOW(), invite_codes = NULL "
+            "WHERE provider = $1 AND checkout_id = $2",
+            provider,
+            checkout_id,
+        )
+    return Reissued(issued, row["checks"], list(row["invite_codes"] or []))
 
 
 async def _account_for(conn: asyncpg.Connection, event: FiatEvent, site: str) -> str | Literal["other_site"] | None:

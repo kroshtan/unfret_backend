@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#1f8a70">
-  <meta name="description" content="Check a product link before you buy: fake discounts, made-up brands, generic factory goods sold as something special and pushy tricks.">
+  <meta name="description" content="Check a link before you buy or hire: a web shop, a second-hand ad or a tradesperson's website. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.">
   <title>Check a link · Unfret</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
@@ -15,42 +15,38 @@
   <script type="module" src="/static/showcase-list.js"></script>
 </head>
 <body class="app">
-  <header class="site-header">
-    <div class="inner">
-      <a class="wordmark" href="/" aria-label="Unfret home">
-        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Unfret</span>
-      </a>
-      <nav class="site-nav" aria-label="Main">
-        <a class="optional" href="/check" aria-current="page">Check a link</a>
-        <a href="/checkout">Buy checks</a>
-        <a class="optional" href="/connect">Sign in</a>
-        <a class="cta" href="/extension">Get Unfret</a>
-      </nav>
-    </div>
-  </header>
+  {{header}}
   <main>
     <h1>Check a link</h1>
 
-    <section id="account" class="account" aria-label="Account" hidden>
-      <p><span id="account-status"></span> <span id="checks" class="checks"></span></p>
-      <p class="small"><a id="buy-more" href="/checkout">Buy checks</a> · <button id="sign-out" type="button"
-        class="link">Sign out</button></p>
-      <details id="invite" class="invite small">
+    <section id="account" class="account" aria-label="Your checks" hidden>
+      <p><span id="checks" class="checks"></span> <span id="account-status" class="muted small"></span></p>
+      <p class="small"><a id="buy-more" href="/checkout">Add checks</a> · <a href="/my-checks">My checks</a></p>
+      <details id="invite" class="invite small" hidden>
         <summary>Have an invite or intro code?</summary>
-        <p class="muted">An invite adds 3 checks, an intro code a few, to a new wallet or a new API key, one that never had checks.</p>
-        <label for="invite-input">Invite or intro code</label>
-        <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="ufi_… or a code like FRIENDS">
+        <p class="muted">Someone shared a code with you? It adds free checks to a pass that never had any.</p>
+        <label for="invite-input">Your code</label>
+        <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="For example FRIENDS">
         <button id="invite-redeem" type="button" class="secondary">Use code</button>
         <p id="invite-status" role="status" aria-live="polite"></p>
       </details>
     </section>
 
+    <section id="pass-offer" class="panel" aria-labelledby="pass-offer-heading" hidden>
+      <h2 id="pass-offer-heading">Use this pass here?</h2>
+      <p>You opened a link with Unfret pass <strong id="pass-offer-id"></strong>. This device already uses another
+        pass or wallet.</p>
+      <p class="buttons"><button id="pass-offer-use" type="button" class="primary">Use the new pass</button>
+        <button id="pass-offer-keep" type="button">Keep the current one</button></p>
+    </section>
+    <p id="pass-added" class="pass-added" role="status" hidden><span class="i i-check" aria-hidden="true"></span>
+      <span id="pass-added-text"></span></p>
+
     <form id="form" class="check-form" novalidate>
-      <label for="link">Link to a product page</label>
+      <label for="link">Link to check</label>
       <div class="field-row">
         <input id="link" name="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
-          spellcheck="false" enterkeyhint="go" placeholder="https://shop.example/product">
+          spellcheck="false" enterkeyhint="go" placeholder="A product, an ad or a company's website">
         <button id="paste" type="button" class="secondary" hidden>Paste link</button>
       </div>
       <p id="link-error" class="error-text" role="alert" hidden></p>
@@ -58,35 +54,24 @@
       <p id="hint" class="muted small">One check per link. Nothing is sent until you tap Check.</p>
     </form>
 
-    <section id="sign-in" class="panel" aria-labelledby="sign-in-heading" hidden>
-      <h2 id="sign-in-heading">Sign in to check links</h2>
-      <p id="sign-in-note" class="muted small"></p>
+    <section id="sign-in" class="panel get-started" aria-labelledby="sign-in-heading" hidden>
+      <h2 id="sign-in-heading">Get checks to start</h2>
+      <p id="sign-in-note">Checks come in packs, with no subscription and no account.</p>
+      <p class="buttons">
+        <a class="button primary" href="/checkout">Buy checks</a>
+        <a class="button" href="/checkout?mode=code">I have a code</a>
+      </p>
 
       <details class="choice" id="choice-key">
-        <summary>Use an API key</summary>
-        <p class="small">An API key holds checks without a wallet. You get one when you buy checks by card.</p>
-        <label for="key">API key</label>
-        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ufk_…">
-        <button id="key-use" type="button" class="secondary">Use this key</button>
+        <summary>I already have a pass</summary>
+        <p class="small">Your Unfret pass came with your checks. Paste it here, or open Unfret's
+          <a href="/my-checks">My checks</a> in the browser where you bought them and choose “Use on your phone”.</p>
+        <label for="key">Your pass</label>
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your pass">
+        <button id="key-use" type="button" class="secondary">Use this pass</button>
         <p id="key-status" class="small" role="status" aria-live="polite"></p>
+        <p class="small muted">Lost it? Your backup code gets you a new one on <a href="/my-checks">My checks</a>.</p>
       </details>
-
-      <details class="choice" id="choice-wallet">
-        <summary>Solana wallet</summary>
-        <p class="small">Approve a sign-in message in your wallet. It is not a transaction: it costs nothing and gives
-          Unfret no access to your funds.</p>
-        <div id="wallets" class="wallets"></div>
-        <p id="no-wallets" class="muted small">No Solana wallet in this browser. On your phone, open this page in your
-          wallet app's browser: <a id="open-phantom" href="#" rel="noopener">Phantom</a> ·
-          <a id="open-solflare" href="#" rel="noopener">Solflare</a>. On a computer, <a href="/connect">sign in on the
-          sign-in page</a> (it can use the wallet on your phone).</p>
-        <p id="wallet-status" class="small" role="status" aria-live="polite"></p>
-      </details>
-
-      <p class="choice-link"><a href="/checkout?for=key">Buy checks</a> <span class="muted small">by card or crypto;
-        no wallet needed.</span></p>
-      <p class="muted small">Have an invite or intro code? Make a new API key on the
-        <a href="/checkout?for=key">checkout page</a> (or sign in with a new wallet), then enter it here.</p>
     </section>
 
     <section id="progress" class="panel" aria-labelledby="progress-status" hidden>
@@ -122,7 +107,7 @@
           <div id="share-preview-body"></div>
           <p id="share-notice" class="small"><strong>Anyone with the link sees this verdict and the product link. It
             never says who checked.</strong></p>
-          <p class="muted small">No score and no quotes from the page. It stays up for 90 days, and you can delete it
+          <p class="muted small">Nothing quoted from the page, and nothing about you. It stays up for 90 days, and you can delete it
             sooner with a code you get next.</p>
           <p class="buttons"><button id="share-confirm" type="button" class="primary">Share</button>
             <button id="share-cancel" type="button" class="secondary">Cancel</button></p>
@@ -144,17 +129,15 @@
       <p id="unreadable-shop" class="small"></p>
       <p><strong>No check was used.</strong></p>
       <p>For a full check, open the page on a computer with the <a href="/extension">Unfret browser extension</a>: it
-        checks the page as your browser shows it.</p>
+        reads the page as your browser shows it.</p>
     </section>
 
     <section id="no-checks" class="panel notice" aria-labelledby="no-checks-heading" hidden>
       <h2 id="no-checks-heading">You have no checks left</h2>
-      <p>Buy a pack and check on. Nothing was charged for this link.</p>
+      <p>Add a pack and check on. Nothing was used for this link.</p>
       <p class="buttons">
-        <a id="buy-card" class="button primary" href="/checkout?for=key">Pay by card</a>
-        <a id="buy-crypto" class="button secondary" href="/checkout">Pay with crypto</a>
+        <a id="buy-card" class="button primary" href="/checkout">Add checks</a>
       </p>
-      <p id="buy-card-note" class="muted small">By card, the checks go to an API key: save it, then use it here.</p>
     </section>
 
     <section id="error" class="panel notice" role="alert" hidden>
@@ -171,36 +154,19 @@
       <ul class="cards spotted-list"></ul>
     </section>
 
+    <section id="install-app" class="install-app panel" aria-labelledby="install-heading" hidden>
+      <h2 id="install-heading"><span class="i i-phone" aria-hidden="true"></span> Keep Unfret on your home screen</h2>
+      <p>Then share any product link to Unfret, straight from your browser or a shopping app.</p>
+      <p id="install-ios" class="small" hidden>In Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+      <p id="install-android" class="small" hidden>In your browser's menu, tap <b>Add to Home screen</b> or
+        <b>Install app</b>.</p>
+      <button id="install-button" type="button" class="primary" hidden>Install Unfret</button>
+    </section>
+
     <p class="muted small">No history: this page keeps no list of the links you check, and Unfret's server
       doesn't store them or link them to you.</p>
   </main>
 
-  <footer class="site-footer">
-    <div class="inner">
-      <div class="about">
-        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
-        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
-      </div>
-      <div>
-        <h2>Use Unfret</h2>
-        <ul>
-          <li><a href="/extension">Get the extension</a></li>
-          <li><a href="/check">Check a link</a></li>
-          <li><a href="/checkout">Buy checks</a></li>
-          <li><a href="/connect">Sign in</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>About</h2>
-        <ul>
-          <li><a href="/privacy">Privacy</a></li>
-          <li><a href="/llms.txt">For AI agents</a></li>
-          <li><a href="/docs">API reference</a></li>
-          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
-        </ul>
-      </div>
-      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
-    </div>
-  </footer>
+  {{footer}}
 </body>
 </html>

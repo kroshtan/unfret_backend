@@ -190,6 +190,31 @@ async def recover(db: Executor, recovery_code: str) -> IssuedKey:
     return IssuedKey(key_id, key, recovery)
 
 
+async def replace(db: Executor, key_id: str) -> IssuedKey:
+    """
+    Rotate a key without its recovery code.
+
+    For a card purchase picked up in another browser, whose buyer holds neither the key nor its recovery code
+    (:func:`unfret.credits.fiat.reissue_pass` decides when that is allowed).
+
+    :param db: A pool or connection (the caller's transaction).
+    :param key_id: The id.
+    :return: The new key and recovery code; the old ones stop working.
+    :raises ApiKeyError: If there is no such key.
+    """
+    key, recovery = _secrets_for(key_id)
+    rotated = await db.fetchval(
+        "UPDATE api_keys SET key_hash = $2, recovery_hash = $3, rotated_on = CURRENT_DATE "
+        "WHERE id = $1 RETURNING TRUE",
+        key_id,
+        _hash(key),
+        _hash(recovery),
+    )
+    if not rotated:
+        raise ApiKeyError("Unknown API key.")
+    return IssuedKey(key_id, key, recovery)
+
+
 async def balance(db: Executor, key_id: str) -> int:
     """
     A key's balance.

@@ -614,7 +614,7 @@ async def test_little_to_go_on_says_so() -> None:
     _, verdict = await _verdict(PageFacts(platform="marktplaats"))
 
     assert [r.type for r in verdict.reasons] == ["p2p_little_known"]
-    assert verdict.headline == "A few things to check: little to go on."
+    assert verdict.headline == "Little to go on."  # the label ("A few things to check") is shown above it
 
 
 def test_ad_copy_is_complete_and_plain() -> None:

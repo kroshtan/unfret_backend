@@ -20,15 +20,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from unfret import __version__
 from unfret.config import settings
 from unfret.credits import invites
+from unfret.prices import format_usd
+from unfret.x402.verdict import tier_description
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-# Pages may load only their own scripts and styles, images from here (the QR code) or inline data (wallet icons),
-# and call only this API. No framing (clickjacking a sign-in), no forms posting elsewhere.
+# Pages may load only their own scripts, styles and font, images from here (the QR code) or inline data (wallet
+# icons, the icons in the stylesheet), and call only this API. No framing (clickjacking a sign-in), no forms posting
+# elsewhere.
 PAGE_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
-        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; "
+        "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     ),
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -66,6 +69,43 @@ def versioned(page: str) -> str:
     return page.replace('"/static/', f'"/static/{asset_tag()}/')
 
 
+PARTIALS_DIR = STATIC_DIR / "partials"
+_NAV_LINK_RE = r'(<a\b[^>]*\bhref="{}")'
+
+
+def _indented(block: str, indent: str) -> str:
+    return block.rstrip("\n").replace("\n", "\n" + indent)
+
+
+_CTA_RE = re.compile(r'<a class="cta" href="[^"]*">[^<]*</a>')
+
+
+def template(name: str, current: str | None = None, cta: tuple[str, str] | None = None) -> str:
+    """
+    A page's HTML with the shared header and footer in place of ``{{header}}`` and ``{{footer}}``.
+
+    The header and footer come from ``static/partials``, with the page's own menu link marked as the current page.
+    Every page has the same header and footer, so a change to the menu is made once. The result still carries the
+    page's other placeholders and its ``/static/`` addresses unversioned (see :func:`versioned`).
+
+    :param name: The page's file in the static directory.
+    :param current: The page's own path (``/checkout``), marked ``aria-current="page"`` in the menu.
+    :param cta: The menu's button as ``(href, text)``, for a page where "Get Unfret" makes no sense (``/welcome``).
+    :return: The HTML.
+    """
+    page = (STATIC_DIR / name).read_text(encoding="utf-8")
+    header = (PARTIALS_DIR / "header.html").read_text(encoding="utf-8")
+    if current:
+        logo, nav = header.split("<nav", 1)
+        nav = re.sub(_NAV_LINK_RE.format(re.escape(current)), r'\1 aria-current="page"', nav, count=1)
+        header = f"{logo}<nav{nav}"
+    if cta:
+        href, text = cta
+        header = _CTA_RE.sub(f'<a class="cta" href="{html.escape(href)}">{html.escape(text)}</a>', header, count=1)
+    footer = (PARTIALS_DIR / "footer.html").read_text(encoding="utf-8")
+    return page.replace("{{header}}", _indented(header, "  ")).replace("{{footer}}", _indented(footer, "  "))
+
+
 router = APIRouter(include_in_schema=False)
 
 
@@ -76,7 +116,7 @@ def home() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("index.html")
+    return _page("index.html", "/")
 
 
 def with_store_links(template: str) -> str:
@@ -91,8 +131,8 @@ def with_store_links(template: str) -> str:
     )
 
 
-def _page(name: str) -> HTMLResponse:
-    page = with_store_links((STATIC_DIR / name).read_text(encoding="utf-8"))
+def _page(name: str, current: str | None = None, cta: tuple[str, str] | None = None) -> HTMLResponse:
+    page = with_store_links(template(name, current, cta))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
@@ -115,7 +155,45 @@ def connect() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("connect.html")
+    return _page("connect.html", "/connect")
+
+
+@router.get("/developers", response_class=HTMLResponse)
+def developers() -> HTMLResponse:
+    """
+    For developers and AI agents: the MCP server, x402 on ``/v1/check`` and a prepaid pass as an API key.
+
+    The tiers' prices and what they include come from the same settings as ``/.well-known/x402``, so the page can't
+    drift from what a check costs.
+
+    :return: The page.
+    """
+    network = "Solana" if settings.solana_network == "solana-mainnet" else f"Solana {settings.solana_network[7:]}"
+    fields = {
+        "base_url": settings.public_base_url.rstrip("/"),
+        "network_name": network,
+        "quick_price": format_usd(settings.x402_price_quick_usd_micros),
+        "deep_price": format_usd(settings.x402_price_deep_usd_micros),
+        "quick_includes": tier_description("quick"),
+        "deep_includes": tier_description("deep"),
+    }
+    page = template("developers.html", "/developers")
+    for name, value in fields.items():
+        page = page.replace("{{" + name + "}}", html.escape(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/my-checks", response_class=HTMLResponse)
+def my_checks() -> HTMLResponse:
+    """
+    My checks: the shopper's Unfret pass (an API key) or wallet on this device, and what to do with it.
+
+    Adding checks, putting the pass on a phone, and a new pass from the backup code (the recovery code). Static like
+    every page: it reads the link checker's sign-in from the browser's storage, never from the server.
+
+    :return: The page.
+    """
+    return _page("my-checks.html", "/my-checks")
 
 
 @router.get("/privacy", response_class=HTMLResponse)
@@ -125,7 +203,7 @@ def privacy() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("privacy.html")
+    return _page("privacy.html", "/privacy")
 
 
 @router.get("/checkout", response_class=HTMLResponse)
@@ -137,7 +215,7 @@ def checkout() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("checkout.html")
+    return _page("checkout.html", "/checkout")
 
 
 @router.get("/welcome", response_class=HTMLResponse)
@@ -147,7 +225,7 @@ def welcome() -> HTMLResponse:
 
     :return: The page.
     """
-    return _page("welcome.html")
+    return _page("welcome.html", cta=("/checkout?mode=code", "I have a code"))
 
 
 @router.get("/check", response_class=HTMLResponse)
@@ -160,7 +238,7 @@ def check_page() -> HTMLResponse:
 
     :return: The page.
     """
-    return HTMLResponse(versioned((STATIC_DIR / "check.html").read_text(encoding="utf-8")), headers=CHECK_PAGE_HEADERS)
+    return HTMLResponse(versioned(template("check.html", "/check")), headers=CHECK_PAGE_HEADERS)
 
 
 @router.get("/manifest.webmanifest")

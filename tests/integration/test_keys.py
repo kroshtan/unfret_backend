@@ -130,3 +130,36 @@ async def test_key_creation_is_limited_per_network(client: httpx.AsyncClient, mo
     statuses = [(await new_key(client)).status_code for _ in range(3)]
 
     assert statuses == [201, 201, 429]
+
+
+async def test_a_key_moves_to_a_phone_by_qr_code_only_on_request(client: httpx.AsyncClient) -> None:
+    issued = (await new_key(client)).json()
+
+    qr = await client.get("/v1/keys/phone-qr", headers=bearer(issued["key"]))
+
+    assert qr.status_code == 200
+    assert qr.headers["content-type"] == "image/svg+xml" and qr.headers["cache-control"] == "no-store"
+    assert qr.text.startswith("<svg") and "<script" not in qr.text
+    assert (await client.get("/v1/keys/phone-qr")).status_code == 401  # never without the key itself
+    forged = "ufk_" + issued["key_id"] + "_" + "a" * 52
+    assert (await client.get("/v1/keys/phone-qr", headers=bearer(forged))).status_code == 401
+
+
+async def test_the_phone_code_opens_the_checker_with_the_key_in_the_fragment(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unfret.routes import keys as key_routes  # noqa: PLC0415 - patched where it is used
+
+    encoded: list[str] = []
+    make = key_routes.segno.make
+
+    def remember(content: str, **kw: object) -> object:
+        encoded.append(content)
+        return make(content, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(key_routes.segno, "make", remember)
+    issued = (await new_key(client)).json()
+
+    assert (await client.get("/v1/keys/phone-qr", headers=bearer(issued["key"]))).status_code == 200
+    # After "#": a browser never sends the fragment, so the key reaches no server log on the way to the phone.
+    assert encoded == [f"{settings.public_base_url.rstrip('/')}/check#pass={issued['key']}"]

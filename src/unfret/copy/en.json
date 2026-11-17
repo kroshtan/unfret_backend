@@ -9,8 +9,8 @@
   "headlines": {
     "reliable": "Nothing worrying stood out on this page.",
     "concerns": "Mostly fine, but a few things are worth a closer look before you buy.",
-    "careful": "Some warning signs: look closely at the seller and the reviews before you buy.",
-    "junk_or_scam": "Many warning signs: this looks like generic factory goods, or an offer that isn't what it seems."
+    "careful": "Look closely at the seller and the reviews before you buy.",
+    "junk_or_scam": "This looks like generic factory goods, or an offer that isn't what it seems."
   },
   "reasons": {
     "timer_resets": {
@@ -719,8 +719,8 @@
     "service_terms.details_on_request": "Company details only on request"
   },
   "no_check_used": "No check was used.",
-  "headline_reasons": "{label}: {reasons}.",
-  "headline_reliable_note": "{label}, but one thing to note: {reason}.",
+  "headline_reasons": "{reasons}.",
+  "headline_reliable_note": "One thing to note: {reason}.",
   "and": "and",
   "pricing": {
     "pack": "{checks} checks — {price}",
@@ -737,15 +737,15 @@
     "p2p_listing": {
       "reliable": "Nothing worrying stood out in this ad, and the seller has a track record on the platform.",
       "concerns": "Mostly fine, but check the seller before you pay, and pay through the platform or on collection.",
-      "careful": "Some warning signs in this ad: see the points below, and pay only through the platform.",
-      "junk_or_scam": "Many warning signs: this ad shows patterns of ads where buyers lost their money."
+      "careful": "See the points below, and pay only through the platform.",
+      "junk_or_scam": "This ad shows patterns of ads where buyers lost their money."
     }
   },
   "service_headlines": {
     "reliable": "Nothing worrying stood out about this business on this page.",
     "concerns": "A few things are worth checking before you hire: ask for a written quote and the company's details.",
-    "careful": "Some warning signs: check who this business really is and get a written quote before you hire.",
-    "junk_or_scam": "Many warning signs: this page shows several patterns of businesses that aren't what they seem. Check it elsewhere before you hire."
+    "careful": "Check who this business really is and get a written quote before you hire.",
+    "junk_or_scam": "This page shows several patterns of businesses that aren't what they seem. Check it elsewhere before you hire."
   },
   "protected_methods": "a card or PayPal"
 }

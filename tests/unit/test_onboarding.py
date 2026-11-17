@@ -60,9 +60,20 @@ def test_checkout_hands_every_new_key_to_the_extension() -> None:
     # The code, card, recovery results (showResult) and the crypto tab's "Make a new key".
     assert "nodes.push(handoffBox(issued, steps), keyCard(issued)" in script
     assert "keyReveal.replaceChildren(handoffBox(issued), keyCard(issued));" in script
-    assert "Your Unfret extension is signed in with this key — you can start checking pages now." in script
-    assert "Switch it to this new key?" in script
-    assert "choose “API key” and paste your key" in script
+    assert "Your Unfret extension uses this pass now: you can start checking pages." in script
+    assert "Switch it to this pass?" in script
+    assert "Paste your pass into the extension when it asks." in script
+
+
+def test_my_checks_sends_the_pass_through_checkout_where_the_extension_listens() -> None:
+    # The extension's key relay (0.11.0) runs on /checkout* only and its background takes a key from /checkout only:
+    # a hand-off posted on /my-checks would never be answered.
+    page = (STATIC_DIR / "my-checks.html").read_text()
+    assert 'href="/checkout?send=pass">Send to the extension</a>' in page
+    assert "handOffKey" not in (STATIC_DIR / "my-checks.js").read_text()
+    script = (STATIC_DIR / "checkout.js").read_text()
+    assert 'const send = params.get("send") === "pass";' in script
+    assert "handoffBox({ key: stored.token })" in script
 
 
 def test_check_page_tops_up_a_key_by_its_id() -> None:

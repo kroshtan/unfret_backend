@@ -240,7 +240,7 @@ def test_users_amazon_result_is_coherent() -> None:
     assert [r.type for r in verdict.reasons] == ["implausible_claims"]  # one note, no trust or timer reason
     # Coherent: no "No warning signs" next to the note, and a headline that names it.
     assert "nothing_found" not in [p.type for p in verdict.positives]
-    assert verdict.headline == "Looks fine, but one thing to note: hard-to-believe claims."
+    assert verdict.headline == "One thing to note: hard-to-believe claims."
 
 
 def test_no_trust_reason_on_marketplaces() -> None:
@@ -298,7 +298,7 @@ def test_written_headlines_are_capped() -> None:
 def test_labels_and_headline_are_english() -> None:
     verdict = build(10, {"dark_patterns.timer_resets": 1.0})
     assert (verdict.label, verdict.reasons[0].title) == ("Many warning signs", "Fake countdown")
-    assert verdict.headline == "Many warning signs: fake countdown."
+    assert verdict.headline == "Fake countdown."  # the label is shown above the headline, never repeated in it
     assert verdict.language == "en"  # kept on the wire for clients that read it
     assert sorted(p.name for p in shopper.COPY_DIR.iterdir()) == ["en.json"]  # no other catalogue
 
@@ -339,3 +339,18 @@ def test_flags_get_labels_and_context_reads_neutral() -> None:
         ("signal", "low"),
     ]
     assert labelled[3]["evidence"] == "40% repeat"
+
+
+@pytest.mark.parametrize(
+    ("written", "shown"),
+    [
+        ("Many warning signs: a fake countdown and an unknown brand.", "A fake countdown and an unknown brand."),
+        ("Many warning signs - the shop is three weeks old.", "The shop is three weeks old."),
+        ("many warning signs, but the brand is real.", "The brand is real."),
+        ("The shop is three weeks old.", "The shop is three weeks old."),
+        ("Many warning signs.", "Many warning signs."),  # nothing else to say: kept
+    ],
+)
+def test_a_written_headline_never_repeats_the_label(written: str, shown: str) -> None:
+    assert shopper.fit_headline(written, "Many warning signs") == shown
+    assert build(10, {"dark_patterns.timer_resets": 1.0}, headline=written).headline == shown

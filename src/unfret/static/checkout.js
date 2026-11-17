@@ -1,19 +1,24 @@
-// /checkout: get checks, in four tabs so each visitor sees one short path.
+// /checkout: get checks, in three tabs so each visitor sees one short path, and crypto behind a quiet link.
 //
-//   Buy checks      pick a pack, pay by card. The key is made in this browser just before the card checkout and shown
-//                   after paying, so nobody has to understand keys before they've paid.
-//   I have a code   one field and one button: a new key is made and the invite or intro code is redeemed onto it.
-//   Top up my key   paste the key you have, pick a pack, pay by card (and recover a lost key with its recovery code).
-//                   A link from the extension or /check names the key's ID (?mode=topup&key_id=<id>): it is filled in.
-//   Pay with crypto SOL or USDC to a wallet or a key, from a wallet in this browser or by QR code on a phone.
+//   Buy checks      pick a pack, pay by card (or iDEAL | Wero in the Netherlands), the price with the VAT the card
+//                   provider adds (prices.js). The checks go to the pass this browser already uses, if any; otherwise
+//                   a pass (an API key) is made in this browser just before the card checkout and shown after paying,
+//                   so nobody has to understand passes before they've paid.
+//   I have a code   one field and one button: a new pass is made and the invite or intro code is redeemed onto it.
+//   Add to my pass  paste the pass you have (or type its ID), pick a pack, pay by card. A link from the extension,
+//                   /check or /my-checks names the pass's ID (?mode=topup&key_id=<id>): it is filled in.
+//   Crypto          "Prefer crypto?" under the card buttons (or ?mode=crypto): SOL or USDC to a wallet or a pass,
+//                   from a wallet in this browser or by QR code on a phone. The tabs step aside; "Back" returns.
 //
-// A key made here waits in localStorage ("unfret-new-key") until its owner says it's saved, so a card checkout's round
-// trip or a closed tab can't lose it; it is also signed in on /check (if nothing else is) so a link can be checked at
-// once. Every new key shown here is also offered to the Unfret extension in this browser (handoff.js), which signs in
-// with it, so nobody has to paste it there. Invites: every pack comes with invite codes to give away. The purchase comes with a claim token (never on
-// chain, never sent to the card provider); the first status poll after payment that carries it (X-Unfret-Claim)
-// returns the codes, once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto
-// payments have a quote, polled at /v1/credits/quotes/<id> until the transfer is final.
+// A pass made here waits in localStorage ("unfret-new-key") until its owner says the backup code is saved, so a card
+// checkout's round trip or a closed tab can't lose it (/my-checks shows that backup code too); it is also signed in on
+// /check (if nothing else is) so a link can be checked at once. Every new pass shown here is also offered to the
+// Unfret extension in this browser (handoff.js), which signs in with it, so nobody has to paste it there. Invites:
+// every pack comes with invite codes to give away. The purchase comes with a claim token (never on chain, never sent
+// to the card provider); the first status poll after payment that carries it (X-Unfret-Claim) returns the codes,
+// once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto payments have a quote,
+// polled at /v1/credits/quotes/<id> until the transfer is final. Back from the card provider in a browser that has
+// neither the pass nor the claim (a bank app can do that), the return link's checkout id collects the purchase once.
 import {
   INVITE_RE,
   NOT_A_CODE,
@@ -30,6 +35,8 @@ import {
   walletButton,
 } from "./wallet.js";
 import { handOffKey, topupKeyId } from "./handoff.js";
+import { copyButton, readPassId, showPassId } from "./pass.js";
+import { cardPrice as cardPriceFor, countryPhrase, taxNote } from "./prices.js";
 
 const $ = (id) => document.getElementById(id);
 const main = document.querySelector("main.checkout");
@@ -83,7 +90,7 @@ const CHECK_ACCOUNT = "unfret-account"; // /check's sign-in
 const CLAIM_MAX_AGE_MS = 3 * 24 * 3600 * 1000; // quotes are gone after about two days anyway
 
 const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
-const KEY_ID_RE = /^[a-z2-7]{10}$/;
+const CHECKOUT_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 // ISO 3166 alpha-2 codes, named in English by Intl.DisplayNames.
 const COUNTRIES = (
   "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA " +
@@ -131,12 +138,9 @@ function checksWord(n) {
   return `${n} ${n === 1 ? "check" : "checks"}`;
 }
 
-// A key's ID from a whole key or the ID itself, or null.
+// A pass's ID from a whole pass or the ID itself ("ABCDE-FGHIJ", any case), or null.
 function keyIdOf(value) {
-  const text = value.trim();
-  const match = KEY_RE.exec(text);
-  if (match) return match[1];
-  return KEY_ID_RE.test(text) ? text : null;
+  return readPassId(value);
 }
 
 function storageGet(name) {
@@ -214,39 +218,36 @@ function signInCheckPage(issued) {
   storageSet(CHECK_ACCOUNT, { kind: "key", token: issued.key, address: `key:${issued.key_id}` });
 }
 
-function secretRow(label, help, value) {
-  const row = element("div", "", "secret");
-  const head = element("p", "", "secret-label");
-  head.append(element("strong", label));
-  if (help) head.append(element("span", help, "muted small"));
-  const code = element("code", value);
-  const copy = button("Copy", async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      copy.textContent = "Copied ✓";
-      setTimeout(() => (copy.textContent = "Copy"), 2000);
-    } catch {
-      copy.textContent = "Select and copy it";
-    }
-  });
-  const line = element("div", "", "secret-value");
-  line.append(code, copy);
-  row.append(head, line);
-  return row;
-}
-
-// The key and its recovery code, with what to do with them.
+// The new pass and its backup code, with what to do with them. The pass itself is kept in this browser (the link
+// checker and /my-checks use it, the extension gets it handed over); the backup code is the one thing to save.
 function keyCard(issued) {
   const box = element("div", "", "key-card");
-  box.append(
-    secretRow("Your Unfret key", "", issued.key),
-    secretRow("Recovery code", "gets you a new key with the same checks if you ever lose this one", issued.recovery_code),
-    element(
-      "p",
-      "Save both somewhere safe, such as your password manager or a note. We only keep a fingerprint of each, so we can't show them again.",
-      "muted small",
-    ),
+  const pass = element("div", "", "pass-card small-pass");
+  const top = element("div", "", "pass-top");
+  top.append(element("span", "Unfret pass", "pass-name"), element("span", showPassId(issued.key_id), "pass-id"));
+  pass.append(top, element("p", "Kept in this browser: the link checker and My checks use it.", "pass-note"));
+  const passRow = element("div", "", "secret-value");
+  passRow.append(element("code", issued.key), copyButton(issued.key, "Copy pass"));
+  const elsewhere = element("details", "", "choice");
+  elsewhere.append(
+    element("summary", "Use it somewhere else"),
+    element("p", "Paste your pass where Unfret asks for it, or open My checks and choose “Use on your phone”.", "small"),
+    passRow,
   );
+  const backup = element("div", "", "backup");
+  const backupHead = element("p", "", "secret-label");
+  backupHead.append(
+    element("strong", "Your backup code"),
+    element("span", "If you ever lose your pass, this gets you a new one with the same checks.", "muted small"),
+  );
+  const backupRow = element("div", "", "secret-value");
+  backupRow.append(element("code", issued.recovery_code), copyButton(issued.recovery_code));
+  backup.append(
+    backupHead,
+    backupRow,
+    element("p", "Save it somewhere safe, such as your password manager or a note. We can't show it again.", "muted small"),
+  );
+  box.append(pass, backup, elsewhere);
   return box;
 }
 
@@ -255,18 +256,26 @@ function useSteps() {
   const first = element("li");
   first.append(
     element("b", "In the Unfret extension: "),
-    document.createTextNode("click its icon, choose “API key” and paste your key."),
+    document.createTextNode("click its icon and paste your pass when it asks."),
   );
   const second = element("li");
   const link = element("a", "Check a link");
   link.href = "/check";
-  second.append(element("b", "On your phone or this page: "), link, document.createTextNode(" (you're signed in here)."));
+  const mine = element("a", "My checks");
+  mine.href = "/my-checks";
+  second.append(
+    element("b", "On this device: "),
+    link,
+    document.createTextNode(" is ready to go. On your phone: open "),
+    mine,
+    document.createTextNode(" here and choose “Use on your phone”."),
+  );
   steps.append(first, second);
   return steps;
 }
 
-// The new key, handed to the Unfret extension in this browser if there is one: it signs in with it by itself. With
-// no answer, how to get the extension (or paste the key into it); signed in with something else, it asks first.
+// The new pass, handed to the Unfret extension in this browser if there is one: it signs in with it by itself. With
+// no answer, how to get the extension (or paste the pass into it); signed in with something else, it asks first.
 function handoffBox(issued, steps = null) {
   const box = element("div", "", "handoff");
   box.setAttribute("role", "status");
@@ -276,10 +285,12 @@ function handoffBox(issued, steps = null) {
     box.replaceChildren(...nodes);
   };
   const signedIn = () => {
-    say("ok", element("p", "✓ Your Unfret extension is signed in with this key — you can start checking pages now.", "handoff-ok"));
+    const ok = element("p", "", "handoff-ok");
+    ok.append(element("span", "", "i i-check"), document.createTextNode(" Your Unfret extension uses this pass now: you can start checking pages."));
+    say("ok", ok);
     steps?.firstElementChild?.replaceChildren(
       element("b", "In the Unfret extension: "),
-      document.createTextNode("you're signed in. On a product page, click its icon and choose “Check this page”."),
+      document.createTextNode("you're all set. On a product page, click its icon and choose “Check this page”."),
     );
   };
   const offer = async (replace) => {
@@ -287,21 +298,21 @@ function handoffBox(issued, steps = null) {
     if (status === "signed-in" || status === "already") return signedIn();
     if (status === "other-account") {
       const actions = element("div", "", "handoff-actions");
-      const use = button("Use this key in the extension", () => {
+      const use = button("Use this pass in the extension", () => {
         use.disabled = keep.disabled = true;
         offer(true);
       }, "primary");
-      const keep = button("Keep its current sign-in", () =>
-        say("info", element("p", "Your extension keeps its current sign-in. To use this key there later, choose “API key” in the extension and paste it.", "small")),
+      const keep = button("Keep the current one", () =>
+        say("info", element("p", "Your extension keeps what it has. To use this pass there later, paste it when the extension asks.", "small")),
       );
       actions.append(use, keep);
-      say("ask", element("p", "Your Unfret extension is signed in with another key or wallet. Switch it to this new key?"), actions);
+      say("ask", element("p", "Your Unfret extension uses another pass or wallet. Switch it to this pass?"), actions);
       return;
     }
     say(
       "info",
       $("extension-get").content.cloneNode(true),
-      element("p", "Have it already? In the extension, choose “API key” and paste your key.", "small"),
+      element("p", "Have it already? Paste your pass into the extension when it asks.", "small"),
     );
   };
   say("info", element("p", "Looking for the Unfret extension in this browser…", "muted small"));
@@ -313,19 +324,33 @@ function handoffBox(issued, steps = null) {
 
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 
+// Crypto is a mode without a tab: the tabs step aside for it, and "Back" returns to the tab the visitor came from.
+let cardMode = "new";
+
 function setMode(next, { focus = false } = {}) {
-  mode = MODES.includes(next) ? next : "new";
+  mode = MODES.includes(next) && (next !== "crypto" || cryptoAvailable()) ? next : "new";
+  if (mode !== "crypto") cardMode = mode;
   main.dataset.mode = mode;
   for (const tab of tabs) {
-    const on = tab.dataset.mode === mode;
-    tab.setAttribute("aria-selected", String(on));
+    const on = tab.dataset.mode === (mode === "crypto" ? cardMode : mode);
+    tab.setAttribute("aria-selected", String(on && mode !== "crypto"));
     tab.tabIndex = on ? 0 : -1;
     if (on && focus) tab.focus();
-    $(tab.getAttribute("aria-controls")).hidden = !on;
+    $(tab.getAttribute("aria-controls")).hidden = !on || mode === "crypto";
   }
+  $("panel-crypto").hidden = mode !== "crypto";
+  $("crypto-head").hidden = mode !== "crypto";
   $("pack-section").hidden = mode === "code";
   refreshTarget();
 }
+
+for (const link of document.querySelectorAll("[data-to-crypto]")) {
+  link.addEventListener("click", () => {
+    setMode("crypto");
+    $("crypto-heading").scrollIntoView({ block: "nearest" });
+  });
+}
+$("crypto-back").addEventListener("click", () => setMode(cardMode, { focus: true }));
 
 tabs.forEach((tab, index) => {
   tab.addEventListener("click", () => setMode(tab.dataset.mode));
@@ -339,7 +364,8 @@ tabs.forEach((tab, index) => {
 
 // While a result is on screen (a new key, a payment), the tabs and choices step aside.
 function showChoices(visible) {
-  for (const node of [document.querySelector(".tabs"), $("pack-section"), ...MODES.map((m) => $(`panel-${m}`))]) {
+  const nodes = [document.querySelector(".tabs"), $("crypto-head"), $("pack-section"), ...MODES.map((m) => $(`panel-${m}`))];
+  for (const node of nodes) {
     node.classList.toggle("set-aside", !visible);
   }
 }
@@ -350,14 +376,19 @@ function cardAvailable() {
   return Boolean(pricing?.fiat?.available);
 }
 
+function cryptoAvailable() {
+  return Boolean(pricing?.hot_wallet);
+}
+
 // Card prices are in euros for the euro area (/v1/pricing's euro_area), in dollars elsewhere, for the chosen country.
 function cardCurrency() {
   const euros = (pricing?.euro_area ?? []).includes(payCountry);
   return euros && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
 }
 
+// A pack's card price as the buyer pays it: with the chosen EU country's VAT, which the provider adds (prices.js).
 function priceIn(currency, option) {
-  return currency === "eur" ? option.price_eur : option.price_usd;
+  return cardPriceFor(pricing, option, currency, payCountry)?.text ?? (currency === "eur" ? option.price_eur : option.price_usd);
 }
 
 function cardPrice(option) {
@@ -369,7 +400,7 @@ function cardPrice(option) {
 function localMethod() {
   const method = payCountry ? pricing?.local_payment_methods?.[payCountry] : null;
   if (!method?.id || !method.label) return null;
-  return pricing.packs.every((p) => priceIn(method.currency, p)) ? method : null;
+  return pricing.packs.every((p) => (method.currency === "eur" ? p.price_eur : p.price_usd)) ? method : null;
 }
 
 // method: a local method from localMethod(), or null for a card checkout (the buyer picks their country at Polar).
@@ -382,9 +413,29 @@ async function startCardCheckout(keyId, method = null) {
     body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice }),
   });
   // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
-  rememberClaim("fiat", started.checkout_id, started.claim, pack.checks);
+  rememberClaim("fiat", started.checkout_id, started.claim, pack.checks, keyId);
   window.location.assign(started.checkout_url);
 }
+
+// The pass this browser already uses (the link checker's sign-in), if any: "Buy checks" adds to it unless the buyer
+// asks for a new one. Only its ID is ever sent to pay.
+function currentPassId() {
+  const stored = storageGet(CHECK_ACCOUNT);
+  if (stored?.kind !== "key" || typeof stored.token !== "string") return null;
+  return KEY_RE.exec(stored.token)?.[1] ?? null;
+}
+let freshPass = false;
+
+function renderNewFor() {
+  const id = freshPass ? null : currentPassId();
+  $("new-for").hidden = !id;
+  $("new-for-id").textContent = id ? showPassId(id) : "";
+}
+
+$("new-fresh").addEventListener("click", () => {
+  freshPass = true;
+  renderNewFor();
+});
 
 async function payNew(method) {
   if (!pack || !cardAvailable()) return;
@@ -392,8 +443,9 @@ async function payNew(method) {
   newPay.disabled = newLocal.disabled = true;
   try {
     setStatus(status, "Getting your checkout ready…");
-    const issued = await unfundedKey();
-    await startCardCheckout(issued.key_id, method);
+    const existing = freshPass ? null : currentPassId();
+    const keyId = existing ?? (await unfundedKey()).key_id;
+    await startCardCheckout(keyId, method);
   } catch (error) {
     setStatus(status, error.message || "Card payment isn't available right now; please try again.", "error");
     newPay.disabled = newLocal.disabled = false;
@@ -422,7 +474,7 @@ topupKey.addEventListener("input", refreshTarget);
 function setTopupFor(id) {
   $("topup-for").hidden = !id;
   $("topup-key-field").hidden = Boolean(id);
-  $("topup-for-id").textContent = id ?? "";
+  $("topup-for-id").textContent = id ? showPassId(id) : "";
   if (id) topupKey.value = id;
 }
 
@@ -431,31 +483,6 @@ $("topup-other").addEventListener("click", () => {
   setTopupFor(null);
   refreshTarget();
   topupKey.focus();
-});
-
-// Lost key: the recovery code gets a new key with the same balance (the old key stops working).
-$("recover").addEventListener("click", async (event) => {
-  const recoverButton = event.currentTarget;
-  const status = $("recover-status");
-  recoverButton.disabled = true;
-  try {
-    const code = $("recovery-input").value.trim();
-    const issued = await api("/v1/keys/recover", { method: "POST", body: JSON.stringify({ recovery_code: code }) });
-    setTopupFor(null);
-    topupKey.value = issued.key;
-    $("recovery-input").value = "";
-    $("recover-box").open = false;
-    showResult(
-      "Here's your new key",
-      { ...issued, funded: true },
-      [element("p", "It has the same checks as your old key, which no longer works. Your recovery code is new too.")],
-      { saveFirst: true },
-    );
-  } catch (error) {
-    setStatus(status, error.message || "That recovery code didn't work.", "error");
-  } finally {
-    recoverButton.disabled = false;
-  }
 });
 
 // ── I have a code ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -473,7 +500,7 @@ $("invite-redeem").addEventListener("click", async (event) => {
   if (!code) return setStatus(status, NOT_A_CODE, "error");
   redeemButton.disabled = true;
   try {
-    setStatus(status, "Setting up your key…");
+    setStatus(status, "Setting up your pass…");
     const issued = await unfundedKey();
     const added = await redeemInvite(code, issued.key);
     const funded = { ...issued, funded: true };
@@ -481,7 +508,7 @@ $("invite-redeem").addEventListener("click", async (event) => {
     signInCheckPage(funded);
     $("invite-input").value = "";
     setStatus(status, "");
-    showResult(`✓ ${checksWord(added.checks_added)} added. Welcome to Unfret!`, funded, []);
+    showResult(`${checksWord(added.checks_added)} added. Welcome to Unfret!`, funded, []);
   } catch (error) {
     setStatus(status, error.message || "That code didn't work.", "error");
   } finally {
@@ -497,12 +524,12 @@ function showResult(headline, issued, extra = [], { saveFirst = false, invites =
   const nodes = [element("p", headline, "headline")];
   if (issued) {
     const steps = useSteps();
-    nodes.push(handoffBox(issued, steps), keyCard(issued), element("h3", "How to use your key"), steps);
+    nodes.push(handoffBox(issued, steps), keyCard(issued), element("h3", "Where to use your checks"), steps);
   }
   nodes.push(...extra);
   if (invites.length) nodes.push(...inviteNodes(invites));
   const done = button(
-    issued ? "I've saved my key" : "Done",
+    issued ? "I've saved my backup code" : "Done",
     () => {
       if (invites.length && !window.confirm("Copied your invites? They can't be shown again.")) return;
       if (issued && loadNewKey()?.key === issued.key) saveNewKey(null);
@@ -547,6 +574,8 @@ function refreshTarget() {
     const option = pricing?.packs.find((p) => String(p.checks) === price.dataset.checks);
     if (option) price.textContent = cardPrice(option); // follows the chosen country's currency
   }
+  const note = taxNote(pricing, payCountry);
+  for (const prefix of CARD_COUNTRY) $(`${prefix}-tax`).textContent = note;
   const topupId = keyIdOf(topupKey.value);
   for (const [cardButton, localButton, ok] of [
     [newPay, newLocal, Boolean(pack)],
@@ -560,7 +589,7 @@ function refreshTarget() {
     localButton.disabled = !local || !ok;
   }
   const topupStatus = $("topup-status");
-  if (topupKey.value.trim() && !topupId) setStatus(topupStatus, "That doesn't look like an Unfret key.", "error");
+  if (topupKey.value.trim() && !topupId) setStatus(topupStatus, "That doesn't look like an Unfret pass or pass ID.", "error");
   else setStatus(topupStatus, "");
 
   // Crypto.
@@ -568,9 +597,9 @@ function refreshTarget() {
   const ok = ready();
   list.querySelectorAll("button").forEach((b) => (b.disabled = !ok));
   qrShow.disabled = !ok;
-  if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an Unfret key or key ID.", "error");
-  else if (forKey && !keyId()) setStatus(keyStatus, "Paste your key or its ID, or make a new key, to pay.");
-  else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save your key, then tick the box.");
+  if (forKey && !keyId() && keyInput.value.trim()) setStatus(keyStatus, "That isn't an Unfret pass or pass ID.", "error");
+  else if (forKey && !keyId()) setStatus(keyStatus, "Paste your pass or its ID, or make a new pass, to pay.");
+  else if (forKey && !keyReveal.hidden && !saved.checked) setStatus(keyStatus, "Save your backup code, then tick the box.");
   else setStatus(keyStatus, "");
   describe();
 }
@@ -579,7 +608,7 @@ $("new-key").addEventListener("click", async (event) => {
   const makeButton = event.currentTarget;
   makeButton.disabled = true;
   try {
-    setStatus(keyStatus, "Making your key (a few seconds of work in this browser keeps out bots)…");
+    setStatus(keyStatus, "Making your pass (a few seconds of work in this browser keeps out bots)…");
     const issued = await makeKey();
     keyReveal.replaceChildren(handoffBox(issued), keyCard(issued));
     keyReveal.hidden = false;
@@ -588,7 +617,7 @@ $("new-key").addEventListener("click", async (event) => {
     keyInput.value = issued.key;
     refreshTarget();
   } catch (error) {
-    setStatus(keyStatus, error.message || "Couldn't make a key; try again.", "error");
+    setStatus(keyStatus, error.message || "Couldn't make a pass; try again.", "error");
   } finally {
     makeButton.disabled = false;
   }
@@ -625,7 +654,7 @@ function formatPay(amount) {
 }
 
 function describe() {
-  if (!pricing || !pack || watch) return; // while a purchase is under way, the summary describes that one
+  if (!pricing || !pack || watch || !cryptoAvailable()) return; // while a purchase is under way, it describes that one
   if (!countryField.value) {
     summary.textContent = `${checksWord(pack.checks)}: choose your country to see the price with VAT.`;
     return;
@@ -702,7 +731,7 @@ function setPayCountry(code) {
   for (const prefix of CARD_COUNTRY) {
     $(`${prefix}-country`).value = payCountry;
     $(`${prefix}-country-from`).hidden = !payCountry;
-    $(`${prefix}-country-name`).textContent = payCountry ? countryNames.get(payCountry) : "Choose your country";
+    $(`${prefix}-country-name`).textContent = payCountry ? countryPhrase(payCountry) : "Choose your country";
     $(`${prefix}-country-change`).textContent = payCountry ? "change" : "choose";
   }
 }
@@ -746,9 +775,9 @@ function saveClaims(list) {
   storageSet(CLAIMS_KEY, list.length ? list : null);
 }
 
-function rememberClaim(kind, id, claim, checks) {
+function rememberClaim(kind, id, claim, checks, keyId = null) {
   if (!id || !claim) return;
-  saveClaims([...loadClaims().filter((c) => c.id !== id), { kind, id, claim, checks, at: Date.now() }]);
+  saveClaims([...loadClaims().filter((c) => c.id !== id), { kind, id, claim, checks, keyId, at: Date.now() }]);
 }
 
 function forgetClaim(id) {
@@ -826,7 +855,7 @@ function leaveInvites(invites) {
 
 // Where the checks went, in words, for the success message.
 function destination(purchase) {
-  if (purchase.keyId) return ` to key ${purchase.keyId}`;
+  if (purchase.keyId) return ` to pass ${showPassId(purchase.keyId)}`;
   if (purchase.qr && !purchase.signedIn) return " to the wallet you paid with";
   return " to your wallet";
 }
@@ -856,11 +885,11 @@ function showTimeout(purchase) {
 
 async function showPaid(purchase, invites = []) {
   qr.hidden = true;
-  const headline = `✓ Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
+  const headline = `Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
   const nodes = [element("p", headline, "headline")];
   if (invites.length) nodes.push(...inviteNodes(invites));
   if (purchase.keyId) {
-    nodes.push(element("p", "In the extension, choose “API key” and paste your key, and it shows your checks."));
+    nodes.push(element("p", "Your pass shows them in the extension and on My checks."));
   } else {
     nodes.push(element("p", "The extension shows your checks once you're signed in with this wallet."));
   }
@@ -1032,15 +1061,27 @@ function renderWallets(wallets) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Back from the card provider: wait for the webhook to credit the key, then show the key (if it was made here) and
-// the pack's invites.
-async function watchCard() {
-  const entry = loadClaims()
-    .filter((c) => c.kind === "fiat")
-    .sort((a, b) => b.at - a.at)[0];
+// A key made here for a purchase that was picked up in another browser no longer works: forget it.
+function dropReplaced(entry) {
   const made = loadNewKey();
+  if (made && entry.keyId && made.key_id === entry.keyId) saveNewKey(null);
+}
+
+// Back from the card provider (/checkout?paid=1&checkout=<id>): wait for the webhook to credit the key, then show the
+// key (if it was made here) and the pack's invites. Back in a browser that didn't start the payment (a bank app or a
+// phone can do that), which has neither the key nor the claim, the purchase is picked up by its checkout id.
+async function watchCard(returned) {
+  const fiatClaims = loadClaims().filter((c) => c.kind === "fiat");
+  const entry = returned
+    ? fiatClaims.find((c) => c.id === returned)
+    : fiatClaims.sort((a, b) => b.at - a.at)[0];
+  // The key made here for this very purchase (not one left over from an earlier, cancelled checkout, nor a pass the
+  // purchase only topped up).
+  const stored = loadNewKey();
+  const made = stored && (!entry?.keyId || stored.key_id === entry.keyId) ? stored : null;
+  if (!entry && returned) return pickUpElsewhere(returned);
   if (!entry) {
-    if (made?.funded) showResult("Your Unfret key", made);
+    if (made?.funded) showResult("Your Unfret pass", made);
     return;
   }
   showChoices(false);
@@ -1048,6 +1089,11 @@ async function watchCard() {
   for (let round = 0; round < POLL_ROUNDS; round += 1) {
     const status = await collectClaim(entry);
     if (status === null) break;
+    if (status.reissued) {
+      dropReplaced(entry);
+      showPanel("info", element("p", "These checks were picked up in another browser, which has their pass now.", "headline"));
+      return;
+    }
     if (status.paid) {
       const checks = status.checks ?? entry.checks;
       const invites = status.invites ?? [];
@@ -1055,9 +1101,9 @@ async function watchCard() {
         const funded = { ...made, funded: true };
         saveNewKey(funded);
         signInCheckPage(funded);
-        showResult(`✓ Payment received: ${checksWord(checks)} are ready.`, funded, [], { invites });
+        showResult(`Payment received: ${checksWord(checks)} are ready.`, funded, [], { invites });
       } else {
-        showResult(`✓ Payment received: ${checksWord(checks)} added to your key.`, null, [], { invites });
+        showResult(`Payment received: ${checksWord(checks)} added to your pass.`, null, [], { invites });
       }
       return;
     }
@@ -1070,18 +1116,61 @@ async function watchCard() {
   );
 }
 
+// A card purchase paid from another browser: a fresh key for it (the one made there stops working), once, within a
+// day of paying, and only while that browser hasn't picked it up itself. Waits for the payment to be confirmed.
+async function pickUpElsewhere(checkoutId) {
+  showChoices(false);
+  showPanel("waiting", element("p", "Thanks! Confirming your payment…", "headline"));
+  for (let round = 0; round < POLL_ROUNDS; round += 1) {
+    try {
+      const picked = await api(`/v1/credits/fiat-checkouts/${encodeURIComponent(checkoutId)}/pass`, { method: "POST" });
+      const funded = { key: picked.key, recovery_code: picked.recovery_code, key_id: picked.key_id, funded: true };
+      saveNewKey(funded);
+      signInCheckPage(funded);
+      const checks = picked.checks ?? picked.checks_remaining;
+      const note = element(
+        "p",
+        "You paid in another browser, so this one has a new pass for your checks. The pass made there no longer works.",
+        "muted",
+      );
+      showResult(`Payment received: ${checksWord(checks)} are ready.`, funded, [note], { invites: picked.invites ?? [] });
+      return;
+    } catch (error) {
+      if (error.code !== "CHECKOUT_NOT_PAID") return pickUpFailed(error);
+    }
+    await sleep(POLL_MS);
+  }
+  showResult(
+    "Your payment is still being confirmed",
+    null,
+    [element("p", "Reload this page in a few minutes to collect your checks; there's no need to pay again.")],
+  );
+}
+
+function pickUpFailed(error) {
+  const text = {
+    CHECKOUT_TOPPED_UP: "Payment received: the checks were added to your pass. Open Unfret where you use that pass to see them.",
+    CHECKOUT_COLLECTED: "These checks were already collected in the browser you paid from: open Unfret there. Lost that pass? Use your backup code on My checks.",
+    CHECKOUT_EXPIRED: "This payment is more than a day old. Your checks are safe on the pass made when you paid: use it there, or its backup code on My checks.",
+    UNKNOWN_CHECKOUT: "We couldn't find this payment. If you paid, your checks are safe on the pass made when you started.",
+  }[error.code];
+  showChoices(true);
+  showPanel("info", element("p", text ?? (error.message || "Couldn't collect your checks here; try reloading the page."), "headline"));
+}
+
 // Invites from an earlier purchase on this browser whose page was closed before they were shown, and a key made
 // here that its owner hasn't confirmed saving.
 async function collectEarlier() {
   const codes = [];
   for (const entry of loadClaims()) {
     const status = await collectClaim(entry);
+    if (status?.reissued) dropReplaced(entry);
     if (status?.paid && status.invites?.length) codes.push(...status.invites);
   }
   if (watch) return;
   const made = loadNewKey();
   if (made?.funded) {
-    showResult("Your Unfret key", made, [element("p", "You haven't confirmed saving it yet.", "muted")], {
+    showResult("Your Unfret pass", made, [element("p", "You haven't confirmed saving your backup code yet.", "muted")], {
       invites: codes,
     });
   } else if (codes.length) {
@@ -1089,13 +1178,28 @@ async function collectEarlier() {
   }
 }
 
+// From My checks' "Send to the extension" (/checkout?send=pass): the extension takes a pass only from this page, so
+// this browser's pass (the link checker's sign-in) is offered to it here. False when this browser has no pass.
+function sendPass() {
+  const stored = storageGet(CHECK_ACCOUNT);
+  if (stored?.kind !== "key" || typeof stored.token !== "string" || !KEY_RE.test(stored.token)) return false;
+  const id = KEY_RE.exec(stored.token)[1];
+  const back = element("a", "Back to My checks", "button");
+  back.href = "/my-checks";
+  const actions = element("div", "", "result-actions");
+  actions.append(back);
+  showChoices(false);
+  showPanel("ok", element("p", `Your pass ${showPassId(id)} for the extension`, "headline"), handoffBox({ key: stored.token }), actions);
+  return true;
+}
+
 function initialMode(params) {
   const asked = params.get("mode");
-  if (MODES.includes(asked)) return asked;
+  if (MODES.includes(asked) && (asked !== "crypto" || cryptoAvailable())) return asked;
   if (topupKeyId(params)) return "topup";
   if (params.get("code")) return "code";
-  if (params.get("for") === "wallet" || (!params.get("for") && signedIn)) return "crypto";
-  return cardAvailable() ? "new" : "crypto";
+  if (cryptoAvailable() && (params.get("for") === "wallet" || (!params.get("for") && signedIn))) return "crypto";
+  return cardAvailable() || !cryptoAvailable() ? "new" : "crypto";
 }
 
 async function start() {
@@ -1104,12 +1208,16 @@ async function start() {
   } catch {
     pricing = null;
   }
-  if (!pricing?.hot_wallet) {
+  // Card and crypto are independent: either can be off (Polar not configured, the Solana watcher not running)
+  // while the other still sells checks.
+  if (!cardAvailable() && !cryptoAvailable()) {
     $("unavailable").hidden = false;
     return;
   }
   shop.hidden = false;
-  if (pricing.network !== "solana-mainnet") {
+  for (const way of document.querySelectorAll(".crypto-way")) way.hidden = !cryptoAvailable();
+  renderNewFor();
+  if (cryptoAvailable() && pricing.network !== "solana-mainnet") {
     $("network").textContent = "Test network (devnet): no real money.";
   }
   const params = new URLSearchParams(window.location.search);
@@ -1118,7 +1226,9 @@ async function start() {
   setTopupFor(topupKeyId(params));
   const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');
-  if (pricing.sol) {
+  if (!cryptoAvailable()) {
+    // nothing to set up: the crypto tab is hidden
+  } else if (pricing.sol) {
     usdcNote.textContent = `SOL amounts are the dollar prices at ${Number(pricing.sol.usd_per_sol).toFixed(2)} USD/SOL.`;
   } else {
     solRadio.disabled = true;
@@ -1130,8 +1240,22 @@ async function start() {
   renderPacks();
   renderWallets([]);
   setMode(initialMode(params));
-  if (params.get("paid")) void watchCard();
-  else void collectEarlier();
+  const returned = CHECKOUT_ID_RE.test(params.get("checkout") ?? "") ? params.get("checkout") : null;
+  const send = params.get("send") === "pass";
+  if (send) {
+    const keep = new URLSearchParams(window.location.search);
+    keep.delete("send");
+    history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
+  }
+  if (params.has("paid") || params.has("checkout")) {
+    // The checkout's id is a one-day pass to these checks: don't leave it in the address bar or the history.
+    const keep = new URLSearchParams(params);
+    keep.delete("paid");
+    keep.delete("checkout");
+    history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
+  }
+  if (params.get("paid")) void watchCard(returned);
+  else if (!(send && sendPass())) void collectEarlier();
   discoverWallets(renderWallets);
 }
 

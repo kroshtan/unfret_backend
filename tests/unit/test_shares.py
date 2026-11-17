@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from unfret import shares
+from unfret import shares, shopper
 from unfret.routes.pages import STATIC_DIR
 from unfret.routes.shares import render_share_page
 
@@ -187,7 +187,7 @@ def test_a_headline_quoting_the_page_becomes_the_bands_own() -> None:
     quoted = response()
     quoted["verdict"]["headline"] = 'The page promises "results in 3 days".'
     headline = shares.public_share_result(quoted)["verdict"]["headline"]
-    assert headline.startswith("Many warning signs: ") and "results" not in headline
+    assert headline == shopper.catalogue()["headlines"]["junk_or_scam"] and "results" not in headline
 
 
 def test_a_title_with_a_forbidden_word_shows_the_shop() -> None:

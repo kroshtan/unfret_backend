@@ -36,7 +36,8 @@ async def test_the_page_is_served_with_a_strict_policy(client: httpx.AsyncClient
     # Nothing from elsewhere: the only outside addresses are the shared footer's links (the source code, the maker).
     page = response.text.replace("https://shop.example", "")
     sources = [
-        f'href="https://git.kroshtan.com/kroshtan/{repo}"'
+        f'href="https://{host}/kroshtan/{repo}"'
+        for host in ("git.kroshtan.com", "github.com")
         for repo in ("unfret_backend", "unfret_extension", "unfret_android")
     ]
     for footer_link in (*sources, 'href="https://kroshtan.com"'):

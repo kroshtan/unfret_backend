@@ -40,7 +40,8 @@ async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> N
     # Nothing loaded from elsewhere: no script at all, and the only outside addresses are the footer's links.
     assert "<script" not in page
     sources = [
-        f'href="https://git.kroshtan.com/kroshtan/{repo}"'
+        f'href="https://{host}/kroshtan/{repo}"'
+        for host in ("git.kroshtan.com", "github.com")
         for repo in ("unfret_backend", "unfret_extension", "unfret_android")
     ]
     for footer_link in (*sources, 'href="https://kroshtan.com"'):

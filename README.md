@@ -15,8 +15,8 @@ Think twice, Serious concerns), and an LLM writes the explanation from the signa
 | --- | --- |
 | Website | [unfret.net](https://unfret.net) · [check a link](https://unfret.net/check) · [developers and AI agents](https://unfret.net/developers) · [API reference](https://unfret.net/docs) |
 | This repository | [git.kroshtan.com/kroshtan/unfret_backend](https://git.kroshtan.com/kroshtan/unfret_backend) (primary) · [GitHub mirror](https://github.com/kroshtan/unfret_backend) |
-| Browser extension | [git.kroshtan.com/kroshtan/unfret_extension](https://git.kroshtan.com/kroshtan/unfret_extension) · [Chrome Web Store](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo) |
-| Android app | [git.kroshtan.com/kroshtan/unfret_android](https://git.kroshtan.com/kroshtan/unfret_android) |
+| Browser extension | [git.kroshtan.com/kroshtan/unfret_extension](https://git.kroshtan.com/kroshtan/unfret_extension) · [GitHub mirror](https://github.com/kroshtan/unfret_extension) · [Chrome Web Store](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo) |
+| Android app | [git.kroshtan.com/kroshtan/unfret_android](https://git.kroshtan.com/kroshtan/unfret_android) · [GitHub mirror](https://github.com/kroshtan/unfret_android) |
 
 > **Project status: live, run by one person.** Unfret runs at [unfret.net](https://unfret.net) with the
 > [Chrome extension](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo), prepaid checks

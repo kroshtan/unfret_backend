@@ -3,9 +3,11 @@
 // The page posts {type: "unfret-key", key} to itself. The extension's content script (injected only on this site's
 // /checkout pages) accepts it only from this very window and origin, stores the key as its sign-in and answers with
 // {type: "unfret-key-received", status}: "signed-in", "already" (it uses this key), "other-account" (it is signed in
-// with another key or wallet and changes nothing until the page asks again with replace: true) or "invalid". The key
-// only goes from this page to the extension; the answer carries no key, account or balance. No answer within
-// ACK_WAIT_MS: no (recent enough) extension in this browser.
+// with another key or wallet and changes nothing until the page asks again with replace: true) or "invalid". From
+// 0.12.0, "other-account" comes with free_pass: true when what the extension has is the free pass it made itself:
+// on replace, it moves that pass's free checks to the new one (here: "free-pass"). The key only goes from this page
+// to the extension; the answer carries no key, account or balance. No answer within ACK_WAIT_MS: no (recent enough)
+// extension in this browser.
 //
 // Also here: the key ID a "Top up" link names (/checkout?mode=topup&key_id=<10 letters>), the public part of a key.
 
@@ -21,7 +23,8 @@ const KEY_ID_RE = /^[a-z2-7]{10}$/;
  *
  * @param {string} key - A whole API key (ufk_…).
  * @param {{replace?: boolean, win?: Window, waitMs?: number}} [options] - replace: the user agreed to swap accounts.
- * @returns {Promise<string>} The extension's status, or "no-extension" when nothing answered in time.
+ * @returns {Promise<string>} The extension's status ("free-pass" for "other-account" with free_pass: true), or
+ *   "no-extension" when nothing answered in time.
  */
 export function handOffKey(key, { replace = false, win = window, waitMs = ACK_WAIT_MS } = {}) {
   if (!KEY_RE.test(key)) return Promise.resolve("invalid");
@@ -36,7 +39,7 @@ export function handOffKey(key, { replace = false, win = window, waitMs = ACK_WA
       if (event.source !== win || event.origin !== origin) return;
       const data = event.data;
       if (data?.type !== KEY_RECEIVED || !STATUSES.has(data.status)) return;
-      done(data.status);
+      done(data.status === "other-account" && data.free_pass === true ? "free-pass" : data.status);
     };
     const timer = setTimeout(() => done("no-extension"), waitMs);
     win.addEventListener("message", listen);

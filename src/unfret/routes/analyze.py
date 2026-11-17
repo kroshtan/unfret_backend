@@ -3,6 +3,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import AsyncGenerator, AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -12,9 +13,9 @@ from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from unfret import page_fetch, reports, result_cache, shares
-from unfret.auth import require_account
+from unfret.auth import optional_account, require_account
 from unfret.config import settings
-from unfret.credits import ledger
+from unfret.credits import free, keys, ledger
 from unfret.facts import PageFacts
 from unfret.graph.state import SERVICE_TYPES, Finding
 from unfret.schemas.errors import (
@@ -40,6 +41,8 @@ _TITLE = "title"
 _PRIVATE = "private"
 # Pages fetched for URL-only requests, per account: a page we can't read is free, so this bounds the free fetches.
 _fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
+# Quick checks (free for everyone), per account or, without one, per visitor network.
+_quick_rate = RateLimit(settings.quick_checks_per_minute)
 # Analyses per account that ran but were refunded (hung up, or not assessable): they cost LLM calls all the same.
 _free_outcomes = RateLimit(settings.analyze_free_outcomes_per_hour, window_s=3600)
 
@@ -58,8 +61,11 @@ def _check_free_outcomes(address: str) -> None:
         )
 
 
-def _count_free_outcome(address: str) -> None:
-    _free_outcomes.retry_after(address)  # counts it (the result, a wait, is for the next request)
+def _count_free_outcome(charge: Charge) -> None:
+    # A deep check that ran and was given back (the client hung up, or the page couldn't be assessed). Quick checks
+    # cost no LLM call and have their own per-minute limit.
+    if charge.charged and charge.account is not None:
+        _free_outcomes.retry_after(charge.account)  # counts it (the result, a wait, is for the next request)
 
 
 def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str, object]]:
@@ -71,7 +77,7 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
     :return: The compiled graph and its input state.
     :raises InternalServerError: If the graph is not initialised.
     """
-    graph = request.app.graph
+    graph = request.app.quick_graph if body.tier == "quick" else request.app.graph
     if graph is None:
         raise InternalServerError("Analysis graph is not initialised.")
     state: dict[str, object] = {
@@ -87,6 +93,7 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
 
 
 _NOT_ENOUGH = "Not enough credits for an analysis."
+_PAUSED = "Free deep checks are back tomorrow (00:00 UTC). Quick checks still work."
 
 
 def _shortfall(balance: int) -> dict[str, int]:
@@ -100,43 +107,104 @@ def _shortfall(balance: int) -> dict[str, int]:
     }
 
 
-async def _debit(request: Request, address: str) -> int:
+def _paused() -> dict[str, Any]:
+    # What a 429 FREE_CHECKS_PAUSED carries besides its detail: when the budget starts over; quick checks work.
+    return {
+        "error_code": "FREE_CHECKS_PAUSED",
+        "metadata": {"retry_after_s": free.seconds_to_tomorrow(), "quick_checks": True},
+    }
+
+
+def _ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _key_id(account: str | None) -> str | None:
+    return account.removeprefix(keys.ACCOUNT_PREFIX) if account and keys.is_key_account(account) else None
+
+
+@dataclass
+class Charge:
+    """How one analysis is paid: a check from the balance, a free check, or nothing (a quick check)."""
+
+    account: str | None
+    paid: bool = False
+    spent: free.Spent | None = None
+
+    @property
+    def charged(self) -> bool:
+        """Whether this analysis used a check (bought or free)."""
+        return self.paid or self.spent is not None
+
+
+async def _can_pay(request: Request, account: str) -> None:
     """
-    Take the analysis price from the account's balance.
+    Make sure a deep check can be paid for before a page is fetched for it (nothing is taken here).
 
     :param request: The FastAPI request.
-    :param address: The account (a signed-in wallet or an API key).
-    :return: The balance left after the debit.
-    :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
+    :param account: The account.
+    :raises InsufficientCreditsError: Without checks.
+    :raises TooManyRequestsError: When only free checks are left and today's are all used (FREE_CHECKS_PAUSED).
     """
-    left = await ledger.debit(request.app.db_pool, address, settings.analysis_price_usd_micros)
-    if left is None:
-        balance = await ledger.balance(request.app.db_pool, address) or 0
+    pool = request.app.db_pool
+    key_id = _key_id(account)
+    has_free = key_id is not None and await free.left(pool, key_id) > 0
+    if has_free and not await free.paused(pool, settings):
+        return
+    balance = await _balance(request, account)
+    if balance < settings.analysis_price_usd_micros:
+        if has_free:
+            raise TooManyRequestsError(_PAUSED, **_paused())
         raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
-    return left
 
 
-async def _fetch_if_url_only(request: Request, body: AnalyzeRequest, address: str, state: dict[str, object]) -> None:
+async def _debit(request: Request, account: str) -> Charge:
+    """
+    Pay for a deep check: a pass's free check first, then the balance.
+
+    :param request: The FastAPI request.
+    :param account: The account (a signed-in wallet or an API key).
+    :return: What was taken, to give back on a refund.
+    :raises InsufficientCreditsError: If nothing covers the analysis.
+    :raises TooManyRequestsError: If only free checks would, and today's are all used (FREE_CHECKS_PAUSED).
+    """
+    pool = request.app.db_pool
+    outcome = "none"
+    if (key_id := _key_id(account)) is not None:
+        outcome, spent = await free.take_for_key(pool, settings, key_id)
+        if spent is not None:
+            logger.info("free_check_used")
+            return Charge(account, spent=spent)
+    if await ledger.debit(pool, account, settings.analysis_price_usd_micros) is None:
+        if outcome == "paused":
+            raise TooManyRequestsError(_PAUSED, **_paused())
+        balance = await ledger.balance(pool, account) or 0
+        raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
+    return Charge(account, paid=True)
+
+
+async def _fetch_if_url_only(
+    request: Request, body: AnalyzeRequest, account: str | None, state: dict[str, object]
+) -> None:
     """
     For a request with only a URL, fetch the page into the graph input, before anything is charged.
 
-    The balance is checked first (an empty account gets its 402 without a fetch), and a page that can't be read
-    (unreachable, refused, a bot check, an empty shell) is answered with a free 422. Nothing about the URL is logged.
+    For a deep check the caller's checks are looked at first (an empty account gets its 402 without a fetch), and a
+    page that can't be read (unreachable, refused, a bot check, an empty shell) is answered with a free 422. Nothing
+    about the URL is logged.
 
     :param request: The FastAPI request.
     :param body: The request body.
-    :param address: The account.
+    :param account: The account, or ``None`` (a quick check without a pass).
     :param state: The graph input; its ``page_content`` is set to the fetched HTML.
-    :raises InsufficientCreditsError: If the balance doesn't cover the analysis.
-    :raises TooManyRequestsError: If the account fetched too many pages in the last minute.
+    :raises TooManyRequestsError: If the account (or network) fetched too many pages in the last minute.
     :raises UnreadablePageError: If the page can't be checked from a server-side fetch (``error_code`` says why).
     """
     if not body.url_only:
         return
-    balance = await _balance(request, address)
-    if balance < settings.analysis_price_usd_micros:
-        raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
-    if (wait := _fetch_rate.retry_after(address)) is not None:
+    if account is not None and body.tier == "deep":
+        await _can_pay(request, account)
+    if (wait := _fetch_rate.retry_after(account or _ip(request))) is not None:
         raise TooManyRequestsError(
             "Too many links checked in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
         )
@@ -147,11 +215,70 @@ async def _fetch_if_url_only(request: Request, body: AnalyzeRequest, address: st
         raise UnreadablePageError(f"{exc.detail} No check was used.", error_code=exc.reason) from exc
 
 
-async def _refund(request: Request, address: str) -> int:
-    # Pages that couldn't be analysed (score -1) and failed analyses cost nothing. Shielded: this often runs while
-    # a client disconnect is cancelling the request, and a cancelled refund would keep the money.
+async def _caller(request: Request, body: AnalyzeRequest, account: str | None) -> str | None:
+    """
+    Who pays: a deep check needs an account (refused as before without one); a quick check doesn't.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param account: The account from ``Authorization``, or ``None`` without the header.
+    :return: The account, or ``None`` for a quick check without one.
+    """
+    if account is None and body.tier == "deep":
+        return await require_account(request)  # 401 (or 503 while accounts are off), exactly as before
+    return account
+
+
+def _quick_limit(request: Request, body: AnalyzeRequest, account: str | None) -> None:
+    """
+    Count a quick check against its per-minute limit.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param account: The account, or ``None``.
+    :raises TooManyRequestsError: If the account (or network) ran too many quick checks in the last minute.
+    """
+    if body.tier == "quick" and (wait := _quick_rate.retry_after(account or _ip(request))) is not None:
+        raise TooManyRequestsError(
+            "Too many quick checks in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
+        )
+
+
+async def _charge(request: Request, body: AnalyzeRequest, account: str | None) -> Charge:
+    """
+    Pay for the analysis: a deep check uses a check (bought or free), a quick check nothing.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param account: The account, or ``None``.
+    :return: What was taken.
+    """
+    if body.tier == "quick" or account is None:  # without an account, only a quick check gets here (_caller)
+        return Charge(account)
+    return await _debit(request, account)
+
+
+async def _refund(request: Request, charge: Charge) -> int | None:
+    """
+    Give back what an analysis took: it couldn't be done, failed, or the client hung up.
+
+    Shielded: this often runs while a client disconnect is cancelling the request, and a cancelled refund would keep
+    the money.
+
+    :param request: The FastAPI request.
+    :param charge: What was taken.
+    :return: The account's balance afterwards (``None`` without an account).
+    """
+    balance: int | None = None
     with anyio.CancelScope(shield=True):
-        balance = await ledger.credit(request.app.db_pool, address, settings.analysis_price_usd_micros)
+        if charge.paid and charge.account is not None:
+            charge.paid = False
+            balance = await ledger.credit(request.app.db_pool, charge.account, settings.analysis_price_usd_micros)
+        elif charge.spent is not None:
+            await free.give_back(request.app.db_pool, charge.spent)
+            charge.spent = None
+        if balance is None and charge.account is not None:
+            balance = await _balance(request, charge.account)
     return balance
 
 
@@ -161,13 +288,13 @@ async def _balance(request: Request, address: str) -> int:
 
 def _cache_key(body: AnalyzeRequest) -> str:
     # Keyed on exactly what was sent (see unfret.result_cache): a result is only reused for identical input, so
-    # one caller's crafted facts are never served to another.
+    # one caller's crafted facts are never served to another. Quick and deep checks are different results.
     return result_cache.key_for(
         url=body.url,
         page_content=body.page_content or "",
         page_facts_json=body.page_facts.model_dump_json() if body.page_facts else "",
         checkout_content=body.checkout_content or "",
-        tier="full",
+        tier="full" if body.tier == "deep" else "quick",
         flags=body.flags,
     )
 
@@ -183,11 +310,14 @@ def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
         )
 
 
-def _report_token(body: AnalyzeRequest, address: str, result: dict[str, Any]) -> str | None:
-    # Lets this account report the result later (POST /v1/reports) without anything being stored now.
+def _report_token(body: AnalyzeRequest, account: str | None, result: dict[str, Any]) -> str | None:
+    # Lets this account report the result later (POST /v1/reports) without anything being stored now. Not for a
+    # quick check (rules only: the deep check is the one to report), nor without an account (reports are per account).
+    if account is None or body.tier == "quick":
+        return None
     return reports.issue_token(
         settings.session_secret.get_secret_value(),
-        address,
+        account,
         body,
         score=int(result["score"]),
         explanation=str(result["explanation"]),
@@ -206,9 +336,11 @@ def _kept(result: dict[str, Any]) -> dict[str, Any]:
 
 def _response(
     result: dict[str, Any],
-    balance: int,
+    balance: int | None,
     *,
     charged: bool,
+    tier: str = "deep",
+    free_check: bool = False,
     report_token: str | None = None,
     shared_from: AnalyzeRequest | None = None,
 ) -> AnalyzeResponse:
@@ -221,12 +353,15 @@ def _response(
         balance_usd_micros=balance,
         balance_lamports=balance,
         charged=charged,
+        tier=tier,
+        free_check=free_check or None,
         report_token=report_token,
     )
-    if shared_from is not None and not result.get(_PRIVATE):
+    secret = settings.session_secret.get_secret_value()
+    if shared_from is not None and shared_from.tier == "deep" and secret and not result.get(_PRIVATE):
         # Lets whoever sees this result make it public later (POST /v1/shares); it names no account.
         response.share_token = shares.issue_token(
-            settings.session_secret.get_secret_value(),
+            secret,
             url=shared_from.url,
             title=str(result.get(_TITLE) or ""),
             response=response.model_dump(mode="json", exclude_none=True),
@@ -236,11 +371,55 @@ def _response(
     return response
 
 
+async def _cached(request: Request, body: AnalyzeRequest, account: str | None, key: str) -> AnalyzeResponse | None:
+    """
+    The same input analysed recently: its result again, free of charge.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param account: The account, or ``None``.
+    :param key: The result cache key.
+    :return: The response, or ``None`` on a miss.
+    """
+    cached = result_cache.get(key)
+    if cached is None:
+        return None
+    logger.info("analysis_cache_hit")
+    balance = None if account is None else await _balance(request, account)
+    token = _report_token(body, account, cached)
+    return _response(cached, balance, charged=False, tier=body.tier, report_token=token, shared_from=body)
+
+
+async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, result: dict[str, Any]) -> AnalyzeResponse:
+    """
+    The response to a finished analysis: a page that couldn't be analysed (score -1) is given back.
+
+    :param request: The FastAPI request.
+    :param body: The request body.
+    :param charge: What the analysis took.
+    :param result: The result (as cached).
+    :return: The response.
+    """
+    if result["score"] == -1:
+        _count_free_outcome(charge)
+        return _response(result, await _refund(request, charge), charged=False, tier=body.tier)
+    balance = None if charge.account is None else await _balance(request, charge.account)
+    return _response(
+        result,
+        balance,
+        charged=charge.charged,
+        tier=body.tier,
+        free_check=charge.spent is not None,
+        report_token=_report_token(body, charge.account, result),
+        shared_from=body,
+    )
+
+
 @router.post("", response_model=AnalyzeResponse, response_model_exclude_none=True)
 async def analyze_page(
     body: AnalyzeRequest,
     request: Request,
-    address: str = Depends(require_account),
+    account: str | None = Depends(optional_account),
 ) -> AnalyzeResponse:
     """
     Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.
@@ -260,43 +439,47 @@ async def analyze_page(
     browser) or ``INVALID_URL``.
 
     The caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_…``).
+    A pass's free checks are used before its balance. Once today's free deep checks are all used (by everyone), a
+    check that only free checks could pay for is refused with 429 ``FREE_CHECKS_PAUSED`` (until 00:00 UTC).
+    ``"tier": "quick"`` runs the rules-only quick check instead: free for everyone, with or without
+    ``Authorization``, never charged, a few a minute.
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
-    :param address: The account (injected by require_account).
+    :param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick
+        check may do without one).
     :return: Reliability score (0–100), explanation, verdict, the scorer's assessment, the balance left, a report
         token and a share token.
     :raises InternalServerError: If the graph fails.
     :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
     :raises asyncio.CancelledError: If the client hung up (after the refund).
     """
+    account = await _caller(request, body, account)
+    _quick_limit(request, body, account)
     graph, state = _graph_input(body, request)
     key = _cache_key(body)
-    cached = result_cache.get(key)
-    if cached is not None:
-        logger.info("analysis_cache_hit")
-        token = _report_token(body, address, cached)
-        balance = await _balance(request, address)
-        return _response(cached, balance, charged=False, report_token=token, shared_from=body)
+    if (hit := await _cached(request, body, account, key)) is not None:
+        return hit
 
-    _check_free_outcomes(address)
-    await _fetch_if_url_only(request, body, address, state)
-    left = await _debit(request, address)
+    if body.tier == "deep" and account is not None:
+        _check_free_outcomes(account)
+    await _fetch_if_url_only(request, body, account, state)
+    charge = await _charge(request, body, account)
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
             result = await graph.ainvoke(state, config={"callbacks": [usage]})
     except TimeoutError as exc:
         logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
-        await _refund(request, address)
+        await _refund(request, charge)
         raise GatewayTimeoutError("Analysis took too long.") from exc
     except asyncio.CancelledError:
-        _count_free_outcome(address)
-        await _refund(request, address)  # the client went away before the result
+        _count_free_outcome(charge)
+        await _refund(request, charge)  # the client went away before the result
         raise
     except Exception as exc:
         logger.exception("graph_execution_failed")
-        await _refund(request, address)
+        await _refund(request, charge)
         raise InternalServerError("Analysis failed.") from exc
     finally:
         _log_usage(usage)
@@ -306,12 +489,7 @@ async def analyze_page(
         m.group(1) for entry in result.get("skill_results", []) if (m := _SKILL_TAG_RE.match(entry))
     )
     logger.info("skills_used", **skill_counts)
-
-    if result["score"] == -1:
-        _count_free_outcome(address)
-        return _response(result, await _refund(request, address), charged=False)
-    token = _report_token(body, address, result)
-    return _response(kept, left, charged=True, report_token=token, shared_from=body)
+    return await _finished(request, body, charge, result if result["score"] == -1 else kept)
 
 
 def _event(name: str, data: dict[str, Any]) -> str:
@@ -348,7 +526,7 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
 async def analyze_page_stream(
     body: AnalyzeRequest,
     request: Request,
-    address: str = Depends(require_account),
+    account: str | None = Depends(optional_account),
 ) -> StreamingResponse:
     """
     Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.
@@ -359,26 +537,25 @@ async def analyze_page_stream(
     of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client
     that lost the connection gets it again for free by repeating the request. A URL-only request fetches the page
     before the stream starts; a page that can't be checked is a free 422 (no stream), as for ``POST /v1/analyze``.
+    The free tier and ``"tier": "quick"`` work as for ``POST /v1/analyze``.
 
     :param body: The request body containing the page content and flags.
     :param request: The FastAPI request (used to access the compiled graph).
-    :param address: The account (injected by require_account).
+    :param account: The account (injected by optional_account), or ``None`` without ``Authorization``.
     :return: A ``text/event-stream`` response.
     """
+    account = await _caller(request, body, account)
+    _quick_limit(request, body, account)
     graph, state = _graph_input(body, request)
     key = _cache_key(body)
-    cached = result_cache.get(key)
-    if cached is not None:
-        logger.info("analysis_cache_hit")
-        token = _report_token(body, address, cached)
-        balance = await _balance(request, address)
-        hit = _response(cached, balance, charged=False, report_token=token, shared_from=body)
+    if (hit := await _cached(request, body, account, key)) is not None:
         return _stream(_replay(hit))
 
-    _check_free_outcomes(address)
-    await _fetch_if_url_only(request, body, address, state)
-    left = await _debit(request, address)
-    return _stream(_live_events(request, body, address, graph, state, key=key, left=left))
+    if body.tier == "deep" and account is not None:
+        _check_free_outcomes(account)
+    await _fetch_if_url_only(request, body, account, state)
+    charge = await _charge(request, body, account)
+    return _stream(_live_events(request, body, charge, graph, state, key=key))
 
 
 def _stream(events: AsyncIterator[str]) -> StreamingResponse:
@@ -392,23 +569,21 @@ async def _replay(hit: AnalyzeResponse) -> AsyncIterator[str]:
 async def _live_events(
     request: Request,
     body: AnalyzeRequest,
-    address: str,
+    charge: Charge,
     graph: Any,
     state: dict[str, object],
     *,
     key: str,
-    left: int,
 ) -> AsyncGenerator[str]:
     """
     Run the graph and stream its steps, then the result; refund unless the analysis finished.
 
     :param request: The FastAPI request.
     :param body: The request body (for the report and share tokens).
-    :param address: The account (already debited).
+    :param charge: What the analysis took (already taken).
     :param graph: The compiled graph.
     :param state: The graph input.
     :param key: The result cache key.
-    :param left: The balance after the debit.
     :yield: Server-sent events.
     """
     usage = UsageMetadataCallbackHandler()
@@ -441,15 +616,10 @@ async def _live_events(
             return
         result_cache.put(key, dict(final))
         refund = False
-        if final["score"] == -1:
-            _count_free_outcome(address)
-            result = _response(final, await _refund(request, address), charged=False)
-        else:
-            token = _report_token(body, address, final)
-            result = _response(final, left, charged=True, report_token=token, shared_from=body)
+        result = await _finished(request, body, charge, final)
         yield _event("result", result.model_dump(mode="json", exclude_none=True))
     finally:
         if refund:
             if not failed:
-                _count_free_outcome(address)  # the client hung up before the result
-            await _refund(request, address)
+                _count_free_outcome(charge)  # the client hung up before the result
+            await _refund(request, charge)

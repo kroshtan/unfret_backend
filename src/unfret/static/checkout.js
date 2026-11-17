@@ -35,6 +35,7 @@ import {
   walletButton,
 } from "./wallet.js";
 import { handOffKey, topupKeyId } from "./handoff.js";
+import { makePass } from "./new-pass.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
 import { cardPrice as cardPriceFor, countryPhrase, taxNote } from "./prices.js";
 
@@ -162,35 +163,8 @@ function storageSet(name, value) {
 
 // ── Keys made on this page ──────────────────────────────────────────────────────────────────────────────────────
 
-function zeroBits(digest) {
-  const bytes = new Uint8Array(digest);
-  let bits = 0;
-  for (const byte of bytes) {
-    if (byte) return bits + Math.clz32(byte) - 24;
-    bits += 8;
-  }
-  return bits;
-}
-
-// The proof of work for a new key: SHA-256(challenge + ":" + n) starting with `bits` zero bits, in batches.
-async function solve(challenge, bits) {
-  const encoder = new TextEncoder();
-  for (let start = 0; ; start += 256) {
-    const batch = Array.from({ length: 256 }, (_, i) => String(start + i));
-    const digests = await Promise.all(
-      batch.map((n) => crypto.subtle.digest("SHA-256", encoder.encode(`${challenge}:${n}`))),
-    );
-    const found = digests.findIndex((digest) => zeroBits(digest) >= bits);
-    if (found >= 0) return batch[found];
-  }
-}
-
 // A new, empty key: { key, recovery_code, key_id }. A few seconds of work in the browser keeps out bots.
-async function makeKey() {
-  const challenge = await api("/v1/keys/challenge");
-  const solution = await solve(challenge.challenge, challenge.bits);
-  return api("/v1/keys", { method: "POST", body: JSON.stringify({ challenge: challenge.challenge, solution }) });
-}
+const makeKey = () => makePass(api);
 
 // The key made here and not yet confirmed saved: { key, recovery_code, key_id, funded }.
 function loadNewKey() {
@@ -296,17 +270,28 @@ function handoffBox(issued, steps = null) {
   const offer = async (replace) => {
     const status = await handOffKey(issued.key, { replace });
     if (status === "signed-in" || status === "already") return signedIn();
-    if (status === "other-account") {
+    if (status === "other-account" || status === "free-pass") {
+      // The extension's own free pass: switching moves its free checks left to this pass, so nothing is lost.
+      const free = status === "free-pass";
       const actions = element("div", "", "handoff-actions");
-      const use = button("Use this pass in the extension", () => {
+      const use = button(free ? "Put them together on this pass" : "Use this pass in the extension", () => {
         use.disabled = keep.disabled = true;
         offer(true);
       }, "primary");
-      const keep = button("Keep the current one", () =>
+      const keep = button(free ? "Keep the free pass" : "Keep the current one", () =>
         say("info", element("p", "Your extension keeps what it has. To use this pass there later, paste it when the extension asks.", "small")),
       );
       actions.append(use, keep);
-      say("ask", element("p", "Your Unfret extension uses another pass or wallet. Switch it to this pass?"), actions);
+      say(
+        "ask",
+        element(
+          "p",
+          free
+            ? "Your Unfret extension has its free pass. Switch it to this pass? Any free checks left on it come along, so all your checks are on this one pass."
+            : "Your Unfret extension uses another pass or wallet. Switch it to this pass?",
+        ),
+        actions,
+      );
       return;
     }
     say(

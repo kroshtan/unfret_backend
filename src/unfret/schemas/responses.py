@@ -54,10 +54,16 @@ class AnalyzeResponse(BaseModel):
         description="Whether this analysis used a check: false for pages that couldn't be analysed (score -1) and "
         "for results served from the cache.",
     )
+    tier: str | None = Field(
+        default=None, description="Which check this was: deep (the full analysis) or quick (rules only, free)."
+    )
+    free_check: bool | None = Field(
+        default=None, description="True when this check was one of the free ones (a pass's, or a day's without one)."
+    )
     report_token: str | None = Field(
         default=None,
         description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account). "
-        "Absent for pages that couldn't be analysed.",
+        "Absent for pages that couldn't be analysed, for quick checks and without an account.",
     )
     verdict: Verdict | None = Field(
         default=None,

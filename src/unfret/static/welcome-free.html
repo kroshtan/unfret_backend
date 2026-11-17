@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Welcome to Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  {{header}}
+  <main class="welcome">
+    <p class="eyebrow">Unfret is installed</p>
+    <h1>You have {{free_checks}} free checks</h1>
+    <p class="lead">No code, no account, nothing to buy. Before you pay on a web shop, an ad or a company's website,
+      click Unfret and it tells you in plain words whether it all adds up.</p>
+
+    <section class="prose" aria-labelledby="first-check">
+      <h2 id="first-check">Your first check</h2>
+      <ol class="howto">
+        <li><b>Pin Unfret.</b> Click the puzzle piece in your browser's toolbar and pin Unfret, so it's one click
+          away.</li>
+        <li><b>Open a page you're thinking of buying from.</b> Not sure where to start? Try
+          <a href="/test-shop">the Unfret test shop</a>: every trick on it is copied from real listings.</li>
+        <li><b>Click the Unfret icon</b> and choose “Check this page”. Unfret reads that one page, only when you
+          click, and answers in plain words. <a href="/privacy">What is sent, and what isn't</a>.</li>
+      </ol>
+      <p>After your free checks, quick checks stay free: they read the page itself, by its rules. Deep checks, which
+        also look the shop up elsewhere, come in packs with no subscription.</p>
+      <p class="muted small"><a href="/checkout">See the packs</a> · Have a code or a pass already? Click the Unfret
+        icon: it asks for either.</p>
+    </section>
+  </main>
+
+  {{footer}}
+</body>
+</html>

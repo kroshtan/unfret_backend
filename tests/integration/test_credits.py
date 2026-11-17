@@ -144,6 +144,8 @@ async def test_sign_in_issues_a_working_session(client: httpx.AsyncClient) -> No
         "checks_remaining": 0,
         "balance_lamports": 0,
         "invite_eligible": True,  # a wallet that never had credit
+        "free_checks_remaining": 0,  # only a pass has free checks
+        "free_checks_paused": False,
     }
 
 

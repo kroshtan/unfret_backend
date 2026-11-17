@@ -71,7 +71,8 @@ async def test_only_hashes_of_the_key_and_code_are_stored(client: httpx.AsyncCli
     row = await pool.fetchrow("SELECT * FROM api_keys WHERE id = $1", issued["key_id"])
     assert bytes(row["key_hash"]) == hashlib.sha256(issued["key"].encode()).digest()
     assert bytes(row["recovery_hash"]) == hashlib.sha256(issued["recovery_code"].encode()).digest()
-    assert set(row.keys()) == {"id", "key_hash", "recovery_hash", "created_on", "rotated_on"}
+    # free_checks: a count (unfret.credits.free), nothing about who made the pass
+    assert set(row.keys()) == {"id", "key_hash", "recovery_hash", "created_on", "rotated_on", "free_checks"}
     dump = json.dumps([dict(r) for r in await pool.fetch("SELECT * FROM api_keys")], default=str)
     assert issued["key"].split("_")[2] not in dump
     assert issued["recovery_code"].split("_")[2] not in dump

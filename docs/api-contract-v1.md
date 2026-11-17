@@ -823,9 +823,51 @@ valid 7 days. Nothing is stored when a check runs.
   listing" before); a stored headline that starts with a former label loses it. The share token and what is stored
   are unchanged. The public `band` stays `warning` for `junk_or_scam`.
 
-## Changes (the showcase is retired; migration 24)
+## Changes (the showcase is retired; migration 25)
 
 - `GET /v1/showcase`, `GET /v1/showcase/{id}`, the pages `/showcase/{id}` and `/showcase/{id}/screenshot` and the
   operator's `/v1/admin/showcase…` endpoints are gone (404). Migration 24 drops `showcase_cases`. No client used them
   but the site itself, whose home page shows cards about the tricks Unfret catches instead.
 - Shared results (`/v1/shares…`, `/r/{id}`) are unchanged: the same public wording, now in `unfret.public_result`.
+
+## Changes (free checks: a free pass, quick checks for everyone; backwards-compatible; migration 25)
+
+Additive: a client that sends none of the new fields sees the same behaviour as before (extension 0.11.0, the MCP
+client and `/v1/check` are unchanged).
+
+- `POST /v1/keys` takes an optional `"free": true`: the new pass comes with `free_checks_per_pass` (5) free deep checks,
+  within `free_passes_per_ip_per_day` (2) such passes per visitor network (in memory, salted hashes, never stored);
+  past that the pass is made empty. The proof of work and the per-network key limits apply as before. The response
+  (and `POST /v1/keys/recover`'s) adds `free_checks` (int). The extension asks for one on install, `/check` on a
+  browser's first check; each remembers in the browser that it did (extension: `storage.sync`, `/check`:
+  `localStorage`), so a reinstall gets a pass without free checks.
+- Free checks are spent before the balance. `GET /v1/credits` adds `free_checks_remaining` (included in
+  `checks_remaining`) and `free_checks_paused`. They are not credit: a pass with only free checks keeps
+  `invite_eligible: true` (an intro code or invite still works on it).
+- **One budget a day for free deep checks**: every free deep check counts towards a global counter per UTC day
+  (`usage_counters`, `free_checks`), capped at `free_daily_budget_eur` (default 5.00) over `free_check_cost_eur`
+  (default 0.005, an estimate of one deep check's LLM and embedding cost): 1,000 a day by default. Once it is reached,
+  a deep check that only free checks could pay for is refused with **429 `FREE_CHECKS_PAUSED`** ("Free deep checks
+  are back tomorrow (00:00 UTC). Quick checks still work.", `metadata: {"retry_after_s", "quick_checks": true}`),
+  nothing is taken, and bought checks are used if the pass has any. A free check whose analysis fails, times out, is
+  cancelled or can't assess the page is given back to the pass and to the day's budget.
+- `POST /v1/analyze` and `/v1/analyze/stream` take an optional `"tier"`: `"deep"` (default: unchanged) or `"quick"`
+  (the x402 quick tier's rule-based checks of the page itself: no LLM, no lookups elsewhere; product pages). A quick
+  check is never charged, free with or without `Authorization` (a header that's there must still be valid: 401
+  otherwise), at most `quick_checks_per_minute` (10) per account or visitor network, and carries no `report_token` or
+  `share_token`. A deep check without `Authorization` is refused as before (401).
+- The analysis response adds `tier` (`"deep"` or `"quick"`) and `free_check: true` when a free check paid for it.
+- `POST /v1/keys/move-free-checks` (`Authorization: Bearer <pass>`, body `{"to_key_id": "<id or pass>"}`) →
+  `{"moved": n}`: moves every free check left on the authenticating pass to another pass; never balance. The extension
+  does it when it switches from the free pass it made to a pass its user bought. 400 for a wallet's session.
+- `GET /v1/pricing` adds `free: {"checks_per_pass", "quick_checks": true, "paused", "back_at": "00:00 UTC"}`.
+- **Key hand-off** (`/checkout` → extension): extension 0.12.0 answers `"other-account"` with `"free_pass": true` when
+  what it has is the free pass it made; on `replace: true` it moves that pass's free checks to the new pass before
+  switching. `handoff.js` reports this as `"free-pass"` and the page asks "Switch it to this pass? Any free checks left
+  on it come along".
+- `GET /welcome?free=<n>` (1–100): "You have n free checks" and how to check a page, opened by the extension after it
+  made its free pass; without it (or 0), the page for a pass without free checks, as before.
+- `/check`: a first visit's first Check makes a free pass (`static/new-pass.js`, shared with `/checkout`); without a
+  pass, or when a deep check needs checks the pass doesn't have (402, or 429 `FREE_CHECKS_PAUSED`), the page runs a
+  quick check instead and says why. Example links to try (`UNFRET_CHECK_EXAMPLES`, label and address pairs; the test
+  shop by default).

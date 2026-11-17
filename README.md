@@ -627,6 +627,12 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
 | `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
 | `UNFRET_INTRO_DAILY_CHECKS_CAP` | unset (no cap) | Emergency brake for intro codes (`make codes`): when set, all codes together give at most this many checks a UTC day (0 pauses them all); each code already has its own max uses |
+| `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
+| `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
+| `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
+| `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
+| `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
+| `UNFRET_CHECK_EXAMPLES` | the test shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
 | `UNFRET_CARD_PRICES_EUR` | `25=5.50,50=10.00,100=19.00` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack, or empty for dollars only. Each Polar product needs the same EUR price |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |

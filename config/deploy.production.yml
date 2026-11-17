@@ -15,6 +15,8 @@ env:
     UNFRET_SIWS_DOMAIN: unfret.net
     UNFRET_PUBLIC_BASE_URL: https://unfret.net
     UNFRET_POLAR_ENVIRONMENT: production  # real money; production never talks to Polar's sandbox
+    # The page classes beyond products (p2p ads, service providers): on in dev and production.
+    UNFRET_EXPANSION_CLASSES: "true"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI

@@ -14,7 +14,7 @@ env:
     UNFRET_X402_ALLOW_MAINNET: "false"
     UNFRET_SIWS_DOMAIN: dev.unfret.net
     UNFRET_PUBLIC_BASE_URL: https://dev.unfret.net
-    # The page classes beyond products (p2p ads, service providers): on for dev only, never in production.
+    # The page classes beyond products (p2p ads, service providers): on in dev and production.
     UNFRET_EXPANSION_CLASSES: "true"
   secret:
     - UNFRET_LLM_API_KEY

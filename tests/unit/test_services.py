@@ -897,7 +897,7 @@ def test_a_platform_frame_without_the_profile_is_withheld(monkeypatch: pytest.Mo
     monkeypatch.setattr(settings, "expansion_classes", expansion)
     html, url = page("houzz-profile")
 
-    assert page_fetch.is_withheld_profile(HOUZZ_FRAME, HOUZZ_PRO) == expansion  # off: production is unchanged
+    assert page_fetch.is_withheld_profile(HOUZZ_FRAME, HOUZZ_PRO) == expansion  # off: as before the flag
     assert not page_fetch.is_withheld_profile(html, url)  # the profile came with it
     assert not page_fetch.is_withheld_profile(HOUZZ_FRAME, "https://www.houzz.com/photos/kitchen")  # not a profile
 

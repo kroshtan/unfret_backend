@@ -30,6 +30,7 @@ from unfret.graph.state import SERVICE_TYPES, AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
 from unfret.net import fetch_public
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -190,7 +191,7 @@ class ReverseImageSkill(Skill):
         where = image_store.listing(state.get("url", ""), facts)
         ad = state.get("page_type") in P2P_PAGES
         found = await (image_store.lookup_ad if ad else image_store.lookup)(_store, fp, where)
-        if where is not None:
+        if where is not None and not is_test_shop(state.get("url", "")):  # the test shop's photos stay out
             _record_later(where, fp, image_url, shop_store.today())
         if found.stop:
             return self.output({"searched": True}, note="The photo is a stock image found on many shops.")

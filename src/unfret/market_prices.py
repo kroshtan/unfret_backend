@@ -23,6 +23,7 @@ import structlog
 
 from unfret.facts import PageFacts
 from unfret.price_store import gtins, registrable_domain, valid_gtin
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -269,11 +270,12 @@ async def observe(url: str, facts: PageFacts) -> Market | None:
 
     :param url: The page URL.
     :param facts: The page facts.
-    :return: The market, or ``None`` for a page without a price, a barcode or a host (or a failing store).
+    :return: The market, or ``None`` for a page without a price, a barcode or a host (or a failing store), and for
+        the test shop (:mod:`unfret.test_shop`), which is never recorded.
     """
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     gtin, shop = barcode(facts), shop_key(url, facts)
-    if gtin is None or shop is None or not facts.price:
+    if gtin is None or shop is None or not facts.price or is_test_shop(url):
         return None
     product, day, currency = product_key(gtin), today(), (facts.currency or "").upper()[:3]
     try:

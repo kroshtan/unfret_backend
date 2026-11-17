@@ -22,6 +22,7 @@ import asyncpg
 import structlog
 
 from unfret.facts import PageFacts
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -317,11 +318,12 @@ async def observe(url: str, facts: PageFacts) -> tuple[bytes, History] | None:
 
     :param url: The page URL.
     :param facts: The page facts.
-    :return: The product key and its history, or ``None`` for pages without a price or a public product ID.
+    :return: The product key and its history, or ``None`` for pages without a price or a public product ID, and
+        for the test shop (:mod:`unfret.test_shop`), whose prices are made up and never recorded.
     """
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     key = product_key(url, facts)
-    if key is None or facts.price is None:
+    if key is None or facts.price is None or is_test_shop(url):
         return None
     day = today()
     currency = (facts.currency or "").upper()[:3]

@@ -25,6 +25,7 @@ import structlog
 from unfret import shop_store
 from unfret.net import hostname
 from unfret.price_store import registrable_domain
+from unfret.test_shop import is_test_shop
 from unfret.x402.verdict import Policy, Tier, Verdict, action_for
 
 logger = structlog.get_logger("unfret")
@@ -219,7 +220,7 @@ async def remember(url: str, result: dict[str, Any], verdict: Verdict, *, fetche
     """
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     key = listing_key(url)
-    if key is None or not keepable(result, verdict, fetched_by_us=fetched_by_us):
+    if key is None or is_test_shop(url) or not keepable(result, verdict, fetched_by_us=fetched_by_us):
         return
     try:
         page = await shop_store.page_links(result)

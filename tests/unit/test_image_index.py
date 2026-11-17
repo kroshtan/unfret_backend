@@ -231,6 +231,19 @@ async def test_skill_finds_the_photo_on_other_shops_and_records_it(
     assert ("glowlamp.shop" in {d for d, _ in stub.rows}) is True  # recorded for the next shop
 
 
+async def test_the_test_shops_photo_is_looked_up_but_never_recorded(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photo = "https://unfret.net/static/test-shop/projector-hero.jpg"
+    serve(monkeypatch, {photo: encode(product_photo(14), "JPEG", quality=70)})
+
+    out = await ReverseImageSkill().run(page("https://unfret.net/test-shop", photo))
+    await reverse_image.drain()
+
+    assert out["features"]["reverse_image.searched"] == 1.0
+    assert stub.rows == {}  # its tricks are made up: nothing for the next shop to match
+
+
 async def test_skill_reports_nothing_without_the_model_or_with_fingerprints_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

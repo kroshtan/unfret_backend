@@ -162,6 +162,26 @@ Register an instance in `SKILLS` in [`src/unfret/graph/__init__.py`](src/unfret/
 `SERVICE_PAGES`, `SERVICE_SITES` in `graph/skills/__init__.py`), and `retry = True` marks one that calls the LLM or
 fetches outside data, so transient errors are retried.
 
+### The test shop
+
+`/test-shop` is a made-up web shop (Nebulora Home, selling an invented LUMIQZEN star projector, in dollars, laid out
+like a US Shopify store) that carries every trick Unfret catches, each one copied from real listings with the names
+removed: a countdown that starts again on every load, "someone just bought this" pop-ups, a closing-down story
+("everything must go"), a "compare at" price nobody paid (79% off), overseas shipping, returns to China, a withheld
+return address, a restocking fee and a "Made in USA" claim in the small print, fees, a pre-ticked paid protection
+add-on, dropshipping-app and supplier traces in the source, invented reviews (a burst of 2,847 in three weeks, repeats,
+generic one-liners, reviews of other products, a review-import widget), hidden text addressed to AI, a generated
+brand name and a keyword-stuffed title, and no company behind it. `/test-shop/checkout` adds the fees that show up
+only at checkout. A banner on every view says what it is; the pages are `noindex`, served under the site's Content
+Security Policy, and drawn (`scripts/test_shop_images.py`), with no real brand, shop, person or photo. Review dates are
+relative to the day the page is served, so the burst stays a burst.
+
+Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
+each trick raises and the verdict. Its tricks are deliberate, so the test shop (by address: `/test-shop` on
+`unfret.net`, its subdomains or this service, `unfret.test_shop`) never reaches what Unfret keeps about shops: the
+fingerprint store, price history, market prices, review fingerprints, photo index and verdict store skip it, and a
+report of it is answered `already_known` without being queued (`tests/integration/test_test_shop_stores.py`).
+
 ## API
 
 Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `Authorization: Bearer <session token>`.

@@ -42,6 +42,7 @@ from unfret.fingerprint import MAX_IDS_PER_KIND, contact_hash, fingerprint, norm
 from unfret.graph.skills.html_source_signals import page_source, scan
 from unfret.net import hostname
 from unfret.price_store import registrable_domain
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -637,9 +638,11 @@ def observe_later(state: dict[str, Any]) -> None:
     """
     Record the shop in the background, after the analysis has answered (off when ``fingerprints`` is off).
 
+    Never the test shop (:mod:`unfret.test_shop`): its tricks are made up.
+
     :param state: The final analysis state.
     """
-    if not settings.fingerprints:
+    if not settings.fingerprints or is_test_shop(str(state.get("url") or "")):
         return
     task = asyncio.create_task(observe(dict(state)))
     _pending.add(task)

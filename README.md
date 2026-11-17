@@ -615,12 +615,25 @@ for 15 minutes (concurrent retries wait for the first) and is never charged twic
 (Cloudflare, DataDome, PerimeterX, Amazon) are refused as `422 PAGE_BLOCKED` before any money moves, and
 `/v1/check` takes `UNFRET_X402_CHECK_PER_MINUTE` (30) requests per visitor network.
 
+**With an Unfret pass instead of a wallet.** `POST /v1/check` also takes `Authorization: Bearer ufk_…` (an Unfret
+pass, `POST /v1/keys`) in place of a payment, charged like `/v1/analyze`: a deep check uses one of the pass's checks
+(free ones first, from the same daily budget, then bought ones), a quick check is free (`UNFRET_QUICK_CHECKS_PER_MINUTE`
+per pass), and a cached answer costs a deep check like a fresh one, except for the pass that paid for that listing
+within the hour. A page that can't be read, assessed or analysed is given back. The verdict is the same, plus
+`charged`, `free_check`, `balance_usd_micros` and `free_checks_left`; no `PAYMENT-RESPONSE`. A request that carries
+`PAYMENT-SIGNATURE` is always an x402 payment, and one without either header still gets the `402` above. A
+**developer pass** (`POST /v1/keys` with `"developer": true`) comes with `UNFRET_DEVELOPER_FREE_CHECKS` (20) free deep
+checks, one a day per visitor network.
+
 Every error from the API is JSON with `detail` and `error_code` (validation errors add `errors`). For `/v1/check`:
 
 | error_code | HTTP | charged | what to do |
 | --- | --- | --- | --- |
 | `PAYMENT_REQUIRED` | 402 | no | pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed) |
 | `INVALID_PAYMENT` | 400 | no | the PAYMENT-SIGNATURE header couldn't be decoded |
+| `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass: fix it, or pay with x402 |
+| `INSUFFICIENT_CREDITS` | 402 | no | the pass has no checks left: top it up, or pay with x402 |
+| `FREE_CHECKS_PAUSED` | 429 | no | the pass has only free checks and today's are used: after 00:00 UTC, or pay |
 | `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`) |
 | `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |
 | `PAGE_BLOCKED` | 422 | no | the page is a bot check: send the real page as page_content |
@@ -686,8 +699,38 @@ the cold address changes again, add that one too and move the cut-off to the new
 The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
-spend cap: `uvx unfret-mcp` from PyPI, listed in the MCP Registry as `net.unfret/mcp`, released by the manual
-"Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
+spend cap, or from an Unfret pass (`UNFRET_PASS`): `uvx unfret-mcp` from PyPI, listed in the MCP Registry as
+`net.unfret/mcp`, released by the manual "Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
+
+### Remote MCP server (`/mcp`)
+
+The API also serves MCP itself, over streamable HTTP at **`/mcp`** (`src/unfret/mcp_remote.py`), for hosted clients
+that can't run a local process (Claude's connectors and the like). It is part of this service rather than a separate
+one: its tools call the API's own routes in-process (`POST /v1/check`, `GET /v1/credits`, `GET /v1/pricing`) as the
+MCP request's caller, so a check from MCP is authenticated, limited and charged by exactly the code behind
+`/v1/check`, and there is nothing extra to deploy. The transport is **stateless with JSON responses** (the SDK's
+`stateless_http`, `json_response`): any process can answer any request, and a deploy drops no sessions. It speaks the
+current protocol (2026-07-28) and the initialize handshake of earlier versions.
+
+It takes **an Unfret pass only**: `Authorization: Bearer ufk_…`, checked before the MCP layer (401 with
+`WWW-Authenticate: Bearer realm="Unfret"` otherwise; too many bad passes from one network get 429 first). It never pays
+from a wallet and has no code that could: quick checks are free, deep checks use one of the pass's checks, as on
+`/v1/check` with a pass (where `/v1/check`'s per-minute limit counts per pass, so agents behind one host network don't
+share it). Tools, each with a title and explicit `readOnlyHint` / `destructiveHint` / `idempotentHint` /
+`openWorldHint`; the free check and the one that spends are separate tools, so a client can let the free one run
+without asking:
+
+| Tool | Hints | |
+| --- | --- | --- |
+| `check_store_quick` (`url`, `policy`, `page_content`) | read-only (free), idempotent, open world (reads a third-party page) | The verdict; or `status` (`page_unreadable`, `unavailable`, …) with a `next_step` |
+| `check_store_deep` (`url`, `policy`, `page_content`) | not read-only (spends one of the pass's checks), not destructive, not idempotent, open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
+| `get_checks_left` | read-only, idempotent, closed world | Deep checks left (free and bought), whether free ones are paused, where to buy more |
+| `get_pricing` | read-only, idempotent, closed world | `GET /v1/pricing` |
+
+```json
+{"mcpServers": {"unfret": {"type": "http", "url": "https://unfret.net/mcp",
+  "headers": {"Authorization": "Bearer ufk_…"}}}}
+```
 
 ## Configuration
 
@@ -723,6 +766,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_AFFILIATE_RECORDS_RETENTION_DAYS` / `UNFRET_AFFILIATE_PASS_RETENTION_DAYS` | `2557` / `548` | Commission and payout records (bookkeeping: seven years); which affiliate a pass came through (eighteen months) |
 | `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
 | `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
+| `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (from the same daily budget), and how many per visitor network a day; past it a pass is made empty |
 | `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |

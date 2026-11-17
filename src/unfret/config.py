@@ -196,6 +196,11 @@ class Settings(BaseSettings):
     # quick tier) cost nothing and are free for everyone, within quick_checks_per_minute per account or network.
     free_checks_per_pass: int = Field(default=5, ge=0)
     free_passes_per_ip_per_day: int = Field(default=2, ge=0)
+    # Developer passes ("developer": true on POST /v1/keys, for building against /v1/check, the MCP server or the
+    # clients): developer_free_checks free deep checks instead, for at most developer_passes_per_ip_per_day per visitor
+    # network (in memory, salted hashes, like the free passes), from the same daily budget.
+    developer_free_checks: int = Field(default=20, ge=0)
+    developer_passes_per_ip_per_day: int = Field(default=1, ge=0)
     free_daily_budget_eur: Decimal = Field(default=Decimal("5.00"), ge=0, decimal_places=2)
     free_check_cost_eur: Decimal = Field(default=Decimal("0.005"), gt=0, decimal_places=6)
     quick_checks_per_minute: int = Field(default=10, ge=1)

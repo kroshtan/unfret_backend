@@ -17,7 +17,10 @@ lint:  ## Run all pre-commit hooks (ruff, mypy, pydoclint, ...) on every file
 audit:  ## Check the locked dependencies for known vulnerabilities (pip-audit)
 	uv export --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements.txt
 	uv export --project mcp --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements-mcp.txt
-	uvx pip-audit -r .audit-requirements.txt -r .audit-requirements-mcp.txt --no-deps --disable-pip; status=$$?; \
+	@# One run per environment: both lock the MCP SDK and its dependencies, and pip-audit refuses a package twice.
+	status=0; \
+		uvx pip-audit -r .audit-requirements.txt --no-deps --disable-pip || status=1; \
+		uvx pip-audit -r .audit-requirements-mcp.txt --no-deps --disable-pip || status=1; \
 		rm -f .audit-requirements.txt .audit-requirements-mcp.txt; exit $$status
 
 vat-rates-check:  ## Compare the vendored EU VAT rates and Cloudflare ranges with their sources (monthly; exit 1 on change)

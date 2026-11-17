@@ -1015,3 +1015,42 @@ client are unchanged.
   `quick_model_version` (the x402 quick tier's), the same strings as `assessment.model_version` and the x402
   verdict's `model_version`, or `null` without a scorer. A server runs the open baseline in the repository unless its
   operator configured another (`UNFRET_MODEL_PATH`, `UNFRET_MODEL_QUICK_PATH`).
+
+## Changes (an Unfret pass pays `/v1/check`; developer passes; backwards-compatible)
+
+Additive: x402 clients see the same requests, responses, headers and status codes as before.
+
+- `POST /v1/check` takes `Authorization: Bearer ufk_…` (an Unfret pass) instead of a payment. The body and the verdict
+  are the same; the pass's response adds `charged` (bool), `free_check` (bool), `balance_usd_micros` and
+  `free_checks_left`, and carries no `PAYMENT-RESPONSE`. Charged like `POST /v1/analyze`: a deep check uses one check
+  (the pass's free checks first, then its balance); a quick check is free (at most `quick_checks_per_minute` a minute
+  per pass, shared with `/v1/analyze`); a cached answer (the same input within the hour, or the listing's fast-path
+  answer of the last day) costs a deep check like a fresh one, except for the pass that paid for that listing within
+  the hour. A page that can't be fetched (422), assessed (`assessed: false`, `charged: false`) or analysed
+  (500/504 `INTERNAL_ERROR`/`GATEWAY_TIMEOUT`) is given back.
+- New `/v1/check` errors, only with `Authorization`: **401 `INVALID_API_KEY`** (not a valid pass; a wallet's session
+  token doesn't pay `/v1/check`), **402 `INSUFFICIENT_CREDITS`** (no checks left; `metadata` as for `/v1/analyze`, no
+  `PAYMENT-REQUIRED` header), **429 `FREE_CHECKS_PAUSED`** (only free checks left and today's budget is spent), 429
+  `TOO_MANY_REQUESTS` (per-pass limits of `/v1/analyze`). A request with `PAYMENT-SIGNATURE` is always an x402
+  payment (`Authorization` is then ignored); without either header the answer is the x402 `402` as before.
+- `POST /v1/keys` takes an optional `"developer": true`: the new pass comes with `developer_free_checks` (20) free deep
+  checks instead of `free_checks_per_pass`, within `developer_passes_per_ip_per_day` (1) per visitor network (in
+  memory, salted hashes, never stored); past that it is made empty. Same proof of work and per-network key limits,
+  the same daily budget for free deep checks. `free_checks` in the response says how many it got.
+
+## Changes (the remote MCP server at `/mcp`; `/v1/check`'s limit per pass; backwards-compatible)
+
+- **`/mcp`**: an MCP server over streamable HTTP (stateless, JSON responses; protocol 2026-07-28 and the earlier
+  initialize handshake), for hosted MCP clients. `Authorization: Bearer ufk_…` (an Unfret pass) is required: otherwise
+  **401** with `WWW-Authenticate: Bearer realm="Unfret"` (plus `error="invalid_token"` for a pass that isn't valid)
+  and `{"detail", "error_code": "UNAUTHORIZED" | "INVALID_API_KEY"}`; **429** `RATE_LIMITED` (with `Retry-After`)
+  after too many bad passes from one network in a minute; 503 while the service isn't up. Tools:
+  `check_store_quick` and `check_store_deep` (`url`, `policy`, `page_content`; run `POST /v1/check` with the pass,
+  tier quick (free, read-only) or deep (one check)), `get_checks_left`
+  (`GET /v1/credits`), `get_pricing` (`GET /v1/pricing`). It never pays from a wallet.
+- `POST /v1/check` with a pass: its per-minute limit (`x402_check_per_minute`, 30) now counts per pass rather than
+  per visitor network, so callers behind one host share nothing; requests with a pass that doesn't authenticate count
+  per network, and past the limit get 429 `RATE_LIMITED` without a lookup. x402 requests are limited per network as
+  before.
+- CORS allows the `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Mcp-Method`, `Mcp-Name` and `Last-Event-ID` request
+  headers and exposes `Mcp-Session-Id` and `WWW-Authenticate`.

@@ -28,6 +28,8 @@ dependencies = [
     "langchain-core~=1.7.6",
     "langchain-openai~=1.7.4",
     "langgraph~=1.2.20",
+    # The remote MCP server (/mcp, streamable HTTP): the same SDK as the stdio package in mcp/.
+    "mcp>=2.3",
     "pillow>=13.0",
     "pydantic>=2.14",
     "pydantic-settings>=2.12",

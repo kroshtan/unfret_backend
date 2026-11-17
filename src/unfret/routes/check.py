@@ -9,6 +9,10 @@ co-sign as fee payer (the hot wallet, which is also ``payTo``), submit and confi
 with the verdict and ``PAYMENT-RESPONSE``. Base (``authorization``, x402's default): check the payment locally and
 with the facilitator, fetch and analyse, and only then have the facilitator settle it (see ``unfret.x402.base``).
 Nothing about the payment or the page is stored.
+
+Instead of paying, an agent may send its Unfret pass (``Authorization: Bearer ufk_…``): the check is then charged to
+the pass like ``POST /v1/analyze`` (:mod:`unfret.routes.check_pass`). A request with ``PAYMENT-SIGNATURE`` is always
+an x402 payment.
 """
 
 import asyncio
@@ -87,6 +91,20 @@ class CheckRequest(BaseModel):
     )
     tier: Tier = "quick"
     policy: Policy = "balanced"
+
+
+def rate_limited(wait: float) -> JSONResponse:
+    """
+    The 429 for too many requests to ``/v1/check``.
+
+    :param wait: Seconds until the next request is allowed.
+    :return: The response, with ``Retry-After``.
+    """
+    return JSONResponse(
+        {"detail": "Too many requests; slow down.", "error_code": "RATE_LIMITED"},
+        status_code=429,
+        headers={"Retry-After": str(max(1, int(wait) + 1))},
+    )
 
 
 def get_x402(request: Request) -> X402:
@@ -308,24 +326,36 @@ async def _settle(
         )
 
 
-@router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
+@router.post(
+    "/v1/check",
+    response_model=Verdict,
+    responses={
+        401: {"description": "Not a valid Unfret pass (only with Authorization)"},
+        402: {"description": "Payment required (x402), or the pass has no checks left"},
+    },
+)
 async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0911
     """
     Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
 
-    Retrying with the same payment returns the same answer (for 15 minutes) and is never charged twice.
+    Retrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an
+    Unfret pass as ``Authorization: Bearer ufk_…`` instead of paying: charged like ``POST /v1/analyze`` (a deep check
+    uses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,
+    ``free_check``, ``balance_usd_micros`` and ``free_checks_left``.
 
     :param body: URL, optional page HTML, tier and policy.
-    :param request: The incoming request (payment header, app state).
+    :param request: The incoming request (payment header or pass, app state).
     :return: The verdict, or an x402 payment-required / error response.
     """
     ip = request.client.host if request.client else "unknown"
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if not request.headers.get(PAYMENT_SIGNATURE) and scheme.lower() == "bearer" and token.strip():
+        # A pass is limited per pass rather than per network (agents behind one host, e.g. a hosted MCP client).
+        from unfret.routes import check_pass  # noqa: PLC0415 - it imports analyze → auth → this module
+
+        return await check_pass.pass_check(body, request, token.strip())
     if (wait := _rate.retry_after(ip)) is not None:
-        return JSONResponse(
-            {"detail": "Too many requests; slow down.", "error_code": "RATE_LIMITED"},
-            status_code=429,
-            headers={"Retry-After": str(max(1, int(wait) + 1))},
-        )
+        return rate_limited(wait)
     x402, base = get_x402(request), get_x402_base(request)
     solana_ok = (await x402.health()).status == "ok"
     base_accepts = await base.accepts(body.tier)
@@ -674,6 +704,9 @@ ERRORS: dict[str, tuple[int, str, str]] = {
         "pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed)",
     ),
     "INVALID_PAYMENT": (400, "no", "the PAYMENT-SIGNATURE header couldn't be decoded"),
+    "INVALID_API_KEY": (401, "no", "the Authorization header isn't a valid Unfret pass: fix it, or pay with x402"),
+    "INSUFFICIENT_CREDITS": (402, "no", "the pass has no checks left: top it up, or pay with x402"),
+    "FREE_CHECKS_PAUSED": (429, "no", "the pass has only free checks and today's are used: after 00:00 UTC, or pay"),
     "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`)"),
     "PAGE_UNAVAILABLE": (422, "no", "the page couldn't be fetched: send page_content"),
     "PAGE_BLOCKED": (422, "no", "the page is a bot check: send the real page as page_content"),
@@ -749,6 +782,17 @@ def _discovery() -> dict[str, Any]:
             }
             for name, (w, b) in POLICY_THRESHOLDS.items()
         },
+        "auth": {
+            "bearer": "Authorization: Bearer <Unfret pass> instead of an x402 payment: a deep check uses one of the "
+            "pass's checks (free ones first), a quick check is free; the verdict adds charged, free_check, "
+            "balance_usd_micros and free_checks_left",
+            "developer_pass": {
+                "challenge": f"{settings.public_base_url}/v1/keys/challenge",
+                "create": f"{settings.public_base_url}/v1/keys",
+                "body": {"challenge": "string", "solution": "string", "developer": True},
+                "free_deep_checks": settings.developer_free_checks,
+            },
+        },
         "request": {
             "url": "string",
             "page_content": "string (optional)",
@@ -822,6 +866,15 @@ converted at the SOL/USD quote (`extra.feeCapNote`). A refused payment answers 4
 the payment's simulation failed, `reason` (e.g. `insufficient_funds`, `source_token_account_missing`,
 `blockhash_not_found`). A page we can't fetch costs nothing. Retrying with the same PAYMENT-SIGNATURE returns the
 same answer and is never charged twice.
+
+## Or pay with an Unfret pass
+
+Send `Authorization: Bearer ufk_...` (an Unfret pass) instead of PAYMENT-SIGNATURE: a deep check then uses one of the
+pass's checks (free ones first), a quick check is free (a few a minute), and the verdict adds `charged`, `free_check`,
+`balance_usd_micros` and `free_checks_left`. A developer pass (POST {d["auth"]["developer_pass"]["create"]} with
+`"developer": true`, after solving the proof of work from GET {d["auth"]["developer_pass"]["challenge"]}) comes with
+{d["auth"]["developer_pass"]["free_deep_checks"]} free deep checks. Buy more checks for a pass at
+{settings.public_base_url}/checkout.
 
 ## Response
 

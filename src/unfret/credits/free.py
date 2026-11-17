@@ -10,6 +10,11 @@ hashes of the network, gone at a restart); past that it is made empty, like any 
 guard's own proof of work and per-network limits. Free checks are spent before the balance, and can move to another
 pass of the same holder (:func:`move`) but are never turned into balance.
 
+**Developer passes.** ``"developer": true`` instead makes a pass with ``developer_free_checks`` (20) free deep
+checks, for building an agent against ``/v1/check`` (which takes a pass like ``/v1/analyze`` does), the MCP server or
+the clients; at most ``developer_passes_per_ip_per_day`` per visitor network, under the same proof of work. The
+``/developers`` page asks for one once per browser. They are the same free checks, from the same daily budget.
+
 **One budget.** Every free deep check counts towards one global counter a UTC day (``usage_counters``, name
 ``free_checks``: a number per day, nothing about anyone), capped at
 :attr:`unfret.config.Settings.free_daily_checks_cap`: the day's budget in euros over the estimated cost of one deep

@@ -646,6 +646,23 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE invites ADD COLUMN buyer_hash BYTEA CHECK (octet_length(buyer_hash) = 32);
         """,
     ),
+    (
+        27,
+        "requests from shop owners",
+        """
+        -- Requests from shop owners and sellers (unfret.objections, the /objection page): what they wrote and the
+        -- day it arrived, nothing else (no IP address, time of day or sign-in). Deleted once handled, or after
+        -- objection_days (90) by the housekeeping.
+        CREATE TABLE IF NOT EXISTS objections (
+            id           BIGSERIAL PRIMARY KEY,
+            kind         TEXT NOT NULL CHECK (kind IN ('correction', 'removal', 'other')),
+            site         TEXT NOT NULL CHECK (length(site) BETWEEN 4 AND 500),
+            message      TEXT NOT NULL CHECK (length(message) <= 2000),
+            reply_to     TEXT CHECK (length(reply_to) BETWEEN 3 AND 254),
+            received_on  DATE NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')::date
+        );
+        """,
+    ),
 ]
 
 

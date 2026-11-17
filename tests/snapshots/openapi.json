@@ -1221,6 +1221,69 @@
     "title": "Objection",
     "type": "object"
    },
+   "ObjectionReceived": {
+    "description": "The request is in the queue.",
+    "properties": {
+     "answer_within_days": {
+      "description": "The longest it takes to handle (data requests: one month).",
+      "title": "Answer Within Days",
+      "type": "integer"
+     },
+     "status": {
+      "const": "received",
+      "default": "received",
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "answer_within_days"
+    ],
+    "title": "ObjectionReceived",
+    "type": "object"
+   },
+   "ObjectionRequest": {
+    "description": "A shop owner's or seller's request.",
+    "properties": {
+     "kind": {
+      "description": "correction (a result about the site is wrong), removal (delete what Unfret keeps about the site or a contact detail), other.",
+      "enum": [
+       "correction",
+       "removal",
+       "other"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "message": {
+      "default": "",
+      "description": "What is wrong, or which contact details (e-mail, phone, address) to remove.",
+      "maxLength": 2000,
+      "title": "Message",
+      "type": "string"
+     },
+     "reply_to": {
+      "default": "",
+      "description": "An e-mail address to answer at (optional; without one Unfret can't reply).",
+      "maxLength": 254,
+      "title": "Reply To",
+      "type": "string"
+     },
+     "site": {
+      "description": "The shop, page or ad it is about: a link or a domain. Anything after ? or # is dropped.",
+      "maxLength": 500,
+      "minLength": 4,
+      "title": "Site",
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "site"
+    ],
+    "title": "ObjectionRequest",
+    "type": "object"
+   },
    "PageFacts": {
     "description": "Structured facts about one page. Absent facts are ``None`` or empty, never guessed.",
     "properties": {
@@ -4325,6 +4388,48 @@
     "summary": "Recover Key",
     "tags": [
      "API keys"
+    ]
+   }
+  },
+  "/v1/objections": {
+   "post": {
+    "description": "Object to a result, ask for a correction, or ask Unfret to remove what it keeps about a site or contact detail.\n\nNo sign-in. Stored as sent (the site without anything after ``?`` or ``#``), with the day; no IP address or time.\nDeleted once handled, or after 90 days. 5 requests per visitor network per day.\n\n:param body: The request.\n:param request: The incoming request.\n:return: That it was received.\n:raises TooManyRequestsError: Over today's limit.\n:raises ServiceUnavailableError: Without a database, or with a full queue.\n:raises ObjectionRefusedError: When the site or the reply address isn't one.",
+    "operationId": "send_objection_v1_objections_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ObjectionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ObjectionReceived"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Send Objection",
+    "tags": [
+     "Shop owners"
     ]
    }
   },

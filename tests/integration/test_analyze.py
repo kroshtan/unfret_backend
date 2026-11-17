@@ -84,9 +84,10 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "affiliate_earnings",
         "affiliate_reversals",
         "affiliate_payouts",
+        "objections",  # what a shop owner sends from /objection, never a check
         "schema_migrations",
     }
-    for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings"):  # not a check
+    for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings", "objections"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM intro_codes") == 0  # only the operator makes codes
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one

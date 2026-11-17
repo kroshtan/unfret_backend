@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Run a shop or sell online? Object to an Unfret result, ask for a correction, or ask Unfret to remove what it keeps about your site.">
+  <title>For shop owners · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/objection.js"></script>
+</head>
+<body>
+  {{header}}
+  <main class="prose">
+    <h1>For shop owners and sellers</h1>
+    <p class="lead">Think an Unfret result about your shop, listing or ad is wrong? Want it corrected, or want Unfret
+      to remove what it keeps about your site? Tell us below, or write to
+      <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
+
+    <h2>What a result is</h2>
+    <p>Unfret never calls a shop a scam. A result describes what one page showed when someone checked it: risk
+      signals, each with its source (for instance the domain's registration date from the registry), and what they
+      usually mean. It is shown only to the person who ran the check, and is not stored. Two exceptions:</p>
+    <ul>
+      <li>A result someone <strong>chose to share</strong> as a link stays up for 90 days. Its page has a
+        <strong>Take it down for review</strong> button: it is hidden at once, and we look at it.</li>
+      <li>A page someone <strong>reported as wrong</strong> is reviewed and may be kept, without anything about who
+        reported it, as an example to improve the checks.</li>
+    </ul>
+
+    <h2>What Unfret keeps about shops</h2>
+    <p>Only what any visitor of your site can see, and never who checked it or which page:</p>
+    <ul>
+      <li><strong>Site fingerprints</strong>: the first and last day a check saw your site, its platform and apps, the
+        shape of its template, and the account IDs on its pages (analytics, ad pixels, payment accounts), to recognise
+        shops run by one operator. Kept 400 days after the last check.</li>
+      <li><strong>Contact details</strong> on your pages (e-mail addresses, phone numbers, postal address, e-mail
+        domain): only as a keyed one-way hash, never shown to anyone. Kept 180 days after the last check.</li>
+      <li><strong>Registry facts</strong>: the domain's registration date, its first certificate and the VAT check.
+        Kept a week.</li>
+      <li><strong>Prices</strong> of products with a public product number or barcode, under one-way hashes, to tell
+        whether a "was" price was ever charged. Kept 90 days.</li>
+      <li><strong>Review and photo fingerprints</strong>: one-way hashes of longer reviews (90 days) and fingerprints
+        of the main product photo with its address on your site (400 days), to spot the same reviews or photos on
+        other shops.</li>
+      <li>For a <strong>private seller's ad</strong>: a fingerprint of the ad's text and the phone numbers or e-mail
+        addresses in it as a keyed hash, never your name. Kept 90 days.</li>
+    </ul>
+    <p>The <a href="/privacy">privacy statement</a> has the details.</p>
+
+    <h2>What we do with your request</h2>
+    <ul>
+      <li><strong>A wrong result</strong>: we check the result against your page. If Unfret got it wrong, we correct
+        the check itself, so every shopper gets the corrected result, and we tell you what we changed.</li>
+      <li><strong>Removal</strong>: we delete your site's fingerprints and the contact details you name, wherever they
+        are stored. The other records above (registry facts, prices, reviews, photos) expire on their own. If someone
+        checks your site again later, Unfret sees it again, as any visitor would.</li>
+      <li><strong>An objection</strong> to how we use data about your site: we stop unless we have a good reason to
+        keep it that outweighs yours, and tell you which.</li>
+    </ul>
+    <p>We answer within a month at the latest. A shared result you take down is hidden at once.</p>
+
+    <h2 id="form-heading">Send a request</h2>
+    <form id="objection" class="panel objection-form" aria-labelledby="form-heading" novalidate>
+      <fieldset class="choices">
+        <legend>What would you like?</legend>
+        <label><input type="radio" name="kind" value="correction" checked> A result about my site is wrong</label>
+        <label><input type="radio" name="kind" value="removal"> Remove what Unfret keeps about my site or contact
+          details</label>
+        <label><input type="radio" name="kind" value="other"> Something else</label>
+      </fieldset>
+      <p>
+        <label for="objection-site">Your shop, page or ad</label>
+        <input id="objection-site" name="site" type="text" inputmode="url" autocomplete="url" spellcheck="false"
+          maxlength="500" placeholder="shop.example" required>
+      </p>
+      <p>
+        <label for="objection-message">What is wrong, or which e-mail addresses, phone numbers or address to
+          remove</label>
+        <textarea id="objection-message" name="message" rows="5" maxlength="2000"></textarea>
+      </p>
+      <p>
+        <label for="objection-reply">Your e-mail address, so we can answer (optional)</label>
+        <input id="objection-reply" name="reply_to" type="email" autocomplete="email" spellcheck="false"
+          maxlength="254">
+      </p>
+      <p class="small muted">We keep what you send here, and the day it arrived; no IP address and nothing else about
+        you. We use it only to handle your request, delete it once it is handled, and after 90 days at the latest.</p>
+      <p class="buttons"><button id="objection-send" type="submit" class="primary">Send</button></p>
+      <p id="objection-status" class="small" role="status" aria-live="polite"></p>
+    </form>
+    <div id="objection-done" class="panel" hidden>
+      <h2>Thank you</h2>
+      <p id="objection-done-text">We have your request and will answer within a month.</p>
+    </div>
+  </main>
+  {{footer}}
+</body>
+</html>

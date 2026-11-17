@@ -23,6 +23,7 @@ from unfret import (
     image_store,
     log,
     market_prices,
+    objections,
     price_store,
     reports,
     review_store,
@@ -50,7 +51,7 @@ logger = structlog.get_logger("unfret")
 
 async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     """
-    Every hour until cancelled: expire old reports, fiat order rows, VAT quotes, sales records and shares.
+    Every hour until cancelled: expire old reports, fiat orders, VAT quotes, sales records, shares, requests.
 
     Unhandled reports go with their account links; sales records only after their ten-year retention.
 
@@ -64,6 +65,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("vat", vat.purge(pool, settings)),
             ("affiliates", affiliates.purge(pool, settings)),
             ("shares", shares.purge(pool)),
+            ("objections", objections.purge(pool, settings.objection_days)),
         ):
             try:
                 await job

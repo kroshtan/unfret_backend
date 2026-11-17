@@ -517,7 +517,7 @@ async function failed(error, link) {
 // Why a quick check ran instead of a deep one, in the words shown above its result.
 const QUICK_BECAUSE = {
   used: {
-    heading: "Your free checks are used",
+    heading: "You have no checks left",
     body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks come in packs, with no subscription.",
   },
   paused: {

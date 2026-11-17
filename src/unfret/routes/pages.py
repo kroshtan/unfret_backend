@@ -1,9 +1,10 @@
 """
-The site's pages: home, sign-in, checkout, privacy, accuracy and the link checker.
+The site's pages: home, sign-in, checkout, the link checker, accuracy, and the pages about Unfret.
 
 ``/`` introduces Unfret, ``/welcome`` greets a new extension install, ``/connect`` signs in and hands the session to
-the extension, then ``/checkout`` (which hands a new API key to the extension), ``/privacy``, ``/affiliates`` (the
-program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/check`` checks a
+the extension, then ``/checkout`` (which hands a new API key to the extension), ``/affiliates`` (the program)
+and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``, ``/money``, ``/press``, ``/terms``, ``/privacy``
+and ``/objection`` (for shop owners) are in the footer. ``/check`` checks a
 link from any browser, phones first; with its web app manifest and service worker it can be installed and shows up in
 Android's share sheet.
 
@@ -279,6 +280,71 @@ def affiliate_stats_page() -> HTMLResponse:
     :return: The page.
     """
     return _page("affiliate-stats.html")
+
+
+@router.get("/about", response_class=HTMLResponse)
+def about() -> HTMLResponse:
+    """
+    About Unfret: what it does, who makes it, open source, and how it makes money in short.
+
+    :return: The page.
+    """
+    return _page("about.html", "/about")
+
+
+@router.get("/money", response_class=HTMLResponse)
+def money() -> HTMLResponse:
+    """
+    How Unfret makes money: paid checks, and nothing else.
+
+    :return: The page.
+    """
+    return _page("money.html", "/money")
+
+
+@router.get("/press", response_class=HTMLResponse)
+def press() -> HTMLResponse:
+    """
+    For the press: a fact sheet, the logo files and screenshots of the test shop.
+
+    :return: The page.
+    """
+    return _page("press.html", "/press")
+
+
+# Shown at the top of /terms while UNFRET_TERMS_DRAFT is on (dev), until the terms are reviewed and approved.
+TERMS_DRAFT_NOTE = (
+    '<aside class="panel notice draft-note" role="note" aria-label="Draft">\n'
+    "      <p><strong>Draft, not in force.</strong> These terms are a draft, to be reviewed with a lawyer\n"
+    "        before they apply. To review: the right of withdrawal for checks bought with crypto (EU consumers),\n"
+    "        the liability limit, what happens to unused checks if the service ever closes, the affiliate terms,\n"
+    "        and the details marked\n"
+    '        <mark class="placeholder">[like this]</mark>.</p>\n'
+    "    </aside>"
+)
+
+
+@router.get("/terms", response_class=HTMLResponse)
+def terms() -> HTMLResponse:
+    """
+    The terms of use for the site, the extension, the app and the API; marked as a draft while ``terms_draft`` is on.
+
+    :return: The page.
+    """
+    page = template("terms.html", "/terms").replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else "")
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/objection", response_class=HTMLResponse)
+def objection() -> HTMLResponse:
+    """
+    For shop owners and sellers: what Unfret keeps about shops, and a form to object, correct or remove.
+
+    The form posts to ``/v1/objections`` (:mod:`unfret.routes.objections`) from its script; the page itself is static.
+
+    :return: The page.
+    """
+    return _page("objection.html", "/objection")
 
 
 @router.get("/checkout", response_class=HTMLResponse)

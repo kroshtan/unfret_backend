@@ -500,6 +500,16 @@ at once, and the operator reviews it under the admin token: `GET /v1/admin/share
 `POST /v1/admin/shares/{id}/unhide`, `DELETE /v1/admin/shares/{id}`. On `/check`, "Share this result" shows the
 preview, then shares through the phone's share sheet or copies the link, and shows the delete code once.
 
+### Requests from shop owners
+
+`/objection` tells shop owners and sellers what Unfret keeps about shops and lets them object to a result, ask for a
+correction, or ask for their site's data to be removed (`unfret.objections`, migration 27). Its form posts to
+`POST /v1/objections` without sign-in; what is stored is what they sent (the kind of request, the site as host and
+path, the message, a reply address if given) and the day, never an IP address. Limits: 5 per visitor network per
+day, in memory, and a daily cap. The operator works through `GET /v1/admin/objections`, answers by e-mail, acts
+(`DELETE /v1/admin/shops/{domain}`, `POST /v1/admin/contacts/forget`, or the report queue for a wrong result) and
+deletes the request (`DELETE /v1/admin/objections/{id}`); the housekeeping deletes any still open after 90 days.
+
 ### Pay-per-check for agents (x402)
 
 `POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call
@@ -693,6 +703,8 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 | `UNFRET_FORMER_COLD_ADDRESSES` / `UNFRET_FORMER_COLD_UNTIL` | — | Earlier cold addresses (comma-separated) whose sweeps before the cut-off (ISO 8601) the outflow audit accepts; see "Changing the cold address" |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
+| `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
+| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (on in dev until the terms are approved) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 

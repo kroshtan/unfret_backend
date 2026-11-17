@@ -920,3 +920,21 @@ client are unchanged.
   Unfret" with the install button for the visitor's browser.
 - Pages: `/affiliates` (the program and its disclosure rules) and `/affiliates/stats` (an affiliate's own numbers).
   The site's footer loads `static/ref.js` on every page.
+
+## Changes (pages about Unfret and requests from shop owners, backwards-compatible; migration 27)
+
+- `POST /v1/objections` (no sign-in) `{"kind": "correction"|"removal"|"other", "site": str 4–500, "message"?: str ≤
+  2000, "reply_to"?: str ≤ 254}` → `201 {"status": "received", "answer_within_days": 30}`. `site` is a link or a
+  domain; it is stored as host and path (scheme, `www.`, query and fragment dropped). `reply_to` is optional, an
+  e-mail address if given. Errors: `422 BAD_SITE`, `422 BAD_REPLY_TO`, `422 VALIDATION_ERROR` (unknown `kind`, too
+  long), `429` (5 per visitor network per day, `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY`, and
+  `UNFRET_OBJECTIONS_DAILY_CAP` in total; a refused `site` or `reply_to` doesn't count), `503 QUEUE_FULL` (1000 open
+  requests) or `503` without a database. Stored (`objections`): the kind, site, message, reply address and the day;
+  no IP address, time of day or sign-in. Deleted by the operator once handled, or after `UNFRET_OBJECTION_DAYS` (90).
+- Operator (admin token): `GET /v1/admin/objections[?limit=]` → `{"open", "items": [{"id", "kind", "site",
+  "message", "reply_to", "received_on"}]}` (oldest first), `DELETE /v1/admin/objections/{id}` → `{"deleted": true}`.
+  Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
+- Pages: `/about`, `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
+  `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
+  (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
+  result's page link to `/objection`.

@@ -10,6 +10,7 @@ from unfret.routes.extension import router as extension_router
 from unfret.routes.images import router as images_router
 from unfret.routes.invites import router as invites_router
 from unfret.routes.keys import router as keys_router
+from unfret.routes.objections import router as objections_router
 from unfret.routes.pages import router as pages_router
 from unfret.routes.probes import router as probes_router
 from unfret.routes.reports import router as reports_router
@@ -32,6 +33,7 @@ router.include_router(pages_router)
 router.include_router(test_shop_router)
 router.include_router(shares_router)
 router.include_router(share_pages)
+router.include_router(objections_router)
 router.include_router(extension_router)
 router.include_router(images_router)
 router.include_router(admin_router)

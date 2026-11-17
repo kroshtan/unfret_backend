@@ -239,6 +239,16 @@ class Settings(BaseSettings):
     shares_per_visitor_per_day: int = 20
     shares_daily_cap: int = 1000
 
+    # Requests from shop owners and sellers (POST /v1/objections, the /objection page): at most
+    # objections_per_visitor_per_day per visitor network (in memory) and objections_daily_cap in total per UTC day; an
+    # open request is deleted after objection_days at the latest (the operator deletes it once handled).
+    objections_per_visitor_per_day: int = Field(default=5, ge=1)
+    objections_daily_cap: int = Field(default=200, ge=1)
+    objection_days: int = Field(default=90, ge=1)
+
+    # /terms shows a visible "draft" note at the top while the terms await review (on in dev).
+    terms_draft: bool = False
+
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
     # Links the link checker (/check) offers to try, as [label, address] pairs (an address on this site may be a

@@ -1,12 +1,12 @@
 """
 Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 
-Listing the transactions behind the sticky x402 alerts and clearing them after investigating them, removing shops
-or contact details from the fingerprint store on request, the review queue of reported results (``make reports``), a
-small grant of credit to an API key (support, and test credits for a store reviewer) and taking it back, the quarterly
-export of crypto sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), intro
-codes (``python -m unfret.credits.codes``: make, list, switch off, more uses) and the review of shared results a shop
-owner objected to.
+Listing the transactions behind the sticky x402 alerts and clearing them after investigating them, removing shops or
+contact details from the fingerprint store on request, the queue of shop owners' requests (``/objection``), the
+review queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits
+for a store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the count
+of invites outstanding (a gift, not revenue), intro codes (``python -m unfret.credits.codes``: make, list, switch
+off, more uses) and the review of shared results a shop owner objected to.
 """
 
 import json
@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import ad_store, reports, shares, shop_store
+from unfret import ad_store, objections, reports, shares, shop_store
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger, vat
@@ -129,6 +129,38 @@ async def forget_contact(body: ForgetContact) -> dict[str, Any]:
         removed += await ad_store.store().forget_contact(contact_hash(body.kind, ad_value, key))
     logger.info("contact_forgotten", removed=removed)
     return {"removed": removed}
+
+
+@router.get("/objections")
+async def objection_queue(request: Request, limit: int = 100) -> dict[str, Any]:
+    """
+    Shop owners' and sellers' requests from ``/objection``, oldest first, as they sent them.
+
+    Answer at ``reply_to`` (if given), act (``DELETE /v1/admin/shops/{domain}``, ``POST /v1/admin/contacts/forget``,
+    or a look at the result), then delete the request (``DELETE /v1/admin/objections/{id}``).
+
+    :param request: The incoming request.
+    :param limit: How many (at most 500).
+    :return: How many are open, and the requests.
+    """
+    pool = _pool(request)
+    items = await objections.queue(pool, min(max(limit, 1), 500))
+    return {"open": await pool.fetchval("SELECT COUNT(*) FROM objections"), "items": items}
+
+
+@router.delete("/objections/{objection_id}")
+async def objection_handled(objection_id: int, request: Request) -> dict[str, Any]:
+    """
+    Delete a shop owner's request once it is handled.
+
+    :param objection_id: The request.
+    :param request: The incoming request.
+    :return: ``{"deleted": true}``.
+    :raises HTTPException: 404 if there is none.
+    """
+    if not await objections.remove(_pool(request), objection_id):
+        raise HTTPException(404, "No such request.")
+    return {"deleted": True}
 
 
 @router.get("/reports")

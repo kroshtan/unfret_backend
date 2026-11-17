@@ -113,6 +113,11 @@ class Settings(BaseSettings):
     # Unfret's own image index (unfret.image_index): the embedding model file and its CPU threads; the photo
     # check is off while the file is missing (`python -m unfret.image_index <path>` downloads it).
     image_model_path: str = "models/dinov2-small-int8.onnx"
+    # The feature scorer (unfret.scoring): a trained artifact of your own instead of the open baseline this
+    # repository ships (src/unfret/scoring/model.json, model-quick.json). Empty: the baseline. A path that is set but
+    # doesn't hold a valid artifact stops the service at start-up rather than score with something else.
+    model_path: str = ""
+    model_quick_path: str = ""
     image_threads: int = Field(default=1, ge=1, le=8)
     contact_hash_key: SecretStr = SecretStr("")
 

@@ -1,4 +1,4 @@
-.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy train model-release bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -101,7 +101,13 @@ bonus-codes:  ## Bonus codes: ARGS="list | create CODE --bonus PCT [--expires YY
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)
 
-accuracy:  ## Replay the whole corpus (recorded LLM answers only) and write the /accuracy page's numbers (ACCURACY_ARGS="--reuse STAMP")
+train:  ## Retrain the scorer into the private model store <corpus>/models/<version>/, never src/ (TRAIN_ARGS="--ship C [--quick]")
+	uv run python -m evals.train $(TRAIN_ARGS)
+
+model-release:  ## Point the model store's current.json at retrained scorers (RELEASE_ARGS="--model V [--quick V]"; none: baseline)
+	uv run python -m evals.release current $(RELEASE_ARGS)
+
+accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP")
 	uv run python -m evals.accuracy $(ACCURACY_ARGS)
 
 db-up:  ## Start the test Postgres container (port 55432)

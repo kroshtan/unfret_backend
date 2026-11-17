@@ -39,3 +39,10 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      # The scorer in src/unfret/scoring/ is the open baseline; retrained scorers stay out of the repository.
+      - id: check-scorer-baseline
+        name: no retrained scorer in the repository
+        entry: uv run python scripts/check_scorer_baseline.py
+        language: system
+        files: \.json$
+        always_run: true

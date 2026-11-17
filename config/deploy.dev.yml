@@ -22,6 +22,10 @@ env:
     # e2e payer (a closed loop on devnet). The outflow audit accepts sweeps to it before the cut-off, nothing after.
     UNFRET_FORMER_COLD_ADDRESSES: EE6XVrpkxrxDx6T9TRyFwrEB2D35kWJzHBgMn4jwzeJe
     UNFRET_FORMER_COLD_UNTIL: "2026-11-16T06:00:00Z"
+    # The scorer: a retrained one from the private model store when the deploy workflow installed one into the
+    # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
+    UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"
+    UNFRET_MODEL_QUICK_PATH: "<%= ENV.fetch('UNFRET_MODEL_QUICK_PATH', '') %>"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI
@@ -36,6 +40,11 @@ env:
     - UNFRET_POLAR_ENVIRONMENT
     - UNFRET_POLAR_PRODUCTS
     - UNFRET_FIAT_WEBHOOK_SECRET
+
+# Retrained scorers never go into the image (built from the public repository): the deploy workflow puts the release
+# it fetched from the private model store here on the server, read-only in the container (README, "The model").
+volumes:
+  - /home/kamal/unfret-model/dev:/app/private-model:ro
 
 accessories:
   # Reached by the app as unfret-dev-db on the `kamal` network; never published. forge-infra's nightly backup

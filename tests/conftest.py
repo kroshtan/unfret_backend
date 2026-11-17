@@ -24,6 +24,10 @@ def unavailable(reason: str) -> NoReturn:
 def no_shipped_scorer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests use the LLM-judge path unless they pass a model explicitly; the shipped artifact changes over time."""
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: None)
+    # A retrained scorer configured on this machine (UNFRET_MODEL_PATH in the environment or .env) never reaches a
+    # test: tests that read an artifact read the baseline.
+    monkeypatch.setattr(scoring.settings, "model_path", "")
+    monkeypatch.setattr(scoring.settings, "model_quick_path", "")
 
 
 @pytest.fixture(autouse=True)

@@ -12,6 +12,10 @@ class Healthy(BaseModel):
     status: str = Field(default="healthy", description="The status of the health check")
     version: str = Field(description="The version of the API", default=__version__)
     commit: str | None = Field(default=None, description="The git commit the running image was built from")
+    model_version: str | None = Field(
+        default=None, description="The scorer analyses and deep checks run (the open baseline or a retrained one)"
+    )
+    quick_model_version: str | None = Field(default=None, description="The scorer the x402 quick tier runs")
     x402: str | None = Field(default=None, description="Pay-per-check status: ok, off, low_balance, …")
     hot_sol_lamports: int | None = Field(default=None, description="The x402 hot wallet's SOL (fee reserve)")
     hot_wsol_lamports: int | None = Field(default=None, description="Received payments not yet swept to cold")

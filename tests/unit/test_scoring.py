@@ -230,3 +230,54 @@ def test_a_failed_content_read_degrades_the_assessment() -> None:
     assert (healthy.degraded, degraded.degraded) == (False, True)
     assert degraded.confidence <= 0.3
     assert not any(f.type.endswith(".unavailable") for f in degraded.flags)
+
+
+def _configure(monkeypatch: pytest.MonkeyPatch, full: Path | None = None, quick: Path | None = None) -> None:
+    monkeypatch.setattr(scoring.settings, "model_path", str(full or ""))
+    monkeypatch.setattr(scoring.settings, "model_quick_path", str(quick or ""))
+    monkeypatch.setattr(scoring, "load_model", _LOAD_MODEL.__wrapped__)  # uncached, so each test reads afresh
+
+
+def test_the_baseline_runs_unless_another_is_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure(monkeypatch)
+    assert scoring.configured_path(scoring.MODEL_PATH) == scoring.MODEL_PATH
+    baseline = json.loads(scoring.MODEL_PATH.read_text())["version"]
+    quick = json.loads(scoring.MODEL_QUICK_PATH.read_text())["version"]
+    assert scoring.running_versions() == {"model_version": baseline, "quick_model_version": quick}
+
+    path = tmp_path / "model.json"
+    path.write_text(json.dumps({**ARTIFACT, "version": "v9-private"}))
+    _configure(monkeypatch, full=path)
+    assert scoring.configured_path(scoring.MODEL_PATH) == path
+    assert scoring.configured_path(scoring.MODEL_QUICK_PATH) == scoring.MODEL_QUICK_PATH  # the quick tier: baseline
+    assert scoring.configured_path(tmp_path / "other.json") == tmp_path / "other.json"  # not a slot
+    assert scoring.running_versions() == {"model_version": "v9-private", "quick_model_version": quick}
+
+
+def test_the_quick_tier_runs_its_own_configured_scorer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "quick.json"
+    path.write_text(json.dumps({**ARTIFACT, "version": "v9-quick-private"}))
+    _configure(monkeypatch, quick=path)
+    assert scoring.load_model(scoring.MODEL_QUICK_PATH).version == "v9-quick-private"  # type: ignore[union-attr]
+    assert scoring.running_versions()["quick_model_version"] == "v9-quick-private"
+
+
+def test_a_configured_scorer_that_is_missing_stops_the_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure(monkeypatch, full=tmp_path / "missing.json")
+    known = {f"{s.name}.{f}" for s in SKILLS for f in s.features}
+    with pytest.raises(FileNotFoundError, match="UNFRET_MODEL_PATH"):
+        scoring.check_models(known)
+    # The liveness probe never fails on it (start-up already refused it).
+    assert scoring.running_versions() == {"model_version": None, "quick_model_version": None}
+
+
+def test_a_configured_scorer_for_other_skills_stops_the_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "model.json"
+    path.write_text(json.dumps({**ARTIFACT, "features": ["listing.discount_pct", "nosuch.skill", "x.y"]}))
+    _configure(monkeypatch, full=path)
+    known = {f"{s.name}.{f}" for s in SKILLS for f in s.features}
+    with pytest.raises(ValueError, match=r"nosuch\.skill"):
+        scoring.check_models(known)
+
+    _configure(monkeypatch)
+    assert scoring.check_models(known)["model_version"] == json.loads(scoring.MODEL_PATH.read_text())["version"]

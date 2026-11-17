@@ -260,12 +260,19 @@ def test_write_artifact_is_loadable(tmp_path: Path) -> None:
     train = build([r for r in records if r.split == "train"], features, names)
     test = build([r for r in records if r.split == "test"], features, names)
     model = fit(train, names, "v-test")
-    path = tmp_path / "model.json"
-    write_artifact(model, path, features_file="f.jsonl", train_n=60, prior=0.5, test=test)
+    path = tmp_path / "v-test" / "model.json"
+    path.parent.mkdir()
+    write_artifact(model, path, features_file="f.jsonl", train_n=60, prior=0.5, test=test, corpus_root=tmp_path)
     data = json.loads(path.read_text())
-    assert data["trained_on"] == {"features_file": "f.jsonl", "train_n": 60, "prior": 0.5}
+    assert {k: data["trained_on"][k] for k in ("features_file", "train_n", "prior")} == {
+        "features_file": "f.jsonl",
+        "train_n": 60,
+        "prior": 0.5,
+    }
+    assert data["trained_on"]["corpus_commit"] is None  # the data snapshot (tmp_path is no git checkout)
     assert set(data["test"]) == {"roc_auc", "brier", "thresholds"}
     assert scoring.Model.from_dict(data).version == "v-test"  # what load_model reads
+    assert "# Scorer v-test" in (path.parent / "RELEASE.md").read_text()  # its release note
 
 
 # ── The live EU shop source ───────────────────────────────────────────────────

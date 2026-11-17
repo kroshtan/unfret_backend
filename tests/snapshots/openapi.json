@@ -881,6 +881,30 @@
       "description": "Received payments not yet swept to cold",
       "title": "Hot Wsol Lamports"
      },
+     "model_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The scorer analyses and deep checks run (the open baseline or a retrained one)",
+      "title": "Model Version"
+     },
+     "quick_model_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The scorer the x402 quick tier runs",
+      "title": "Quick Model Version"
+     },
      "status": {
       "default": "healthy",
       "description": "The status of the health check",
@@ -4139,7 +4163,7 @@
   },
   "/v1/health": {
    "get": {
-    "description": "Liveness probe. Always returns 200 while the process is serving requests.\n\n:return: Healthy response with the running version and the commit it was built from.",
+    "description": "Liveness probe. Always returns 200 while the process is serving requests.\n\n:return: Healthy response with the running version, the commit it was built from and the scorers' versions.",
     "operationId": "health_v1_health_get",
     "responses": {
      "200": {

@@ -8,6 +8,11 @@ score is exact, and that is the ``weight`` of the flags: why a page scored as it
 
 The score is deterministic (same features, same score), so page text can only move it through features, not by
 talking to an LLM judge.
+
+The artifacts in this package are the **open baseline**, what a self-hosted server runs. Retrained scorers are kept
+out of this repository (``evals.release``); a server runs one when ``UNFRET_MODEL_PATH`` (and, for the quick tier,
+``UNFRET_MODEL_QUICK_PATH``) names its file (:func:`configured_path`). The version a server runs is in the artifact
+and in ``/v1/health`` (``model_version``, ``quick_model_version``).
 """
 
 import json
@@ -16,14 +21,18 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
+
+from unfret.config import settings
 
 if TYPE_CHECKING:  # the graph imports this module, so no runtime import back into it
     from unfret.graph.state import Finding
 
+# The full scorer's slot, and its open baseline artifact (UNFRET_MODEL_PATH replaces it: configured_path).
 MODEL_PATH = Path(__file__).with_name("model.json")
 # The quick tier skips the skills that look the shop up elsewhere, so it has its own model trained on exactly the
 # features it computes (scoring a missing feature as 0 would read "never checked" as "absent").
+# UNFRET_MODEL_QUICK_PATH replaces it; without either, the quick tier falls back to the full scorer.
 MODEL_QUICK_PATH = Path(__file__).with_name("model-quick.json")
 
 
@@ -188,17 +197,77 @@ def _interpolate(points: list[tuple[float, float]], x: float) -> float:
     return points[-1][1]
 
 
+class ScorerVersions(TypedDict):
+    """The scorers a server runs, by version (``None``: no scorer)."""
+
+    model_version: str | None
+    quick_model_version: str | None
+
+
+def configured_path(path: Path) -> Path:
+    """
+    The artifact a scorer slot loads: the operator's own when one is configured, otherwise the baseline.
+
+    :param path: The slot, :data:`MODEL_PATH` or :data:`MODEL_QUICK_PATH` (any other path is its own artifact).
+    :return: ``UNFRET_MODEL_PATH`` / ``UNFRET_MODEL_QUICK_PATH`` when set for that slot, else ``path``.
+    """
+    configured = {MODEL_PATH: settings.model_path, MODEL_QUICK_PATH: settings.model_quick_path}.get(path, "")
+    return Path(configured.strip()) if configured.strip() else path
+
+
 @cache
 def load_model(path: Path = MODEL_PATH) -> Model | None:
     """
-    Load the shipped model, once per process.
+    Load a scorer, once per process: the configured artifact for its slot (:func:`configured_path`) or the baseline.
 
-    :param path: The artifact path.
+    :param path: The slot or artifact path.
     :return: The model, or ``None`` when no artifact is shipped (the LLM judge scores instead).
+    :raises FileNotFoundError: If ``UNFRET_MODEL_PATH`` or ``UNFRET_MODEL_QUICK_PATH`` names a missing file: a
+        server told to run a particular scorer never quietly runs another.
     """
-    if not path.exists():
+    source = configured_path(path)
+    if source != path and not source.is_file():
+        raise FileNotFoundError(f"scorer artifact {source} (UNFRET_MODEL_PATH / UNFRET_MODEL_QUICK_PATH) is missing")
+    if not source.exists():
         return None
-    return Model.from_dict(json.loads(path.read_text()))
+    return Model.from_dict(json.loads(source.read_text()))
+
+
+def check_models(known_features: set[str]) -> ScorerVersions:
+    """
+    Load both scorers at start-up, so a bad configured artifact stops the service before it takes traffic.
+
+    A configured artifact that is missing, malformed or made for other skills would otherwise fail (or score
+    wrongly) on the first check.
+
+    :param known_features: Every feature the skills produce.
+    :return: The versions that run: ``model_version`` and ``quick_model_version`` (the quick tier falls back to the
+        full scorer), ``None`` without a scorer.
+    :raises ValueError: If a configured artifact names features no skill produces (it was trained for other code).
+    """
+    full = load_model()
+    quick = load_model(MODEL_QUICK_PATH) or full
+    for slot, model in ((MODEL_PATH, full), (MODEL_QUICK_PATH, quick)):
+        unknown = sorted(set(model.features) - known_features) if model else []
+        if unknown and configured_path(slot) != slot:
+            raise ValueError(f"scorer {model.version if model else ''} uses features no skill produces: {unknown}")
+    return running_versions()
+
+
+def running_versions() -> ScorerVersions:
+    """
+    The versions of the scorers this process runs, for ``/v1/health``.
+
+    :return: ``model_version`` and ``quick_model_version`` (``None`` without a scorer, or one that can't be loaded).
+    """
+    try:
+        full = load_model()
+        quick = load_model(MODEL_QUICK_PATH) or full
+    except OSError, ValueError, KeyError, TypeError:  # start-up refuses these (check_models)
+        return ScorerVersions(model_version=None, quick_model_version=None)
+    return ScorerVersions(
+        model_version=full.version if full else None, quick_model_version=quick.version if quick else None
+    )
 
 
 def _evidence(name: str, skill_findings: list[Finding]) -> str:

@@ -647,3 +647,11 @@ async def test_two_payouts_racing_pay_once(
     await age(pool, 31)
     await asyncio.gather(*(affiliates.mark_paid(pool, settings, "ANNA") for _ in range(3)))
     assert await pool.fetchval("SELECT SUM(amount_minor) FROM affiliate_payouts") == 2640
+
+
+async def test_the_stats_page_leads_with_the_affiliates_own_code(client: httpx.AsyncClient) -> None:
+    made = await affiliate(client, "ZARA")
+    await bonus_code(client, "AAAEXTRA", bonus_pct=10, affiliate="ZARA")  # sorts before ZARA
+    token = made["links"]["stats"].split("#", 1)[1]
+    body = (await client.get("/v1/affiliates/stats", headers={"X-Unfret-Stats": token})).json()
+    assert body["codes"] == ["ZARA", "AAAEXTRA"]  # the page's link is /?ref=<the first>

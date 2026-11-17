@@ -1037,3 +1037,20 @@ Additive: x402 clients see the same requests, responses, headers and status code
   checks instead of `free_checks_per_pass`, within `developer_passes_per_ip_per_day` (1) per visitor network (in
   memory, salted hashes, never stored); past that it is made empty. Same proof of work and per-network key limits,
   the same daily budget for free deep checks. `free_checks` in the response says how many it got.
+
+## Changes (the remote MCP server at `/mcp`; `/v1/check`'s limit per pass; backwards-compatible)
+
+- **`/mcp`**: an MCP server over streamable HTTP (stateless, JSON responses; protocol 2026-07-28 and the earlier
+  initialize handshake), for hosted MCP clients. `Authorization: Bearer ufk_…` (an Unfret pass) is required: otherwise
+  **401** with `WWW-Authenticate: Bearer realm="Unfret"` (plus `error="invalid_token"` for a pass that isn't valid)
+  and `{"detail", "error_code": "UNAUTHORIZED" | "INVALID_API_KEY"}`; **429** `RATE_LIMITED` (with `Retry-After`)
+  after too many bad passes from one network in a minute; 503 while the service isn't up. Tools:
+  `check_store_quick` and `check_store_deep` (`url`, `policy`, `page_content`; run `POST /v1/check` with the pass,
+  tier quick (free, read-only) or deep (one check)), `get_checks_left`
+  (`GET /v1/credits`), `get_pricing` (`GET /v1/pricing`). It never pays from a wallet.
+- `POST /v1/check` with a pass: its per-minute limit (`x402_check_per_minute`, 30) now counts per pass rather than
+  per visitor network, so callers behind one host share nothing; requests with a pass that doesn't authenticate count
+  per network, and past the limit get 429 `RATE_LIMITED` without a lookup. x402 requests are limited per network as
+  before.
+- CORS allows the `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Mcp-Method`, `Mcp-Name` and `Last-Event-ID` request
+  headers and exposes `Mcp-Session-Id` and `WWW-Authenticate`.

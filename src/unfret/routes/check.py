@@ -93,6 +93,20 @@ class CheckRequest(BaseModel):
     policy: Policy = "balanced"
 
 
+def rate_limited(wait: float) -> JSONResponse:
+    """
+    The 429 for too many requests to ``/v1/check``.
+
+    :param wait: Seconds until the next request is allowed.
+    :return: The response, with ``Retry-After``.
+    """
+    return JSONResponse(
+        {"detail": "Too many requests; slow down.", "error_code": "RATE_LIMITED"},
+        status_code=429,
+        headers={"Retry-After": str(max(1, int(wait) + 1))},
+    )
+
+
 def get_x402(request: Request) -> X402:
     """
     Return the app's x402 service, creating it from settings on first use.
@@ -334,17 +348,14 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0
     :return: The verdict, or an x402 payment-required / error response.
     """
     ip = request.client.host if request.client else "unknown"
-    if (wait := _rate.retry_after(ip)) is not None:
-        return JSONResponse(
-            {"detail": "Too many requests; slow down.", "error_code": "RATE_LIMITED"},
-            status_code=429,
-            headers={"Retry-After": str(max(1, int(wait) + 1))},
-        )
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if not request.headers.get(PAYMENT_SIGNATURE) and scheme.lower() == "bearer" and token.strip():
+        # A pass is limited per pass rather than per network (agents behind one host, e.g. a hosted MCP client).
         from unfret.routes import check_pass  # noqa: PLC0415 - it imports analyze → auth → this module
 
         return await check_pass.pass_check(body, request, token.strip())
+    if (wait := _rate.retry_after(ip)) is not None:
+        return rate_limited(wait)
     x402, base = get_x402(request), get_x402_base(request)
     solana_ok = (await x402.health()).status == "ok"
     base_accepts = await base.accepts(body.tier)

@@ -3,7 +3,7 @@
   "name": "net.unfret/mcp",
   "title": "Unfret",
   "description": "Check a store or product page for scam, dropshipping and dark-pattern signals, paid per check",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "websiteUrl": "https://unfret.net",
   "repository": {
     "url": "https://github.com/kroshtan/unfret_backend",
@@ -11,21 +11,38 @@
     "subfolder": "mcp"
   },
   "icons": [
-    {"src": "https://unfret.net/static/icons/icon.svg", "mimeType": "image/svg+xml"},
-    {"src": "https://unfret.net/static/icons/icon-192.png", "mimeType": "image/png", "sizes": ["192x192"]}
+    {
+      "src": "https://unfret.net/static/icons/icon.svg",
+      "mimeType": "image/svg+xml"
+    },
+    {
+      "src": "https://unfret.net/static/icons/icon-192.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "192x192"
+      ]
+    }
   ],
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "unfret-mcp",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "runtimeHint": "uvx",
-      "transport": {"type": "stdio"},
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
         {
+          "name": "UNFRET_PASS",
+          "description": "An Unfret pass (ufk_...) to pay checks from instead of a wallet: quick checks free, deep checks one of the pass's checks",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
           "name": "UNFRET_MCP_KEYPAIR",
-          "description": "Path to the agent's Solana CLI keypair JSON, the wallet that pays for checks (or set UNFRET_MCP_SECRET_KEY)",
-          "isRequired": true,
+          "description": "Path to the agent's Solana CLI keypair JSON, the wallet that pays for checks (or set UNFRET_MCP_SECRET_KEY); not needed with UNFRET_PASS",
+          "isRequired": false,
           "format": "filepath"
         },
         {
@@ -42,7 +59,33 @@
           "name": "UNFRET_MCP_NETWORK",
           "description": "solana-mainnet, or solana-devnet together with UNFRET_API_URL=https://dev.unfret.net",
           "default": "solana-mainnet",
-          "choices": ["solana-mainnet", "solana-devnet"]
+          "choices": [
+            "solana-mainnet",
+            "solana-devnet"
+          ]
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://unfret.net/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Your Unfret pass as a bearer token (a developer pass with free checks: https://unfret.net/developers)",
+          "isRequired": true,
+          "isSecret": true,
+          "value": "Bearer {unfret_pass}",
+          "variables": {
+            "unfret_pass": {
+              "description": "Your Unfret pass (ufk_...)",
+              "isRequired": true,
+              "isSecret": true,
+              "placeholder": "ufk_..."
+            }
+          }
         }
       ]
     }

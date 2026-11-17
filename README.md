@@ -699,8 +699,38 @@ the cold address changes again, add that one too and move the cut-off to the new
 The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
-spend cap: `uvx unfret-mcp` from PyPI, listed in the MCP Registry as `net.unfret/mcp`, released by the manual
-"Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
+spend cap, or from an Unfret pass (`UNFRET_PASS`): `uvx unfret-mcp` from PyPI, listed in the MCP Registry as
+`net.unfret/mcp`, released by the manual "Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
+
+### Remote MCP server (`/mcp`)
+
+The API also serves MCP itself, over streamable HTTP at **`/mcp`** (`src/unfret/mcp_remote.py`), for hosted clients
+that can't run a local process (Claude's connectors and the like). It is part of this service rather than a separate
+one: its tools call the API's own routes in-process (`POST /v1/check`, `GET /v1/credits`, `GET /v1/pricing`) as the
+MCP request's caller, so a check from MCP is authenticated, limited and charged by exactly the code behind
+`/v1/check`, and there is nothing extra to deploy. The transport is **stateless with JSON responses** (the SDK's
+`stateless_http`, `json_response`): any process can answer any request, and a deploy drops no sessions. It speaks the
+current protocol (2026-07-28) and the initialize handshake of earlier versions.
+
+It takes **an Unfret pass only**: `Authorization: Bearer ufk_…`, checked before the MCP layer (401 with
+`WWW-Authenticate: Bearer realm="Unfret"` otherwise; too many bad passes from one network get 429 first). It never pays
+from a wallet and has no code that could: quick checks are free, deep checks use one of the pass's checks, as on
+`/v1/check` with a pass (where `/v1/check`'s per-minute limit counts per pass, so agents behind one host network don't
+share it). Tools, each with a title and explicit `readOnlyHint` / `destructiveHint` / `idempotentHint` /
+`openWorldHint`; the free check and the one that spends are separate tools, so a client can let the free one run
+without asking:
+
+| Tool | Hints | |
+| --- | --- | --- |
+| `check_store_quick` (`url`, `policy`, `page_content`) | read-only (free), idempotent, open world (reads a third-party page) | The verdict; or `status` (`page_unreadable`, `unavailable`, …) with a `next_step` |
+| `check_store_deep` (`url`, `policy`, `page_content`) | not read-only (spends one of the pass's checks), not destructive, not idempotent, open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
+| `get_checks_left` | read-only, idempotent, closed world | Deep checks left (free and bought), whether free ones are paused, where to buy more |
+| `get_pricing` | read-only, idempotent, closed world | `GET /v1/pricing` |
+
+```json
+{"mcpServers": {"unfret": {"type": "http", "url": "https://unfret.net/mcp",
+  "headers": {"Authorization": "Bearer ufk_…"}}}}
+```
 
 ## Configuration
 

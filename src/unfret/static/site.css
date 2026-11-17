@@ -1175,6 +1175,10 @@ label.field .small { font-weight: 400; }
 /* /extension: the phone app, with a code to scan on a computer and a button on a phone. */
 .phone-get { display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: start; }
 .phone-get .qr { padding: 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
+/* Grid columns may shrink below their longest word (a heading, the link to /check), or a phone scrolls sideways. */
+.install-grid > *, .phone-get > * { min-width: 0; }
+.howto a { overflow-wrap: anywhere; }
+@media (max-width: 30rem) { .phone-get { grid-template-columns: 1fr; } }
 .on-phone { display: none; }
 @media (pointer: coarse) and (max-width: 48rem) {
   .on-computer { display: none; }

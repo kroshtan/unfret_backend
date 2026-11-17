@@ -12,7 +12,9 @@
   {{header}}
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: 16 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
+    <p><em>Last updated: 17 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands), who
+      is responsible for the personal data described here (the controller, in the words of the GDPR). Questions and
+      requests: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
     <h2>What a check sends</h2>
     <p>Nothing leaves your browser until you click <strong>Check this page</strong> in the extension (or an agent calls
@@ -42,7 +44,8 @@
       storage that it got them (your browser may sync that note between your devices, as it does settings), and the
       link checker in this browser's storage; neither note says anything else. Our server counts new free passes per
       internet connection for a day, in memory only and under a salted one-way hash of the address, gone at the next
-      restart: <strong>it never stores your IP address</strong>. Of the free checks it stores only how many a pass has
+      restart: <strong>it never stores your IP address for this</strong> (the proxy's request log, under "Server
+      logs and limits" below, is the one place an IP address is kept). Of the free checks it stores only how many a pass has
       left, and how many were used in all today.</p>
 
     <p>Your <strong>Unfret pass</strong> is what holds your checks (developers know it as an API key). When the
@@ -57,10 +60,15 @@
     <h2>What we keep</h2>
     <ul>
       <li><strong>Your wallet and its balance</strong>: the Solana address you signed in with and how many checks you
-        have left. No name, e-mail or password.</li>
-      <li><strong>Or your Unfret pass and its balance</strong>: the pass's public ID, its balance, its free checks
-        left, and one-way hashes of the pass and its backup code. We never store either in readable form, so keep the backup code: we can't
-        recover the pass for you.</li>
+        have left. No name, e-mail or password. Signing in with a wallet gives you a session (a signed token, valid 30
+        days) that is kept in your browser, not on our server.</li>
+      <li><strong>Or your Unfret pass and its balance</strong>: the pass's public ID, its balance, its free checks left,
+        the day it was made (and when it was last replaced from its backup code), and one-way hashes of the pass and
+        its backup code. We never store either in readable form, so keep the backup code: we can't recover the pass
+        for you.</li>
+      <li><strong>How long</strong>: a wallet's or pass's balance, and whether it used an invite or code or ever
+        bought checks, are kept for as long as Unfret runs, because checks never expire. To have yours deleted (with
+        the checks left on it), write to us with the pass's ID or the wallet's address.</li>
       <li><strong>Card payments</strong>: <a href="https://polar.sh" rel="noopener">Polar</a> sells the pack to you as
         merchant of record. It collects your payment details, e-mail and country, charges VAT and sends the receipt,
         under its own privacy policy. We tell Polar only the pack and the pass's public ID. We keep the order number,
@@ -152,7 +160,8 @@
     <p>If someone checked your ad, we keep only the ad fingerprints above: no name, account or address, and nothing
       that says who checked it. A phone number or e-mail address you put in your ad is kept as a keyed one-way hash for
       90 days, used only to tell whether the same number is behind many ads (our legitimate interest in warning buyers
-      about ads posted in bulk). To have it removed sooner, use the contact details at kroshtan.com.</p>
+      about ads posted in bulk). To have it removed sooner, write to
+      <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
     <h2>Reporting a wrong result</h2>
     <p>If you press <strong>This is wrong</strong> (or an API user sends a report) and agree, that check's page facts,
@@ -164,6 +173,39 @@
       stay, without any link to you, as an example for improving the checks. Reports not reviewed within 30 days are
       deleted.</p>
 
+    <h2>What your browser keeps</h2>
+    <p>This website sets <strong>no cookies</strong>. It keeps a few things in your browser's local storage, only what
+      it needs to work, and only after you use the feature:</p>
+    <ul>
+      <li><strong>Your sign-in</strong> on the link checker and My checks: your Unfret pass or a wallet's session,
+        until you remove it on My checks.</li>
+      <li><strong>A new pass</strong> made on the checkout page, until you confirm you've saved its backup code.</li>
+      <li><strong>Claim tokens</strong> for a purchase's invites, for up to three days.</li>
+      <li><strong>A note</strong> that this browser has had its free pass on the link checker, so it gets one only
+        once.</li>
+      <li><strong>An affiliate's code</strong>, if you came through an affiliate's link, for up to 30 days or until you
+        get a pass (see "Affiliates and bonus codes" above).</li>
+      <li>For one browser tab only (session storage): a wallet's sign-in on the checkout and wallet pages.</li>
+    </ul>
+    <p>The link checker's app part (its service worker) stores nothing; it only keeps a shared link in your browser.
+      The <strong>extension</strong> keeps in your browser: your sign-in (a pass or a wallet's session), whether that
+      sign-in expired, whether it has had its free checks, its settings and which version of its privacy notice you
+      accepted; and, in memory only, the
+      results for the tabs you checked and a phone sign-in in progress. Uninstalling it removes all of that.</p>
+
+    <h2>Server logs and limits</h2>
+    <p>Unfret's own service keeps no access log: it doesn't record IP addresses or which pages are requested, and its
+      logs never contain the addresses of the pages you check. The web server in front of it (Caddy) keeps no access log
+      either. The <strong>proxy</strong> that routes requests between them does: for each request to unfret.net, the
+      time, the address asked for on unfret.net (with anything after the <code>?</code>, such as an intro code or the
+      payment number on the link back from a card payment), the answer's status and size, your IP address and your
+      browser's name and version (user agent). Not what a check sent or returned. This log is overwritten as it fills
+      up, which at today's traffic means after several weeks; it is read only to keep the service running and to deal
+      with abuse, and never linked to a pass or wallet.</p>
+    <p>To stop abuse, the service counts requests per visitor network (your IP address, or for IPv6 its /64), as a
+      salted one-way hash, in memory only: never written down, and the salt changes at every restart, so counts can't
+      be linked from one day to the next. Cloudflare keeps its own logs, as it does for every site it serves.</p>
+
     <h2>Who else sees what</h2>
     <ul>
       <li>A language model hosted by Scaleway in the EU reads the page text. We send it nothing that identifies
@@ -171,9 +213,15 @@
       <li>Public registries (RDAP, crt.sh, the EU's VIES) and Wikidata answer the shop and brand lookups. They see the
         shop's domain, its VAT number, or the product's brand and the domains named after it, not you. The EU's Safety
         Gate alerts (dangerous products) are a copy on our server: checking a product against them asks no one.</li>
+      <li>Card and iDEAL | Wero payments: Polar (Polar Software Inc., United States) is the seller of record and
+        decides what it does with your payment details, e-mail and country, under its own privacy policy. It may keep
+        them in the United States, Canada or elsewhere outside the EU, under the EU's standard contractual clauses;
+        cards are processed by Stripe.</li>
       <li>Crypto payments are Solana transactions, public on the blockchain like any other.</li>
       <li>Your country: Cloudflare, which runs in front of this site, sees your IP address like it does for any site it
-        serves; our server gets only the country code it works out, uses it only to suggest a country for prices,
+        serves. Cloudflare, Inc. is based in the United States and stores data mainly in the United States and the EU
+        (EU-US Data Privacy Framework, with standard contractual clauses as a fallback); see its privacy policy. Our
+        server gets only the country code it works out, uses it only to suggest a country for prices,
         payment options and VAT, which you can change at checkout, and never stores it.</li>
       <li>When you pay with SOL or USDC you choose your country, for VAT. It may be prefilled from the country Cloudflare
         sees your connection coming from; your IP address is never stored. For our tax records we keep the day, the
@@ -183,9 +231,32 @@
     <p>Nothing is sold. No affiliate links to shops (Unfret never earns from the shops it checks), no trackers, no ads. This website loads nothing from anyone else: its scripts,
       styles and typeface (Figtree) come from unfret.net itself, so no font service or CDN sees your visit.</p>
 
-    <h2>Your choices</h2>
-    <p>Signing out in the extension's settings removes the session from your browser; uninstalling removes everything
-      the extension stored. Questions: see the contact details at kroshtan.com.</p>
+    <h2>Why we may use it (legal basis)</h2>
+    <ul>
+      <li><strong>To give you what you asked for</strong> (a contract with you): reading the page you check, keeping
+        your pass's or wallet's balance, card order and crypto purchase records, invites, the hand-off of a pass to
+        the extension.</li>
+      <li><strong>Because the law requires it</strong>: the tax records of crypto purchases (ten years).</li>
+      <li><strong>With your consent</strong>, which you can withdraw: a result you share (delete it with its delete
+        code) and a wrong result you report.</li>
+      <li><strong>Our legitimate interest</strong> in warning shoppers and keeping the service safe: the fingerprints
+        and price records above (shops, contact details, ads, photos, reviews, prices), the proxy log and the request
+        limits, the country suggestion, affiliates' counts, and handling a request a shop owner sends us.
+        You can object (below).</li>
+      <li>What this site keeps in your browser is only what a feature you use needs, so it asks no consent for it.</li>
+    </ul>
+
+    <h2>Your rights</h2>
+    <p>You may ask to see the personal data we hold about you, to have it corrected or deleted, to have its use
+      restricted, to receive it in a common format, and object to any use based on our legitimate interest; where you
+      gave consent, you can withdraw it at any time. Write to <a href="mailto:hello@unfret.net">hello@unfret.net</a>.
+      We hold no names or e-mail addresses, so tell us what identifies your data: a pass's ID, a wallet's address, a
+      shared result's link, or a site or phone number of yours. We answer within a month. Signing out in the extension
+      or on My checks removes your sign-in from that browser; uninstalling the extension removes everything it
+      stored.</p>
+    <p>If you think we handle your data wrongly, you can complain to the Dutch data protection authority, the
+      <a href="https://www.autoriteitpersoonsgegevens.nl" rel="noopener">Autoriteit Persoonsgegevens</a>, or to the
+      authority where you live.</p>
   </main>
 
   {{footer}}

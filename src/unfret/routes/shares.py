@@ -249,7 +249,7 @@ async def object_to_share(share_id: str, body: Objection, request: Request) -> d
     """
     pool = _pool(request)
     if not _objections.allow(_ip(request)):
-        raise TooManyRequestsError("Too many objections from here today; contact us instead (kroshtan.com).")
+        raise TooManyRequestsError("Too many objections from here today; contact us instead (hello@unfret.net).")
     if not await shares.hide(pool, share_id, body.reason):
         raise NotFoundError(_NOT_FOUND)
     return {"hidden": True}

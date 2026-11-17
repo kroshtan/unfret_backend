@@ -691,7 +691,12 @@ function formatPay(amount) {
 function describe() {
   if (!pricing || !pack || watch || !cryptoAvailable()) return; // while a purchase is under way, it describes that one
   if (!countryField.value) {
-    summary.textContent = `${checksWord(pack.checks)}: choose your country to see the price with VAT.`;
+    // The price before VAT, so nobody has to pick a country to see what it costs; the VAT follows the country.
+    const net = pack.crypto_usd_micros;
+    const sol = currency === "SOL" ? ` (≈ ${formatPay(payAmount(net))})` : "";
+    summary.textContent =
+      `${checksWord(pack.checks)} with ${currency}: ${formatUsd(net)}${sol} plus VAT in the EU. ` +
+      "Choose your country to see the total.";
     return;
   }
   const { pct, net, vat, total } = vatFor(countryField.value);
@@ -927,7 +932,7 @@ async function showPaid(purchase, invites = []) {
   if (purchase.keyId) {
     nodes.push(element("p", "Your pass shows them in the extension and on My checks."));
   } else {
-    nodes.push(element("p", "The extension shows your checks once you're signed in with this wallet."));
+    nodes.push(element("p", "The extension shows your checks once you've connected this wallet."));
   }
   const balance = element("p", "", "muted");
   nodes.push(balance, button("Buy more", () => leaveInvites(invites)));

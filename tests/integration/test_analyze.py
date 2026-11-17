@@ -252,18 +252,89 @@ async def test_same_listing_is_served_from_memory_for_free(
     assert await balance(pool, address) == PRICE  # one check used, not two
 
 
-async def test_cache_hit_needs_no_balance_and_streams_at_once(
+async def test_the_same_accounts_repeat_needs_no_balance_and_streams_at_once(
     client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
 ) -> None:
     address, headers = await wallet(PRICE)
     await client.post("/v1/analyze", json=PAGE, headers=headers)
     assert await balance(pool, address) == 0
 
-    response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)  # nothing left, still served
+    response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)  # nothing left, paid already
 
     events = [block.split("\n") for block in response.text.strip().split("\n\n")]
     assert [e[0] for e in events] == ["event: result"]
     assert '"charged": false' in events[0][1]
+    assert len(graph.calls) == 1
+
+
+async def test_a_cached_result_costs_another_account_a_check(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
+) -> None:
+    # Security audit M6: a result someone else paid for within the hour was served to anyone, free of charge.
+    _, first = await wallet(PRICE)
+    address, other = await wallet(2 * PRICE)
+    await client.post("/v1/analyze", json=PAGE, headers=first)
+
+    cached = await client.post("/v1/analyze", json=PAGE, headers=other)
+    repeat = await client.post("/v1/analyze/stream", json=PAGE, headers=other)
+
+    assert cached.status_code == 200
+    body = cached.json()
+    assert (body["score"], body["charged"], body["balance_usd_micros"]) == (80, True, PRICE)
+    assert body["report_token"] and body["share_token"]
+    assert '"charged": false' in repeat.text  # its own repeat: paid once
+    assert len(graph.calls) == 1  # served from the cache, not analysed again
+    assert await balance(pool, address) == PRICE
+
+
+async def test_a_cached_result_streams_at_once_and_charged(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
+) -> None:
+    _, first = await wallet(PRICE)
+    address, other = await wallet(PRICE)
+    await client.post("/v1/analyze", json=PAGE, headers=first)
+
+    response = await client.post("/v1/analyze/stream", json=PAGE, headers=other)
+
+    events = [block.split("\n") for block in response.text.strip().split("\n\n")]
+    assert [e[0] for e in events] == ["event: result"]
+    assert '"charged": true' in events[0][1]
+    assert len(graph.calls) == 1
+    assert await balance(pool, address) == 0
+
+
+@pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
+async def test_an_account_without_checks_cant_tell_a_page_was_checked(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any, path: str
+) -> None:
+    # Security audit M6: a 200 from the cache (vs a 402) told an empty account that someone checked the page lately.
+    _, first = await wallet(PRICE)
+    await client.post("/v1/analyze", json=PAGE, headers=first)
+    _, empty = await wallet(0)
+
+    cached = await client.post(path, json=PAGE, headers=empty)
+    unchecked = await client.post(path, json={**PAGE, "url": "https://shop.test/never-checked"}, headers=empty)
+
+    assert cached.status_code == unchecked.status_code == 402
+    assert cached.json() == unchecked.json()
+    assert len(graph.calls) == 1
+
+
+async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any
+) -> None:
+    graph.result = {"score": -1, "explanation": "Not a product page.", "skill_results": []}
+    _, first = await wallet(PRICE)
+    address, other = await wallet(PRICE)
+    _, empty = await wallet(0)
+    await client.post("/v1/analyze", json=PAGE, headers=first)
+
+    cached = await client.post("/v1/analyze", json=PAGE, headers=other)
+    refused = await client.post("/v1/analyze", json=PAGE, headers=empty)
+
+    assert (cached.json()["score"], cached.json()["charged"]) == (-1, False)
+    assert await balance(pool, address) == PRICE
+    assert refused.status_code == 402
     assert len(graph.calls) == 1
 
 

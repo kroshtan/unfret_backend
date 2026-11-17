@@ -78,6 +78,23 @@ async def test_a_url_alone_is_fetched_analysed_and_charged(
     assert await balance(pool, address) == PRICE
 
 
+async def test_a_url_checked_by_someone_else_costs_a_check_and_no_fetch(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Wallet, shop: dict[str, Any]
+) -> None:
+    _, first = await wallet(PRICE)
+    address, other = await wallet(PRICE)
+    _, empty = await wallet(0)
+    await client.post("/v1/analyze", json={"url": URL}, headers=first)
+
+    cached = await client.post("/v1/analyze", json={"url": URL}, headers=other)
+    refused = await client.post("/v1/analyze", json={"url": URL}, headers=empty)
+
+    assert cached.json()["charged"] is True
+    assert await balance(pool, address) == 0
+    assert refused.status_code == 402 and refused.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert len(shop["calls"]) == 1 and len(graph.calls) == 1
+
+
 @pytest.mark.parametrize(
     ("answer", "code"),
     [

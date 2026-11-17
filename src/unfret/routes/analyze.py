@@ -378,18 +378,30 @@ def _response(
 
 async def _cached(request: Request, body: AnalyzeRequest, account: str | None, key: str) -> AnalyzeResponse | None:
     """
-    The same input analysed recently: its result again, free of charge.
+    The same input analysed recently: its result again, paid for like a fresh check.
+
+    A deep result costs a check (bought, or a free one), as if it were analysed now, so an account without one gets
+    the same 402 (or ``FREE_CHECKS_PAUSED``) as on a miss and can't tell whether anyone checked the page lately. The
+    exceptions: the account's own repeat of a listing it paid for within the hour, a quick check (always free), and a
+    cached page that couldn't be assessed (score -1: never charged, though a check must be available all the same).
 
     :param request: The FastAPI request.
     :param body: The request body.
-    :param account: The account, or ``None``.
+    :param account: The account, or ``None`` (a quick check without one).
     :param key: The result cache key.
     :return: The response, or ``None`` on a miss.
     """
     cached = result_cache.get(key)
     if cached is None:
         return None
-    logger.info("analysis_cache_hit")
+    if body.tier == "deep" and account is not None and not result_cache.paid_for(account, body.url):
+        if cached["score"] == -1:
+            await _can_pay(request, account)
+        else:
+            charge = await _charge(request, body, account)
+            logger.info("analysis_cache_hit", charged=charge.charged)
+            return await _finished(request, body, charge, cached)
+    logger.info("analysis_cache_hit", charged=False)
     balance = None if account is None else await _balance(request, account)
     token = _report_token(body, account, cached)
     return _response(cached, balance, charged=False, tier=body.tier, report_token=token, shared_from=body)
@@ -408,6 +420,8 @@ async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, resu
     if result["score"] == -1:
         _count_free_outcome(charge)
         return _response(result, await _refund(request, charge), charged=False, tier=body.tier)
+    if charge.charged and charge.account is not None:
+        result_cache.mark_paid(charge.account, body.url)  # its repeat within the hour is free (reopened, refreshed)
     balance = None if charge.account is None else await _balance(request, charge.account)
     return _response(
         result,
@@ -433,10 +447,12 @@ async def analyze_page(
     facts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a
     reliability score, an explanation and the shopper verdict (in English). The analysis
     price is taken from the balance up front and refunded when the page can't be analysed (score -1) or the
-    analysis fails. The same input analysed again within the hour is served from an in-memory cache, free of
-    charge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong
-    result later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``
-    lets them make the verdict public as a link (``POST /v1/shares``, without any account).
+    analysis fails. The same input analysed again within the hour is served from an in-memory cache and costs a
+    check like a fresh analysis (without one, the usual 402 or 429), except for the account that already paid for
+    that page within the hour, which gets it again free of charge. Nothing about the page or the result is stored;
+    the ``report_token`` lets the caller report a wrong result later (``POST /v1/reports``), sharing the page only
+    then and only with their consent; the ``share_token`` lets them make the verdict public as a link
+    (``POST /v1/shares``, without any account).
 
     A request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check
     that way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop
@@ -538,10 +554,11 @@ async def analyze_page_stream(
 
     Events: one ``step`` per finished node (``{"skill", "findings"}`` with the finding types, plus ``page_type``
     once classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.
-    Charged like ``POST /v1/analyze``: free on a cache hit (the result comes at once), refunded on ``error``, a score
-    of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a client
-    that lost the connection gets it again for free by repeating the request. A URL-only request fetches the page
-    before the stream starts; a page that can't be checked is a free 422 (no stream), as for ``POST /v1/analyze``.
+    Charged like ``POST /v1/analyze`` (a cache hit's result comes at once, charged as there), refunded on ``error``,
+    a score of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a
+    client that lost the connection gets it again for free by repeating the request with the same account. A
+    URL-only request fetches the page before the stream starts; a page that can't be checked is a free 422 (no
+    stream), as for ``POST /v1/analyze``.
     The free tier and ``"tier": "quick"`` work as for ``POST /v1/analyze``.
 
     :param body: The request body containing the page content and flags.

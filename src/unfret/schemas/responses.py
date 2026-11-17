@@ -59,8 +59,9 @@ class AnalyzeResponse(BaseModel):
     )
     charged: bool | None = Field(
         default=None,
-        description="Whether this analysis used a check: false for pages that couldn't be analysed (score -1) and "
-        "for results served from the cache.",
+        description="Whether this analysis used a check: false for pages that couldn't be analysed (score -1), "
+        "quick checks, and a result this account already paid for within the hour, served again from the cache. "
+        "Any other result from the cache uses a check like a fresh analysis.",
     )
     tier: str | None = Field(
         default=None, description="Which check this was: deep (the full analysis) or quick (rules only, free)."

@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
+![Unfret checking a test shop: Serious concerns, with a fake countdown, a pre-ticked extra and an unbelievable discount](docs/demo.gif)
+
 **Unfret checks a web shop, an ad or a company's website and says in plain words whether it all adds up.** This
 repository is the service behind it: the API, the website ([unfret.net](https://unfret.net), including the
 [link checker](https://unfret.net/check)) and the MCP server for AI agents ([`mcp/`](mcp/)). The analysis is a

@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Literal, TypedDict
+from typing import Any, ClassVar, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,8 @@ class SkillOutput(TypedDict):
     features: dict[str, float]
     findings: list[Finding]
     skill_results: list[str]
+    # The image index's likely same product on another shop (reverse_image), for the result card.
+    same_product: NotRequired[dict[str, Any]]
 
 
 class Observation(BaseModel):

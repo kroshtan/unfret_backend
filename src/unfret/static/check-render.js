@@ -1,5 +1,7 @@
-// How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the verdict band as a word
-// and a sign, the headline, and the findings as cards.
+// How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the result card. The verdict
+// band as a word and a sign and the headline; the same product sold elsewhere, first, with both photos; the findings
+// as cards, each with where its evidence comes from; one suggested next step; and what was checked. The extension
+// and the Android app show the same card.
 import { ownThumbnails } from "./check-core.js";
 
 export function el(tag, className, text) {
@@ -15,12 +17,14 @@ export function listOf(items) {
   return ul;
 }
 
-// A reason or a good point: its title, and what it means right below it (as the extension shows it: nothing to tap
-// open). Photos matched on other shops fold out, since they're a closer look rather than the point.
-export function card(className, title, detail, thumbs = []) {
+// A reason or a good point: its title, what it means right below it (as the extension shows it: nothing to tap
+// open) and where the evidence comes from. Photos matched on other shops fold out, since they're a closer look rather
+// than the point.
+export function card(className, title, detail, thumbs = [], source = "") {
   const li = el("li", `card ${className}`);
   li.append(el("span", "title", title));
   if (detail) li.append(el("p", "detail", detail));
+  if (source) li.append(el("p", "source", `Source: ${source}`));
   if (thumbs.length) {
     const photos = el("details");
     photos.append(el("summary", undefined, thumbs.length === 1 ? "See the matching photo" : "See the matching photos"));
@@ -68,10 +72,94 @@ export function reasonsOf(result, band) {
   return reasons.length || !band || band === "reliable" ? reasons : [OVERALL_REASON];
 }
 
+// The checklist's marks, as words for screen readers (the marks themselves are drawn by the stylesheet).
+const CHECK_WORD = { checked: "checked", concern: "something to note", not_checked: "not checked" };
+
 /**
- * The verdict and its findings as nodes: `band` is the CSS band (null: not assessed), `label` and `symbol` the band
- * in words and as a sign (drawn by the stylesheet). The scorer's details (signals, model, confidence) stay in the
- * API for those who want them; a shopper gets the reasons, each with what it means.
+ * The result card as plain data (no DOM), for `resultNodes` and the tests: what comes first, the findings in order,
+ * the next step and the checklist. Older results (cached, shared before the card) have no checklist, step or same
+ * product: those parts are simply left out.
+ */
+export function cardOf(result, band, origin) {
+  const verdict = result.verdict ?? {};
+  const reasons = reasonsOf(result, band);
+  const positives = verdict.positives ?? [];
+  const same = verdict.same_product;
+  const image = same ? ownThumbnails([same.image], origin)[0] : undefined;
+  const sameProduct = same && image
+    ? {
+        title: same.title,
+        detail: same.detail,
+        where: same.where,
+        image,
+        ownImage: ownThumbnails([same.own_image], origin)[0],
+      }
+    : null;
+  // The photo of the same product is shown once, up top: not again under "Same photo on other shops".
+  const thumbsOf = (r) => (sameProduct && r.type === "photo_reused" ? [] : ownThumbnails(r.thumbnails, origin));
+  const checks = typeof verdict.checks_run === "number" ? verdict.checks_run : null;
+  return {
+    sameProduct,
+    reasons: reasons.map((r) => ({ ...r, thumbs: thumbsOf(r) })),
+    positives,
+    positivesFirst: band === "reliable",
+    clean: band === "reliable" && reasons.length === 0 && checks ? `Nothing worrying in ${checks} checks.` : null,
+    nextStep: verdict.next_step?.text ?? null,
+    checklist: (verdict.checklist ?? []).map((item) => ({
+      label: item.label,
+      status: item.status in CHECK_WORD ? item.status : "checked",
+      note: item.note ?? "",
+    })),
+    checks,
+  };
+}
+
+function sameProductNode(same) {
+  const box = el("section", "same-product");
+  box.setAttribute("aria-label", same.title);
+  box.append(el("p", "title", same.title));
+  const photos = el("div", "pair");
+  for (const [src, caption] of [
+    [same.ownImage, "This page"],
+    [same.image, same.where],
+  ]) {
+    if (!src) continue;
+    const figure = el("figure");
+    const img = el("img");
+    img.src = src;
+    img.alt = caption === "This page" ? "This page's product photo" : `The same photo on ${caption}`;
+    img.width = 120;
+    img.height = 120;
+    img.referrerPolicy = "no-referrer";
+    img.addEventListener("error", () => figure.remove());
+    figure.append(img, el("figcaption", undefined, caption));
+    photos.append(figure);
+  }
+  box.append(photos, el("p", "detail", same.detail));
+  return box;
+}
+
+function checklistNode(items) {
+  const ul = el("ul", "checked-list");
+  for (const item of items) {
+    const li = el("li", item.status);
+    const mark = el("span", "mark");
+    mark.setAttribute("aria-hidden", "true");
+    const text = el("span", "what");
+    text.append(el("span", "area", item.label));
+    const hidden = el("span", "visually-hidden", `: ${CHECK_WORD[item.status]}`);
+    text.append(hidden);
+    if (item.note) text.append(el("span", "why", item.note));
+    li.append(mark, text);
+    ul.append(li);
+  }
+  return ul;
+}
+
+/**
+ * The verdict and its card as nodes: `band` is the CSS band (null: not assessed), `label` and `symbol` the band in
+ * words and as a sign (drawn by the stylesheet). The scorer's details (signals, model, confidence) stay in the API for
+ * those who want them; a shopper gets the findings, each with what it means and where it comes from.
  */
 export function resultNodes(result, { band, label, symbol }) {
   const verdict = result.verdict;
@@ -80,17 +168,29 @@ export function resultNodes(result, { band, label, symbol }) {
   sign.setAttribute("aria-hidden", "true");
   head.append(sign, el("p", "label", label));
   const nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
+  const view = cardOf(result, band, location.origin);
 
-  const shown = reasonsOf(result, band);
-  const reasons = shown.length
+  if (view.sameProduct) nodes.push(sameProductNode(view.sameProduct));
+  if (view.clean) nodes.push(el("p", "clean", view.clean));
+  const reasons = view.reasons.length
     ? [
         el("h2", undefined, "What we noticed"),
-        listOf(shown.map((r) => card(r.severity, r.title, r.detail, ownThumbnails(r.thumbnails, location.origin)))),
+        listOf(view.reasons.map((r) => card(r.severity, r.title, r.detail, r.thumbs, r.source))),
       ]
     : [];
-  const positives = verdict?.positives?.length
-    ? [el("h2", undefined, "What looks good"), listOf(verdict.positives.map((p) => card("good", p.title, p.detail)))]
+  const positives = view.positives.length
+    ? [el("h2", undefined, "What looks good"), listOf(view.positives.map((p) => card("good", p.title, p.detail, [], p.source)))]
     : [];
-  nodes.push(...(band === "reliable" ? [...positives, ...reasons] : [...reasons, ...positives]));
+  nodes.push(...(view.positivesFirst ? [...positives, ...reasons] : [...reasons, ...positives]));
+  if (view.nextStep) {
+    const step = el("section", "next-step");
+    step.append(el("h2", undefined, "What you can do"), el("p", undefined, view.nextStep));
+    nodes.push(step);
+  }
+  if (view.checklist.length) {
+    const heading = el("h2", undefined, "What we checked");
+    if (view.checks) heading.append(el("span", "count", ` · ${view.checks} checks`));
+    nodes.push(heading, checklistNode(view.checklist));
+  }
   return { nodes };
 }

@@ -308,6 +308,44 @@
     "title": "ChallengeResponse",
     "type": "object"
    },
+   "CheckItem": {
+    "description": "One line of the result card's \"What we checked\": an area, and whether it was checked.",
+    "properties": {
+     "key": {
+      "description": "who, product, reviews, prices, tricks (shops); seller, price, photos, payment, text (ads); company, location, reviews, terms, photos (service providers).",
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "description": "The area in words: \"Who's behind the shop\", \"Reviews\", \u2026",
+      "title": "Label",
+      "type": "string"
+     },
+     "note": {
+      "default": "",
+      "description": "Why it wasn't checked; empty otherwise.",
+      "title": "Note",
+      "type": "string"
+     },
+     "status": {
+      "description": "checked (nothing to note), concern (a reason above is about it) or not_checked (see note).",
+      "enum": [
+       "checked",
+       "concern",
+       "not_checked"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "label",
+     "status"
+    ],
+    "title": "CheckItem",
+    "type": "object"
+   },
    "CheckRequest": {
     "description": "What to check, how deeply, and how cautious the caller wants the action to be.",
     "properties": {
@@ -1231,6 +1269,26 @@
     "title": "MoveFreeChecksResponse",
     "type": "object"
    },
+   "NextStep": {
+    "description": "The one thing the card suggests doing next.",
+    "properties": {
+     "text": {
+      "title": "Text",
+      "type": "string"
+     },
+     "type": {
+      "description": "What the step is about (the reason it follows from, or the band).",
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "text"
+    ],
+    "title": "NextStep",
+    "type": "object"
+   },
    "NonceResponse": {
     "description": "The fields a wallet signs (Wallet Standard ``solana:signIn`` input).",
     "properties": {
@@ -1878,6 +1936,18 @@
       "title": "Detail",
       "type": "string"
      },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the evidence comes from, in words.",
+      "title": "Source"
+     },
      "title": {
       "title": "Title",
       "type": "string"
@@ -2103,6 +2173,18 @@
       ],
       "title": "Severity",
       "type": "string"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the evidence comes from, in words: \"Domain registry (RDAP)\", \"The page\", \u2026",
+      "title": "Source"
      },
      "thumbnails": {
       "description": "Up to three thumbnail URLs of the matching photos.",
@@ -2412,6 +2494,118 @@
      "min_payout_cents"
     ],
     "title": "Rules",
+    "type": "object"
+   },
+   "SameProduct": {
+    "description": "The same product photo on another shop or listing (Unfret's image index): shown first, with both photos.",
+    "properties": {
+     "currency": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "ISO 4217 code of price.",
+      "title": "Currency"
+     },
+     "detail": {
+      "description": "Where, and for how much when Unfret has seen its price.",
+      "title": "Detail",
+      "type": "string"
+     },
+     "domain": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The other shop's registrable domain, when it is a shop.",
+      "title": "Domain"
+     },
+     "image": {
+      "description": "Thumbnail URL of the other listing's photo (this server's image proxy).",
+      "title": "Image",
+      "type": "string"
+     },
+     "others": {
+      "default": 0,
+      "description": "How many more shops show the same photo.",
+      "minimum": 0.0,
+      "title": "Others",
+      "type": "integer"
+     },
+     "own_image": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Thumbnail URL of this page's own photo, when the index keeps it.",
+      "title": "Own Image"
+     },
+     "price": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The other listing's price when Unfret has seen it.",
+      "title": "Price"
+     },
+     "price_seen_on": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The day Unfret saw that price (YYYY-MM-DD).",
+      "title": "Price Seen On"
+     },
+     "price_text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The price in words: \"$12.99\".",
+      "title": "Price Text"
+     },
+     "title": {
+      "description": "\"Looks like the same product, sold elsewhere\".",
+      "title": "Title",
+      "type": "string"
+     },
+     "where": {
+      "description": "The other shop's domain, or \"Amazon\" for an Amazon listing.",
+      "title": "Where",
+      "type": "string"
+     }
+    },
+    "required": [
+     "title",
+     "detail",
+     "where",
+     "image"
+    ],
+    "title": "SameProduct",
     "type": "object"
    },
    "SellerProfile": {
@@ -3037,6 +3231,27 @@
       "title": "Band",
       "type": "string"
      },
+     "checklist": {
+      "description": "What was checked, area by area (the result card's checklist).",
+      "items": {
+       "$ref": "#/components/schemas/CheckItem"
+      },
+      "title": "Checklist",
+      "type": "array"
+     },
+     "checks_run": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many separate checks ran on this page and had something to check.",
+      "title": "Checks Run"
+     },
      "headline": {
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
@@ -3053,6 +3268,17 @@
       "title": "Language",
       "type": "string"
      },
+     "next_step": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NextStep"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "One suggested next step."
+     },
      "positives": {
       "items": {
        "$ref": "#/components/schemas/Positive"
@@ -3068,6 +3294,17 @@
       "maxItems": 3,
       "title": "Reasons",
       "type": "array"
+     },
+     "same_product": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SameProduct"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A likely same product on another shop, shown first (with both photos)."
      }
     },
     "required": [
@@ -3134,6 +3371,27 @@
       "title": "Band",
       "type": "string"
      },
+     "checklist": {
+      "description": "What was checked, area by area (the result card's checklist).",
+      "items": {
+       "$ref": "#/components/schemas/CheckItem"
+      },
+      "title": "Checklist",
+      "type": "array"
+     },
+     "checks_run": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many separate checks ran on this page and had something to check.",
+      "title": "Checks Run"
+     },
      "headline": {
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
@@ -3150,6 +3408,17 @@
       "title": "Language",
       "type": "string"
      },
+     "next_step": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NextStep"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "One suggested next step."
+     },
      "positives": {
       "items": {
        "$ref": "#/components/schemas/Positive"
@@ -3165,6 +3434,17 @@
       "maxItems": 3,
       "title": "Reasons",
       "type": "array"
+     },
+     "same_product": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/SameProduct"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A likely same product on another shop, shown first (with both photos)."
      }
     },
     "required": [

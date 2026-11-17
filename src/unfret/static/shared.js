@@ -20,6 +20,15 @@ try {
   // the server-rendered verdict stays
 }
 
+// "Wrong result?": the same page, checked again now (a shared result can't be reported; a fresh check can).
+const productLink = document.querySelector(".case-meta a")?.getAttribute("href");
+if (productLink && $("recheck")) $("recheck").href = `/check?url=${encodeURIComponent(productLink)}`;
+
+// "Object to this result" opens the shop owner's form.
+document.querySelector('a[href="#object"]')?.addEventListener("click", () => {
+  $("object").open = true;
+});
+
 async function detailOf(response) {
   const body = await response.json().catch(() => ({}));
   return typeof body.detail === "string" ? body.detail : "";

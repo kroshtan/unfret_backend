@@ -641,3 +641,55 @@ def test_the_card_buttons_say_who_handles_the_payment_and_why_the_email() -> Non
         assert page.index(f'id="{panel}-pay"') < page.index('class="pay-note"', page.index(f'id="{panel}-pay"'))
     home = " ".join((STATIC_DIR / "index.html").read_text().split())
     assert "asks for your email for the receipt" in home  # the same words as the home page
+
+
+@pytest.mark.usefixtures("node")
+def test_the_result_card_puts_the_same_product_first_and_says_what_was_checked(tmp_path: Path) -> None:
+    for name in ("check-render.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    render = (tmp_path / "check-render.js").as_uri()
+    origin = "https://unfret.net"
+    same = {
+        "title": "Looks like the same product, sold elsewhere for $12.99",
+        "detail": "The main photo is the same photo as on cheap.shop.",
+        "where": "cheap.shop",
+        "image": f"{origin}/v1/images/1/thumbnail.jpg",
+        "own_image": "https://cheap.shop/photo.jpg",  # never loaded from anywhere but this server
+    }
+    verdict = {
+        "band": "careful",
+        "reasons": [
+            {"type": "photo_reused", "title": "Same photo on other shops", "detail": "…", "severity": "medium",
+             "thumbnails": [f"{origin}/v1/images/1/thumbnail.jpg"], "source": "Unfret's image index"},
+        ],
+        "positives": [],
+        "same_product": same,
+        "next_step": {"type": "compare_elsewhere", "text": "Compare."},
+        "checklist": [{"key": "who", "label": "Who's behind the shop", "status": "concern", "note": "New"},
+                      {"key": "reviews", "label": "Reviews", "status": "not_checked", "note": "No reviews."}],
+        "checks_run": 9,
+    }  # fmt: skip
+    clean = {"band": "reliable", "reasons": [], "positives": [{"title": "Established shop"}], "checks_run": 14}
+    script = (
+        f"import {{ cardOf }} from {json.dumps(render)};"
+        f"const origin = {json.dumps(origin)};"
+        "process.stdout.write(JSON.stringify(["
+        f"cardOf({{ verdict: {json.dumps(verdict)} }}, 'careful', origin),"
+        f"cardOf({{ verdict: {json.dumps(clean)} }}, 'reliable', origin),"
+        "cardOf({ score: 30, verdict: { band: 'careful', reasons: [] } }, 'careful', origin)]));"
+    )
+    card, clean_card, older = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert card["sameProduct"] == {
+        "title": same["title"], "detail": same["detail"], "where": "cheap.shop", "image": same["image"],
+    }  # fmt: skip
+    assert card["reasons"][0]["thumbs"] == [] and card["reasons"][0]["source"] == "Unfret's image index"
+    assert card["nextStep"] == "Compare." and card["checks"] == 9
+    assert [i["status"] for i in card["checklist"]] == ["concern", "not_checked"]
+    assert clean_card["clean"] == "Nothing worrying in 14 checks." and clean_card["positivesFirst"]
+    # A result from before the card: its reasons as ever, and no checklist, step or same product.
+    assert older["reasons"][0]["title"] == "Several small signals"
+    assert (older["checklist"], older["nextStep"], older["sameProduct"], older["clean"]) == ([], None, None, None)

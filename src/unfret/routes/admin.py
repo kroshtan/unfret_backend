@@ -23,7 +23,7 @@ from unfret.config import settings
 from unfret.credits import invites, keys, ledger, vat
 from unfret.fingerprint import contact_hash, normalise_address, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
-from unfret.routes.check import get_x402
+from unfret.routes.check import get_x402, get_x402_base
 
 logger = structlog.get_logger("unfret")
 
@@ -31,20 +31,28 @@ router = APIRouter(prefix="/v1/admin", tags=["Admin"], dependencies=[Depends(req
 
 
 @router.post("/x402/clear-alerts")
-async def clear_alerts(request: Request) -> dict[str, Any]:
+async def clear_alerts(request: Request, network: Literal["all", "solana", "base"] = "all") -> dict[str, Any]:
     """
     Clear a suspected compromise and post-settlement mismatches, so payments resume.
 
     Only once the operator has checked the flagged transactions (``GET /v1/admin/x402/alerts``, or
     ``x402_outflow_to_non_cold`` and ``x402_post_settlement_mismatch`` in the logs) and, for a real compromise,
-    rotated the hot wallet first. Cleared in the database too: they don't come back on a restart.
+    rotated the hot wallet (Solana) or moved what is left and replaced ``payTo`` (Base) first. Cleared in the database
+    too: they don't come back on a restart.
 
     :param request: The incoming request.
-    :return: What was cleared, and the x402 status now.
+    :param network: Which network's alerts to clear (``?network=solana`` or ``base``; both by default).
+    :return: What was cleared, and each network's status now.
     """
-    x402 = get_x402(request)
-    cleared = await x402.clear_alerts()
-    return {"cleared": cleared, "x402": (await x402.health()).status}
+    x402, base = get_x402(request), get_x402_base(request)
+    cleared = await x402.clear_alerts() if network in {"all", "solana"} else []
+    base_cleared = await base.clear_alerts() if network in {"all", "base"} else []
+    return {
+        "cleared": cleared,
+        "x402": (await x402.health()).status,
+        "base_cleared": base_cleared,
+        "x402_base": (await base.health()).status,
+    }
 
 
 @router.get("/x402/alerts")
@@ -54,13 +62,13 @@ async def x402_alerts(request: Request) -> dict[str, Any]:
 
     ``flagged`` lists every unexpected outflow (and audit gap) and post-settlement mismatch not cleared yet:
     ``signature`` (look it up on an explorer), ``reason`` (what moved where) and ``found_at``. Public readiness only
-    counts the alerts.
+    counts the alerts. ``base`` has the same for x402 on Base.
 
     :param request: The incoming request.
-    :return: ``x402`` (status), ``alerts`` (names) and ``flagged``.
+    :return: ``x402`` (status), ``alerts`` (names), ``flagged`` and ``base``.
     """
-    x402 = get_x402(request)
-    health = await x402.health()
+    x402, base = get_x402(request), get_x402_base(request)
+    health, base_health = await x402.health(), await base.health()
     return {
         "x402": health.status,
         "alerts": list(health.alerts),
@@ -68,6 +76,18 @@ async def x402_alerts(request: Request) -> dict[str, Any]:
             {"signature": flag.signature, "reason": flag.reason, "found_at": flag.found_at.isoformat()}
             for flag in x402.flagged()
         ],
+        # Base: payTo's outflows (``signature`` is the transaction hash) and post-settlement mismatches.
+        "base": {
+            "status": base_health.status,
+            "network": base.network,
+            "pay_to": base.pay_to or None,
+            "usdc_units": base_health.usdc_units,
+            "alerts": list(base_health.alerts),
+            "flagged": [
+                {"signature": flag.signature, "reason": flag.reason, "found_at": flag.found_at.isoformat()}
+                for flag in base.flagged()
+            ],
+        },
     }
 
 

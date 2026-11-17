@@ -1,4 +1,4 @@
-.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -47,6 +47,9 @@ test-expansion:  ## Unit tests with UNFRET_EXPANSION_CLASSES on (product results
 
 e2e:  ## End-to-end sweep against dev (devnet; spends the e2e payer's test money): UNFRET_E2E_* (README)
 	uv run pytest -m e2e tests/e2e -x --no-cov -p no:cacheprovider -v
+
+e2e-base:  ## x402 on Base against Base Sepolia (testnet only; skips without UNFRET_E2E_BASE_* settings)
+	uv run pytest -m e2e_base tests/e2e_base --no-cov -p no:cacheprovider -v
 
 corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 	uv run python -m evals.sources.beyondphish

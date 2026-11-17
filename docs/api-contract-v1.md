@@ -938,3 +938,28 @@ client are unchanged.
   `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.
+
+## Changes (x402 on Base, behind `UNFRET_X402_BASE_ENABLED`; backwards-compatible)
+
+- `POST /v1/check` can offer a second x402 network: USDC on Base with the `exact` scheme (EIP-3009
+  `transferWithAuthorization`), off by default. While it is off nothing changes. While it is on, the 402's `accepts`
+  lists Solana's options first, unchanged, then one Base option: `network` `eip155:84532` (Base Sepolia) or
+  `eip155:8453` (Base mainnet, refused unless `UNFRET_X402_BASE_ALLOW_MAINNET`), `asset` Circle's USDC contract,
+  `amount` the tier's dollar price exactly (6 decimals, the same as Solana's USDC option), `payTo` the receiving
+  address, `maxTimeoutSeconds` 300, and `extra` `{name, version}` (the token's EIP-712 domain: `USDC`/`2` on Sepolia,
+  `USD Coin`/`2` on mainnet), `decimals`, `tier` and `includes`. No `paymentFlow`: Base uses x402's default
+  (`authorization`): the payment is verified first, the analysis runs, and it is settled only when there is an
+  answer, so an unreadable page (`422`), a failed analysis (`500`/`504`) or a page that can't be assessed (`200` with
+  `"charged": false`) costs nothing and has no `PAYMENT-RESPONSE`. A payment is refused (402) unless it answers that
+  option exactly: recipient, value, a validity window that outlives the analysis (`validBefore` at least the analysis
+  timeout plus a minute ahead), a 32-byte nonce; the facilitator's own refusals come back as `error`
+  (`invalid_exact_evm_insufficient_balance`, `invalid_exact_evm_signature`, …). `PAYMENT-RESPONSE` names the Base
+  network and transaction; a settlement that was broadcast but not confirmed still answers 200 with the verdict and
+  `PAYMENT-RESPONSE` `{"success": false, "errorReason": "settlement_pending", "transaction"}`; a refused one answers
+  `402 SETTLEMENT_FAILED` (with `reason`) and no verdict. Retrying with the same authorization (payer and nonce)
+  returns the same answer for 15 minutes and is never settled twice.
+- `GET /v1/health/ready` gains `x402_base` (`off`, `ok`, `mainnet_refused`, `misconfigured`, `rpc_unavailable`,
+  `compromise_suspected`) and `x402_base_alert_count`; with the operator token also `x402_base_alerts` and
+  `base_pay_to_usdc_units`. `GET /v1/admin/x402/alerts` gains `base` (status, network, payTo, its USDC, alerts and
+  flagged transactions); `POST /v1/admin/x402/clear-alerts` takes `?network=solana|base` (both by default) and
+  answers `base_cleared` and `x402_base` next to the existing fields.

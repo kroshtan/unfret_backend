@@ -44,6 +44,7 @@ Repository = "https://github.com/kroshtan/unfret_backend"
 
 [dependency-groups]
 dev = [
+    "eth-account>=0.13",
     "mypy>=2.4",
     "pre-commit>=4.7",
     "pydoclint>=0.12",
@@ -203,6 +204,7 @@ addopts = [
 ]
 markers = [
     "e2e: the end-to-end sweep against a deployed dev (real devnet money, secrets; see README 'End-to-end sweep')",
+    "e2e_base: x402 on Base against Base Sepolia (`make e2e-base`; each test skips without its UNFRET_E2E_* setting)",
 ]
 env = [
     "UNFRET_LLM_API_KEY=test-key",

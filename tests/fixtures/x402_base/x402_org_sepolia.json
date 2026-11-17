@@ -1,0 +1,22 @@
+{
+  "_source": "x402.org/facilitator on Base Sepolia (eip155:84532), 2026-11-17: an unfunded throwaway payer created for the recording; nothing moved",
+  "verify_insufficient_balance": {
+    "isValid": false,
+    "invalidReason": "invalid_exact_evm_insufficient_balance",
+    "payer": "0xE948d87D8EE0C02e61C9856d741E395Ceb32F5A0",
+    "invalidMessage": "The contract function \"transferWithAuthorization\" reverted with the following reason:\nERC20: transfer amount exceeds balance\n\nContract Call:\n  address:   0x036CbD53842c5426634e7929541eC2318f3dCF7e\n  function:  transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s)\n  args:                               (0xE948d87D8EE0C02e61C9856d741E395Ceb32F5A0, 0xb98163e95339f496C0FdAD0E4C1BF588CB0b3250, 10000, 1794929701, 1794930601, 0x4c0d95881541a9fab577310e5e3eb246787590982a156edab2c9a2b02f7b4358, 28, 0xad0178be28c9bb881b575b0efe1fbdb3bc60c26552306f3077faae9d5b082667, 0x0e158c67b026aa32096691a021179e8f4d85399cd1b159e31dfcbf9cefa699f5)\n\nDocs: https://viem.sh/docs/contract/readContract\nDetails: execution reverted: ERC20: transfer amount exceeds balance\nVersion: viem@2.48.11"
+  },
+  "settle_insufficient_balance": {
+    "success": false,
+    "errorReason": "invalid_exact_evm_insufficient_balance",
+    "errorMessage": "The contract function \"transferWithAuthorization\" reverted with the following reason:\nERC20: transfer amount exceeds balance\n\nContract Call:\n  address:   0x036CbD53842c5426634e7929541eC2318f3dCF7e\n  function:  transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s)\n  args:                               (0xE948d87D8EE0C02e61C9856d741E395Ceb32F5A0, 0xb98163e95339f496C0FdAD0E4C1BF588CB0b3250, 10000, 1794929701, 1794930601, 0x4c0d95881541a9fab577310e5e3eb246787590982a156edab2c9a2b02f7b4358, 28, 0xad0178be28c9bb881b575b0efe1fbdb3bc60c26552306f3077faae9d5b082667, 0x0e158c67b026aa32096691a021179e8f4d85399cd1b159e31dfcbf9cefa699f5)\n  sender:    0xd407e409E34E0b9afb99EcCeb609bDbcD5e7f1bf\n\nDocs: https://viem.sh/docs/contract/writeContract\nDetails: execution reverted: ERC20: transfer amount exceeds balance\nVersion: viem@2.48.11",
+    "transaction": "",
+    "network": "eip155:84532",
+    "payer": "0xE948d87D8EE0C02e61C9856d741E395Ceb32F5A0"
+  },
+  "verify_bad_signature": {
+    "isValid": false,
+    "invalidReason": "invalid_exact_evm_signature",
+    "payer": "0xE948d87D8EE0C02e61C9856d741E395Ceb32F5A0"
+  }
+}

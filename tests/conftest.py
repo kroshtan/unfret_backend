@@ -56,3 +56,12 @@ def node() -> None:
     """Tests that run the pages' JavaScript need node (CI has it: it runs the checkout action)."""
     if shutil.which("node") is None:
         unavailable("node not installed")
+
+
+@pytest.fixture(autouse=True)
+def fresh_thumbnail_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thumbnails remember failed photos and count requests per visitor network in memory: each test starts afresh."""
+    from unfret.routes import images  # noqa: PLC0415 - keep the app out of import time for unrelated tests
+
+    monkeypatch.setattr(images, "_failed", {})
+    monkeypatch.setattr(images, "_requests", RateLimit(120))

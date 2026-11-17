@@ -231,7 +231,9 @@ transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored
 (`window.postMessage`, relayed by the extension's content script); [`/checkout`](https://unfret.net/checkout) hands
 every new API key it shows to the extension the same way (`unfret-key`, API contract), so a new user never pastes a key,
 and [`/welcome`](https://unfret.net/welcome) is the page the extension opens once after installing. The pages are static HTML and vanilla JS with a
-strict Content Security Policy: no framework, no third-party requests, Wallet Standard discovery written directly. An analysis costs one check ($0.20),
+strict Content Security Policy: no framework, no third-party requests (no external fonts either: the one typeface,
+Figtree, is served from `static/fonts/` with its SIL Open Font License, `font-src 'self'`), Wallet Standard
+discovery written directly. An analysis costs one check ($0.20),
 taken atomically before it runs and refunded when the page can't be analysed (score `-1`) or the analysis fails.
 
 [`/check`](https://unfret.net/check) is the link checker for phones and browsers without the extension: it

@@ -1,13 +1,13 @@
 """
 Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 
-Clearing the sticky x402 alerts after investigating them, removing shops or contact details from the
-fingerprint store on request, the review queue of reported results (``make reports``), a small grant of credit to
-an API key (support, and test credits for a store reviewer) and taking it back, the quarterly export of crypto
-sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), intro codes
-(``python -m unfret.credits.codes``: make, list, switch off, more uses), the "Spotted recently"
-showcase (``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared
-results a shop owner objected to.
+Listing the transactions behind the sticky x402 alerts and clearing them after investigating them, removing shops
+or contact details from the fingerprint store on request, the review queue of reported results (``make reports``), a
+small grant of credit to an API key (support, and test credits for a store reviewer) and taking it back, the quarterly
+export of crypto sales records for the bookkeeping, the count of invites outstanding (a gift, not revenue), intro
+codes (``python -m unfret.credits.codes``: make, list, switch off, more uses), the "Spotted recently" showcase
+(``python -m unfret.showcase``): operator-run checks, drafts until published, and the review of shared results a shop
+owner objected to.
 """
 
 import json
@@ -36,15 +36,40 @@ async def clear_alerts(request: Request) -> dict[str, Any]:
     """
     Clear a suspected compromise and post-settlement mismatches, so payments resume.
 
-    Only once the operator has checked the flagged transactions (``x402_outflow_to_non_cold`` and
-    ``x402_post_settlement_mismatch`` in the logs) and, for a real compromise, rotated the hot wallet first.
+    Only once the operator has checked the flagged transactions (``GET /v1/admin/x402/alerts``, or
+    ``x402_outflow_to_non_cold`` and ``x402_post_settlement_mismatch`` in the logs) and, for a real compromise,
+    rotated the hot wallet first. Cleared in the database too: they don't come back on a restart.
 
     :param request: The incoming request.
     :return: What was cleared, and the x402 status now.
     """
     x402 = get_x402(request)
-    cleared = x402.clear_alerts()
+    cleared = await x402.clear_alerts()
     return {"cleared": cleared, "x402": (await x402.health()).status}
+
+
+@router.get("/x402/alerts")
+async def x402_alerts(request: Request) -> dict[str, Any]:
+    """
+    The x402 status, its alerts, and each transaction behind a sticky alert with the reason, to check before clearing.
+
+    ``flagged`` lists every unexpected outflow (and audit gap) and post-settlement mismatch not cleared yet:
+    ``signature`` (look it up on an explorer), ``reason`` (what moved where) and ``found_at``. Public readiness only
+    counts the alerts.
+
+    :param request: The incoming request.
+    :return: ``x402`` (status), ``alerts`` (names) and ``flagged``.
+    """
+    x402 = get_x402(request)
+    health = await x402.health()
+    return {
+        "x402": health.status,
+        "alerts": list(health.alerts),
+        "flagged": [
+            {"signature": flag.signature, "reason": flag.reason, "found_at": flag.found_at.isoformat()}
+            for flag in x402.flagged()
+        ],
+    }
 
 
 class ForgetContact(BaseModel):

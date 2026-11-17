@@ -500,9 +500,38 @@ value leaving the hot wallet except to cold or cold's USDC account (a token tran
 as a `transferChecked` of USDC into cold's USDC account, so a swap is flagged too; payments pause, a compromise
 signal). The audit pages through
 every transaction since the last one it checked, skipping failed ones and ones the hot wallet didn't sign (neither can
-move its value). A compromise signal and post-settlement mismatches stay raised until the operator, having checked
-the logged transactions (and rotated the hot wallet if it was real), clears them:
-`curl -X POST -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" https://…/v1/admin/x402/clear-alerts`.
+move its value). Its cursor and every flagged transaction are kept in the database (per hot wallet), so a restart
+continues where the last process stopped instead of reading the wallet's history again, and an alarm stays raised
+across restarts; only the very first audit of a hot wallet, with no cursor yet, looks at its newest 100 transactions.
+A compromise signal and post-settlement mismatches stay raised until the operator, having checked the flagged
+transactions (and rotated the hot wallet if it was real), clears them. Readiness only counts the alerts; the operator
+lists each transaction with its reason (`signature`, `reason`, `found_at`), then clears:
+
+```bash
+curl -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" https://…/v1/admin/x402/alerts
+curl -X POST -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" https://…/v1/admin/x402/clear-alerts
+```
+
+A cleared transaction doesn't raise the alarm again when it is audited a second time; a new one always does.
+
+**Changing the cold address.** Sweeps to the old cold address are in the hot wallet's history, and once
+`UNFRET_COLD_ADDRESS` names another wallet the audit would take them for theft (an audit without a cursor, such as a
+new database, reads them again). Declare the old one, with the moment sweeps to it stopped:
+
+1. Note when the last sweep to the old address landed (an explorer, or `x402_sweep` / `x402_usdc_sweep` in the log).
+2. Set `UNFRET_COLD_ADDRESS` to the new wallet, and add the old one to `UNFRET_FORMER_COLD_ADDRESSES`
+   (comma-separated public addresses) with `UNFRET_FORMER_COLD_UNTIL` (ISO 8601 with a time zone, e.g.
+   `2026-11-16T06:00:00Z`): a moment after that last sweep and before the new address takes over. Both are public,
+   so they can go in the deploy file's clear environment. Start-up refuses former addresses without a cut-off, an
+   address that isn't a public key, and the cold address itself as a former one.
+3. Deploy, and check readiness with the operator token: `x402` is `ok`.
+
+Outflows to a former cold address (SOL, and USDC into its USDC account) are accepted only from transactions whose block
+time is before both the cut-off and the start of the running process: everything the service signs goes to the
+current cold address, so a later outflow to an old wallet (which might be abandoned, or why the address was changed) is
+flagged like any other, marked "a former cold address, after its cut-off", and so is a transaction without a block
+time. Keep the cut-off tight: it is the window in which a stolen hot key could drain to the old wallet unnoticed. When
+the cold address changes again, add that one too and move the cut-off to the newer change.
 
 The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
 holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
@@ -563,6 +592,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
+| `UNFRET_FORMER_COLD_ADDRESSES` / `UNFRET_FORMER_COLD_UNTIL` | — | Earlier cold addresses (comma-separated) whose sweeps before the cut-off (ISO 8601) the outflow audit accepts; see "Changing the cold address" |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
@@ -622,6 +652,12 @@ wallet and session secret:
 
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).
+
+**Changing a cold address** (`DEV_COLD_ADDRESS`, `PROD_COLD_ADDRESS`): in the same change, add the old address and the
+moment sweeps to it stopped to that destination's `config/deploy.<destination>.yml`, under `env.clear`
+(`UNFRET_FORMER_COLD_ADDRESSES`, `UNFRET_FORMER_COLD_UNTIL`; see [the x402 section](#pay-per-check-for-agents-x402)).
+Without them, the outflow audit flags the old sweeps, x402 pauses (`compromise_suspected`) and the production gate's
+readiness check fails. Dev lists its first cold address, which it swept to until 16 Nov 2026.
 
 **Releasing to production:**
 

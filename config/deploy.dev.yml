@@ -16,6 +16,10 @@ env:
     UNFRET_PUBLIC_BASE_URL: https://dev.unfret.net
     # The page classes beyond products (p2p ads, service providers): on in dev and production.
     UNFRET_EXPANSION_CLASSES: "true"
+    # Dev's first cold address (the old treasury), swept to until 16 Nov 2026 05:50 UTC; DEV_COLD_ADDRESS is now the
+    # e2e payer (a closed loop on devnet). The outflow audit accepts sweeps to it before the cut-off, nothing after.
+    UNFRET_FORMER_COLD_ADDRESSES: EE6XVrpkxrxDx6T9TRyFwrEB2D35kWJzHBgMn4jwzeJe
+    UNFRET_FORMER_COLD_UNTIL: "2026-11-16T06:00:00Z"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI

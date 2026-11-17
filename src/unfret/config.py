@@ -1,9 +1,11 @@
 import re
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from solders.pubkey import Pubkey
 
 
 class Settings(BaseSettings):
@@ -202,6 +204,12 @@ class Settings(BaseSettings):
     hot_wallet_key: SecretStr = SecretStr("")
     # The cold wallet (e.g. a Ledger): sweep destination only. The server never holds its key.
     cold_address: str = ""
+    # Earlier cold addresses (comma-separated), after the cold address changed: the outflow audit accepts sweeps to
+    # them (SOL, and USDC into their USDC accounts) made before former_cold_until (and before this process started),
+    # so a restart that reads the hot wallet's history doesn't flag the old sweeps. Anything later to them alarms.
+    # former_cold_until (ISO 8601, e.g. 2026-11-16T06:00:00Z: when sweeps to them stopped) is required with them.
+    former_cold_addresses: Annotated[list[str], NoDecode] = []
+    former_cold_until: datetime | None = None
     # Sweep to cold once the hot wallet holds more than this (SOL + wSOL), keeping the reserve for fees.
     sweep_threshold_lamports: int = 100_000_000
     sweep_reserve_lamports: int = 10_000_000
@@ -244,6 +252,54 @@ class Settings(BaseSettings):
         """
         return value or "sandbox"
 
+    @field_validator("former_cold_addresses", mode="before")
+    @classmethod
+    def _former_cold_addresses(cls, value: Any) -> Any:
+        """
+        Read ``UNFRET_FORMER_COLD_ADDRESSES`` as a comma-separated list, and refuse anything but public keys.
+
+        :param value: The raw value: a string from the environment, or a list.
+        :return: The addresses, stripped, without empty entries or duplicates.
+        :raises ValueError: If an entry isn't a base58 public key.
+        """
+        items = value.split(",") if isinstance(value, str) else list(value or [])
+        addresses: list[str] = []
+        for item in (str(i).strip() for i in items):
+            if not item:
+                continue
+            try:
+                Pubkey.from_string(item)
+            except ValueError:
+                raise ValueError(f"former_cold_addresses: {item[:60]!r} is not a Solana address") from None
+            if item not in addresses:
+                addresses.append(item)
+        return addresses
+
+    @field_validator("former_cold_until", mode="before")
+    @classmethod
+    def _former_cold_until_empty(cls, value: Any) -> Any:
+        """
+        Read an empty ``UNFRET_FORMER_COLD_UNTIL`` as unset.
+
+        :param value: The raw value.
+        :return: The value, or ``None`` if empty.
+        """
+        return value or None
+
+    @field_validator("former_cold_until", mode="after")
+    @classmethod
+    def _former_cold_until(cls, value: datetime | None) -> datetime | None:
+        """
+        Refuse a cut-off without a time zone: it is compared with block times, which are UTC.
+
+        :param value: The parsed cut-off.
+        :return: The cut-off, in UTC.
+        :raises ValueError: If it has no time zone.
+        """
+        if value is not None and value.tzinfo is None:
+            raise ValueError("former_cold_until needs a time zone, e.g. 2026-11-16T06:00:00Z")
+        return None if value is None else value.astimezone(UTC)
+
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         """
@@ -266,6 +322,10 @@ class Settings(BaseSettings):
             problems.append("need x402_min_fee_lamports <= sweep_reserve_lamports < sweep_threshold_lamports")
         if self.x402_analysis_timeout_s <= 0 or self.x402_confirm_timeout_s <= 0:
             problems.append("timeouts must be positive")
+        if self.former_cold_addresses and self.former_cold_until is None:
+            problems.append("former_cold_addresses needs former_cold_until (when sweeps to them stopped)")
+        if self.cold_address in self.former_cold_addresses:
+            problems.append("the cold address can't also be a former cold address")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self

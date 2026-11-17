@@ -35,10 +35,21 @@ from unfret.schemas.errors import (
     ServiceUnavailableError,
     TooManyRequestsError,
 )
+from unfret.visitors import RateLimit
 
 logger = structlog.get_logger("unfret")
 
 router = APIRouter(tags=["Credits"])
+
+# Price quotes per visitor network (in memory, hashed): each one is stored and costs an RPC call.
+_quotes = RateLimit(settings.quotes_per_ip_per_minute)
+
+
+def _quote_allowed(request: Request) -> None:
+    if (wait := _quotes.retry_after(request.client.host if request.client else "unknown")) is not None:
+        raise TooManyRequestsError(
+            "Too many purchases started from here; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
+        )
 
 
 class CreditsResponse(BaseModel):
@@ -293,6 +304,7 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
     :param request: The incoming request.
     :return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.
     """
+    _quote_allowed(request)
     hot = _hot_for_purchase(request, body.currency)
     payer = _wallet(body.address, hot)
     beneficiary: str | None = None
@@ -385,6 +397,7 @@ async def solana_pay_qr(
     :param key_id: The API key to credit instead.
     :return: An SVG image.
     """
+    _quote_allowed(request)
     hot = _hot_for_purchase(request, currency)
     target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:

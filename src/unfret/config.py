@@ -171,6 +171,12 @@ class Settings(BaseSettings):
     key_create_per_ip_per_day: int = 5
     key_create_daily_cap: int = 500
     key_recover_per_ip_per_day: int = 10
+    # Invite and intro code redemptions per visitor network per 10 minutes (a person redeems one; this stops anyone
+    # from guessing intro codes or draining one with fresh accounts from one place).
+    redeem_per_ip_per_10min: int = Field(default=10, ge=1)
+    # Price quotes (POST /v1/credits/purchase-tx, the Solana Pay QR) per visitor network per minute: each is stored
+    # for a day and asks the RPC for a blockhash.
+    quotes_per_ip_per_minute: int = Field(default=20, ge=1)
     # Fiat top-ups for API keys through a Merchant of Record (Polar). Prices in USD; webhooks are Standard Webhooks,
     # signed with this whsec_ secret and refused outside the replay window.
     fiat_webhook_secret: SecretStr = SecretStr("")

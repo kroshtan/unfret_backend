@@ -693,6 +693,13 @@ valid 7 days. Nothing is stored when a check runs.
 - A link check of a domain that doesn't resolve answers `PAGE_UNAVAILABLE` ("The site couldn't be reached: …")
   instead of `INVALID_URL`, which stays for addresses that resolve to private or internal networks.
 
+## Changes (limits per visitor network on codes and quotes, backwards-compatible)
+
+- `POST /v1/invites/redeem`: 429 `TOO_MANY_REQUESTS` (`metadata.retry_after_s`) after `UNFRET_REDEEM_PER_IP_PER_10MIN`
+  (10) attempts from one visitor network (IPv6 /64) in ten minutes, whatever their outcome.
+- `POST /v1/credits/purchase-tx` and `GET /v1/credits/solana-pay.svg`: 429 `TOO_MANY_REQUESTS` after
+  `UNFRET_QUOTES_PER_IP_PER_MINUTE` (20) quotes from one visitor network in a minute.
+
 ## Changes (onboarding: key hand-off to the extension, `/welcome`; backwards-compatible)
 
 - `GET /welcome` — the page the extension opens once after a new install (Unfret Dev: `https://dev.unfret.net/welcome`):

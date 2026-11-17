@@ -24,8 +24,12 @@ from unfret.schemas.errors import (
     ServiceUnavailableError,
     TooManyRequestsError,
 )
+from unfret.visitors import RateLimit
 
 router = APIRouter(prefix="/v1/invites", tags=["Credits"])
+
+# Redemptions per visitor network (in memory, hashed), whatever their outcome.
+_attempts = RateLimit(settings.redeem_per_ip_per_10min, window_s=600)
 
 
 class RedeemRequest(BaseModel):
@@ -71,14 +75,20 @@ async def redeem(body: RedeemRequest, request: Request, account: str = Depends(r
     buyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400
     ``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``
     (the account has had checks, or already redeemed an invite or code), 410 ``INVITE_ENDED`` (an intro code switched
-    off), 429 ``INTRO_DAILY_CAP`` (today's checks from intro codes are gone; back the next UTC day).
+    off), 429 ``INTRO_DAILY_CAP`` (today's checks from intro codes are gone; back the next UTC day), 429
+    ``TOO_MANY_REQUESTS`` (too many codes tried from one visitor network in ten minutes).
 
     :param body: The code.
     :param request: The incoming request.
     :param account: The redeeming account (injected by require_account).
     :return: What was added and the new balance.
     :raises ServiceUnavailableError: Without a database.
+    :raises TooManyRequestsError: Over the redemptions allowed from this visitor network.
     """
+    if (wait := _attempts.retry_after(request.client.host if request.client else "unknown")) is not None:
+        raise TooManyRequestsError(
+            "Too many codes tried from here; wait a few minutes.", metadata={"retry_after_s": max(1, int(wait) + 1)}
+        )
     if request.app.db_pool is None:
         raise ServiceUnavailableError("Invites are not available yet.")
     try:

@@ -11,6 +11,8 @@ from solders.keypair import Keypair
 from tests.integration.conftest import bearer
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger
+from unfret.routes import invites as invite_routes
+from unfret.visitors import RateLimit
 
 ADMIN = {"Authorization": "Bearer operator-token"}
 FIVE = 5 * settings.analysis_price_usd_micros
@@ -114,8 +116,11 @@ async def test_the_daily_cap_spans_all_codes(
     assert (await redeem(client, code, new_wallet())).status_code == 200
 
 
-async def test_no_daily_cap_by_default(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+async def test_no_daily_cap_by_default(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert settings.intro_daily_checks_cap is None  # an emergency brake, off unless set
+    monkeypatch.setattr(invite_routes, "_attempts", RateLimit(100, window_s=600))  # 60 visitors, one test network
     await make(client, "MANY", uses=100)
     replies = [await redeem(client, "MANY", new_wallet()) for _ in range(60)]  # 300 checks: past the old cap of 250
     assert {r.status_code for r in replies} == {200}

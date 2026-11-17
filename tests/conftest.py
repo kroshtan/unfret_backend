@@ -36,6 +36,15 @@ def fresh_check_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def fresh_redeem_and_quote_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code redemptions and price quotes are limited per visitor network in memory: each test starts afresh."""
+    from unfret.routes import credits, invites  # noqa: PLC0415 - keep the app out of import time for unrelated tests
+
+    monkeypatch.setattr(invites, "_attempts", RateLimit(invites.settings.redeem_per_ip_per_10min, window_s=600))
+    monkeypatch.setattr(credits, "_quotes", RateLimit(credits.settings.quotes_per_ip_per_minute))
+
+
+@pytest.fixture(autouse=True)
 def restore_app_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Whatever a test sets on the app (pool, graphs, x402, credits, fiat) is put back afterwards, so none leaks."""
     from unfret.main import app  # noqa: PLC0415 - keep the app out of import time for unrelated tests

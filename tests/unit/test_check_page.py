@@ -35,7 +35,11 @@ async def test_the_page_is_served_with_a_strict_policy(client: httpx.AsyncClient
     assert '<link rel="manifest" href="/manifest.webmanifest">' in response.text
     # Nothing from elsewhere: the only outside addresses are the shared footer's links (the source code, the maker).
     page = response.text.replace("https://shop.example", "")
-    for footer_link in ('href="https://git.kroshtan.com/kroshtan/unfret_backend"', 'href="https://kroshtan.com"'):
+    sources = [
+        f'href="https://git.kroshtan.com/kroshtan/{repo}"'
+        for repo in ("unfret_backend", "unfret_extension", "unfret_android")
+    ]
+    for footer_link in (*sources, 'href="https://kroshtan.com"'):
         page = page.replace(footer_link, "")
     assert "http://" not in page and "https://" not in page
 

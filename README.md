@@ -4,19 +4,89 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
-**Unfret scores e-commerce product pages for scam and dropshipping signals.** A browser extension sends the HTML of
-the page the user is viewing; the backend runs a [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of
-independent analysis "skills" in parallel, and a small trained model turns their features into a calibrated 0–100
-reliability score; an LLM writes the one-line explanation from the signals that moved it.
+**Unfret checks a web shop, an ad or a company's website and says in plain words whether it all adds up.** This
+repository is the service behind it: the API, the website ([unfret.net](https://unfret.net), including the
+[link checker](https://unfret.net/check)) and the MCP server for AI agents ([`mcp/`](mcp/)). The analysis is a
+[LangGraph](https://github.com/langchain-ai/langgraph) pipeline of independent "skills" run in parallel; a small
+trained model turns their features into a calibrated 0–100 score and one of four verdicts (Looks fine, Worth a look,
+Think twice, Serious concerns), and an LLM writes the explanation from the signals that moved it.
 
-```json
-POST /v1/analyze  →  { "score": 18, "explanation": "New domain, AliExpress-sourced images and templated 5-star reviews." }
-```
+| | |
+| --- | --- |
+| Website | [unfret.net](https://unfret.net) · [check a link](https://unfret.net/check) · [developers and AI agents](https://unfret.net/developers) · [API reference](https://unfret.net/docs) |
+| This repository | [git.kroshtan.com/kroshtan/unfret_backend](https://git.kroshtan.com/kroshtan/unfret_backend) (primary) · [GitHub mirror](https://github.com/kroshtan/unfret_backend) |
+| Browser extension | [git.kroshtan.com/kroshtan/unfret_extension](https://git.kroshtan.com/kroshtan/unfret_extension) · [Chrome Web Store](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo) |
+| Android app | [git.kroshtan.com/kroshtan/unfret_android](https://git.kroshtan.com/kroshtan/unfret_android) |
 
 > **Project status: live, run by one person.** Unfret runs at [unfret.net](https://unfret.net) with the
 > [Chrome extension](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo), prepaid checks
 > (card via Polar, or USDC/SOL with a Solana wallet) and pay-per-check x402 for AI agents. It is a side project: no
 > SLA, and scores are a signal, not a verdict (see [Limitations](#limitations-and-responsible-use)).
+
+## How accurate it is
+
+Measured on Unfret's labelled corpus of **1,582 product pages** (scam shops, junk and dropshipping, and legitimate
+shops and listings), each replayed through the analysis and scored by the open baseline model in this repository.
+**ROC AUC 0.897.**
+
+| Verdict | Pages | Scam or junk among them |
+| --- | --- | --- |
+| Serious concerns | 282 | 95% |
+| Think twice | 423 | 82% |
+| Worth a look | 404 | 46% |
+| Looks fine | 464 | 7% |
+
+Think twice or Serious concerns catches 74% of the scam and junk pages, and 12% of the legitimate pages get one
+(false alarms); Serious concerns alone catches 32%, with 2% false alarms. The corpus includes the pages the model was
+trained on, so expect somewhat lower numbers on pages it has never seen. It covers product pages only (not ads or
+service providers), and the corpus itself is private (see below).
+
+## The model
+
+The scoring model in this repository ([`src/unfret/scoring/`](src/unfret/scoring/), a logistic regression over the
+skills' features) is an **open baseline**: it is what a self-hosted Unfret uses. The service at unfret.net runs
+privately retrained versions of it. The labelled corpus and the duplicate-product image dataset (the photo index's
+seed) are private, so the baseline can be inspected and run but not retrained from this repository alone.
+
+## Run your own
+
+You need Docker and an API key for an OpenAI-compatible LLM API
+([Scaleway Generative APIs](https://www.scaleway.com/en/generative-apis/) by default).
+
+```bash
+git clone https://git.kroshtan.com/kroshtan/unfret_backend.git && cd unfret_backend
+cp .env.example .env       # then set the variables below
+docker compose up --build  # website and API on http://localhost:8080, Postgres alongside
+```
+
+| Variable | |
+| --- | --- |
+| `UNFRET_LLM_API_KEY` | Required. With `UNFRET_LLM_BASE_URL` and `UNFRET_LLM_MODEL` for any OpenAI-compatible API (the model must support tool calling) |
+| `UNFRET_SESSION_SECRET` | Required for passes and checks (they are off while it is empty): `openssl rand -hex 32` |
+| `UNFRET_ADMIN_TOKEN` | Lets you give checks to a pass: `openssl rand -hex 32` |
+| `UNFRET_NETWORK_LOOKUPS` | `true` by default: domain registration, certificate and EU VAT lookups about the shop; `false` keeps a check to the page itself |
+
+Payments (card, crypto, x402) stay off until you configure them; the full list is under
+[Configuration](#configuration). To run a check:
+
+1. Open `http://localhost:8080/checkout` and choose **Make a new pass**. A pass looks like `ufk_<id>_<secret>`.
+2. Give it checks (one check is `200000` micro-dollars):
+
+   ```bash
+   curl -X POST localhost:8080/v1/admin/keys/<id>/grant -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" \
+     -H "Content-Type: application/json" -d '{"usd_micros": 2000000}'
+   ```
+
+3. Open `http://localhost:8080/check`, paste the pass under "I already have a pass" and check a link, or ask the API
+   (the server fetches the page itself):
+
+   ```bash
+   curl -X POST localhost:8080/v1/analyze -H "Authorization: Bearer ufk_…" -H "Content-Type: application/json" \
+     -d '{"url": "https://unfret.net/test-shop"}'
+   ```
+
+   [`/test-shop`](#the-test-shop) is a made-up shop with every trick Unfret catches, so it is a good first check.
+   The browser extension can use your instance too: set its API base in the extension's settings.
 
 ## How it works
 
@@ -562,29 +632,7 @@ the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-license
 spend cap: `uvx unfret-mcp` from PyPI, listed in the MCP Registry as `net.unfret/mcp`, released by the manual
 "Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
 
-## Running it
-
-**Requirements:** [uv](https://docs.astral.sh/uv/), Docker, and an API key for an OpenAI-compatible LLM API
-([Scaleway Generative APIs](https://www.scaleway.com/en/generative-apis/) by default).
-
-```bash
-cp .env.example .env       # add your UNFRET_LLM_API_KEY
-docker compose up --build  # API on http://localhost:8080, Postgres alongside
-```
-
-Set `UNFRET_SESSION_SECRET` and `UNFRET_ADMIN_TOKEN` (e.g. `openssl rand -hex 32` each), create an API key at
-`http://localhost:8080/checkout` (`TOKEN` below; a key is `ufk_<key_id>_<secret>`), give it credits and analyse a page:
-
-```bash
-curl -X POST localhost:8080/v1/admin/keys/<key_id>/grant -H "Authorization: Bearer $UNFRET_ADMIN_TOKEN" \
-  -H "Content-Type: application/json" -d '{"usd_micros": 2000000}'
-
-curl -s https://example-shop.com/product/123 > page.html
-jq -n --rawfile html page.html '{page_content: $html, url: "https://example-shop.com/product/123"}' \
-  | curl -X POST localhost:8080/v1/analyze -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @-
-```
-
-### Configuration
+## Configuration
 
 Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config.py) (with
 [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)). Override any of them with a
@@ -757,9 +805,8 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 
 ## Limitations and responsible use
 
-- Scores come from a logistic regression over skill features (`src/unfret/scoring/model.json`, trained with
-  `python -m evals.train` on a private labelled corpus). They are a calibrated signal, not a verdict, and can be wrong
-  in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
+- Scores come from a logistic regression over skill features (see [The model](#the-model); trained with
+  `python -m evals.train`). They are a calibrated signal, not a verdict, and can be wrong in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
   so marketplace accuracy on real pages is likely lower than measured.
 - Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
   delimited as untrusted data, and attempts to address the model are detected and count against the page.
@@ -773,6 +820,7 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 ## License
 
 The code is [MIT](LICENSE): this backend (including the trained scorers in `src/unfret/scoring/`), the MCP server in
-[`mcp/`](mcp/) and the [browser extension](https://git.kroshtan.com/kroshtan/unfret_extension). Not published: the
-labelled training corpus (scraped pages and third-party review data that can't be redistributed) and the image
-index seed, so the scorers can be inspected and run but not retrained from this repository alone.
+[`mcp/`](mcp/), the [browser extension](https://git.kroshtan.com/kroshtan/unfret_extension) and the
+[Android app](https://git.kroshtan.com/kroshtan/unfret_android). Not published: the labelled training corpus (scraped
+pages and third-party review data that can't be redistributed) and the image index seed (see
+[The model](#the-model)).

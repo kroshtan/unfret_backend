@@ -36,6 +36,7 @@ from unfret.config import Settings
 from unfret.credits import ledger
 from unfret.reports.scrub import page_identity, page_of
 from unfret.schemas.requests import AnalyzeRequest
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -204,6 +205,9 @@ async def submit(
     """
     Take a verified report: close it at once when the page is queued or known already, else queue it.
 
+    A report of the test shop (:mod:`unfret.test_shop`) is closed as ``already_known`` without being stored or
+    counted: its tricks are deliberate, and it must never become training data.
+
     :param pool: The database pool.
     :param settings: The service settings.
     :param account: The reporter.
@@ -217,10 +221,14 @@ async def submit(
     :raises ReportError: ``REPORT_LIMIT``, ``ALREADY_REPORTED_BY_YOU`` or ``QUEUE_FULL``.
     """
     now = now or datetime.now(UTC)
-    facts, text, url = page_of(body)
-    page_key, domain = page_identity(body, facts, url, text)
     secret = settings.session_secret.get_secret_value()
     tag, month, limit = account_tag(secret, account), _month(now), settings.reports_per_month
+    if is_test_shop(body.url):
+        used = await pool.fetchval("SELECT count FROM report_quota WHERE account_tag = $1 AND month = $2", tag, month)
+        logger.info("report_received", outcome="already_known", reason=reason)
+        return Submitted("already_known", int(used or 0), limit)
+    facts, text, url = page_of(body)
+    page_key, domain = page_identity(body, facts, url, text)
     async with pool.acquire() as conn, conn.transaction():
         # Reports of one page take turns, so two of them can't both open an item.
         await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", page_key)

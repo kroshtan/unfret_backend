@@ -17,6 +17,7 @@ from unfret.schemas.errors import (
 )
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.shopper import Verdict
+from unfret.test_shop import is_test_shop
 
 router = APIRouter(prefix="/v1/reports", tags=["Reports"])
 
@@ -82,7 +83,7 @@ async def _with_page(analysed: AnalyzeRequest) -> AnalyzeRequest:
     :param analysed: The analysed request, as sent back.
     :return: The request to store the report from.
     """
-    if not analysed.url_only:
+    if not analysed.url_only or is_test_shop(analysed.url):  # a test shop report is never kept: nothing to fetch
         return analysed
     try:
         html = await page_fetch.fetch_page(analysed.url.strip())

@@ -23,6 +23,7 @@ import structlog
 
 from unfret.facts import PageFacts
 from unfret.market_prices import shop_key
+from unfret.test_shop import is_test_shop
 
 logger = structlog.get_logger("unfret")
 
@@ -225,11 +226,12 @@ async def observe(url: str, facts: PageFacts) -> Copies | None:
 
     :param url: The page URL.
     :param facts: The page facts.
-    :return: The copies, or ``None`` without distinctive reviews or a shop (or with a failing store).
+    :return: The copies, or ``None`` without distinctive reviews or a shop (or with a failing store), and for the
+        test shop (:mod:`unfret.test_shop`), whose invented reviews are never recorded.
     """
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     hashes, shop = review_hashes(facts), shop_key(url, facts)
-    if not hashes or shop is None:
+    if not hashes or shop is None or is_test_shop(url):
         return None
     day = today()
     try:

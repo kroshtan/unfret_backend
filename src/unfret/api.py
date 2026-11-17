@@ -15,5 +15,6 @@ class UnfretAPI(FastAPI):
         self.quick_graph: CompiledStateGraph | None = None  # set during lifespan; the x402 quick tier
         self.db_pool: asyncpg.Pool | None = None  # set during lifespan
         self.x402: Any = None  # unfret.x402.service.X402, created on first use
+        self.x402_base: Any = None  # unfret.x402.base.BaseX402, created on first use
         self.credits: Any = None  # unfret.credits.CreditsDoor, created on first use
         self.fiat: Any = None  # a unfret.credits.fiat.FiatProvider (Polar) when configured; fiat is off while None

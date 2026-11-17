@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 from unfret import __version__
 from unfret.auth import get_credits, is_admin
 from unfret.config import settings
-from unfret.routes.check import get_x402
+from unfret.routes.check import get_x402, get_x402_base
 from unfret.schemas.errors import ServiceUnavailableError
 from unfret.schemas.responses import Healthy
 
@@ -56,6 +56,7 @@ async def ready(request: Request) -> Healthy:
         logger.warning("readiness_db_failed", error=type(exc).__name__)
         raise ServiceUnavailableError("Database not ready.") from exc
     x402 = await get_x402(request).health()
+    base = await get_x402_base(request).health()
     door = get_credits(request)
     credits = "ok" if door.purchases_enabled else "sign_in" if door.sign_in_enabled else "off"
     provider = request.app.fiat
@@ -65,6 +66,8 @@ async def ready(request: Request) -> Healthy:
         commit=build_commit(),
         x402=x402.status,
         x402_alert_count=len(x402.alerts),
+        x402_base=base.status,
+        x402_base_alert_count=len(base.alerts),
         credits=credits,
         fiat="off" if provider is None else getattr(provider, "status", provider.name),
     )
@@ -73,4 +76,6 @@ async def ready(request: Request) -> Healthy:
         report.hot_wsol_lamports = x402.wsol_lamports
         report.hot_usdc_units = x402.usdc_units
         report.x402_alerts = list(x402.alerts)
+        report.x402_base_alerts = list(base.alerts)
+        report.base_pay_to_usdc_units = base.usdc_units
     return report

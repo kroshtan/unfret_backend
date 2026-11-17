@@ -298,6 +298,29 @@ class Settings(BaseSettings):
     x402_breaker_per_ip: int = 5
     x402_breaker_global: int = 20
 
+    # x402 on Base: USDC with the `exact` scheme (EIP-3009), settled by a facilitator that pays the gas, offered
+    # next to Solana. Off until x402_base_enabled is set and base_pay_to names the receiving address; the server holds
+    # no key on Base. Base Sepolia is the default, and Base mainnet needs x402_base_allow_mainnet as well.
+    x402_base_enabled: bool = False
+    base_network: Literal["base-sepolia", "base-mainnet"] = "base-sepolia"
+    x402_base_allow_mainnet: bool = False
+    base_rpc_url: str = ""  # empty: the network's public RPC (rate-limited; set a provider's for production)
+    # Where payments go (payTo): an address Unfret controls whose key is never on the server (a hardware wallet).
+    base_pay_to: str = ""
+    # Where base_pay_to is swept by hand, if it isn't the cold wallet itself (empty: base_pay_to is the cold
+    # wallet). The outflow audit accepts USDC transfers from base_pay_to to this address only.
+    base_cold_address: str = ""
+    base_usdc_address: str = ""  # override Circle's USDC contract for the network (tests)
+    # Coinbase's facilitator (CDP) needs an API key (cdp_api_key_id and an Ed25519 cdp_api_key_secret); another
+    # facilitator URL (https://x402.org/facilitator: testnet only, no key) needs none.
+    base_facilitator_url: str = "https://api.cdp.coinbase.com/platform/v2/x402"
+    cdp_api_key_id: str = ""
+    cdp_api_key_secret: SecretStr = SecretStr("")
+    # Alert once base_pay_to holds more than this while it isn't the cold wallet (a sweep by hand is due).
+    base_sweep_alert_units: int = 50_000_000
+    # The outflow audit reads base_pay_to's USDC logs up to this many blocks behind the head (reorg margin).
+    base_audit_confirmations: int = 5
+
     log_json: bool = True  # one JSON object per line (False: human-readable, for local development)
     # The commit the image was built from (the Dockerfile's GIT_SHA build argument), reported by /v1/health so a
     # deploy can tell which build is serving. Empty outside a built image.
@@ -433,6 +456,8 @@ class Settings(BaseSettings):
             "network": self.solana_network,
             "x402": bool(self.hot_wallet_key.get_secret_value() and self.cold_address),
             "mainnet_allowed": self.x402_allow_mainnet,
+            "x402_base": self.base_network if self.x402_base_enabled and self.base_pay_to else "off",
+            "base_mainnet_allowed": self.x402_base_allow_mainnet,
             "sign_in": bool(self.session_secret.get_secret_value()),
             "admin_token": bool(self.admin_token.get_secret_value()),
             "fiat": self.polar_environment if self.polar_configured else "off",

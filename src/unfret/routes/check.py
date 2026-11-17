@@ -1,10 +1,14 @@
 """
-``POST /v1/check``: pay-per-check for AI shopping agents over x402 (v2, ``exact`` scheme, wSOL or USDC on Solana).
+``POST /v1/check``: pay-per-check for AI shopping agents over x402 (v2, ``exact`` scheme).
 
-Flow (``upfront``): no ``PAYMENT-SIGNATURE`` header → 402 with ``PAYMENT-REQUIRED``. With one: verify it strictly,
-fetch the page if only a URL was given (before any money moves), co-sign as fee payer (the hot wallet, which is also
-``payTo``), submit and confirm, then run the analysis and answer with the verdict and ``PAYMENT-RESPONSE``. Nothing
-about the payment or the page is stored.
+Two networks, each optional: wSOL or USDC on Solana, and USDC on Base (behind ``x402_base_enabled``). No
+``PAYMENT-SIGNATURE`` header → 402 with ``PAYMENT-REQUIRED`` listing every option (Solana's first, then Base's).
+
+Solana (``upfront``): verify the payment strictly, fetch the page if only a URL was given (before any money moves),
+co-sign as fee payer (the hot wallet, which is also ``payTo``), submit and confirm, then run the analysis and answer
+with the verdict and ``PAYMENT-RESPONSE``. Base (``authorization``, x402's default): check the payment locally and
+with the facilitator, fetch and analyse, and only then have the facilitator settle it (see ``unfret.x402.base``).
+Nothing about the payment or the page is stored.
 """
 
 import asyncio
@@ -12,6 +16,7 @@ import json
 import re
 import time
 import traceback
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
@@ -26,6 +31,14 @@ from unfret.net import fetch_public
 from unfret.page_fetch import is_challenge_page
 from unfret.prices import format_usd
 from unfret.visitors import RateLimit
+from unfret.x402.base import (
+    BasePrecheck,
+    BaseSettlementMismatchError,
+    BaseX402,
+    SettlementRefusedError,
+    SettlementUnknownError,
+)
+from unfret.x402.facilitator import FacilitatorError
 from unfret.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from unfret.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
 from unfret.x402.solana import (
@@ -90,6 +103,20 @@ def get_x402(request: Request) -> X402:
     return service
 
 
+def get_x402_base(request: Request) -> BaseX402:
+    """
+    Return the app's x402-on-Base service, creating it from settings on first use.
+
+    :param request: The incoming request.
+    :return: The service (off unless ``x402_base_enabled``).
+    """
+    app = request.app
+    if getattr(app, "x402_base", None) is None:
+        app.x402_base = BaseX402(settings)
+    service: BaseX402 = app.x402_base
+    return service
+
+
 def _resource() -> dict[str, Any]:
     return {
         "url": f"{settings.public_base_url}/v1/check",
@@ -112,7 +139,9 @@ def _payment_required(accepts: list[dict[str, Any]], error: str, reason: str | N
     return JSONResponse(body, status_code=402, headers={PAYMENT_REQUIRED: encode_header(body)})
 
 
-def _settlement(x402: X402, *, success: bool, transaction: str, payer: str, reason: str | None = None) -> str:
+def _settlement(
+    x402: X402 | BaseX402, *, success: bool, transaction: str, payer: str, reason: str | None = None
+) -> str:
     response: dict[str, Any] = {
         "success": success,
         "transaction": transaction,
@@ -280,7 +309,7 @@ async def _settle(
 
 
 @router.post("/v1/check", response_model=Verdict, responses={402: {"description": "Payment required (x402)"}})
-async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901, PLR0911
+async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0911
     """
     Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
 
@@ -297,14 +326,16 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
             status_code=429,
             headers={"Retry-After": str(max(1, int(wait) + 1))},
         )
-    x402 = get_x402(request)
-    health = await x402.health()
-    if health.status != "ok":
+    x402, base = get_x402(request), get_x402_base(request)
+    solana_ok = (await x402.health()).status == "ok"
+    base_accepts = await base.accepts(body.tier)
+    if not solana_ok and not base_accepts:
         return JSONResponse(
             {"detail": "Payments are not available right now.", "error_code": "SERVICE_UNAVAILABLE"}, status_code=503
         )
 
-    accepts = await x402.accepts(body.tier)
+    # Solana's options first (unchanged for clients that only know Solana), then Base's.
+    accepts = (await x402.accepts(body.tier) if solana_ok else []) + base_accepts
     if not accepts:
         return JSONResponse(
             {"detail": "No payment option can be priced right now; retry shortly.", "error_code": "PRICE_UNAVAILABLE"},
@@ -316,13 +347,35 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
         return _payment_required(accepts, f"{PAYMENT_SIGNATURE} header is required")
 
     try:
+        payload = decode_header(header)
+        if base_accepts and base.owns(payload):
+            base_pre = base.precheck(payload, accepts)
+            return await _answer_once(
+                base_pre.key, lambda: _paid_check_base(body, request, base, base_pre, accepts=accepts, ip=ip)
+            )
+        if not solana_ok:  # not a payment on Base, and Solana is off: nothing it could match
+            return _payment_required(accepts, "requirements_mismatch")
         pre = x402.precheck(header, body.tier, accepts)
     except PaymentError as exc:
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
         return _payment_required(accepts, exc.reason, exc.cause)
+    return await _answer_once(
+        str(pre.transaction.signatures[1]), lambda: _paid_check(body, request, x402, pre, accepts=accepts, ip=ip)
+    )
 
-    key = str(pre.transaction.signatures[1])
+
+async def _answer_once(
+    key: str, run: Callable[[], Awaitable[Response | tuple[int, dict[str, Any], dict[str, str]]]]
+) -> Response:
+    """
+    Run a paid check once per payment: a retry (or a concurrent duplicate) with the same payment gets the same answer.
+
+    :param key: What identifies the payment (Solana: the client's signature; Base: payer and authorization nonce).
+    :param run: The check; a :class:`Response` means it was refused before any money moved (a retry starts over),
+        a tuple is the answer to keep.
+    :return: The response.
+    """
     now = time.monotonic()
     for stale in [k for k, (expires, _) in _replays.items() if expires < now]:
         del _replays[stale]
@@ -333,7 +386,7 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     _replays[key] = (now + _REPLAY_TTL_S, answer)
     outcome: Response | tuple[int, dict[str, Any], dict[str, str]] | None = None
     try:
-        outcome = await _paid_check(body, request, x402, pre, accepts=accepts, ip=ip)
+        outcome = await run()
     finally:
         if outcome is None or isinstance(outcome, Response):  # refused before money moved: a retry starts over
             _replays.pop(key, None)
@@ -343,6 +396,150 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: C901
     answer.set_result(outcome)
     status, content, headers = outcome
     return JSONResponse(content, status_code=status, headers=headers)
+
+
+async def _paid_check_base(  # noqa: PLR0911
+    body: CheckRequest,
+    request: Request,
+    base: BaseX402,
+    pre: BasePrecheck,
+    *,
+    accepts: list[dict[str, Any]],
+    ip: str,
+) -> Response | tuple[int, dict[str, Any], dict[str, str]]:
+    """
+    A paid check on Base: verify with the facilitator, fetch and analyse, then settle (x402's ``authorization`` flow).
+
+    Nothing is settled unless there is an answer to give, so a page that can't be read or assessed, or an analysis
+    that fails, costs the payer nothing (and nothing needs refunding). A settlement that was broadcast but not
+    confirmed still gets its answer (the payment may land), with ``PAYMENT-RESPONSE`` saying it is pending.
+
+    :param body: The request body.
+    :param request: The incoming request.
+    :param base: The Base payment service.
+    :param pre: The prechecked payment.
+    :param accepts: The options offered.
+    :param ip: The visitor's address.
+    :return: A response sent without settling, or the answer (status, body, headers) to keep for retries.
+    """
+    payer = pre.payer
+    if (wait := base.breaker.open_for(payer, ip)) is not None:
+        logger.warning("x402_breaker_open", network=base.network)
+        return JSONResponse(
+            {
+                "detail": "Too many payments failed to settle recently; payments are paused. You were not charged.",
+                "error_code": "SETTLEMENTS_PAUSED",
+            },
+            status_code=503,
+            headers={"Retry-After": str(max(1, int(wait)))},
+        )
+    resource, extensions = _resource(), _base_extensions()
+    try:
+        await base.verify(pre, resource, extensions)
+    except PaymentError as exc:
+        return _payment_required(accepts, exc.reason)
+    except FacilitatorError as exc:
+        logger.warning("x402_base_verify_unavailable", error=str(exc)[:120])
+        return JSONResponse(
+            {"detail": "Payments on Base are not available right now.", "error_code": "SERVICE_UNAVAILABLE"},
+            status_code=503,
+            headers={"Retry-After": "30"},
+        )
+
+    analysed = await _analyse_before_settling(body, request)
+    if isinstance(analysed, Response):
+        return analysed
+    result, answer, verdict = analysed
+
+    try:
+        settlement = await base.settle(pre, resource, extensions)
+    except SettlementRefusedError as exc:
+        base.breaker.record_failure(payer, ip)  # the work was done for nothing
+        headers = {
+            PAYMENT_RESPONSE: _settlement(
+                base, success=False, transaction=exc.transaction, payer=payer, reason=exc.reason
+            )
+        }
+        return JSONResponse(
+            {
+                "detail": "Payment could not be settled; you were not charged.",
+                "error_code": "SETTLEMENT_FAILED",
+                "reason": exc.reason,
+            },
+            402,
+            headers,
+        )
+    except SettlementUnknownError as exc:
+        # It may still land: the payer gets the answer it may have paid for (bounded by the breaker).
+        base.breaker.record_failure(payer, ip)
+        logger.warning("x402_base_settlement_pending", transaction=exc.transaction)
+        receipt = _settlement(
+            base, success=False, transaction=exc.transaction, payer=payer, reason="settlement_pending"
+        )
+    except BaseSettlementMismatchError as exc:
+        base.breaker.record_failure(payer, ip)
+        headers = {
+            PAYMENT_RESPONSE: _settlement(
+                base, success=False, transaction=exc.transaction, payer=payer, reason="settlement_mismatch"
+            )
+        }
+        content = {"detail": "The payment did not settle as required.", "error_code": "SETTLEMENT_MISMATCH"}
+        return 402, content, headers
+    else:
+        receipt = _settlement(base, success=True, transaction=settlement.transaction, payer=payer)
+    if result is not None and answer is not None:
+        await verdict_store.remember(body.url, result, answer, fetched_by_us=not body.page_content)
+    return 200, verdict, {PAYMENT_RESPONSE: receipt}
+
+
+async def _analyse_before_settling(
+    body: CheckRequest, request: Request
+) -> Response | tuple[dict[str, Any] | None, Verdict | None, dict[str, Any]]:
+    """
+    The answer to a Base payment's check, before anything is settled: from the verdict store, or a fresh analysis.
+
+    :param body: The request body.
+    :param request: The incoming request.
+    :return: A response to send without settling (an unreadable page, a failed analysis, a page that can't be
+        assessed: none of them is charged), or the analysis result (``None`` from the store), verdict and its JSON.
+    """
+    fast = None if body.page_content else await verdict_store.recall(body.url, body.tier, body.policy)
+    if fast is not None:
+        logger.info("check_fast_path", tier=body.tier)
+        return None, None, fast.model_dump(mode="json")
+    page = await _readable_page(body)
+    if isinstance(page, Response):
+        return page
+    graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
+    if graph is None:
+        return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
+    try:
+        async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
+            result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
+    except Exception as exc:  # noqa: BLE001
+        where = _failure_site(exc)
+        logger.warning("check_analysis_failed_before_settlement", error=type(exc).__name__, where=where)
+        timed_out = isinstance(exc, TimeoutError)
+        return JSONResponse(
+            {
+                "detail": "The analysis " + ("timed out" if timed_out else "failed") + "; you were not charged.",
+                "error_code": "GATEWAY_TIMEOUT" if timed_out else "INTERNAL_ERROR",
+            },
+            status_code=504 if timed_out else 500,
+        )
+    answer = to_verdict(result, policy=body.policy, tier=body.tier)
+    if result.get("score") == -1:  # the page couldn't be assessed: not settled, so not charged
+        return JSONResponse({**answer.model_dump(mode="json"), "charged": False})
+    return result, answer, answer.model_dump(mode="json")
+
+
+def _base_extensions() -> dict[str, Any]:
+    """
+    The x402 extensions Unfret declares with Base payments (none yet).
+
+    :return: The ``extensions`` object.
+    """
+    return {}
 
 
 async def _paid_check(  # noqa: PLR0911

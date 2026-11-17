@@ -20,6 +20,14 @@ class Healthy(BaseModel):
         default_factory=list, description="sweep_failing, fee_reserve_low, … (with the operator token only)"
     )
     x402_alert_count: int = Field(default=0, description="How many x402 alerts are raised")
+    x402_base: str | None = Field(default=None, description="Pay-per-check on Base: ok, off, mainnet_refused, …")
+    x402_base_alert_count: int = Field(default=0, description="How many x402-on-Base alerts are raised")
+    x402_base_alerts: list[str] = Field(
+        default_factory=list, description="base_sweep_due, outflow_to_non_cold, … (with the operator token only)"
+    )
+    base_pay_to_usdc_units: int | None = Field(
+        default=None, description="USDC held by the Base receiving address (with the operator token only)"
+    )
     credits: str | None = Field(default=None, description="Credits door: off, sign_in, ok (purchases on)")
     fiat: str | None = Field(default=None, description="Card top-ups: off, or the provider (polar:production, …)")
 

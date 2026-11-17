@@ -42,6 +42,7 @@ from unfret.middleware import RequestGuardMiddleware
 from unfret.routes import router
 from unfret.routes.pages import STATIC_DIR
 from unfret.schemas.errors import CustomAPIError, handle_http_error, handle_validation_error
+from unfret.x402.base import BaseX402
 from unfret.x402.service import X402
 from unfret.x402.verdict import skills_for
 
@@ -106,6 +107,8 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     use_postgres_stores(api.db_pool)
     api.x402 = X402(settings)
     await api.x402.attach(api.db_pool)  # the outflow audit's cursor and uncleared alerts survive restarts
+    api.x402_base = BaseX402(settings)  # off unless UNFRET_X402_BASE_ENABLED and UNFRET_BASE_PAY_TO
+    await api.x402_base.attach(api.db_pool)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
     api.credits.attach(api.db_pool)
@@ -113,6 +116,8 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     api.fiat = polar.from_settings(settings)
     # Single instance: the sweep to cold is not coordinated across processes (the scanner is safe either way).
     tasks = [asyncio.create_task(api.x402.run_forever())] if api.x402.configured else []
+    if api.x402_base.configured:
+        tasks.append(asyncio.create_task(api.x402_base.run_forever()))
     if api.credits.scanner is not None:
         tasks.append(asyncio.create_task(api.credits.run_forever()))
     tasks.append(asyncio.create_task(housekeeping(api.db_pool)))
@@ -129,6 +134,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
                 await reverse_image.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
+        await api.x402_base.aclose()
         if api.fiat is not None:
             await api.fiat.aclose()
     logger.info("Unfret backend service shutting down")

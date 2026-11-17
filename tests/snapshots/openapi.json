@@ -797,6 +797,18 @@
    "Healthy": {
     "description": "Response schema for the health check endpoint.",
     "properties": {
+     "base_pay_to_usdc_units": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "USDC held by the Base receiving address (with the operator token only)",
+      "title": "Base Pay To Usdc Units"
+     },
      "commit": {
       "anyOf": [
        {
@@ -905,6 +917,32 @@
        "type": "string"
       },
       "title": "X402 Alerts",
+      "type": "array"
+     },
+     "x402_base": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Pay-per-check on Base: ok, off, mainnet_refused, \u2026",
+      "title": "X402 Base"
+     },
+     "x402_base_alert_count": {
+      "default": 0,
+      "description": "How many x402-on-Base alerts are raised",
+      "title": "X402 Base Alert Count",
+      "type": "integer"
+     },
+     "x402_base_alerts": {
+      "description": "base_sweep_due, outflow_to_non_cold, \u2026 (with the operator token only)",
+      "items": {
+       "type": "string"
+      },
+      "title": "X402 Base Alerts",
       "type": "array"
      }
     },

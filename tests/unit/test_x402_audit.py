@@ -108,7 +108,12 @@ async def test_the_operator_clears_a_suspected_compromise(monkeypatch: pytest.Mo
         ok = {"Authorization": "Bearer operator-token"}
         response = await client.post("/v1/admin/x402/clear-alerts", headers=ok)
     assert response.status_code == 200
-    assert response.json() == {"cleared": [f"system transfer to {THIEF}"], "x402": "ok"}
+    assert response.json() == {
+        "cleared": [f"system transfer to {THIEF}"],
+        "x402": "ok",
+        "base_cleared": [],
+        "x402_base": "off",  # Base is off by default
+    }
 
 
 async def test_admin_endpoints_are_off_without_a_token(monkeypatch: pytest.MonkeyPatch) -> None:

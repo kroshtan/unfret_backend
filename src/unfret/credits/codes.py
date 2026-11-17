@@ -12,7 +12,7 @@ Commands::
     add CODE N                        give a code N more uses (negative takes them away)
     link CODE                         the link to share: it opens checkout with a new key and the code filled in
 
-Usage: ``make codes ARGS="create FRIENDS --uses 40"``. Environment as for ``make showcase``: ``UNFRET_URL`` (default
+Usage: ``make codes ARGS="create FRIENDS --uses 40"``. Environment as for ``make reports``: ``UNFRET_URL`` (default
 https://unfret.net) and ``UNFRET_ADMIN_TOKEN`` or ``UNFRET_ADMIN_TOKEN_FILE``.
 """
 
@@ -23,7 +23,7 @@ from typing import Any
 
 import httpx
 
-from unfret.showcase.cli import DEFAULT_URL, admin_client
+from unfret.admin_cli import DEFAULT_URL, admin_client
 
 
 def _parser() -> argparse.ArgumentParser:

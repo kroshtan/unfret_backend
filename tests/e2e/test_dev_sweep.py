@@ -654,20 +654,9 @@ async def test_a_forged_or_stale_card_webhook_is_refused(
 # ── Public pages and operator endpoints ───────────────────────────────────────────────────────────────────────
 
 
-async def test_the_showcase_lists_published_cases_only(api: httpx.AsyncClient) -> None:
-    listing = await api.get("/v1/showcase")
-    assert listing.status_code == 200
-    assert listing.headers["cache-control"] == "public, max-age=300"
-    items = listing.json()["items"]
-    if items:  # dev may have no published case; the listing and the 404 are checked either way
-        case = await api.get(f"/v1/showcase/{items[0]['id']}")
-        assert case.status_code == 200
-        assert case.json()["band"] == items[0]["band"]
-        assert (await api.get(f"/showcase/{items[0]['id']}")).status_code == 200
-
-    missing = await api.get("/v1/showcase/2147483647")
-    assert missing.status_code == 404
-    assert missing.json()["error_code"] == "NOT_FOUND"
+async def test_the_retired_showcase_is_gone(api: httpx.AsyncClient) -> None:
+    for path in ("/v1/showcase", "/v1/showcase/1", "/showcase/1"):
+        assert (await api.get(path)).status_code == 404, path
 
 
 @pytest.mark.parametrize(
@@ -676,7 +665,7 @@ async def test_the_showcase_lists_published_cases_only(api: httpx.AsyncClient) -
         ("POST", "/v1/admin/keys/aaaaaaaaaa/grant"),
         ("POST", "/v1/admin/keys/aaaaaaaaaa/debit"),
         ("GET", "/v1/admin/reports"),
-        ("GET", "/v1/admin/showcase"),
+        ("GET", "/v1/admin/codes"),
         ("POST", "/v1/admin/x402/clear-alerts"),
         ("GET", "/v1/admin/x402/alerts"),
     ],

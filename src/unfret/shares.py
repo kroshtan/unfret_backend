@@ -8,7 +8,7 @@ names no account: nothing is stored when a check runs, and the token can't link 
 ``POST /v1/shares`` takes the token back with the address and the result and refuses anything that doesn't match,
 so a share can only show a verdict Unfret really gave for that page. It is sent without ``Authorization``.
 
-**What is public.** The result in the showcase's wording (:func:`unfret.showcase.public_result`: the band as what
+**What is public.** The result in public wording (:func:`unfret.public_result.public_result`: the band as what
 Unfret would tell a shopper about the listing, no score, never "scam" or "fraud"), without the page's own words:
 a reason whose detail quotes the page keeps only its title, a headline that quotes the page is replaced by the
 band's catalogue headline, and the details keep their labels but lose their evidence. A check that included the
@@ -41,7 +41,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import asyncpg
 import structlog
 
-from unfret import result_cache, shopper, showcase
+from unfret import result_cache, shopper
+from unfret.public_result import FORBIDDEN_RE, PUBLIC_BANDS, clean_url, host_of, public_result
 
 logger = structlog.get_logger("unfret")
 
@@ -51,7 +52,7 @@ MAX_OBJECTION_CHARS = 500
 
 # A quotation of the page: “…” (how the verdict quotes it), "…", „…“ and «…».
 _QUOTE_RE = re.compile(r"“[^”]*”|\"[^\"]*\"|„[^“”]*[“”]|«[^»]*»")
-_INTERNAL_BAND = {public: internal for internal, (public, _, _) in showcase.SHOWCASE_BANDS.items()}
+_INTERNAL_BAND = {public: internal for internal, (public, _, _) in PUBLIC_BANDS.items()}
 _COLUMNS = "id, host, product_url, title, checked_on, result, expires_at, hidden_reason"
 # The labels before the verdicts got their current names: a share stored before may start its headline with one.
 _FORMER_LABELS = {
@@ -86,9 +87,9 @@ def share_url(url: str) -> str:
     :raises ShareError: ``NOT_SHAREABLE`` if it isn't an absolute http(s) address of a reasonable length.
     """
     try:
-        parts = urlsplit(showcase.clean_url(url))
+        parts = urlsplit(clean_url(url))
         port = parts.port
-    except (showcase.ShowcaseError, ValueError) as exc:
+    except ValueError as exc:
         raise ShareError("NOT_SHAREABLE", "Only a check of a web page's address can be shared.") from exc
     netloc = (parts.hostname or "") + (f":{port}" if port else "")
     query = urlencode(
@@ -112,12 +113,12 @@ def _canonical(value: Any) -> Any:
 
 def result_hash(response: dict[str, Any]) -> str:
     """
-    A hash of a result as the showcase wording shows it (what a share is made from).
+    A hash of a result in public wording (what a share is made from).
 
     :param response: The analysis response (``score``, ``verdict``, ``assessment``; other fields are ignored).
     :return: 32 hex characters.
     """
-    shown = _canonical(showcase.public_result(response))
+    shown = _canonical(public_result(response))
     text = json.dumps(shown, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()[:32]
 
@@ -217,18 +218,18 @@ def check_token(
 
 def public_share_result(response: dict[str, Any]) -> dict[str, Any]:
     """
-    A result as a share shows it: the showcase wording, without the page's own words.
+    A result as a share shows it: the public wording, without the page's own words.
 
     :param response: The analysis response.
-    :return: The :func:`~unfret.showcase.public_result` shape; a reason or positive whose detail quotes the page
+    :return: The :func:`~unfret.public_result.public_result` shape; a reason or positive whose detail quotes the page
         keeps only its title, a quoting headline becomes the band's catalogue headline, and flags lose their
         evidence (their labels stay).
     """
-    shown = showcase.public_result(response)
+    shown = public_result(response)
     verdict = shown["verdict"]
     if _QUOTE_RE.search(verdict["headline"]):
         catalogue = str(shopper.catalogue()["headlines"][_INTERNAL_BAND[verdict["band"]]])
-        verdict["headline"] = verdict["label"] + "." if showcase.FORBIDDEN_RE.search(catalogue) else catalogue
+        verdict["headline"] = verdict["label"] + "." if FORBIDDEN_RE.search(catalogue) else catalogue
     for item in [*verdict["reasons"], *verdict["positives"]]:
         if _QUOTE_RE.search(item["detail"]):
             item["detail"] = ""
@@ -239,14 +240,14 @@ def public_share_result(response: dict[str, Any]) -> dict[str, Any]:
 
 def shown_title(title: str, host: str) -> str:
     """
-    The title a share shows: the page's, unless empty or containing a word the showcase never uses.
+    The title a share shows: the page's, unless empty or containing a word a public result never uses.
 
     :param title: The product's title.
     :param host: The shop's host (the fallback).
     :return: The title.
     """
     text = _title(title)
-    return text if text and not showcase.FORBIDDEN_RE.search(text) else host
+    return text if text and not FORBIDDEN_RE.search(text) else host
 
 
 def day_in_words(day: date) -> str:
@@ -267,11 +268,11 @@ def preview(claim: Claim, response: dict[str, Any]) -> dict[str, Any]:
     :param response: The result.
     :return: ``title``, ``host``, ``product_url``, ``checked_on``, ``checked_on_text``, the band's fields and
         ``result``.
-    :raises ShareError: ``NOT_SHAREABLE`` if the address contains a word the showcase never shows.
+    :raises ShareError: ``NOT_SHAREABLE`` if the address contains a word a public result never shows.
     """
-    if showcase.FORBIDDEN_RE.search(claim.product_url):
+    if FORBIDDEN_RE.search(claim.product_url):
         raise ShareError("NOT_SHAREABLE", "This page's address can't be shown on Unfret's site.")
-    host = showcase.host_of(claim.product_url)
+    host = host_of(claim.product_url)
     title = shown_title(claim.title, host)
     return _view(title, host, claim.product_url, claim.checked_on, public_share_result(response))
 

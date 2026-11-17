@@ -141,10 +141,20 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert response.text.count(f'href="{settings.chrome_store_url}"') == 2
     assert response.text.count(f'href="{settings.firefox_store_url}"') == 2
     assert 'href="https://addons.mozilla.org/' in response.text
-    # Its only script fills in "Checked by us recently" (/v1/showcase), the prices (/v1/pricing) and the code box.
+    # Its only script fills in the prices (/v1/pricing), the store buttons and the code box.
     assert response.text.count("<script") == 1
     assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text
-    assert 'id="spotted"' in response.text
+
+
+async def test_home_page_shows_the_tricks_as_cards_without_real_shops(client: httpx.AsyncClient) -> None:
+    text = (await client.get("/")).text
+    tricks = text[text.index('id="tricks"') : text.index("</section>", text.index('id="tricks"'))]
+    titles = re.findall(r"<h3>(.*?)</h3>", tricks)
+    assert len(titles) == 8
+    for trick in ("countdown", "closing-down", "“was” price", "far away", "Reviews", "made-up brand"):
+        assert any(trick in title for title in titles), trick
+    assert "<img" not in tricks and "https://" not in tricks  # made-up examples only: no shop, link or screenshot
+    assert "spotted" not in text.lower() and "/v1/showcase" not in text
 
 
 def test_scripts_only_load_images_the_policy_allows() -> None:
@@ -474,3 +484,14 @@ async def test_pages_cannot_be_steered_by_the_window_that_opened_them(client: ht
     response = await client.get(path)
 
     assert response.headers["cross-origin-opener-policy"] == "same-origin-allow-popups"
+
+
+@pytest.mark.parametrize("path", ["/v1/showcase", "/v1/showcase/1", "/showcase/1", "/showcase/1/screenshot"])
+async def test_the_showcase_is_retired(client: httpx.AsyncClient, path: str) -> None:
+    assert (await client.get(path)).status_code == 404
+
+
+async def test_no_page_mentions_the_retired_showcase(client: httpx.AsyncClient) -> None:
+    for path in ("/", "/check", "/privacy"):
+        text = (await client.get(path)).text.lower()
+        assert "spotted recently" not in text and "showcase" not in text, path

@@ -272,7 +272,6 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid; with its `X-Unfret-Claim`, its invite codes once |
 | `POST` | `/v1/invites/redeem` | Redeem an invite `{code}` for the signed-in new wallet or API key: 3 checks |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
-| `GET` | `/v1/showcase` \| `/v1/showcase/{id}` | "Spotted recently": published operator-run checks, see below |
 | `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
 | `GET` `DELETE` | `/v1/shares/{id}` | A shared result; delete it with `X-Delete-Code` |
 | `POST` | `/v1/shares/{id}/object` | A shop owner's objection: hides the shared result until reviewed |
@@ -426,38 +425,6 @@ webhook for disputes themselves. Other events are acknowledged and ignored.
 sends every order to both. A site credits only orders whose checkout it made (its own checkout record, or the
 metadata's site); another site's order answers `other_site` and leaves no trace (no balance, no payment row).
 
-### "Spotted recently": the showcase
-
-No demo data: the site shows **real checks of real product pages**, run by the operator and each
-reviewed by the owner before it is published (`unfret.showcase`, migration 13). Never a user's check: a case is
-always a fresh server-side check of a public page (the same `fetch_page` + full graph path as a URL-only check,
-without any account or charge), and the `showcase_cases` table has no column that could hold an account, payer or
-report. A case stores the product title, the shop's host, the product URL, when it was checked, the analysis
-response as a paying user gets it (without balance or report token) and optionally a screenshot (in the row, at most
-800 kB, since the container's files go with each deploy). It is a `draft` until published; `removed` takes it down
-for good, keeps the reason and drops the screenshot.
-
-```bash
-make showcase ARGS="add https://shop.example/product"   # the server fetches and checks it: a draft
-make showcase ARGS="list --status draft"
-make showcase ARGS="show 3"                              # incl. exactly what the public would see
-make showcase ARGS="screenshot 3 shot.png"               # optional: PNG, JPEG or WebP
-make showcase ARGS="publish 3"
-make showcase ARGS="remove 3 --reason 'shop owner asked'"
-```
-
-The CLI talks to the running service's admin API (`/v1/admin/showcase…`, `UNFRET_URL` and the admin token as for
-`make reports`). In `make reports`, when a label agrees with the model, `p` promotes the page: only its address is
-sent, and the server checks it again as the operator; nothing from the report goes into the case.
-
-The public sees published cases only: `GET /v1/showcase` (newest first, `Cache-Control: public, max-age=300`), a
-"Spotted recently" section on `/` and `/check`, and a page per case, `/showcase/{id}`, in the link checker's
-presentation (the same renderer, `static/check-render.js`). Each case shows the day it was checked ("the page may
-have changed since"), the shop, a `rel="nofollow noopener"` link to the product page, the screenshot if any, and a
-route for shop owners to object. The wording is factual: the bands are phrased as what Unfret would tell a shopper
-about the listing ("Unfret would warn you about this listing"), there is no score, and the words "scam" and "fraud"
-never appear (a headline or quote containing one is left out; `show` lists what was).
-
 ### Sharing a result
 
 A shopper can make their own check public as a link (`unfret.shares`, migration 16), and nothing on it says who
@@ -468,15 +435,15 @@ exactly what would be public; `POST /v1/shares` stores it. Both are sent **witho
 one is refused) and the token must match the url and the result exactly, so a share can only show a verdict Unfret
 really gave for that page. A check that included the checkout page is never shared.
 
-What is public, and stored in `shared_results`: the showcase's wording of the verdict (no score, never "scam" or
-"fraud"), without the page's own words (a reason whose detail quotes the page keeps only its title, a quoting
+What is public, and stored in `shared_results`: the verdict in public wording (`unfret.public_result`: the band as
+what Unfret would tell a shopper about the listing, no score, never "scam" or "fraud"), without the page's own words (a reason whose detail quotes the page keeps only its title, a quoting
 headline becomes the band's catalogue sentence, flags keep their labels but not their evidence), the product title,
 the shop, the product link and the day of the check. Plus a SHA-256 hash of the delete code (shown once), the expiry
 (90 days, on a day boundary) and, after an objection, why it is hidden. No account, wallet, IP address, time of day
 or view count; expired rows go in the hourly housekeeping. Limits: 20 shares per visitor network per day (in
 memory) and a daily cap.
 
-`/r/{id}` shows it in the link checker's presentation (the showcase renderer): "Checked by an Unfret user on …; the
+`/r/{id}` shows it in the link checker's presentation (the same renderer, `static/check-render.js`): "Checked by an Unfret user on …; the
 page may have changed", a `nofollow` link to the product, `X-Robots-Tag: noindex` and a robots meta tag. The sharer
 deletes it with `DELETE /v1/shares/{id}` and `X-Delete-Code`; a shop owner's `POST /v1/shares/{id}/object` hides it
 at once, and the operator reviews it under the admin token: `GET /v1/admin/shares` (hidden ones),
@@ -698,8 +665,8 @@ src/unfret/
 │   ├── state.py       # shared LangGraph state
 │   └── skills/        # one module per skill
 ├── credits/           # SIWS, the dollar ledger, pricing, purchase scanner
-├── showcase/          # "Spotted recently": operator-run cases, public wording, review CLI
-├── shares.py          # shared results: share tokens, public wording, storage
+├── shares.py          # shared results: share tokens, storage
+├── public_result.py   # a result in public wording (no score, never "scam")
 ├── x402/              # pay-per-check: verification, hot wallet, sweeps
 ├── auth.py            # bearer sessions
 ├── db.py, migrations.py  # versioned schema + queries (asyncpg)
@@ -764,7 +731,7 @@ served free from the cache, streamed, and every page the server can't read (`PAG
 (quick in USDC, deep in wSOL, confirmed on devnet, a replayed payment answered once and debited once, an underpayment
 and a malformed header refused, a bot-check page free); credit packs bought in USDC (memo) and in SOL by the Solana Pay
 reference alone; card top-ups (a Polar checkout page, then made-up signed `order.paid`/`order.refunded` webhooks: dev
-runs **live** Polar, so no real order is ever completed); the showcase and the operator endpoints' 401. Fixture pages
+runs **live** Polar, so no real order is ever completed); the retired showcase's 404 and the operator endpoints' 401. Fixture pages
 come from the forge at the commit dev runs, each URL carrying a per-run marker that must not appear in dev's app logs
 or database afterwards (over ssh). It refuses to run against anything whose `/.well-known/x402` isn't devnet, and
 checks that the payer holds at least 1.5 SOL and 5.01 devnet USDC before spending (it never uses a faucet: "fund

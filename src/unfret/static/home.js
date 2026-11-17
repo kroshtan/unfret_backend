@@ -1,7 +1,6 @@
-// The home page: "Checked by us recently" (showcase-list.js), live pack prices from /v1/pricing, and the code box,
-// which opens checkout for a new pass (an API key) with the code filled in. Without JavaScript the page still reads well:
-// the prices in the HTML are the defaults, and checkout has its own code field.
-import "./showcase-list.js";
+// The home page: live pack prices from /v1/pricing, and the code box, which opens checkout for a new pass (an API
+// key) with the code filled in. Without JavaScript the page still reads well: the prices in the HTML are the
+// defaults, and checkout has its own code field.
 import { cardPrice, taxNote } from "./prices.js";
 
 const INTRO = /^[A-Za-z0-9]{3,24}$/;

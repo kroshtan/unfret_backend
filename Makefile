@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports showcase eval bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -85,9 +85,6 @@ label:  ## Work through the review queue, one keypress per page
 
 reports:  ## Label reported results from the live service into the corpus (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
 	uv run python -m evals.reports
-
-showcase:  ## Review the "Spotted recently" showcase: ARGS="add URL | list | show ID | publish ID | remove ID --reason TEXT | screenshot ID FILE"
-	uv run python -m unfret.showcase $(ARGS)
 
 codes:  ## Intro codes: ARGS="list | create CODE --uses N [--checks 5] | off CODE | on CODE | add CODE N | link CODE"
 	uv run python -m unfret.credits.codes $(ARGS)

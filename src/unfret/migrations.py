@@ -545,6 +545,16 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON x402_audit_flags (hot_wallet) WHERE cleared_at IS NULL;
         """,
     ),
+    (
+        24,
+        "showcase retired",
+        """
+        -- "Spotted recently" (migration 13) is gone from the site and the API: real shops on Unfret's own pages,
+        -- even unnamed, invite disputes, and the pattern cards on the home page teach the same. Its cases (titles,
+        -- shop hosts, product addresses, results, screenshots) go with the table.
+        DROP TABLE IF EXISTS showcase_cases;
+        """,
+    ),
 ]
 
 

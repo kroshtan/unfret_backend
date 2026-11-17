@@ -1,5 +1,5 @@
 """
-The site's pages: home, sign-in, checkout, privacy and the link checker.
+The site's pages: home, sign-in, checkout, privacy, accuracy and the link checker.
 
 ``/`` introduces Unfret, ``/welcome`` greets a new extension install, ``/connect`` signs in and hands the session to
 the extension, then ``/checkout`` (which hands a new API key to the extension) and ``/privacy``. ``/check`` checks a
@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from unfret import __version__
+from unfret import __version__, accuracy
 from unfret.config import settings
 from unfret.credits import invites
 from unfret.prices import format_usd
@@ -210,6 +210,20 @@ def developers() -> HTMLResponse:
     page = template("developers.html", "/developers")
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/accuracy", response_class=HTMLResponse)
+def accuracy_page() -> HTMLResponse:
+    """
+    How often the verdicts are right: the method, the numbers per verdict, the limits and the scorer's history.
+
+    The numbers come from ``static/accuracy.json`` (``make accuracy``: aggregates of a corpus replay, no corpus
+    records), filled into the page here so it needs no script.
+
+    :return: The page.
+    """
+    page = accuracy.render(template("accuracy.html", "/accuracy"))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

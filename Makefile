@@ -1,4 +1,4 @@
-.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit test test-unit test-integration test-expansion e2e db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -91,6 +91,9 @@ codes:  ## Intro codes: ARGS="list | create CODE --uses N [--checks 5] | off COD
 
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)
+
+accuracy:  ## Replay the whole corpus (recorded LLM answers only) and write the /accuracy page's numbers (ACCURACY_ARGS="--reuse STAMP")
+	uv run python -m evals.accuracy $(ACCURACY_ARGS)
 
 db-up:  ## Start the test Postgres container (port 55432)
 	@docker inspect $(TEST_DB_CONTAINER) >/dev/null 2>&1 || docker run -d --rm --name $(TEST_DB_CONTAINER) \

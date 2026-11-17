@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="How often Unfret's verdicts are right: tested on {{num:corpus.pages}} labelled shops, product pages, second-hand ads and tradespeople's sites, with the method, the false alarms and the limits.">
+  <title>How accurate is Unfret? · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  {{header}}
+  <main class="prose accuracy">
+    <h1>How accurate is Unfret?</h1>
+    <div class="page-intro">
+      <p>We test Unfret on {{num:corpus.pages}} web pages whose answer we already know: shops, product pages,
+        second-hand ads and tradespeople's websites, some honest and some not. Here is how often each verdict turned
+        out right, how many bad pages it caught, how often it worried about a good shop, and what these numbers don't
+        tell you.</p>
+    </div>
+    <p class="small muted">Measured on {{date:generated}} with scorer <code>{{text:scorer_version}}</code>.
+      {{block:version_note}}</p>
+
+    <ul class="acc-stats">
+      <li>
+        <span class="acc-stat">{{pct:groups.products.bands.junk_or_scam.unreliable_share}}</span>
+        of product pages called <strong>Serious concerns</strong> really were unreliable
+      </li>
+      <li>
+        <span class="acc-stat">{{pct:groups.products.caught}}</span>
+        of unreliable product pages got <strong>Think twice</strong> or <strong>Serious concerns</strong>
+      </li>
+      <li>
+        <span class="acc-stat">{{pct:legit_shops.all.warned_share}}</span>
+        of legitimate shops got one of those two warnings: a false alarm
+      </li>
+    </ul>
+
+    <h2 id="products">Shops and product pages</h2>
+    <p>For each verdict: how many test pages got it, how many of those were actually unreliable (a scam, or junk
+      sold as something better), and what share of all the unreliable pages ended up with that verdict. A good
+      <strong>Looks fine</strong> has few unreliable pages; a good <strong>Serious concerns</strong> has almost
+      only unreliable ones.</p>
+    {{block:bands:products}}
+    <p>Put together: Unfret warned (<strong>Think twice</strong> or <strong>Serious concerns</strong>) about
+      {{pct:groups.products.caught}} of the unreliable pages, and {{pct:groups.products.warning_precision}} of its
+      warnings were right. Counting <strong>Worth a look</strong> too, it flagged
+      {{pct:groups.products.caught_with_worth_a_look}} of them.</p>
+    {{block:coverage:products}}
+    <p class="small">The scorer learnt from part of these pages (the training share), so the figures above flatter it
+      a little. On the pages held back for testing, which it never saw ({{num:products_test_only.scored}} pages): {{pct:products_test_only.caught}} of unreliable pages
+      warned about, {{pct:products_test_only.warning_precision}} of warnings right,
+      {{pct:products_test_only.bands.junk_or_scam.unreliable_share}} of <strong>Serious concerns</strong> right,
+      and {{pct:products_test_only.legit_warned}} of legitimate pages warned about. With the checks for ads and
+      tradespeople switched off, product pages come out the same: {{pct:products_checks_off.caught}} of unreliable
+      pages warned about, {{pct:products_checks_off.warning_precision}} of warnings right.</p>
+
+    <h2 id="false-alarms">False alarms on legitimate shops</h2>
+    <p>How often a legitimate shop's product page got a warning it didn't deserve.</p>
+    {{block:legit_shops}}
+    <p>{{pct:legit_shops.all.serious_share}} of legitimate shops got <strong>Serious concerns</strong>.
+      <strong>Worth a look</strong> is not a warning: it means a few things are worth checking yourself, such as a
+      missing return address, and many honest small shops get it. European shops are told off more often than US
+      ones: the European legitimate shops in the test are mostly small shops from 2023, and EU law asks more of a
+      shop's page (company details, withdrawal rights) than US practice does, so there is more to find missing.</p>
+
+    <h2 id="ads">Second-hand ads</h2>
+    <p>Ads on Marktplaats, 2dehands, Vinted, eBay, Craigslist and Facebook Marketplace. These verdicts come from
+      rules written from public scam warnings, not yet from a trained model. <strong>Every ad here is
+      synthetic</strong>: the platforms forbid collecting real ads, so we wrote them from patterns that consumer
+      warnings document (a deposit first, "I'm abroad", WhatsApp only, a price too good to be true) and normal
+      ones. Read these numbers as a check that the rules catch the documented tricks, not as real-world accuracy.</p>
+    {{block:bands:ads}}
+    <p>Unfret says <strong>Looks fine</strong> about an ad only with concrete good signs (an account some years old,
+      and pickup or the platform's own payment protection), never for lack of evidence, so most honest ads get
+      <strong>Worth a look</strong>: {{pct:groups.ads.bands.concerns.share_of_legit}} of the honest ads here.
+      {{pct:groups.ads.warning_precision}} of its warnings were right, and it warned about
+      {{pct:groups.ads.caught}} of the scam ads; counting <strong>Worth a look</strong>,
+      {{pct:groups.ads.caught_with_worth_a_look}} of them.</p>
+    {{block:coverage:ads}}
+
+    <h2 id="trades">Tradespeople</h2>
+    <p>Plumbers', locksmiths' and other trades' websites, and their profiles on platforms such as Werkspot and
+      Thumbtack. Also rules, not yet a trained model. The websites are real: rogue trade sites named in decisions
+      of the Dutch consumer authority, and long-established firms. The platform profiles, and a few websites, are
+      synthetic.</p>
+    {{block:bands:trades}}
+    <p>Unfret warned about {{pct:groups.trades.caught}} of the unreliable trade pages it could be measured on,
+      {{pct:groups.trades.warning_precision}} of its warnings were right, and it warned about
+      {{pct:groups.trades.legit_warned}} of the honest ones.</p>
+    {{block:coverage:trades}}
+    <p class="small">While most of the measured pages are synthetic, as now, these figures mostly show that the rules
+      recognise the patterns those pages were built from. They say little yet about real tradespeople; we'll update
+      them once the real websites are measured too.</p>
+
+    <h2 id="method">How we measure</h2>
+    <h3>The test set</h3>
+    {{block:kinds}}
+    <p>{{num:corpus.unlabelled_set_aside}} more pages were collected but left out because their label wasn't
+      certain enough.</p>
+
+    <h3>Where the labels come from</h3>
+    <p>Labels come from outside sources, not from our own judgement:</p>
+    {{block:origins}}
+    <p>A second, larger language model (not the one Unfret uses) then read every page with written instructions;
+      {{num:corpus.second_opinion_agreed}} of the {{num:corpus.pages}} labels are confirmed by it. Ads, tradespeople
+      and the most recently added shops keep their label only when it confidently agreed. For the research datasets,
+      whose labels came from people, a disagreement leaves the label as it was and puts the page up for review.</p>
+
+    <h3>How it's split</h3>
+    <p>Each page is assigned once, at random but repeatably, to training (70%: {{num:corpus.split.train}} pages) or
+      testing (30%: {{num:corpus.split.test}}), in the same proportion within each source and label. The scorer for
+      shops and product pages learns only from the training pages. The numbers above cover both, as a replay of
+      every labelled page; the test-only figures are given under the product table.</p>
+
+    <h3>Replaying recorded pages</h3>
+    <p>Each page was saved once (from the Internet Archive, from a dataset, fetched live, or generated), and the
+      language model's
+      answers about it were recorded. A measurement replays exactly that: the same pages through the same checks as a
+      real check, with the recorded answers. So every run is repeatable and costs nothing. Lookups that would ask
+      today's world about an old page are off: the age of the domain, the EU VAT register, reverse image search and
+      linking shops that share an owner. In real use those add evidence; they aren't counted here.</p>
+
+    <h2 id="limits">What these numbers can't tell you</h2>
+    <ul>
+      <li><strong>Unfret sees the page, not the deal.</strong> It can't see whether a parcel arrives, what happens
+        after you pay, a seller's messages, or anything behind a login it isn't shown. A clever scam with a careful
+        page can look fine, and a real shop with a sloppy page can look worrying.</li>
+      <li><strong>Many pages are a few years old.</strong> Most real pages are archived copies, many from 2022 and
+        2023. Scams change; older pages measure older tricks.</li>
+      <li><strong>Europe and the US, unevenly.</strong> Where the test pages are from: {{block:markets}}. Shops from
+        elsewhere are rare in the test.</li>
+      <li><strong>Synthetic pages.</strong> {{num:corpus.synthetic}} of the {{num:corpus.pages}} pages are
+        generated: the marketplace product pages (built from a public dataset of real products and reviews), all ads,
+        the tradespeople's platform profiles and some of their websites. They test whether Unfret notices documented
+        signs, not whether it finds new ones.</li>
+      <li><strong>Labels can be wrong.</strong> A warning list can name a shop that later cleaned up, and an
+        established business can still treat a customer badly.</li>
+      <li><strong>Signals, not verdicts on a business.</strong> Unfret tells you what stands out on a page and how
+        careful to be. It doesn't say a business is a scam, and the decision stays yours.</li>
+    </ul>
+
+    <h2 id="changelog">Changes per scorer version</h2>
+    <p>Shops and product pages get their verdict from a small trained scorer; its version is in every result (and
+      the code is <a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">open source</a>). Ads
+      and tradespeople get theirs from rules. What changed, newest first:</p>
+    <dl class="acc-changelog">
+      <dt>Next release <span class="muted">(scorer <code>v1-20261109-222323-C</code>)</span></dt>
+      <dd><strong>Serious concerns</strong> only when the scorer is at least 60% sure; below that the same page shows
+        <strong>Think twice</strong>, still a warning. The share of right <strong>Serious
+        concerns</strong> went from 94% to 95% in the replay of every labelled product page, with 15 instead of 25
+        legitimate pages called that. Checks for
+        second-hand ads and tradespeople come to everyone. This page.</dd>
+      <dt>0.12.0, 16 November 2026 <span class="muted">(scorer unchanged)</span></dt>
+      <dd>More established US shops and shops on a consumer-authority warning list in the test set, so that "a US
+        shop" or "this source" no longer gives the answer away. A scorer retrained on it warned about more legitimate
+        shops, so it was not shipped.</dd>
+      <dt>0.11.0 and 0.11.1, 15–16 November 2026 <span class="muted">(scorer unchanged)</span></dt>
+      <dd>Checks for second-hand ads and tradespeople, and seven new checks on product pages that show reasons
+        without changing the score. Training now guards against learning the test set instead of shops; a retrain
+        under those rules wasn't better, so it was not shipped.</dd>
+      <dt>0.7.0, 10 November 2026 <span class="muted">(scorer <code>v1-20261109-222323-C</code>)</span></dt>
+      <dd>Fewer false alarms: the scorer no longer assumes most pages are bad (the test set has more unreliable pages
+        than the web does). On the pages it never saw, legitimate pages warned about went from 35 to 24 of 143;
+        unreliable pages caught from 168 to 151 of 190. US shops are no longer marked down for lacking EU company
+        details.</dd>
+      <dt>0.6.0, 8 November 2026 <span class="muted">(scorer <code>v1-20261108-C</code>)</span></dt>
+      <dd>The first trained scorer: a small, readable model over the checks' signals, so each reason's weight in
+        the verdict is exact. Released as open source.</dd>
+    </dl>
+
+    <p class="small muted">The numbers on this page, as data: <a href="/static/accuracy.json">accuracy.json</a>
+      (totals only, no pages). They are made with <code>make accuracy</code> in the
+      <a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">source code</a>; the test pages
+      themselves can't be published, as they are other people's web pages.</p>
+  </main>
+
+  {{footer}}
+</body>
+</html>

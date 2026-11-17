@@ -1316,3 +1316,32 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
   table.settings td { border: 0; padding: 0.15rem 0.2rem; }
   table.settings td:nth-child(3) { grid-column: 1 / -1; color: var(--ink-2); }
 }
+
+/* The accuracy page: three headline numbers, verdict tables, the scorer's changelog. */
+.prose .acc-stats { list-style: none; margin: 1.5rem 0 0.5rem; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+.prose .acc-stats li { margin: 0; padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink-2); font-size: 0.92rem; line-height: 1.4; }
+.acc-stat { display: block; margin-bottom: 0.3rem; color: var(--brand-ink); font-size: 1.9rem; font-weight: 750; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.acc-table-wrap { margin: 1rem 0; overflow-x: auto; }
+.acc-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+.acc-table th, .acc-table td { padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; }
+.acc-table th:first-child { text-align: left; }
+.acc-table thead th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: bottom; }
+.acc-table tbody th { font-weight: 600; color: var(--ink); }
+.acc-table .band-cell { white-space: nowrap; }
+.band-dot { display: inline-block; width: 0.7em; height: 0.7em; margin-right: 0.45em; border-radius: 50%; background: var(--muted); }
+.band-dot.reliable { background: var(--good); }
+.band-dot.concerns { background: var(--note); }
+.band-dot.careful { background: var(--care); }
+.band-dot.junk_or_scam { background: var(--stop); }
+.acc-changelog dt { margin-top: 1.1rem; font-weight: 650; color: var(--ink); }
+.acc-changelog dd { margin: 0.3rem 0 0; color: var(--ink-2); }
+@media (max-width: 40rem) {
+  .prose .acc-stats { grid-template-columns: 1fr; }
+  .acc-stat { font-size: 1.6rem; }
+  .acc-table { font-size: 0.85rem; }
+  .acc-table th, .acc-table td { padding: 0.45rem 0.2rem; }
+  .acc-table th:first-child { padding-left: 0; }
+  .acc-table th:last-child, .acc-table td:last-child { padding-right: 0; }
+  .acc-table thead th { font-size: 0.7rem; letter-spacing: 0.02em; }
+}
+@media (max-width: 26rem) { .acc-table td .muted { display: none; } }

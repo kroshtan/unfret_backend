@@ -34,8 +34,10 @@ COLD = Keypair().pubkey()  # the cold address now
 THIEF = str(Keypair().pubkey())
 FORMER_USDC = str(associated_token_address(DEV_FORMER_COLD, DEVNET_USDC))
 SOL_SWEEP, USDC_SWEEP = "sol_sweep_to_former_cold", "usdc_sweep_to_former_cold"
+FIRST_USDC_SWEEP = "usdc_sweep_creating_former_cold_account"
 SOL_SIG = "51h53MNUycVkH2GrKDBJJPMiVEq5jmSnJazzgEKfTwrdAnGQAr9e2Dt5eey7QZrQGbs82turt2XJcYu1Edm7hrLx"
 USDC_SIG = "3EPiHdDc21Y2wGsnGQuyQTaegZqXSBqV5uYexnqDfGn3xCRCS7EuLcQ21t6kSJdnRkkXYpuuqQFirXpaojr2iWiC"
+FIRST_USDC_SIG = "3Tq8E277x67UknDGm4YuAk3nYpZzczP5ojtxrLB7LQvCiJJkyv7sc8FYMxnxnohPDbzRLVUP62nanQatfrD1GTFN"
 CHANGED = "2026-11-16T06:00:00Z"  # after the last sweep to EE6X… (16 Nov 05:50:05 UTC)
 
 
@@ -62,10 +64,16 @@ def test_the_fixtures_are_dev_s_real_sweeps() -> None:
     assert unexpected_outflows(usdc, DEV_HOT, COLD, DEVNET_USDC) == [
         f"token transferChecked by the hot wallet to {FORMER_USDC}"
     ]
+    first = devnet_tx(FIRST_USDC_SWEEP)
+    assert first["transaction"]["signatures"] == [FIRST_USDC_SIG]
+    assert unexpected_outflows(first, DEV_HOT, COLD, DEVNET_USDC) == [
+        f"token transferChecked by the hot wallet to {FORMER_USDC}",
+        f"system createAccount to {FORMER_USDC}",  # the rent for EE6X's new USDC account
+    ]
 
 
 def test_a_former_cold_address_is_accepted_like_cold() -> None:
-    for name in (SOL_SWEEP, USDC_SWEEP):
+    for name in (SOL_SWEEP, USDC_SWEEP, FIRST_USDC_SWEEP):
         assert unexpected_outflows(devnet_tx(name), DEV_HOT, COLD, DEVNET_USDC, [DEV_FORMER_COLD]) == []
     # The same transactions with the destination changed are still caught.
     stolen = devnet_tx(SOL_SWEEP, replace={str(DEV_FORMER_COLD): THIEF})
@@ -76,7 +84,14 @@ def test_a_former_cold_address_is_accepted_like_cold() -> None:
 
 async def test_old_sweeps_to_a_former_cold_wallet_raise_no_alarm_after_a_restart() -> None:
     rpc = FakeRpc()
-    history(rpc, **{SOL_SIG: devnet_tx(SOL_SWEEP, HOT.pubkey()), USDC_SIG: devnet_tx(USDC_SWEEP, HOT.pubkey())})
+    history(
+        rpc,
+        **{
+            SOL_SIG: devnet_tx(SOL_SWEEP, HOT.pubkey()),
+            USDC_SIG: devnet_tx(USDC_SWEEP, HOT.pubkey()),
+            FIRST_USDC_SIG: devnet_tx(FIRST_USDC_SWEEP, HOT.pubkey()),
+        },
+    )
     x402 = service(rpc, **former())
     assert await x402.audit_outflows() == []
     assert (await x402.health()).status == "ok"

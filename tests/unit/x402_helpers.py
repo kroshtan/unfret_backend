@@ -277,8 +277,10 @@ def devnet_tx(name: str, hot: Pubkey | None = None, replace: dict[str, str] | No
 
     ``sol_sweep_to_former_cold``: unwrap, recreate the wSOL account, 0.1469 SOL to EE6X… (signature 51h53MNU…).
     ``usdc_sweep_to_former_cold``: create EE6X's USDC account (idempotent), 5.01 USDC into it (3EPiHdDc…).
-    Both from 15 Nov 2026, when EE6X… was dev's cold address. With ``hot``, dev's hot wallet and its token accounts
-    are swapped for that wallet's (the tests hold its key, not dev's); ``replace`` swaps any other address.
+    ``usdc_sweep_creating_former_cold_account``: the first USDC sweep, which really created that account (the hot
+    wallet paid its rent) (3Tq8E277…, 10 Nov). All from when EE6X… was dev's cold address. With ``hot``, dev's hot
+    wallet and its token accounts are swapped for that wallet's (the tests hold its key, not dev's); ``replace``
+    swaps any other address.
     """
     text = (FIXTURES / f"{name}.json").read_text()
     swaps = dict(replace or {})

@@ -751,5 +751,101 @@
     "careful": "Check who this business really is and get a written quote before you hire.",
     "junk_or_scam": "This page shows several patterns of businesses that aren't what they seem. Check it elsewhere before you hire."
   },
-  "protected_methods": "a card or PayPal"
+  "protected_methods": "a card or PayPal",
+  "sources": {
+    "page": "The page",
+    "page_code": "The page's code",
+    "ai_read": "Unfret's read of the page",
+    "reviews": "The reviews on the page",
+    "checkout": "The checkout page",
+    "legal_pages": "The shop's terms and legal pages",
+    "rdap": "Domain registry (RDAP)",
+    "vies": "EU VAT register (VIES)",
+    "price_history": "Unfret's price history",
+    "market_prices": "Prices at other shops (Unfret's price records)",
+    "image_index": "Unfret's image index",
+    "shop_records": "Shops Unfret has checked",
+    "review_records": "Reviews on other shops Unfret has checked",
+    "brand_records": "Wikidata and the brand's own website",
+    "safety_gate": "EU Safety Gate",
+    "model": "All signals together (Unfret's model)",
+    "site_pages": "The site's pages",
+    "platform": "The platform's profile",
+    "ad_records": "Ads Unfret has checked"
+  },
+  "checklist": {
+    "areas": {
+      "shop": {
+        "who": "Who's behind the shop",
+        "product": "The product and the brand",
+        "reviews": "Reviews",
+        "prices": "Prices and discounts",
+        "tricks": "Hidden tricks"
+      },
+      "ad": {
+        "seller": "The seller",
+        "price": "The price",
+        "photos": "The photos",
+        "payment": "How you'd pay",
+        "text": "The ad's text"
+      },
+      "service": {
+        "company": "Who the company is",
+        "location": "Where they really are",
+        "reviews": "Reviews",
+        "terms": "Prices and payment",
+        "photos": "The photos"
+      }
+    },
+    "notes": {
+      "no_reviews": "The page shows no reviews.",
+      "registry_silent": "The domain registry doesn't say how old the address is.",
+      "no_photo": "No product photo could be read.",
+      "unavailable": "Couldn't be checked this time.",
+      "not_applicable": "Doesn't apply to this page.",
+      "quick": "Not part of a quick check.",
+      "nothing": "Nothing on the page to check."
+    }
+  },
+  "next_steps": {
+    "reliable": "As always, pay with a method that has buyer protection, such as a credit card or PayPal.",
+    "concerns": "Take a closer look at the points above before you buy.",
+    "careful": "Only buy if you can pay with buyer protection (a credit card or PayPal), or buy it from a shop you know.",
+    "junk_or_scam": "Better to buy this from a shop you know.",
+    "ad_reliable": "Pay through the platform, or when you collect the item.",
+    "ad_concerns": "Pay through the platform, or when you collect the item, and keep the conversation on the platform.",
+    "ad_careful": "Don't pay in advance outside the platform: pay through it, or when you collect the item.",
+    "ad_junk_or_scam": "Better to look for this item in another ad.",
+    "service_reliable": "Ask for a written quote before the work starts.",
+    "service_concerns": "Ask for the company's details and a written quote before any work starts.",
+    "service_careful": "Check the company in the business register, and ask who will actually come, before you agree to anything.",
+    "service_junk_or_scam": "Better to find another company for this job.",
+    "same_product": "Compare before you buy: the same product is sold elsewhere, maybe for less.",
+    "compare_elsewhere": "Search for the product under other names: the same item is often sold elsewhere, for less.",
+    "compare_price": "Compare the price at a shop you know: a discount this good is rarely real.",
+    "shop_reviews": "Look for reviews of the shop itself on other sites before you pay, and pay with buyer protection.",
+    "find_company": "Find out which company is behind the shop (name and address) before you pay.",
+    "returns": "Read the delivery and return terms before you buy: returns may be slow or costly.",
+    "take_time": "Ignore the pressure: take your time and compare the offer elsewhere.",
+    "check_basket": "Check the basket before you pay: untick anything you didn't choose and look at the total.",
+    "read_reviews": "Read the lowest-rated reviews, and look for reviews of the product on other sites.",
+    "buyer_protection": "Only pay with a method that lets you get your money back, such as a credit card or PayPal.",
+    "safety_alert": "Read the Safety Gate alert before you buy: the product may not be safe.",
+    "p2p_pay_safely": "Pay through the platform, or when you collect the item, and keep the conversation on the platform.",
+    "p2p_see_item": "Ask to see the item, or for a new photo of it, before you pay.",
+    "service_quote": "Ask for a written quote with a fixed price before any work starts, and pay once it's done."
+  },
+  "same_product": {
+    "title": "Looks like the same product, sold elsewhere",
+    "title_price": "Looks like the same product, sold elsewhere for {price}",
+    "detail": "The main photo is the same photo as on {where}{others}.",
+    "detail_price": "The main photo is the same photo as on {where}{others}. Unfret saw it there for {price} on {day}.",
+    "others": " and {count} other {shops}",
+    "catalogue": "an Amazon catalogue listing",
+    "catalogue_brand": "an Amazon catalogue listing (brand: {brand})",
+    "families": {
+      "amazon": "Amazon",
+      "bol.com": "bol.com"
+    }
+  }
 }

@@ -732,6 +732,24 @@ without asking:
   "headers": {"Authorization": "Bearer ufk_…"}}}}
 ```
 
+### Clients (`clients/`)
+
+Two minimal clients, MIT licensed, each `check(url) → allow / warn / block` with an Unfret pass, mapped from the four
+verdicts (Looks fine → allow, Worth a look → warn, Think twice and Serious concerns → block; the mapping is a
+configurable policy), plus `checks_left` and a `new_developer_pass` helper that solves the proof of work:
+
+| | Package | |
+| --- | --- | --- |
+| [`clients/python`](clients/python) | `unfret-client` (import `unfret_client`; sync and asyncio, on `httpx`) | `uv run --project clients/python pytest clients/python/tests` |
+| [`clients/typescript`](clients/typescript) | `unfret-client` (ESM, no dependencies: `fetch` and Web Crypto) | `cd clients/typescript && npm ci && npm test` |
+
+They are named `unfret-client` rather than `unfret` because `unfret` is this backend's own package. Unit tests run in
+CI; the live tests run against a server and make a developer pass there:
+`UNFRET_LIVE_URL=https://dev.unfret.net uv run --project clients/python pytest clients/python/tests -m live` and
+`UNFRET_LIVE_URL=https://dev.unfret.net npm run test:live`.
+Both are published by the manual "Publish clients" workflow (`.forgejo/workflows/publish-clients.yaml`; repo secrets
+`PYPI_CLIENT_TOKEN` and `NPM_TOKEN`).
+
 ## Configuration
 
 Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config.py) (with

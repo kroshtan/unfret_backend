@@ -31,6 +31,7 @@ import {
 import { el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { makePass } from "./new-pass.js";
+import { takeHandedLink } from "./start-check.js";
 import { INVITE_RE, NOT_A_CODE, api, redeemInvite } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
@@ -685,7 +686,7 @@ async function readStream(stream, onStep) {
   }
 }
 
-// ── "This is wrong" ──────────────────────────────────────────────────────────────────────────────────────
+// ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
 
 const REPORT_OUTCOME = {
   queued: "Thanks! We'll review this page. If we got it badly wrong, you get free checks.",
@@ -970,6 +971,15 @@ showSignIn(!account && !freeAvailable());
 if (account) void refreshChecks();
 if (shared.link && account) checkButton.focus();
 if (shared.pass) void receivePass(shared.pass);
+// A link pasted on the home page or /nl (start-check.js) is checked at once, as if Check was tapped here. Only this
+// site's own pages can hand one over (this tab's session storage), so no other site can spend a check this way.
+const handed = takeHandedLink();
+if (handed && !shared.link && !shared.pass) {
+  field.value = handed;
+  renderPaste();
+  if (form.requestSubmit) form.requestSubmit();
+  else form.dispatchEvent(new Event("submit", { cancelable: true }));
+}
 getJson("/v1/pricing")
   .then((value) => {
     pricing = value;

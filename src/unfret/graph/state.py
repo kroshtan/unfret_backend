@@ -74,6 +74,8 @@ class AnalysisState(TypedDict):
     # Expensive skills planned so far, one entry per run (the reverse image search picks the next photo from it).
     expensive_runs: Annotated[list[str], _append_results]
     next_skills: list[str]
+    # The image index's likely same product on another shop (set by reverse_image; see unfret.card).
+    same_product: NotRequired[dict[str, Any]]
 
     # ── Outputs (set by judge node) ──────────────────────────────────────────
     score: int

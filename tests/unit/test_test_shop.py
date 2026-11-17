@@ -300,3 +300,18 @@ def test_gap_a_us_shop_without_any_company_details_is_not_marked_down(
     # that the shop names no company, address or phone ("Little shop information").
     assert quick["features"]["eu_registry.imprint.not_applicable"] == 1.0
     assert deep["features"]["content.missing_trust_info"] >= 0.6
+
+
+def test_the_result_card_on_the_test_shop(quick: dict[str, Any], deep: dict[str, Any]) -> None:
+    for result in (quick, deep):
+        verdict = result["verdict"]
+        assert all(r["source"] for r in verdict["reasons"])  # every finding says where its evidence comes from
+        assert [i["label"] for i in verdict["checklist"]] == [
+            "Who's behind the shop", "The product and the brand", "Reviews", "Prices and discounts", "Hidden tricks",
+        ]  # fmt: skip
+        assert verdict["next_step"]["text"] == "Better to buy this from a shop you know."
+        assert verdict["same_product"] is None  # the test shop's photos match nothing
+    reviews = [next(i for i in r["verdict"]["checklist"] if i["key"] == "reviews") for r in (quick, deep)]
+    assert reviews[0]["status"] == "concern" and reviews[0]["note"] == "Imported reviews"  # from the page's code
+    assert reviews[1]["status"] == "concern"
+    assert 0 < quick["verdict"]["checks_run"] < deep["verdict"]["checks_run"]

@@ -1,0 +1,612 @@
+"""
+The result card: what every client shows around a verdict, worked out once, here.
+
+A verdict (:mod:`unfret.shopper`, :mod:`unfret.shopper_p2p`, :mod:`unfret.graph.services`) says what was found. The
+card adds what makes it checkable for a shopper, the same on the website, a shared result, the extension and the
+phone app:
+
+- **a source for every finding**: where its evidence comes from ("Domain registry (RDAP)", "Unfret's price
+  history", "The page"), in words from the copy catalogue;
+- **a checklist of what was checked**, area by area ("Who's behind the shop", "Reviews", …): checked, a concern (a
+  finding above is about it), or not checked and why (the page shows no reviews; not part of a quick check; the
+  registry couldn't be reached this time);
+- **how many checks ran**, so a clean result says how much was looked at;
+- **one suggested next step**, from the strongest finding or the band;
+- **the same product sold elsewhere** (Unfret's image index), which clients show first, with both photos.
+
+Everything here comes from the catalogue or from what the skills measured; nothing quotes the page, and nothing
+calls a shop names.
+"""
+
+from collections.abc import Iterable
+from typing import Any
+
+from unfret import shopper
+from unfret.facts import PageFacts
+from unfret.graph.skills import NOT_APPLICABLE, UNAVAILABLE, Skill
+from unfret.graph.state import P2P_TYPES, SERVICE_TYPES, AnalysisState
+from unfret.market import shop_market
+from unfret.shopper import CheckItem, NextStep, SameProduct, Verdict, catalogue
+
+# Where each finding's evidence comes from (keys of the catalogue's "sources").
+REASON_SOURCES: dict[str, str] = {
+    # Products: what the page shows, read by rules.
+    "timer_resets": "page",
+    "countdown": "page",
+    "preticked_addon": "page",
+    "late_fees": "page",
+    "big_discount": "page",
+    "implausible_discount": "page",
+    "reference_anchor": "page",
+    "permanent_sale": "page",
+    "seller_not_brand": "page",
+    "ships_from_far": "page",
+    "drip_pricing": "checkout",
+    # The page's code.
+    "fake_urgency_app": "page_code",
+    "review_import_app": "page_code",
+    "dropshipping_tools": "page_code",
+    "supplier_links": "page_code",
+    "hidden_ai_text": "page_code",
+    "ai_text": "page",
+    # Unfret's read of the page (the language model).
+    "word_soup": "ai_read",
+    "generic_brand": "ai_read",
+    "generic_product": "ai_read",
+    "implausible_claims": "ai_read",
+    "pushy_copy": "ai_read",
+    "missing_trust_info": "ai_read",
+    # The reviews on the page.
+    "review_velocity": "reviews",
+    "review_shape": "reviews",
+    "duplicate_reviews": "reviews",
+    "off_topic_reviews": "reviews",
+    # The shop's terms and legal pages.
+    "no_withdrawal": "legal_pages",
+    "no_return_policy": "legal_pages",
+    "no_imprint": "legal_pages",
+    "returns_abroad": "legal_pages",
+    "return_address_withheld": "legal_pages",
+    "restocking_fee": "legal_pages",
+    "origin_doubt": "legal_pages",
+    "long_delivery": "legal_pages",
+    "mailbox_address": "legal_pages",
+    "irreversible_payment_only": "legal_pages",
+    "origin_contradicted": "legal_pages",
+    "store_without_address": "legal_pages",
+    # Registers and lookups elsewhere.
+    "invalid_vat": "vies",
+    "new_domain": "rdap",
+    "short_registration": "rdap",
+    "founded_contradicted": "rdap",
+    "was_never_charged": "price_history",
+    "far_below_market": "market_prices",
+    "photo_reused": "image_index",
+    "linked_new_shops": "shop_records",
+    "shared_address": "shop_records",
+    "copied_reviews_elsewhere": "review_records",
+    "brand_no_presence": "brand_records",
+    "safety_gate_alert": "safety_gate",
+    "overall": "model",
+    # Service providers.
+    "doorway_pages": "site_pages",
+    "linked_sites": "shop_records",
+    "shared_address_sites": "shop_records",
+    "copied_photo": "image_index",
+    "premium_number": "page",
+    "upfront_payment": "page",
+    "cash_only": "page",
+    "quote_on_site": "page",
+    "new_site": "rdap",
+    "copied_testimonials": "page",
+    "placeholder_names": "page",
+    "testimonial_dates": "page",
+    "all_five_testimonials": "page",
+    "kvk_malformed": "page",
+    "kvk_missing": "page",
+    "licence_no_number": "page",
+    "names_differ": "page",
+    "bait_callout": "page",
+    "emergency_pressure": "page",
+    "vague_pricing": "page",
+    "no_street_address": "page",
+    "not_local": "page",
+    "trade_town_name": "page",
+    "national_number_only": "page",
+    "address_elsewhere": "page",
+    "details_on_request": "page",
+    "new_on_platform": "platform",
+    "few_platform_reviews": "platform",
+    "low_response_rate": "platform",
+    "unproven_profile": "platform",
+    "low_platform_rating": "platform",
+    "service_little_known": "page",
+    # Peer-to-peer ads.
+    "p2p_advance_payment": "page",
+    "p2p_untraceable_payment": "page",
+    "p2p_protection_refused": "page",
+    "p2p_seller_abroad": "page",
+    "p2p_bank_transfer": "page",
+    "p2p_shipping_only": "page",
+    "p2p_contact_outside": "page",
+    "p2p_llm_off_platform": "ai_read",
+    "p2p_photo_in_other_ads": "ad_records",
+    "p2p_duplicate_text": "ad_records",
+    "p2p_shared_contact": "ad_records",
+    "p2p_photo_on_shops": "image_index",
+    "p2p_price_far_below": "ad_records",
+    "p2p_new_account": "platform",
+    "p2p_listing_burst": "platform",
+    "p2p_low_rating": "platform",
+    "p2p_no_ratings": "platform",
+    "p2p_slow_responses": "platform",
+    "p2p_little_known": "page",
+}
+POSITIVE_SOURCES: dict[str, str] = {
+    "known_brand": "brand_records",
+    "sold_by_brand": "page",
+    "vat_registered": "vies",
+    "us_business": "legal_pages",
+    "established_domain": "rdap",
+    "trust_info_present": "legal_pages",
+    "natural_reviews": "reviews",
+    "protected_payment": "legal_pages",
+    "nothing_found": "model",
+    "service_established": "rdap",
+    "service_identity_nl": "page",
+    "service_identity_us": "page",
+    "licence_shown": "page",
+    "written_quote": "page",
+    "platform_track_record": "platform",
+    "platform_verified": "platform",
+    "service_nothing_found": "model",
+    "p2p_established": "platform",
+    "p2p_well_rated": "platform",
+    "p2p_verified": "platform",
+    "p2p_protection": "page",
+    "p2p_pickup": "page",
+    "p2p_normal_price": "ad_records",
+}
+
+# The checklist's areas per kind of page, each with the skills that look at it (a skill may serve two areas), and
+# which area each finding belongs to (a finding not listed belongs to none: "Several small signals").
+AREAS: dict[str, dict[str, tuple[str, ...]]] = {
+    "shop": {
+        "who": (
+            "eu_registry",
+            "us_identity",
+            "domain_age",
+            "shop_policies",
+            "shop_links",
+            "claims",
+            "payment_methods",
+        ),
+        "product": ("listing", "content", "brand_presence", "safety_gate", "reverse_image"),
+        "reviews": ("reviews", "review_copies"),
+        "prices": ("pricing", "market_price", "dark_patterns"),
+        "tricks": ("html_source_signals", "injection", "dark_patterns"),
+    },
+    "ad": {
+        "seller": ("seller_profile",),
+        "price": ("price_outlier",),
+        "photos": ("reverse_image", "duplicate_ads"),
+        "payment": ("off_platform",),
+        "text": ("content", "injection"),
+    },
+    "service": {
+        "company": ("service_identity", "platform_profile", "eu_registry", "us_identity"),
+        "location": ("doorway_pages", "shop_links", "domain_age"),
+        "reviews": ("testimonials", "platform_profile"),
+        "terms": ("service_terms", "dark_patterns"),
+        "photos": ("reverse_image",),
+    },
+}
+REASON_AREAS: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "no_withdrawal",
+            "no_return_policy",
+            "no_imprint",
+            "missing_trust_info",
+            "invalid_vat",
+            "new_domain",
+            "short_registration",
+            "returns_abroad",
+            "return_address_withheld",
+            "restocking_fee",
+            "origin_doubt",
+            "long_delivery",
+            "mailbox_address",
+            "irreversible_payment_only",
+            "founded_contradicted",
+            "origin_contradicted",
+            "store_without_address",
+            "linked_new_shops",
+            "shared_address",
+        ),
+        "who",
+    ),
+    **dict.fromkeys(
+        (
+            "word_soup",
+            "generic_brand",
+            "generic_product",
+            "implausible_claims",
+            "seller_not_brand",
+            "ships_from_far",
+            "photo_reused",
+            "brand_no_presence",
+            "safety_gate_alert",
+        ),
+        "product",
+    ),
+    **dict.fromkeys(
+        (
+            "review_velocity",
+            "review_shape",
+            "duplicate_reviews",
+            "off_topic_reviews",
+            "review_import_app",
+            "copied_reviews_elsewhere",
+        ),
+        "reviews",
+    ),
+    **dict.fromkeys(
+        (
+            "preticked_addon",
+            "drip_pricing",
+            "late_fees",
+            "big_discount",
+            "was_never_charged",
+            "implausible_discount",
+            "reference_anchor",
+            "permanent_sale",
+            "far_below_market",
+        ),
+        "prices",
+    ),
+    **dict.fromkeys(
+        (
+            "timer_resets",
+            "fake_urgency_app",
+            "countdown",
+            "pushy_copy",
+            "dropshipping_tools",
+            "supplier_links",
+            "hidden_ai_text",
+            "ai_text",
+        ),
+        "tricks",
+    ),
+    # Ads.
+    **dict.fromkeys(
+        ("p2p_new_account", "p2p_listing_burst", "p2p_low_rating", "p2p_no_ratings", "p2p_slow_responses"), "seller"
+    ),
+    "p2p_price_far_below": "price",
+    **dict.fromkeys(("p2p_photo_in_other_ads", "p2p_photo_on_shops"), "photos"),
+    **dict.fromkeys(
+        (
+            "p2p_advance_payment",
+            "p2p_untraceable_payment",
+            "p2p_protection_refused",
+            "p2p_seller_abroad",
+            "p2p_bank_transfer",
+            "p2p_shipping_only",
+            "p2p_contact_outside",
+            "p2p_llm_off_platform",
+        ),
+        "payment",
+    ),
+    **dict.fromkeys(("p2p_duplicate_text", "p2p_shared_contact"), "text"),
+    # Service providers.
+    **dict.fromkeys(
+        (
+            "kvk_malformed",
+            "kvk_missing",
+            "licence_no_number",
+            "names_differ",
+            "details_on_request",
+            "trade_town_name",
+            "unproven_profile",
+            "new_on_platform",
+        ),
+        "company",
+    ),
+    **dict.fromkeys(
+        (
+            "doorway_pages",
+            "linked_sites",
+            "shared_address_sites",
+            "new_site",
+            "not_local",
+            "national_number_only",
+            "address_elsewhere",
+            "no_street_address",
+            "premium_number",
+        ),
+        "location",
+    ),
+    **dict.fromkeys(
+        (
+            "copied_testimonials",
+            "placeholder_names",
+            "testimonial_dates",
+            "all_five_testimonials",
+            "few_platform_reviews",
+            "low_platform_rating",
+            "low_response_rate",
+        ),
+        "reviews",
+    ),
+    **dict.fromkeys(
+        ("upfront_payment", "cash_only", "quote_on_site", "bait_callout", "emergency_pressure", "vague_pricing"),
+        "terms",
+    ),
+    "copied_photo": "photos",
+}
+# Reasons whose area depends on the kind of page (shared between shops, ads and service providers).
+_SHARED_AREAS: dict[str, dict[str, str]] = {
+    "ad": {"hidden_ai_text": "text", "ai_text": "text", "pushy_copy": "text"},
+    "service": {
+        "hidden_ai_text": "terms",
+        "ai_text": "terms",
+        "pushy_copy": "terms",
+        "invalid_vat": "company",
+        "timer_resets": "terms",
+    },
+}
+# A skill that ran but had nothing to look at (its feature below 1), and the note that says so.
+_HAD_NOTHING: dict[str, tuple[str, str]] = {
+    "reviews": ("reviews.has_reviews", "no_reviews"),
+    "review_copies": ("review_copies.checked", "no_reviews"),
+    "domain_age": ("domain_age.known", "registry_silent"),
+    "reverse_image": ("reverse_image.searched", "no_photo"),
+}
+
+# The next step for the strongest finding (keys of the catalogue's "next_steps"); otherwise the band's.
+STEP_FOR_REASON: dict[str, str] = {
+    **dict.fromkeys(
+        ("new_domain", "short_registration", "founded_contradicted", "linked_new_shops", "shared_address"),
+        "shop_reviews",
+    ),
+    **dict.fromkeys(
+        ("no_imprint", "missing_trust_info", "invalid_vat", "mailbox_address", "origin_contradicted"), "find_company"
+    ),
+    **dict.fromkeys(("no_withdrawal", "no_return_policy", "returns_abroad", "restocking_fee"), "returns"),
+    **dict.fromkeys(("return_address_withheld", "long_delivery", "ships_from_far", "origin_doubt"), "returns"),
+    **dict.fromkeys(
+        ("was_never_charged", "implausible_discount", "big_discount", "reference_anchor", "far_below_market"),
+        "compare_price",
+    ),
+    **dict.fromkeys(("permanent_sale", "timer_resets", "fake_urgency_app", "countdown", "pushy_copy"), "take_time"),
+    **dict.fromkeys(("preticked_addon", "drip_pricing", "late_fees"), "check_basket"),
+    **dict.fromkeys(
+        (
+            "review_velocity",
+            "review_shape",
+            "duplicate_reviews",
+            "off_topic_reviews",
+            "review_import_app",
+            "copied_reviews_elsewhere",
+        ),
+        "read_reviews",
+    ),
+    **dict.fromkeys(
+        (
+            "word_soup",
+            "generic_brand",
+            "generic_product",
+            "dropshipping_tools",
+            "supplier_links",
+            "photo_reused",
+            "brand_no_presence",
+            "seller_not_brand",
+        ),
+        "compare_elsewhere",
+    ),
+    "irreversible_payment_only": "buyer_protection",
+    "safety_gate_alert": "safety_alert",
+    **dict.fromkeys(
+        (
+            "p2p_advance_payment",
+            "p2p_untraceable_payment",
+            "p2p_protection_refused",
+            "p2p_seller_abroad",
+            "p2p_bank_transfer",
+            "p2p_contact_outside",
+            "p2p_llm_off_platform",
+        ),
+        "p2p_pay_safely",
+    ),
+    **dict.fromkeys(("p2p_photo_in_other_ads", "p2p_photo_on_shops", "p2p_shipping_only"), "p2p_see_item"),
+    **dict.fromkeys(
+        ("upfront_payment", "cash_only", "quote_on_site", "bait_callout", "vague_pricing", "emergency_pressure"),
+        "service_quote",
+    ),
+}
+# Findings that come before the band's own step even at "Serious concerns".
+_URGENT_STEPS = frozenset({"safety_alert"})
+
+
+def kind_of(page_type: str) -> str:
+    """
+    Which checklist a page gets.
+
+    :param page_type: The classified page type.
+    :return: ``shop``, ``ad`` or ``service``.
+    """
+    if page_type in P2P_TYPES:
+        return "ad"
+    if page_type in SERVICE_TYPES:
+        return "service"
+    return "shop"
+
+
+def source_label(key: str) -> str:
+    """
+    A source in words.
+
+    :param key: A key of the catalogue's ``sources``.
+    :return: The words ("Domain registry (RDAP)").
+    """
+    sources: dict[str, str] = catalogue()["sources"]
+    return sources.get(key) or sources["page"]
+
+
+def _ran(skill: str, features: dict[str, float]) -> bool:
+    """A skill ran and measured something (it isn't marked unavailable or not applicable)."""
+    prefix = f"{skill}."
+    names = [n for n in features if n.startswith(prefix)]
+    return bool(names) and f"{prefix}{UNAVAILABLE}" not in features and f"{prefix}{NOT_APPLICABLE}" not in features
+
+
+def counted(skill: str, features: dict[str, float]) -> bool:
+    """
+    Whether a skill counts as a check that ran: it measured something, and had something to look at.
+
+    :param skill: The skill's name.
+    :param features: The analysis's features.
+    :return: ``True`` when it counts.
+    """
+    if not _ran(skill, features):
+        return False
+    needs = _HAD_NOTHING.get(skill)
+    return needs is None or features.get(needs[0], 0.0) >= 1
+
+
+def _note(skills: tuple[str, ...], features: dict[str, float], available: set[str], applicable: set[str]) -> str:
+    """Why an area wasn't checked (a key of the catalogue's ``checklist.notes``)."""
+    for skill in skills:
+        needs = _HAD_NOTHING.get(skill)
+        if needs and _ran(skill, features) and features.get(needs[0], 0.0) < 1:
+            return needs[1]
+    if any(f"{s}.{UNAVAILABLE}" in features for s in skills):
+        return "unavailable"
+    if any(f"{s}.{NOT_APPLICABLE}" in features for s in skills):
+        return "not_applicable"
+    if any(s in applicable and s not in available for s in skills):
+        return "quick"
+    return "nothing"
+
+
+def checklist(
+    kind: str,
+    features: dict[str, float],
+    concerns: dict[str, str],
+    *,
+    available: set[str],
+    applicable: set[str],
+) -> tuple[list[CheckItem], int]:
+    """
+    The card's "What we checked", and how many checks ran.
+
+    :param kind: ``shop``, ``ad`` or ``service`` (:func:`kind_of`).
+    :param features: The analysis's features.
+    :param concerns: The areas a finding is about, each with the strongest such finding's title (the note).
+    :param available: The skills this analysis could run on this page (the quick tier runs fewer).
+    :param applicable: The skills a full analysis would run on this page.
+    :return: The checklist (areas no skill applies to are left out) and the number of checks that ran.
+    """
+    copy = catalogue()["checklist"]
+    items: list[CheckItem] = []
+    for key, skills in AREAS[kind].items():
+        if not any(s in applicable or s in available for s in skills):
+            continue  # nothing looks at this on such a page (a marketplace has no shop of its own to look up)
+        label = str(copy["areas"][kind][key])
+        if key in concerns:
+            items.append(CheckItem(key=key, label=label, status="concern", note=concerns[key]))
+        elif any(counted(s, features) for s in skills):
+            items.append(CheckItem(key=key, label=label, status="checked"))
+        else:
+            note = _note(skills, features, available, applicable)
+            items.append(CheckItem(key=key, label=label, status="not_checked", note=str(copy["notes"][note])))
+    area_skills = {s for skills in AREAS[kind].values() for s in skills}
+    runs = sum(1 for s in area_skills if counted(s, features))
+    return items, runs
+
+
+def area_of(reason_type: str, kind: str) -> str | None:
+    """
+    The checklist area a finding is about.
+
+    :param reason_type: The reason's type.
+    :param kind: ``shop``, ``ad`` or ``service``.
+    :return: The area's key, or ``None`` (a finding about the whole page, such as "Several small signals").
+    """
+    area = _SHARED_AREAS.get(kind, {}).get(reason_type) or REASON_AREAS.get(reason_type)
+    return area if area in AREAS[kind] else None
+
+
+def next_step(verdict: Verdict, kind: str, same_product: bool) -> NextStep:
+    """
+    One suggested next step: the strongest finding's, else the band's.
+
+    At "Serious concerns" the band's step ("better to buy this from a shop you know") comes first, unless a finding
+    is about safety. A clean result with the same product elsewhere suggests comparing.
+
+    :param verdict: The verdict.
+    :param kind: ``shop``, ``ad`` or ``service``.
+    :param same_product: Whether the same product was found on another shop.
+    :return: The step.
+    """
+    steps: dict[str, str] = catalogue()["next_steps"]
+    band_key = f"{kind}_{verdict.band}" if f"{kind}_{verdict.band}" in steps else verdict.band
+    first = verdict.reasons[0].type if verdict.reasons else None
+    step = STEP_FOR_REASON.get(first or "")
+    if verdict.band == "reliable" and not first:
+        step = None
+    if same_product and verdict.band in {"reliable", "concerns"} and step in {None, "compare_elsewhere"}:
+        step = "same_product"
+    if step is None or (verdict.band == "junk_or_scam" and step not in _URGENT_STEPS):
+        return NextStep(type=band_key, text=steps[band_key])
+    return NextStep(type=step, text=steps[step])
+
+
+def complete(
+    verdict: dict[str, Any], state: AnalysisState, *, available: Iterable[Skill], applicable: Iterable[Skill]
+) -> dict[str, Any]:
+    """
+    Add the card to a verdict: sources, the checklist, the number of checks, the next step and the same product.
+
+    :param verdict: The verdict as the judge returned it (:meth:`Verdict.model_dump`).
+    :param state: The analysis state (features, page type, the image index's same-product match).
+    :param available: The skills this analysis could run (the quick tier's are fewer).
+    :param applicable: All skills, as a full analysis would run them.
+    :return: The verdict with the card's fields.
+    """
+    page_type = state.get("page_type", "storefront")
+    kind = kind_of(page_type)
+    parsed = Verdict.model_validate(verdict)
+    features = state.get("features", {})
+    for reason in parsed.reasons:
+        reason.source = source_label(REASON_SOURCES.get(reason.type, "page"))
+    for positive in parsed.positives:
+        positive.source = source_label(POSITIVE_SOURCES.get(positive.type, "page"))
+    titles = {r.type: r.title for r in parsed.reasons}
+    if kind == "shop" and parsed.band != "reliable":
+        # Every reason that fired, not only the three shown: an area with a finding is never ticked as fine. (A
+        # reliable verdict leaves out the minor ones on purpose; it shows its one note.)
+        facts = state.get("facts") or PageFacts()
+        for key in shopper.fired_reasons(
+            features=features,
+            findings=state.get("findings", []),
+            facts=facts,
+            page_type=page_type,
+            market=shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")),
+        ):
+            titles.setdefault(key, str(catalogue()["reasons"][key]["title"]))
+    concerns: dict[str, str] = {}
+    for key, title in titles.items():
+        if (area := area_of(key, kind)) is not None:
+            concerns.setdefault(area, title)
+    found = state.get("same_product")
+    parsed.same_product = SameProduct.model_validate(found) if found and kind == "shop" else None
+    parsed.checklist, parsed.checks_run = checklist(
+        kind,
+        features,
+        concerns,
+        available={s.name for s in available if page_type in s.page_types},
+        applicable={s.name for s in applicable if page_type in s.page_types},
+    )
+    parsed.next_step = next_step(parsed, kind, parsed.same_product is not None)
+    return parsed.model_dump()

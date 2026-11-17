@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from unfret import image_index, image_store, shop_store, shopper
+from unfret import image_index, image_store, price_store, shop_store, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph.skills import reverse_image
@@ -364,3 +364,80 @@ def test_young_linked_shops_are_a_reason_on_storefronts() -> None:
     ).reasons
     (linked,) = [r for r in reasons if r.type == "linked_new_shops"]
     assert linked.detail.endswith("with 2 shops registered in the last six months: a.shop, b.shop.")
+
+
+# ── The same product sold elsewhere (the result card's first finding) ─────────────────────────────────────────────
+
+
+@pytest.fixture
+def prices(monkeypatch: pytest.MonkeyPatch) -> price_store.MemoryPriceStore:
+    store = price_store.MemoryPriceStore()
+    monkeypatch.setattr(price_store, "_store", store)
+    return store
+
+
+async def test_the_same_product_on_another_shop_with_its_price_and_both_photos(
+    stub: MemoryImageStore, prices: price_store.MemoryPriceStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photo = product_photo(21)
+    serve(monkeypatch, {"https://cdn.glowlamp.shop/lamp.jpg": encode(photo, "JPEG", quality=70)})
+    other = listing_at("cheap-lamps.shop", 1)
+    await stub.upsert(other, fp(photo), image_url="https://cheap/1.jpg", day=TODAY, source="seen")
+    await stub.upsert(listing_at("budget.shop", 3), fp(photo), image_url="https://budget/3.jpg", day=TODAY,
+                      source="seen")  # fmt: skip
+    # The price history keys a shop's listing as the index does (domain and product ID): its price can be named.
+    await prices.record(other.listing_key, price_store.Observation(TODAY - timedelta(days=2), 12.99, "USD", None))
+    await prices.record(other.listing_key, price_store.Observation(TODAY - timedelta(days=9), 14.5, "USD", None))
+
+    out = await ReverseImageSkill().run(page())
+
+    match = out["same_product"]
+    own = next(row.id for row, *_ in stub.rows.values() if row.domain == "glowlamp.shop")
+    assert match == {
+        "where": "cheap-lamps.shop",
+        "domain": "cheap-lamps.shop",
+        "others": 1,
+        "image": "https://unfret.net/v1/images/1/thumbnail.jpg",
+        "own_image": f"https://unfret.net/v1/images/{own}/thumbnail.jpg",  # recorded at once, for its thumbnail
+        "title": "Looks like the same product, sold elsewhere for $12.99",
+        "detail": "The main photo is the same photo as on cheap-lamps.shop and 1 other shop. Unfret saw it there for "
+        "$12.99 on 7 November 2026.",
+        "price": 12.99,
+        "currency": "USD",
+        "price_text": "$12.99",
+        "price_seen_on": "2026-11-07",
+    }
+    assert shopper.SameProduct.model_validate(match).price_text == "$12.99"
+
+
+async def test_a_catalogue_match_names_no_price_and_nothing_of_the_seed_but_the_brand(
+    stub: MemoryImageStore, prices: price_store.MemoryPriceStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photo = product_photo(22)
+    serve(monkeypatch, {"https://cdn.glowlamp.shop/lamp.jpg": encode(photo, "JPEG", quality=70)})
+    await stub.upsert(listing_at("amazon", 2), fp(photo), image_url="https://abo/2.jpg", day=TODAY, source="abo",
+                      label="LumiCo")  # fmt: skip
+
+    match = (await ReverseImageSkill().run(page()))["same_product"]
+
+    assert match["where"] == "an Amazon catalogue listing (brand: LumiCo)"
+    assert match["domain"] is None and "price" not in match
+    assert match["title"] == "Looks like the same product, sold elsewhere"
+    assert "abo/2.jpg" not in str(match)  # only the thumbnail proxy's address, never the seed's own
+
+
+async def test_no_same_product_for_the_test_shop_without_a_match_or_for_ads(
+    stub: MemoryImageStore, prices: price_store.MemoryPriceStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    photo = product_photo(23)
+    test_shop = "https://unfret.net/static/test-shop/projector-hero.jpg"
+    serve(monkeypatch, {test_shop: encode(photo, "JPEG", quality=70), "https://cdn.glowlamp.shop/lamp.jpg":
+                        encode(product_photo(24), "JPEG", quality=70)})  # fmt: skip
+    assert "same_product" not in await ReverseImageSkill().run(page())  # nothing in the index yet
+    await stub.upsert(listing_at("cheap.shop", 9), fp(photo), image_url="u", day=TODAY, source="seen")
+
+    out = await ReverseImageSkill().run(page("https://unfret.net/test-shop", test_shop))
+    assert out["same_product"]["own_image"] is None  # the test shop's photo is never kept
+    ad = page("https://www.marktplaats.nl/v/a/m1", test_shop) | {"page_type": "p2p_listing"}
+    assert "same_product" not in await ReverseImageSkill().run(ad)
+    await reverse_image.drain()

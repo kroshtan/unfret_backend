@@ -41,8 +41,12 @@ async def test_privacy_statement_names_the_price_observations(client: httpx.Asyn
 
 def test_pages_are_english_only() -> None:
     # The app writes everything in English: no translated sections, and no page asks for a verdict in a language.
+    # The one exception is the Dutch landing page (/nl), which links to the English pages for everything else.
     for page in STATIC_DIR.glob("*.html"):
         text = page.read_text(encoding="utf-8")
+        if page.name == "nl.html":
+            assert '<html lang="nl">' in text, page.name
+            continue
         assert '<html lang="en">' in text and 'lang="nl"' not in text, page.name
     for script in STATIC_DIR.glob("*.js"):
         text = script.read_text(encoding="utf-8")
@@ -133,13 +137,13 @@ def test_sign_in_never_asks_the_wallet_for_a_chain_id() -> None:
 async def test_home_page_introduces_unfret_without_third_party_requests(client: httpx.AsyncClient) -> None:
     response = await client.get("/")
     assert response.status_code == 200
-    assert "Shop without" in response.text and "<span>Unfret</span>" in response.text
+    assert "Check before" in response.text and "<span>Unfret</span>" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
-    # Both store links filled in, on the hero and the closing section.
+    # Both store links filled in, under the hero's link field.
     assert "{{" not in response.text
-    assert response.text.count(f'href="{settings.chrome_store_url}"') == 2
-    assert response.text.count(f'href="{settings.firefox_store_url}"') == 2
+    assert response.text.count(f'href="{settings.chrome_store_url}"') == 1
+    assert response.text.count(f'href="{settings.firefox_store_url}"') == 1
     assert 'href="https://addons.mozilla.org/' in response.text
     # Its script fills in the prices (/v1/pricing) and the store buttons; the footer's keeps an affiliate link's
     # code (ref.js).
@@ -524,15 +528,16 @@ def test_small_words_match_across_checkout() -> None:
     assert "countryPhrase(payCountry)" in script
     assert 'import { copyButton } from "./pass.js";' in (STATIC_DIR / "wallet.js").read_text()
     checkout = (STATIC_DIR / "checkout.html").read_text()
-    assert checkout.count("SOL for a small discount") == 2 and "a little less" not in checkout
+    assert checkout.count("SOL (a little cheaper for the small pack)") == 2 and "a little less" not in checkout
+    assert "small discount" not in checkout  # crypto is cheaper only for the 25-pack (B5)
 
 
 def test_the_home_page_leads_with_the_seller_then_agents_and_keeps_ads_and_trades_lower() -> None:
     page = (STATIC_DIR / "index.html").read_text()
-    hero = page.split('<section class="hero">', 1)[1].split("</section>", 1)[0]
-    assert "Check the seller" in hero and 'href="/developers"' in hero  # agents get a way in right at the top
-    order = [page.index(f'aria-labelledby="{name}-heading"') for name in ("how", "looks", "dev", "price", "beyond")]
-    assert order == sorted(order)  # ads and tradespeople: a secondary section below pricing
+    hero = page.split('<section class="hero', 1)[1].split("</section>", 1)[0]
+    assert "Check before" in hero and "seller" in hero
+    order = [page.index(f'aria-labelledby="{name}-heading"') for name in ("dev", "tricks", "price", "beyond")]
+    assert order == sorted(order)  # agents right after the hero; ads and tradespeople a secondary section below
 
 
 @pytest.mark.parametrize("path", ["/check", "/checkout", "/connect", "/my-checks", "/"])
@@ -584,6 +589,7 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
         "unfret-session",
         "unfret-free-pass",
         "unfret-ref",
+        "unfret-start-check",
     }
 
 
@@ -591,8 +597,8 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
 
 
 async def test_the_home_page_says_which_shops_need_the_extension_or_app(client: httpx.AsyncClient) -> None:
-    hero = (await client.get("/")).text.split('<section class="hero">', 1)[1].split("</section>", 1)[0]
-    assert "On Amazon, bol.com or eBay" in hero
+    hero = (await client.get("/")).text.split('<section class="hero', 1)[1].split("</section>", 1)[0]
+    assert "On Amazon and other marketplaces" in hero
     note = " ".join(hero.split("turn automatic checks away", 1)[1].split("</p>", 1)[0].split())
     assert "browser extension and the Android app still read them" in note
     assert 'href="/check"' in note  # where the list is
@@ -641,3 +647,55 @@ def test_the_card_buttons_say_who_handles_the_payment_and_why_the_email() -> Non
         assert page.index(f'id="{panel}-pay"') < page.index('class="pay-note"', page.index(f'id="{panel}-pay"'))
     home = " ".join((STATIC_DIR / "index.html").read_text().split())
     assert "asks for your email for the receipt" in home  # the same words as the home page
+
+
+@pytest.mark.usefixtures("node")
+def test_the_result_card_puts_the_same_product_first_and_says_what_was_checked(tmp_path: Path) -> None:
+    for name in ("check-render.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    render = (tmp_path / "check-render.js").as_uri()
+    origin = "https://unfret.net"
+    same = {
+        "title": "Looks like the same product, sold elsewhere for $12.99",
+        "detail": "The main photo is the same photo as on cheap.shop.",
+        "where": "cheap.shop",
+        "image": f"{origin}/v1/images/1/thumbnail.jpg",
+        "own_image": "https://cheap.shop/photo.jpg",  # never loaded from anywhere but this server
+    }
+    verdict = {
+        "band": "careful",
+        "reasons": [
+            {"type": "photo_reused", "title": "Same photo on other shops", "detail": "…", "severity": "medium",
+             "thumbnails": [f"{origin}/v1/images/1/thumbnail.jpg"], "source": "Unfret's image index"},
+        ],
+        "positives": [],
+        "same_product": same,
+        "next_step": {"type": "compare_elsewhere", "text": "Compare."},
+        "checklist": [{"key": "who", "label": "Who's behind the shop", "status": "concern", "note": "New"},
+                      {"key": "reviews", "label": "Reviews", "status": "not_checked", "note": "No reviews."}],
+        "checks_run": 9,
+    }  # fmt: skip
+    clean = {"band": "reliable", "reasons": [], "positives": [{"title": "Established shop"}], "checks_run": 14}
+    script = (
+        f"import {{ cardOf }} from {json.dumps(render)};"
+        f"const origin = {json.dumps(origin)};"
+        "process.stdout.write(JSON.stringify(["
+        f"cardOf({{ verdict: {json.dumps(verdict)} }}, 'careful', origin),"
+        f"cardOf({{ verdict: {json.dumps(clean)} }}, 'reliable', origin),"
+        "cardOf({ score: 30, verdict: { band: 'careful', reasons: [] } }, 'careful', origin)]));"
+    )
+    card, clean_card, older = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert card["sameProduct"] == {
+        "title": same["title"], "detail": same["detail"], "where": "cheap.shop", "image": same["image"],
+    }  # fmt: skip
+    assert card["reasons"][0]["thumbs"] == [] and card["reasons"][0]["source"] == "Unfret's image index"
+    assert card["nextStep"] == "Compare." and card["checks"] == 9
+    assert [i["status"] for i in card["checklist"]] == ["concern", "not_checked"]
+    assert clean_card["clean"] == "Nothing worrying in 14 checks." and clean_card["positivesFirst"]
+    # A result from before the card: its reasons as ever, and no checklist, step or same product.
+    assert older["reasons"][0]["title"] == "Several small signals"
+    assert (older["checklist"], older["nextStep"], older["sameProduct"], older["clean"]) == ([], None, None, None)

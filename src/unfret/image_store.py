@@ -100,7 +100,7 @@ class ImageStore(Protocol):
 
     async def upsert(
         self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> None:
+    ) -> int:
         """
         Store a listing's main photo, replacing the listing's previous one.
 
@@ -110,6 +110,7 @@ class ImageStore(Protocol):
         :param day: Today.
         :param source: ``seen`` or ``abo``.
         :param label: The catalogue brand (seed rows).
+        :return: The row's ID (for its thumbnail).
         """
 
     async def image_url(self, print_id: int) -> str | None:
@@ -148,7 +149,7 @@ class MemoryImageStore:
 
     async def upsert(
         self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> None:
+    ) -> int:
         """
         Store or replace.
 
@@ -158,6 +159,7 @@ class MemoryImageStore:
         :param day: Today.
         :param source: The source.
         :param label: The brand.
+        :return: The row's ID.
         """
         key = (where.domain, where.listing_key)
         old = self.rows.get(key)
@@ -165,6 +167,7 @@ class MemoryImageStore:
         self._next += 0 if old else 1
         stored = StoredPrint(row_id, source, where.domain, where.listing_key, fp, label)
         self.rows[key] = (stored, image_url, old[2] if old else day, day)
+        return row_id
 
     async def image_url(self, print_id: int) -> str | None:
         """
@@ -230,7 +233,7 @@ class PostgresImageStore:
 
     async def upsert(
         self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> None:
+    ) -> int:
         """
         Insert, or replace the listing's photo and refresh its last-seen day.
 
@@ -240,13 +243,14 @@ class PostgresImageStore:
         :param day: Today.
         :param source: The source.
         :param label: The brand.
+        :return: The row's ID.
         """
-        await self.pool.execute(
+        row_id: int = await self.pool.fetchval(
             "INSERT INTO image_prints (source, domain, listing_key, phash, dhash, embedding, colour, image_url,"
             " label, first_seen, last_seen) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) "
             "ON CONFLICT (domain, listing_key) DO UPDATE SET phash = EXCLUDED.phash, dhash = EXCLUDED.dhash,"
             " embedding = EXCLUDED.embedding, colour = EXCLUDED.colour, image_url = EXCLUDED.image_url,"
-            " last_seen = EXCLUDED.last_seen",
+            " last_seen = EXCLUDED.last_seen RETURNING id",
             source,
             where.domain,
             where.listing_key,
@@ -258,6 +262,7 @@ class PostgresImageStore:
             label,
             day,
         )
+        return row_id
 
     async def image_url(self, print_id: int) -> str | None:
         """

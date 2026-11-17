@@ -18,14 +18,15 @@ After the lookup the photo is added to the index, in the background (off with ``
 import asyncio
 import re
 from datetime import date
+from typing import Any
 
 import structlog
 
-from unfret import background, image_index, image_store, shop_store
+from unfret import background, image_index, image_store, price_store, shop_store, shopper
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.platforms import PLATFORMS
-from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, Observation, Skill, SkillOutput
+from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, PRODUCT_PAGES, Observation, Skill, SkillOutput
 from unfret.graph.state import SERVICE_TYPES, AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
@@ -76,19 +77,25 @@ def thumbnail_url(print_id: int) -> str:
     return f"{settings.public_base_url.rstrip('/')}/v1/images/{print_id}/thumbnail.jpg"
 
 
-async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> None:
+async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> int | None:
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     try:
-        await _store.upsert(where, fp, image_url=image_url, day=day, source="seen")
+        row_id = await _store.upsert(where, fp, image_url=image_url, day=day, source="seen")
         if _purged_on != day:
             _purged_on = day
             await _store.purge(day)
     except Exception as exc:  # noqa: BLE001 - optional, after the lookup
         logger.warning("image_store_failed", error=type(exc).__name__)
+        return None
+    return row_id
+
+
+async def _record_quietly(where: Listing, fp: ImagePrint, image_url: str, day: date) -> None:
+    await _record(where, fp, image_url, day)
 
 
 def _record_later(where: Listing, fp: ImagePrint, image_url: str, day: date) -> None:
-    task = asyncio.create_task(_record(where, fp, image_url, day))
+    task = asyncio.create_task(_record_quietly(where, fp, image_url, day))
     _pending.add(task)
     task.add_done_callback(_pending.discard)
 
@@ -140,6 +147,65 @@ def _evidence(matches: list[StoredPrint], *, service: bool = False) -> list[Obse
     return observations
 
 
+def _money(price: float, currency: str) -> str:
+    symbol = {"EUR": "€", "USD": "$", "GBP": "£"}.get(currency.upper(), "")
+    return f"{symbol}{price:,.2f}" if symbol else f"{price:,.2f} {currency.upper()}".strip()
+
+
+def _day(day: date) -> str:
+    return f"{day.day} {day.strftime('%B')} {day.year}"
+
+
+async def same_product(matches: list[StoredPrint], own_id: int | None) -> dict[str, Any] | None:
+    """
+    The likely same product on another shop, for the result card (shown first, with both photos).
+
+    Only what the index allows to be shown: the other shop's domain (or "Amazon", or "an Amazon catalogue listing"
+    for a photo from the public catalogue seed, with the brand it names), its photo through this server's thumbnail
+    proxy, and its price when Unfret's price history has seen that listing (a shop's listing with a public product
+    ID, in the last 90 days). Nothing else of the seed or of the other listing.
+
+    :param matches: The lookup's matches on shops and the catalogue (shops first).
+    :param own_id: This page's own photo in the index, for its thumbnail (``None`` when it isn't kept).
+    :return: The fields of :class:`unfret.shopper.SameProduct`, or ``None`` without a match.
+    """
+    if not matches:
+        return None
+    copy = shopper.catalogue()["same_product"]
+    first = matches[0]
+    domain: str | None = None
+    if first.source != "seen":
+        where = copy["catalogue_brand"].format(brand=first.label) if first.label else copy["catalogue"]
+    else:
+        where = copy["families"].get(first.domain) or first.domain
+        domain = None if first.domain in copy["families"] else first.domain
+    rest = len(matches) - 1
+    others = copy["others"].format(count=rest, shops=shopper.catalogue()["shop_one" if rest == 1 else "shop_many"])
+    seen = await price_store.seen_price(first.listing_key) if first.source == "seen" else None
+    fields: dict[str, Any] = {
+        "where": where,
+        "domain": domain,
+        "others": rest,
+        "image": thumbnail_url(first.id),
+        "own_image": thumbnail_url(own_id) if own_id is not None else None,
+        "title": copy["title"],
+        "detail": copy["detail"].format(where=where, others=others if rest else ""),
+    }
+    if seen is not None and seen.currency:
+        text = _money(seen.price, seen.currency)
+        fields |= {
+            "price": seen.price,
+            "currency": seen.currency.upper(),
+            "price_text": text,
+            "price_seen_on": seen.day.isoformat(),
+            "title": copy["title_price"].format(price=text),
+            "detail": copy["detail_price"].format(
+                where=where, others=others if rest else "", price=text, day=_day(seen.day)
+            ),
+        }
+    return fields
+
+
 def _ad_evidence(ads: list[StoredPrint]) -> list[Observation]:
     if not ads:
         return []
@@ -188,20 +254,29 @@ class ReverseImageSkill(Skill):
             return self.output({"searched": False}, note="The main image couldn't be read.")
 
         where = image_store.listing(state.get("url", ""), facts)
-        ad = state.get("page_type") in P2P_PAGES
+        page_type = state.get("page_type", "storefront")
+        ad = page_type in P2P_PAGES
         found = await (image_store.lookup_ad if ad else image_store.lookup)(_store, fp, where)
-        if where is not None and not is_test_shop(state.get("url", "")):  # the test shop's photos stay out
-            _record_later(where, fp, image_url, shop_store.today())
-        if found.stop:
-            return self.output({"searched": True}, note="The photo is a stock image found on many shops.")
         ads = [m for m in found.matches if image_store.is_ad(m)]
         others = [m for m in found.matches if not image_store.is_ad(m)]
-        return self.output(
+        product_match = not found.stop and page_type in PRODUCT_PAGES and bool(others)
+        own_id: int | None = None
+        if where is not None and not is_test_shop(state.get("url", "")):  # the test shop's photos stay out
+            if product_match:  # the card shows this page's photo next to the other one: its row ID is needed now
+                own_id = await _record(where, fp, image_url, shop_store.today())
+            else:
+                _record_later(where, fp, image_url, shop_store.today())
+        if found.stop:
+            return self.output({"searched": True}, note="The photo is a stock image found on many shops.")
+        output = self.output(
             {
                 "searched": True,
                 "other_shops": sum(1 for m in others if m.source == "seen"),
                 "catalogue_matches": sum(1 for m in others if m.source != "seen"),
                 **({"other_ads": len(ads)} if ad else {}),
             },
-            _ad_evidence(ads) + _evidence(others, service=state.get("page_type") in SERVICE_TYPES),
+            _ad_evidence(ads) + _evidence(others, service=page_type in SERVICE_TYPES),
         )
+        if product_match and (match := await same_product(others, own_id)) is not None:
+            output["same_product"] = match
+        return output

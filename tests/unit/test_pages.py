@@ -175,11 +175,12 @@ async def test_privacy_statement_describes_gift_codes_and_affiliates(client: htt
 
 def test_pages_show_invites_and_offer_to_redeem_one() -> None:
     wallet = (STATIC_DIR / "wallet.js").read_text()
-    assert "Share them with friends: each one gives a friend 3 free checks" in wallet
+    assert "Share them with friends: each one gives a friend 5 free checks" in wallet
+    assert "can use one gift code a month" in wallet
     assert "/v1/invites/redeem" in wallet and "copyButton(code)" in wallet  # Copy, as for the pass
     checkout = (STATIC_DIR / "checkout.js").read_text()
     assert '"X-Unfret-Claim"' in checkout and "inviteNodes(" in checkout  # the payment-received panel
-    assert "gift code to share" in checkout  # each pack's offer
+    assert "gift code for a friend" in checkout and "gift codes for friends" in checkout  # each pack's offer
     for page in ("checkout", "connect", "check"):
         html = (STATIC_DIR / f"{page}.html").read_text()
         assert "Got a gift code from a friend?" in html and 'id="invite-redeem"' in html, page
@@ -318,6 +319,59 @@ def test_the_menu_leads_to_my_checks_not_a_wallet_sign_in() -> None:
     footer = (STATIC_DIR / "partials" / "footer.html").read_text()
     assert 'href="/my-checks">My checks</a>' in header and 'href="/my-checks">My checks</a>' in footer
     assert "/connect" not in header and "/connect" not in footer and "Sign in" not in header
+
+
+@pytest.mark.usefixtures("node")
+def test_an_old_link_to_the_50_pack_lands_on_the_nearest_pack(tmp_path: Path) -> None:
+    module = tmp_path / "prices.mjs"
+    module.write_text((STATIC_DIR / "prices.js").read_text())
+    packs = [{"checks": 25}, {"checks": 100}]
+    script = (
+        f"import {{ packFor }} from {json.dumps(module.as_uri())};"
+        f"const packs = {json.dumps(packs)};"
+        "process.stdout.write(JSON.stringify([50, 25, 100, 60, 62.5, 70, 500, 1, 0, 'x']"
+        ".map((n) => packFor(packs, n)).map((f) => f && [f.pack.checks, f.replaced])));"
+    )
+    out = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert out == [
+        [25, True],  # the 50-pack: 25 is nearer than 100
+        [25, False],
+        [100, False],
+        [25, True],
+        [25, True],  # a tie: the smaller pack
+        [100, True],
+        [100, True],
+        [25, True],
+        None,  # no size asked: the page's default
+        None,
+    ]
+    checkout = (STATIC_DIR / "checkout.js").read_text()
+    assert "packFor(pricing.packs" in checkout and "isn't sold any more" in checkout
+    assert 'id="pack-note"' in (STATIC_DIR / "checkout.html").read_text()
+
+
+def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
+    home = (STATIC_DIR / "index.html").read_text()
+    prices = home[home.index('id="prices"') : home.index("</ul>", home.index('id="prices"'))]
+    assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
+    assert 'data-checks="50"' not in prices and "checks=50" not in home
+    assert "$6.00" in prices and "$20.00" in prices and "$11.50" not in home and "$22.00" not in home
+    assert "with 1 gift code for a friend" in prices and "with 4 gift codes for friends" in prices
+    assert "deep checks, then quick checks" in prices
+    home_js = (STATIC_DIR / "home.js").read_text()
+    assert "checks_per_pass" in home_js and "pack.invites" in home_js  # live from /v1/pricing
+    checkout = (STATIC_DIR / "checkout.html").read_text()
+    assert checkout.index('id="free-first"') < checkout.index('id="packs"')
+    money = " ".join((STATIC_DIR / "money.html").read_text().split())
+    assert "25 checks for $6, with 1 gift code for a friend" in money
+    assert "100 checks for $20, with 4 gift codes for friends (5 checks each)" in money
+    assert money.index("5 free deep checks") < money.index("25 checks for $6")
+    my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
+    assert "A pass can use one gift code a month" in my_checks
 
 
 @pytest.mark.usefixtures("node")

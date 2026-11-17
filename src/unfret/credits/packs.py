@@ -1,23 +1,30 @@
 """
-Credit packs and their prices, all derived from one setting: the price of a check (``price_per_check_usd``).
+Credit packs and their prices, derived from the price of a check (``price_per_check_usd``) but for the card prices.
 
-A pack of ``n`` checks costs:
+The card prices are set by hand, so they stay round.
 
-- **by card** (through the Merchant of Record): the pack's value plus the provider's worst-case cut, rounded up to
-  ``card_price_step_usd``: ``ceil_step((value + card_fee_flat) / (1 − card_fee_pct))``. At $0.20 a check with
-  6.5% + $0.50 and a $0.50 step: 25 → $6, 50 → $11.50, 100 → $22. The provider adds the buyer's sales tax/VAT.
-- **with crypto** (SOL or USDC): just the pack's value, ``n × price_per_check`` ($5, $10, $20), plus VAT where it
-  applies (:mod:`unfret.credits.vat`).
+A pack of ``n`` checks (25 and 100 by default) costs:
+
+- **by card** (through the Merchant of Record): its price in ``card_prices_usd`` ($6 and $20 by default), before the
+  provider's sales tax/VAT. A pack not named there costs its value plus the provider's worst-case cut, rounded up to
+  ``card_price_step_usd``: ``ceil_step((value + card_fee_flat) / (1 − card_fee_pct))`` (:func:`card_price`; at
+  $0.20 a check with 6.5% + $0.50 and a $0.50 step: 25 → $6, 100 → $22).
+- **with crypto** (SOL or USDC): just the pack's value, ``n × price_per_check`` ($5, $20), plus VAT where it applies
+  (:mod:`unfret.credits.vat`). Crypto is never dearer than the card price, and on the 100-pack it is the same.
 
 Visitors from the euro area pay by card in euros instead (:func:`card_currency`): each pack's euro price is a
-setting of its own (``card_prices_eur``, default €5.50 / €10 / €19), not converted from the dollar price, so it stays
+setting of its own (``card_prices_eur``, default €5.50 / €17.50), not converted from the dollar price, so it stays
 round. A euro checkout is what shows "iDEAL | Wero" to Dutch buyers at the provider. The credits are the same: a
 pack's value in dollars, whichever currency paid for it.
 
-The card price is *the* price and crypto is shown as the discount (EU rules forbid surcharging consumer card
-payments; a discount for paying another way is fine). Either way the account is credited the pack's value, so a
-check costs the same ``price_per_check_usd`` in credits whichever way the pack was bought. Changing that one setting
-moves every price: analyses, the x402 deep tier, the packs on both routes, ``/v1/pricing`` and the checkout page.
+The card price is *the* price and crypto is shown as the discount where there is one (EU rules forbid surcharging
+consumer card payments; a discount for paying another way is fine). Either way the account is credited the pack's
+value, so a check costs the same ``price_per_check_usd`` in credits whichever way the pack was bought. Changing that
+one setting moves the analyses, the x402 deep tier, the crypto prices, ``/v1/pricing`` and the checkout page; the
+card prices follow it only for packs without a price of their own.
+
+Packs taken off sale (the 50-pack, until November 2026) keep everything they credited: balances are in dollars, and
+gift codes already issued stay redeemable.
 """
 
 from dataclasses import dataclass
@@ -111,8 +118,17 @@ def packs(settings: Settings) -> list[Pack]:
     :param settings: The service settings.
     :return: The packs, smallest first.
     """
-    per_check, eur = settings.analysis_price_usd_micros, settings.card_eur_cents
-    return [Pack(n, n * per_check, card_price(n * per_check, settings), eur.get(n)) for n in settings.packs]
+    per_check, usd, eur = settings.analysis_price_usd_micros, settings.card_usd_cents, settings.card_eur_cents
+    cent = USD_MICROS // 100
+    return [
+        Pack(
+            n,
+            n * per_check,
+            usd[n] * cent if n in usd else card_price(n * per_check, settings),
+            eur.get(n),
+        )
+        for n in settings.packs
+    ]
 
 
 def euros_on(settings: Settings) -> bool:

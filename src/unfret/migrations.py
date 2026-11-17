@@ -663,6 +663,15 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         );
         """,
     ),
+    (
+        28,
+        "one gift code a month",
+        """
+        -- The month (its first day, UTC) of the latest gift code this account redeemed: one a calendar month
+        -- (unfret.credits.invites). Never which code, and nothing about the buyer.
+        ALTER TABLE wallets ADD COLUMN IF NOT EXISTS gift_month DATE CHECK (EXTRACT(DAY FROM gift_month) = 1);
+        """,
+    ),
 ]
 
 

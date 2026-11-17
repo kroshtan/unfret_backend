@@ -1,8 +1,8 @@
 """
 Invites ("gift codes"): codes a buyer gets with a pack, to give to a friend.
 
-**Issuing.** Every credited pack comes with one invite per ``invite_per_checks`` checks (25 → 1, 50 → 2, 100 → 4),
-each worth ``invite_checks`` checks (3 × the price of a check). They are made in the same database transaction that
+**Issuing.** Every credited pack comes with one invite per ``invite_per_checks`` checks (25 → 1, 100 → 4), each
+worth ``invite_checks`` checks (5 × the price of a check). They are made in the same database transaction that
 credits the purchase: the crypto scanner's when a quote's first payment arrives (:func:`issue_for_quote`), the fiat
 webhook's when an order is paid (:func:`issue_for_checkout`). Only purchases a buyer's page can collect from get
 invites: a quote or card checkout started with a claim token (below). A transfer made by hand, without a quote, gets
@@ -24,10 +24,15 @@ purchase credited, which is why it is wiped at the first read.
 **Redeeming.** ``POST /v1/invites/redeem`` with the account's own sign-in: each code once, by any account, new or
 in use, except the one whose purchase issued it (a gift is for a friend). For that, each invite keeps a keyed hash of
 the buying account (``buyer_hash``: HMAC-SHA256 with the session secret, so the table alone names nobody); nothing
-is kept about who redeems it but the account's ``invite_redeemed`` flag (never which code). Invites issued before
-the hash was kept can be redeemed by anyone. It is a gift, not a sale: no VAT record, no sales row, only the
-``credits_granted`` log line with ``kind="invite"`` (amounts only). Gift codes aren't under the intro codes' daily
-cap: they were paid for.
+is kept about who redeems it but the account's ``invite_redeemed`` flag and the month of its latest gift code
+(``gift_month``, never which code). Invites issued before the hash was kept can be redeemed by anyone. It is a
+gift, not a sale: no VAT record, no sales row, only the ``credits_granted`` log line with ``kind="invite"`` (amounts
+only). Gift codes aren't under the intro codes' daily cap: they were paid for.
+
+**One a month.** An account redeems at most :data:`REDEEM_PER_MONTH` gift code a calendar month (UTC). A second code
+in the same month is refused (``monthly``) and stays unused: it works on this account next month, or on someone
+else's now. The check and the credit are one transaction (the account's row is locked by the credit), so two codes
+at once can't both pass.
 
 **Intro codes** (retired with free checks: redeeming one answers ``ended`` unless ``intro_codes_enabled``). Named codes
 the operator made per channel (``FRIENDS``, ``DEV``, one per newsletter), redeemed at the same endpoint for new
@@ -67,7 +72,12 @@ MIN_PAID_PCT = 90
 # Uncollected codes of a card checkout are wiped after this many days.
 UNCLAIMED_DAYS = 7
 
-Failure = Literal["invalid", "unknown", "used", "not_eligible", "ended", "daily_cap", "own"]
+Failure = Literal["invalid", "unknown", "used", "not_eligible", "ended", "daily_cap", "own", "monthly"]
+# Gift codes an account may redeem per calendar month (UTC): the month of its latest one is kept (wallets.gift_month).
+REDEEM_PER_MONTH = 1
+MONTHLY_MESSAGE = (
+    "You've already used a gift code this month; this one still works next month, or give it to someone else."
+)
 
 
 class InviteError(ValueError):
@@ -339,17 +349,30 @@ class Redeemed:
     balance_usd_micros: int
 
 
-async def redeem(db: asyncpg.Pool, settings: Settings, account: str, value: str) -> Redeemed:
+def next_month(today: date) -> date:
     """
-    Redeem a gift code (an invite) for any account but the buyer's, once; or, while they are on, an intro code.
+    The first day of the month after ``today``'s: when an account can redeem a gift code again.
+
+    :param today: A day (UTC).
+    :return: The 1st of the next month.
+    """
+    return date(today.year + today.month // 12, today.month % 12 + 1, 1)
+
+
+async def redeem(
+    db: asyncpg.Pool, settings: Settings, account: str, value: str, *, today: date | None = None
+) -> Redeemed:
+    """
+    Redeem a gift code (an invite) for any account but the buyer's, once, one a month; or an intro code while on.
 
     :param db: The database pool.
     :param settings: The service settings.
     :param account: The redeeming account (a wallet, or ``key:<id>``), from its own sign-in.
     :param value: The code, as typed.
+    :param today: The day in UTC (injectable for tests).
     :return: The credit and the new balance.
-    :raises InviteError: For a malformed, unknown or used code, the buyer's own pass, or an intro code once they
-        have ended.
+    :raises InviteError: For a malformed, unknown or used code, the buyer's own pass, a second gift code in a month,
+        or an intro code once they have ended.
     """
     code = normalise(value)
     if code is None:
@@ -369,9 +392,20 @@ async def redeem(db: asyncpg.Pool, settings: Settings, account: str, value: str)
             bytes(row["buyer_hash"]), buyer_digest(settings, account)
         ):
             raise InviteError("own", "This gift code came with your own pack: give it to a friend.")
+        day = today or datetime.now(UTC).date()
+        month = day.replace(day=1)
+        # The credit makes (or locks) the account's row; the month is then checked and set under that lock, and a
+        # refusal rolls the credit back, so the code stays unused.
         balance = await ledger.credit(conn, account, amount)
-        await conn.execute("UPDATE wallets SET invite_redeemed = TRUE WHERE pubkey = $1", account)
-        await conn.execute("UPDATE invites SET redeemed_on = CURRENT_DATE WHERE code_hash = $1", digest(code))
+        first = await conn.fetchval(
+            "UPDATE wallets SET invite_redeemed = TRUE, gift_month = $2 "
+            "WHERE pubkey = $1 AND (gift_month IS NULL OR gift_month < $2) RETURNING TRUE",
+            account,
+            month,
+        )
+        if not first:
+            raise InviteError("monthly", MONTHLY_MESSAGE)
+        await conn.execute("UPDATE invites SET redeemed_on = $2 WHERE code_hash = $1", digest(code), day)
     logger.info("credits_granted", kind="invite", usd_micros=amount)
     return Redeemed(amount, balance)
 

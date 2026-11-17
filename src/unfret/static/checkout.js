@@ -45,7 +45,7 @@ import { chooseButtons } from "./install-button.js";
 import { makePass } from "./new-pass.js";
 import { storedRef } from "./ref.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
-import { cardPrice as cardPriceFor, countryPhrase, taxNote } from "./prices.js";
+import { cardPrice as cardPriceFor, countryPhrase, packFor, taxNote } from "./prices.js";
 
 const $ = (id) => document.getElementById(id);
 const main = document.querySelector("main.checkout");
@@ -729,17 +729,31 @@ function describe() {
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
 
-// "+ 1 gift code to share: 3 free checks for a friend".
+// "+ 1 gift code for a friend (5 checks)".
 function inviteOffer(invites) {
   return invites.count === 1
-    ? `+ 1 gift code to share: ${invites.checks_each} free checks for a friend`
-    : `+ ${invites.count} gift codes to share: ${invites.checks_each} free checks for a friend each`;
+    ? `+ 1 gift code for a friend (${invites.checks_each} checks)`
+    : `+ ${invites.count} gift codes for friends (${invites.checks_each} checks each)`;
+}
+
+// ?checks=<n> preselects a pack. A size that isn't sold any more (an old link to the 50-pack) gets the nearest pack
+// (prices.js packFor) and a note saying so; the visitor can pick another.
+function presetPack() {
+  const asked = Number(new URLSearchParams(window.location.search).get("checks")) || 0;
+  const found = packFor(pricing.packs, asked);
+  const note = $("pack-note");
+  note.hidden = !found?.replaced;
+  if (found?.replaced) {
+    const sizes = pricing.packs.map((p) => p.checks).join(" and ");
+    note.textContent =
+      `The ${asked}-check pack isn't sold any more, so we've picked ${checksWord(found.pack.checks)}. Packs now ` +
+      `come with ${sizes} checks: choose another above if you like. Checks you already have keep working.`;
+  }
+  return found?.pack ?? null;
 }
 
 function renderPacks() {
-  // ?checks=<n> preselects a pack.
-  const preset = Number(new URLSearchParams(window.location.search).get("checks")) || 0;
-  pack = pricing.packs.find((p) => p.checks === preset) ?? pack ?? pricing.packs[0];
+  pack = presetPack() ?? pack ?? pricing.packs[0];
   packs.replaceChildren(
     ...pricing.packs.map((option) => {
       const label = document.createElement("label");
@@ -1323,6 +1337,11 @@ async function start() {
     usdcRadio.checked = true;
     currency = "USDC";
     usdcNote.textContent = "SOL is unavailable right now (no fresh price); pay in USDC.";
+  }
+  const free = Number(pricing.free?.checks_per_pass) || 0;
+  if (free > 0) {
+    $("free-first-count").textContent = String(free);
+    $("free-first").hidden = false;
   }
   renderCountries();
   renderPacks();

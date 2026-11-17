@@ -40,17 +40,21 @@
         <p><button type="button" class="link back" id="crypto-back"><span class="i i-arrow"
           aria-hidden="true"></span> Back to card and iDEAL | Wero</button></p>
         <h2 id="crypto-heading">Pay with crypto</h2>
-        <p class="muted">USDC or SOL, from a wallet in this browser or on your phone. You get a small discount on the
-          card price: you pay the pack's value, plus VAT where it applies.</p>
+        <p class="muted">USDC or SOL, from a wallet in this browser or on your phone. You pay the pack's value, plus
+          VAT where it applies: never more than by card.</p>
         <p id="network" class="muted"></p>
       </div>
 
       <section id="pack-section" aria-labelledby="amount-heading">
         <h2 id="amount-heading" class="step">How many checks?</h2>
+        <p id="free-first" class="small muted" hidden>New here? A new pass comes with <span id="free-first-count">5</span>
+          free deep checks, and quick checks are always free: <a href="/check">check a link</a>. Need more? Pick a
+          pack.</p>
         <fieldset class="packs">
           <legend class="visually-hidden">Packs</legend>
           <div id="packs" class="packs"></div>
         </fieldset>
+        <p id="pack-note" class="small" role="status" hidden></p>
         <div class="bonus-code">
           <label for="code-input">Have a code? <span class="muted">It adds checks to your pack, at the same
             price.</span></label>

@@ -169,10 +169,21 @@ def test_on_when_configured_and_reports_no_secret() -> None:
     assert settings(polar_environment="").polar_environment == "sandbox"  # an empty deploy secret
 
 
-@pytest.mark.parametrize("bad", ["25", "25=", "x=abc", f"25={PRODUCTS[25]},25={PRODUCTS[50]}", "30=abc"])
+@pytest.mark.parametrize("bad", ["25", "25=", "x=abc", f"25={PRODUCTS[25]},25={PRODUCTS[50]}", "=abc"])
 def test_malformed_products_are_refused_at_start_up(bad: str) -> None:
     with pytest.raises(ValueError, match="polar_products"):
         settings(polar_products=bad)
+
+
+def test_a_product_for_a_pack_off_sale_is_ignored() -> None:
+    # Dev and production still name the 50-pack's product until it is archived in Polar: card payments stay on.
+    built = provider()
+    assert settings().polar_configured
+    assert built.products == {25: PRODUCTS[25], 100: PRODUCTS[100]}
+    assert PRODUCTS[50] not in built.packs_by_product
+    price = {"subtotal_amount": 1150, "net_amount": 1150}
+    assert parse("order.paid", order(product_id=PRODUCTS[50], **price)) is None  # left for a person to look at
+    assert not settings(polar_products=f"25={PRODUCTS[25]},50={PRODUCTS[50]}").polar_configured  # 100 is missing
 
 
 # ── Checkout ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -251,7 +262,7 @@ async def test_polar_unreachable() -> None:
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
 
-    chosen = pack(settings(), 50)
+    chosen = pack(settings(), 100)
     assert chosen is not None
     with pytest.raises(FiatProviderError):
         await provider(httpx.MockTransport(down)).create_checkout(ACCOUNT, chosen, SUCCESS_URL)
@@ -280,11 +291,33 @@ def test_a_fee_in_another_currency_is_left_to_the_estimate() -> None:
     assert (no_fee := parse("order.paid", order(platform_fee_amount=0))) is not None and no_fee.fee_cents is None
 
 
-@pytest.mark.parametrize("size", [50, 100])
+@pytest.mark.parametrize("size", [25, 100])
 def test_each_pack_matches_its_own_card_price(size: int) -> None:
-    price = {50: 1150, 100: 2200}[size]
+    price = {25: 600, 100: 2000}[size]
     event = parse("order.paid", order(product_id=PRODUCTS[size], subtotal_amount=price, net_amount=price))
     assert event is not None and event.amount_cents == price
+
+
+def test_an_order_at_the_100_packs_old_price_credits_nothing() -> None:
+    # The 100-pack's product still at $22 / €19 in Polar while the pack costs $20 / €17.50: never credited as is.
+    assert parse("order.paid", order(product_id=PRODUCTS[100], subtotal_amount=2200, net_amount=2200)) is None
+    euro = {**EURO, "product_id": PRODUCTS[100], "subtotal_amount": 1900, "net_amount": 1900}
+    assert parse("order.paid", order(**euro)) is None
+
+
+@pytest.mark.parametrize(("currency", "polar_cents"), [("usd", 2200), ("eur", 1900)])
+async def test_a_100_pack_checkout_is_refused_while_its_polar_price_is_the_old_one(
+    currency: str, polar_cents: int
+) -> None:
+    # Until the product's price is changed in Polar, the checkout comes back at the old price: refused before anyone
+    # pays, so nobody is charged $22 for what is now a $20 pack (the route answers 503 and offers crypto).
+    seen: list[httpx.Request] = []
+    built = provider(polar_api(seen, amount=polar_cents))
+    chosen = pack(settings(), 100)
+    assert chosen is not None and chosen.card_cents(currency) == {"usd": 2000, "eur": 1750}[currency]
+    with pytest.raises(FiatProviderError, match="doesn't match"):
+        await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, currency)  # type: ignore[arg-type]
+    assert [json.loads(r.content)["products"] for r in seen] == [[PRODUCTS[100]]]
 
 
 @pytest.mark.parametrize(
@@ -414,7 +447,7 @@ async def test_no_euro_checkout_without_euro_prices() -> None:
 EURO = {"currency": "eur", "subtotal_amount": 550, "net_amount": 550, "tax_amount": 116, "total_amount": 666}
 
 
-@pytest.mark.parametrize(("size", "cents"), [(25, 550), (50, 1000), (100, 1900)])
+@pytest.mark.parametrize(("size", "cents"), [(25, 550), (100, 1750)])
 def test_a_euro_order_matches_its_packs_euro_price(size: int, cents: int) -> None:
     changes = {**EURO, "product_id": PRODUCTS[size], "subtotal_amount": cents, "net_amount": cents}
     event = parse("order.paid", order(**changes))
@@ -434,7 +467,8 @@ def test_a_euro_order_matches_its_packs_euro_price(size: int, cents: int) -> Non
     [
         {**EURO, "net_amount": 600},  # the dollar number in euros
         {**EURO, "net_amount": 500, "discount_amount": 50},  # a discount
-        {**EURO, "product_id": PRODUCTS[50]},  # the 25-pack's euro price for the 50-pack
+        {**EURO, "product_id": PRODUCTS[100]},  # the 25-pack's euro price for the 100-pack
+        {**EURO, "product_id": PRODUCTS[50], "net_amount": 1000},  # the 50-pack, off sale
         {"currency": "gbp", "net_amount": 550},  # a currency we don't sell in
         {"currency": "gbp"},
     ],

@@ -983,3 +983,26 @@ client are unchanged.
   422s; shared results (`/r/…`) are public. x402 `POST /v1/check` was already paid on every answer, the known-listing
   fast path (`cached: true`) included: the payment settles before the answer.
 - Clients: show "No check was used" only when `charged` is false, as before; nothing else changes.
+
+## Changes (packs of 25 and 100, gift codes once a month; backwards-compatible; migration 28)
+
+- **Packs:** 25 and 100 checks (`UNFRET_PACKS`); the 50-pack is no longer sold. `GET /v1/pricing` lists the packs on
+  sale, as before, with the same fields: per pack `price_usd` $6.00 / $20.00 (by card, before tax; now set by hand,
+  `UNFRET_CARD_PRICES_USD`), `price_eur` €5.50 / €17.50, `crypto_usd` $5.00 / $20.00 (the pack's value, before VAT;
+  never more than the card price), `credited_usd_micros` the pack's value. Clients must take the sizes from
+  `/v1/pricing`, never assume them.
+- `POST /v1/credits/purchase-tx`, `GET /v1/credits/solana-pay.svg` and `POST /v1/credits/fiat-checkout` with
+  `checks: 50` answer `400 BAD_REQUEST` "Not a pack size." (`metadata.packs: [25, 100]`), as for any size not on sale.
+  Passes that bought a 50-pack keep their checks, and its gift codes stay redeemable; a crypto quote for 50 made
+  before the change still credits when paid.
+- **Gift codes** (invites): one per 25 checks, as before (25-pack → 1, 100-pack → 4), now worth **5 checks** each
+  (`UNFRET_INVITE_CHECKS`). Each pack's `invites` says so (`{"count": 4, "checks_each": 5, "checks": 20}`) and its
+  `label` ends "· with 1 gift code for a friend (5 checks)" / "· with 4 gift codes for friends (5 checks each)". The
+  top-level `invites` adds `redeem_per_month: 1`, and its `for` now reads "any account but the buyer's: a wallet or an
+  API key, new or in use" (true since gift codes work on any account).
+- `POST /v1/invites/redeem`: **one gift code a calendar month (UTC)** per pass or wallet. A second one in the same
+  month answers `429 INVITE_MONTHLY_LIMIT` ("You've already used a gift code this month; this one still works next
+  month, or give it to someone else.", `metadata.next_month`: the date it works again, e.g. `"2026-12-01"`) and the
+  code stays unused, for this account next month or for someone else now. Show the `detail` as it is. The server keeps
+  only the month of the account's latest gift code (`wallets.gift_month`, migration 28), never which code.
+- `/checkout?checks=50` (an old link) selects the nearest pack on sale (25) and says the 50-pack isn't sold any more.

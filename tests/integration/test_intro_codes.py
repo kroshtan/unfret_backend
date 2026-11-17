@@ -76,8 +76,15 @@ async def test_a_code_gives_new_accounts_its_checks_until_its_uses_run_out(
     assert (third.status_code, third.json()["error_code"]) == (409, "INVITE_USED")
     # Nothing says which code an account used: only the invite flag.
     row = await pool.fetchrow("SELECT * FROM wallets WHERE pubkey = $1", key.account)
-    assert set(row.keys()) == {"pubkey", "balance_usd_micros", "trial_granted", "invite_redeemed", "purchased"}
-    assert (row["invite_redeemed"], row["purchased"]) == (True, False)
+    assert set(row.keys()) == {
+        "pubkey",
+        "balance_usd_micros",
+        "trial_granted",
+        "invite_redeemed",
+        "purchased",
+        "gift_month",  # the month of a gift code (never which); intro codes don't set it
+    }
+    assert (row["invite_redeemed"], row["purchased"], row["gift_month"]) == (True, False, None)
 
 
 async def test_new_accounts_only_and_one_invite_or_code_each(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:

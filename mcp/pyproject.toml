@@ -6,7 +6,7 @@ build-backend = "uv_build"
 name = "unfret-mcp"
 description = "MCP server for Unfret: pay-per-check store scam and dropshipping risk for AI shopping agents (x402, USDC or SOL)"
 version = "0.1.1"
-authors = [{ name = "Floris van Beers", email = "freelancing@kroshtan.com" }]
+authors = [{ name = "Floris van Beers", email = "hello@unfret.net" }]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

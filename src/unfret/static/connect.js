@@ -92,7 +92,7 @@ async function connect(wallet) {
       pairDone.focus();
       return;
     }
-    setStatus(status, `Signed in as ${session.address.slice(0, 4)}…${session.address.slice(-4)}.`, "ok");
+    setStatus(status, `Connected ${session.address.slice(0, 4)}…${session.address.slice(-4)}.`, "ok");
     signedIn = session;
     invite.hidden = false;
     window.postMessage(
@@ -114,7 +114,7 @@ document.getElementById("invite-redeem").addEventListener("click", async (event)
   const input = document.getElementById("invite-input");
   const code = input.value.trim().toLowerCase();
   if (!INVITE_RE.test(code)) return setStatus(inviteStatus, NOT_A_CODE, "error");
-  if (!signedIn) return setStatus(inviteStatus, "Sign in first.", "error");
+  if (!signedIn) return setStatus(inviteStatus, "Connect a wallet first.", "error");
   const button = event.currentTarget;
   button.disabled = true;
   try {

@@ -116,7 +116,7 @@ def test_connect_page_has_a_phone_pairing_mode() -> None:
     script = (STATIC_DIR / "connect.js").read_text()
     for element in ('id="pairing"', 'id="pair-code"', 'id="pair-error"', 'id="pair-done"'):
         assert element in html
-    assert "Sign in to the device showing" in html
+    assert "Connect your wallet to the device showing" in html
     assert "/v1/auth/pair/" in script and "pairId" in script
     assert "pair_id: pairId" in (STATIC_DIR / "wallet.js").read_text()
 
@@ -499,3 +499,33 @@ async def test_no_page_mentions_the_retired_showcase(client: httpx.AsyncClient) 
     for path in ("/", "/check", "/privacy"):
         text = (await client.get(path)).text.lower()
         assert "spotted recently" not in text and "showcase" not in text, path
+
+
+async def test_privacy_statement_covers_storage_logs_bases_and_rights(client: httpx.AsyncClient) -> None:
+    text = " ".join((await client.get("/privacy")).text.split())
+    assert "sets <strong>no cookies</strong>" in text
+    # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-ref
+    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "An affiliate's code"):
+        assert f"<strong>{key}</strong>" in text
+    assert "your IP address and your browser's name and version" in text  # the proxy's request log, as it is
+    assert "salted one-way hash, in memory only" in text
+    assert "Why we may use it (legal basis)" in text and "Because the law requires it" in text
+    assert "Autoriteit Persoonsgegevens" in text and "mailto:hello@unfret.net" in text
+    assert "Polar Software Inc., United States" in text and "Cloudflare, Inc. is based in the United States" in text
+    main = text.split("<main>", 1)[1].split("</main>", 1)[0]
+    assert "kroshtan.com" not in main  # one contact address: hello@unfret.net (the footer links the maker)
+
+
+def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -> None:
+    keys = set()
+    for script in STATIC_DIR.glob("*.js"):
+        keys |= set(re.findall(r'"(unfret-[a-z-]+)"', script.read_text()))
+    # Message types between the page and the extension, not storage.
+    assert keys - {"unfret-key", "unfret-key-received", "unfret-ref-received"} == {
+        "unfret-account",
+        "unfret-new-key",
+        "unfret-invite-claims",
+        "unfret-session",
+        "unfret-free-pass",
+        "unfret-ref",
+    }

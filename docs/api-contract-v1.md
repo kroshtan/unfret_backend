@@ -823,7 +823,7 @@ valid 7 days. Nothing is stored when a check runs.
   listing" before); a stored headline that starts with a former label loses it. The share token and what is stored
   are unchanged. The public `band` stays `warning` for `junk_or_scam`.
 
-## Changes (the showcase is retired; migration 25)
+## Changes (the showcase is retired; migration 24)
 
 - `GET /v1/showcase`, `GET /v1/showcase/{id}`, the pages `/showcase/{id}` and `/showcase/{id}/screenshot` and the
   operator's `/v1/admin/showcase…` endpoints are gone (404). Migration 24 drops `showcase_cases`. No client used them

@@ -39,7 +39,9 @@ shops and listings), each replayed through the analysis and scored by the open b
 Think twice or Serious concerns catches 74% of the scam and junk pages, and 12% of the legitimate pages get one
 (false alarms); Serious concerns alone catches 32%, with 2% false alarms. The corpus includes the pages the model was
 trained on, so expect somewhat lower numbers on pages it has never seen. It covers product pages only (not ads or
-service providers), and the corpus itself is private (see below).
+service providers), and the corpus itself is private (see below). The method, ads and tradespeople, false alarms per
+market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
+`make accuracy` (aggregates only, in [`static/accuracy.json`](src/unfret/static/accuracy.json)).
 
 ## The model
 

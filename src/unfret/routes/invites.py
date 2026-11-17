@@ -6,6 +6,7 @@ with their own account, a wallet's session or a pass, for ``invite_checks`` chec
 operator handed out, e.g. ``FRIENDS``) are retired.
 """
 
+from datetime import UTC, datetime
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, Request
@@ -61,6 +62,9 @@ def _refuse(exc: invites.InviteError) -> NoReturn:
         error = ForbiddenError(str(exc), error_code="INVITE_OWN_PACK")
     elif exc.kind == "daily_cap":
         error = TooManyRequestsError(str(exc), error_code="INTRO_DAILY_CAP")
+    elif exc.kind == "monthly":
+        again = invites.next_month(datetime.now(UTC).date()).isoformat()
+        error = TooManyRequestsError(str(exc), error_code="INVITE_MONTHLY_LIMIT", metadata={"next_month": again})
     else:
         error = ForbiddenError(str(exc), error_code="INVITE_NOT_FOR_THIS_ACCOUNT")
     raise error from exc
@@ -72,10 +76,12 @@ async def redeem(body: RedeemRequest, request: Request, account: str = Depends(r
     Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).
 
     The code is a gift code that came with a pack (``ufi_…``): any account may redeem it, new or in use, except the
-    one whose purchase issued it; each code works once. The account keeps only the fact that it redeemed one (not
-    which). Intro codes (``FRIENDS``) are retired: they answer 410 ``INVITE_ENDED``. Refusals: 400 ``INVALID_INVITE``
-    (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_OWN_PACK`` (it came with this account's own
-    pack: give it to a friend), 410 ``INVITE_ENDED``; while intro codes are on again, also 403
+    one whose purchase issued it; each code works once, and an account redeems one a calendar month (UTC). The account
+    keeps only the fact that it redeemed one and the month of the latest (not which). Intro codes (``FRIENDS``) are
+    retired: they answer 410 ``INVITE_ENDED``. Refusals: 400 ``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``,
+    409 ``INVITE_USED``, 403 ``INVITE_OWN_PACK`` (it came with this account's own pack: give it to a friend), 429
+    ``INVITE_MONTHLY_LIMIT`` (this account already redeemed a gift code this month; the code stays unused, and
+    ``metadata.next_month`` is the day it can again), 410 ``INVITE_ENDED``; while intro codes are on again, also 403
     ``INVITE_NOT_FOR_THIS_ACCOUNT`` (an intro code on an account that has had checks) and 429 ``INTRO_DAILY_CAP``;
     429 ``TOO_MANY_REQUESTS`` (too many codes tried from one visitor network in ten minutes).
 

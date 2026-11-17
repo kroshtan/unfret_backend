@@ -1,11 +1,11 @@
 """
 Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`PolarProvider`.
 
-Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the
-same product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_eur`` sets the euro prices).
-A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area, with discount
-codes off and our account id and this site's address (``public_base_url``) in its metadata; nothing about the buyer
-is sent, except the billing country of a local payment method (:mod:`unfret.credits.local_methods`): Polar shows
+Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the same
+product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_usd`` and ``card_prices_eur`` set
+the prices). A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area, with
+discount codes off and our account id and this site's address (``public_base_url``) in its metadata; nothing about the
+buyer is sent, except the billing country of a local payment method (:mod:`unfret.credits.local_methods`): Polar shows
 iDEAL | Wero only for a checkout in EUR whose billing country is the Netherlands, so that checkout has
 ``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it; Polar still asks for the country
 only, and its card tab stays selected, with iDEAL | Wero as the tab next to it). The API calls need an Organization
@@ -236,6 +236,8 @@ def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None
     """
     The Polar provider, if it is fully configured (token, webhook secret, a product for every pack); else ``None``.
 
+    A product named for a pack that is no longer on sale (``50=<uuid>`` after the 50-pack was dropped) is ignored.
+
     :param settings: The service settings.
     :param transport: An httpx transport (tests).
     :return: The provider, or ``None`` (fiat stays off).
@@ -243,6 +245,9 @@ def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None
     if not settings.polar_configured:
         return None
     ids = settings.polar_product_ids
+    if retired := sorted(set(ids) - set(settings.packs)):
+        # A product kept for a pack taken off sale: no checkout for it, and its orders aren't credited (logged).
+        logger.info("polar_products_off_sale", packs=retired)
     return PolarProvider(
         access_token=settings.polar_access_token.get_secret_value(),
         environment=settings.polar_environment,

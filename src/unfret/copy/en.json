@@ -732,8 +732,8 @@
     "card_tax": "plus sales tax/VAT where applicable, added at checkout",
     "vat_line": "{net} + {rate}% VAT ({vat}) = {total}",
     "no_vat_line": "{total} (no VAT outside the EU)",
-    "invite_one": "comes with 1 invite of {checks} checks to give away",
-    "invite_many": "comes with {count} invites of {checks} checks to give away"
+    "invite_one": "with 1 gift code for a friend ({checks} checks)",
+    "invite_many": "with {count} gift codes for friends ({checks} checks each)"
   },
   "shop_one": "shop",
   "shop_many": "shops",

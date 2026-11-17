@@ -200,8 +200,7 @@ async def test_pricing_without_purchases(client: httpx.AsyncClient) -> None:
     assert body["hot_wallet"] is None
     assert [(p["checks"], p["price_usd"], p["crypto_usd"]) for p in body["packs"]] == [
         (25, "$6.00", "$5.00"),
-        (50, "$11.50", "$10.00"),
-        (100, "$22.00", "$20.00"),
+        (100, "$20.00", "$20.00"),
     ]
     assert body["fiat"]["min_usd_micros"] == 6_000_000  # the smallest pack by card
     assert body["vat"]["country_hint"] is None  # not through Cloudflare
@@ -262,9 +261,11 @@ async def test_purchase_transaction_pays_the_pack_plus_vat(
 
 
 async def test_buyers_outside_the_eu_pay_no_vat(client: httpx.AsyncClient, shop: ChainRpc) -> None:
-    body = {"address": str(Keypair().pubkey()), "checks": 50, "country": "us", "currency": "USDC"}
+    body = {"address": str(Keypair().pubkey()), "checks": 100, "country": "us", "currency": "USDC"}
     reply = (await client.post("/v1/credits/purchase-tx", json=body)).json()
-    assert (reply["price"]["country"], reply["price"]["vat_usd_micros"], reply["amount"]) == ("US", 0, 10_000_000)
+    assert (reply["price"]["country"], reply["price"]["vat_usd_micros"], reply["amount"]) == ("US", 0, 20_000_000)
+    old = await client.post("/v1/credits/purchase-tx", json={**body, "checks": 50})  # the 50-pack, off sale
+    assert (old.status_code, old.json()["metadata"]) == (400, {"packs": [25, 100]})
 
 
 @pytest.mark.parametrize(

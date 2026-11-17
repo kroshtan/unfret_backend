@@ -8,6 +8,25 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from solders.pubkey import Pubkey
 
 
+def _pack_prices(value: str) -> dict[int, int]:
+    """
+    Pack prices as set: ``"25=5.50,100=17.50"`` → ``{25: 550, 100: 1750}``.
+
+    :param value: The setting.
+    :return: Pack size → cents; empty for an empty setting.
+    :raises ValueError: If it is malformed (a size twice, an amount that isn't positive with at most cents).
+    """
+    prices: dict[int, int] = {}
+    for item in filter(None, (part.strip() for part in value.split(","))):
+        size, sep, amount = (piece.strip() for piece in item.partition("="))
+        whole = re.fullmatch(r"\d{1,6}(\.\d{1,2})?", amount)
+        cents = int(Decimal(amount) * 100) if whole else 0
+        if not sep or not size.isdigit() or int(size) in prices or cents <= 0:
+            raise ValueError(f"malformed pack prices: {value!r}")
+        prices[int(size)] = cents
+    return prices
+
+
 class Settings(BaseSettings):
     """
     Service configuration, read from ``UNFRET_``-prefixed environment variables or a git-ignored ``.env``.
@@ -120,21 +139,27 @@ class Settings(BaseSettings):
     # refused while that price is stale or uncertain.
     price_per_check_usd: Decimal = Field(default=Decimal("0.20"), gt=0, decimal_places=6)
     # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (plus VAT where it
-    # applies); by card (the Merchant of Record) it costs that plus the card costs, rounded up (packs.card_price).
-    packs: list[int] = [25, 50, 100]
+    # applies); by card (the Merchant of Record) it costs its card_prices_usd price, or (a pack not named there) that
+    # plus the card costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps
+    # its checks and the gift codes it got.
+    packs: list[int] = [25, 100]
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
     card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
-    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=5.50,50=10.00,100=19.00",
-    # one per pack, before the provider's sales tax/VAT like the dollar prices. Set by hand (not derived from the
-    # dollar price, so they stay round); each Polar product needs a EUR price equal to its pack's. A EUR checkout is
-    # what shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in dollars.
-    card_prices_eur: str = "25=5.50,50=10.00,100=19.00"
-    # Invites (unfret.credits.invites): every credited pack comes with one invite per invite_per_checks checks bought
-    # (25 → 1, 50 → 2, 100 → 4), each worth invite_checks checks to an account that never had any credit. 0 turns
-    # issuing off; invites already issued stay redeemable.
+    # Card prices in dollars (unfret.credits.packs): "25=6.00,100=20.00", before the provider's sales tax/VAT. Set by
+    # hand, like the euro prices; a pack not named here costs its derived card price. Each Polar product needs a USD
+    # price equal to its pack's, or its checkout is refused before anyone pays.
+    card_prices_usd: str = "25=6.00,100=20.00"
+    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=5.50,100=17.50", one per
+    # pack, before the provider's sales tax/VAT like the dollar prices. Set by hand (not derived from the dollar
+    # price, so they stay round); each Polar product needs a EUR price equal to its pack's. A EUR checkout is what
+    # shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in dollars.
+    card_prices_eur: str = "25=5.50,100=17.50"
+    # Invites ("gift codes", unfret.credits.invites): every credited pack comes with one invite per invite_per_checks
+    # checks bought (25 → 1, 100 → 4), each worth invite_checks checks to any account but the buyer's. An account
+    # redeems at most one a calendar month (UTC). 0 turns issuing off; invites already issued stay redeemable.
     invite_per_checks: int = Field(default=25, ge=0)
-    invite_checks: int = Field(default=3, gt=0)
+    invite_checks: int = Field(default=5, gt=0)
     # Intro codes (named, operator-made, many uses each; see unfret.credits.invites): an emergency brake, off by
     # default (each code already has its own max uses). Set, all codes together give at most this many checks a UTC
     # day, so a code shared too widely can't run up the LLM bill; 0 pauses every code.
@@ -211,7 +236,9 @@ class Settings(BaseSettings):
     # signed with this whsec_ secret and refused outside the replay window.
     fiat_webhook_secret: SecretStr = SecretStr("")
     # Polar (unfret.credits.polar): on only when the access token, a product for every pack and the webhook secret
-    # are all set. polar_products maps pack sizes to Polar product ids: "25=<uuid>,50=<uuid>,100=<uuid>".
+    # are all set. polar_products maps pack sizes to Polar product ids: "25=<uuid>,100=<uuid>". A product for a pack
+    # that is no longer on sale (an old "50=<uuid>") is ignored: no checkout starts for it, and an order for it is
+    # left for a person to look at.
     polar_access_token: SecretStr = SecretStr("")
     polar_environment: Literal["sandbox", "production"] = "sandbox"
     polar_products: str = ""
@@ -428,20 +455,38 @@ class Settings(BaseSettings):
             problems.append("key_pow_bits must be 1-32")
         if not 0 <= self.report_training_gap <= self.report_reward_gap:
             problems.append("need 0 <= report_training_gap <= report_reward_gap")
+        if problems:
+            raise ValueError("inconsistent settings: " + "; ".join(problems))
+        return self
+
+    @model_validator(mode="after")
+    def _card_prices_consistent(self) -> Self:
+        """
+        Refuse malformed card prices and Polar products, and prices that leave a pack on sale unpriced.
+
+        :return: The settings.
+        :raises ValueError: Listing every contradiction found.
+        """
+        problems: list[str] = []
         try:
-            unknown = sorted(set(self.polar_product_ids) - set(self.packs))
+            self.polar_product_ids  # noqa: B018 - parsed for its errors; products of packs off sale are ignored
         except ValueError as exc:
             problems.append(str(exc))
-        else:
-            if unknown:
-                problems.append(f"polar_products names packs that aren't on sale: {unknown}")
         try:
             eur = self.card_eur_cents
         except ValueError as exc:
             problems.append(str(exc))
         else:
-            if eur and set(eur) != set(self.packs):
+            if eur and not set(self.packs) <= set(eur):
                 problems.append("card_prices_eur must price every pack on sale (or be empty: dollars only)")
+        try:
+            usd = self.card_usd_cents  # a pack it doesn't name gets the derived price
+        except ValueError as exc:
+            problems.append(str(exc))
+        else:
+            # A card price under the pack's value would make crypto the dearer way to pay.
+            if cheap := sorted(n for n, cents in usd.items() if cents * 10_000 < n * self.analysis_price_usd_micros):
+                problems.append(f"card_prices_usd is below the value of the packs {cheap} (checks × price_per_check)")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
@@ -473,7 +518,7 @@ class Settings(BaseSettings):
     @property
     def polar_product_ids(self) -> dict[int, str]:
         """
-        The Polar product of each pack, from :attr:`polar_products` (``"25=<uuid>,50=<uuid>"``).
+        The Polar product of each pack, from :attr:`polar_products` (``"25=<uuid>,100=<uuid>"``).
 
         :return: Pack size → product id.
         :raises ValueError: If the setting is malformed.
@@ -482,27 +527,39 @@ class Settings(BaseSettings):
         for item in filter(None, (part.strip() for part in self.polar_products.split(","))):
             size, sep, product = (piece.strip() for piece in item.partition("="))
             if not sep or not size.isdigit() or not product or int(size) in products:
-                raise ValueError("polar_products must read like 25=<product id>,50=<product id>")
+                raise ValueError("polar_products must read like 25=<product id>,100=<product id>")
             products[int(size)] = product
         return products
 
     @property
     def card_eur_cents(self) -> dict[int, int]:
         """
-        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=5.50,50=10.00"``).
+        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=5.50,100=17.50"``).
 
         :return: Pack size → euro cents; empty when euro prices are off.
         :raises ValueError: If the setting is malformed.
         """
-        prices: dict[int, int] = {}
-        for item in filter(None, (part.strip() for part in self.card_prices_eur.split(","))):
-            size, sep, amount = (piece.strip() for piece in item.partition("="))
-            euros = re.fullmatch(r"\d{1,6}(\.\d{1,2})?", amount)
-            cents = int(Decimal(amount) * 100) if euros else 0
-            if not sep or not size.isdigit() or int(size) in prices or cents <= 0:
-                raise ValueError("card_prices_eur must read like 25=5.50,50=10.00 (positive euros, at most cents)")
-            prices[int(size)] = cents
-        return prices
+        try:
+            return _pack_prices(self.card_prices_eur)
+        except ValueError:
+            raise ValueError(
+                "card_prices_eur must read like 25=5.50,100=17.50 (positive euros, at most cents)"
+            ) from None
+
+    @property
+    def card_usd_cents(self) -> dict[int, int]:
+        """
+        The packs' card prices in dollar cents set by hand, from :attr:`card_prices_usd` (``"25=6.00,100=20.00"``).
+
+        :return: Pack size → cents; a pack not named here gets the derived card price.
+        :raises ValueError: If the setting is malformed.
+        """
+        try:
+            return _pack_prices(self.card_prices_usd)
+        except ValueError:
+            raise ValueError(
+                "card_prices_usd must read like 25=6.00,100=20.00 (positive dollars, at most cents)"
+            ) from None
 
     @property
     def polar_configured(self) -> bool:

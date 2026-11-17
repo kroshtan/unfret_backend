@@ -274,7 +274,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
 | `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid; with its `X-Unfret-Claim`, its invite codes once |
-| `POST` | `/v1/invites/redeem` | Redeem an invite `{code}` for the signed-in new wallet or API key: 3 checks |
+| `POST` | `/v1/invites/redeem` | Redeem a gift code `{code}` for the signed-in wallet or API key (not the buyer's; one a month): 5 checks |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
 | `GET` `DELETE` | `/v1/shares/{id}` | A shared result; delete it with `X-Delete-Code` |
@@ -288,19 +288,22 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed a gift code, and for a pass
-the affiliate it came through, if any): no emails, no
-purchase history (the chain is the ledger), no record of what was analysed.
+user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed a gift code and the month of
+its latest, and for a pass the affiliate it came through, if any): no emails, no purchase history (the chain is the
+ledger), no record of what was analysed.
 
 **Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
-credits, an x402 deep check costs one check, and credits are sold in packs of 25, 50 and 100 checks
-(`src/unfret/credits/packs.py`). A pack's price is its card price ($6, $11.50, $22: the pack's value plus the card
-provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50, before the provider's sales tax/VAT); paying with SOL
-or USDC costs less, just the pack's value ($5, $10, $20) plus VAT where it applies. The card price is shown as *the*
-price and crypto as the discount, never as a card surcharge (EU rules forbid surcharging consumer card payments).
-Either way the account is credited the pack's value, so a check costs the same in credits however it was bought.
-Visitors from the euro area (Cloudflare's country hint) pay by card in **euros** instead: €5.50, €10, €19
-(`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted, before VAT like the dollar prices). Dutch visitors
+credits, an x402 deep check costs one check, and credits are sold in packs of 25 and 100 checks
+(`src/unfret/credits/packs.py`), after the free ones (a new pass's free deep checks, and quick checks). A pack's price
+is its card price, $6 and $20 before the provider's sales tax/VAT (`UNFRET_CARD_PRICES_USD`, set by hand; a pack not
+named there costs its value plus the card provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50); paying
+with SOL or USDC costs the pack's value ($5, $20) plus VAT where it applies, never more than by card (a card price
+below the pack's value is refused at start-up). The card price is shown as *the* price and crypto as the discount
+where there is one, never as a card surcharge (EU rules forbid surcharging consumer card payments). Either way the
+account is credited the pack's value, so a check costs the same in credits however it was bought. Visitors from the
+euro area (Cloudflare's country hint) pay by card in **euros** instead: €5.50, €17.50 (`UNFRET_CARD_PRICES_EUR`, set
+by hand rather than converted, before VAT like the dollar prices). The 50-pack is no longer sold: what it credited,
+and its gift codes, keep working, and an old `/checkout?checks=50` link picks the nearest pack and says so. Dutch visitors
 also get a **"Pay with iDEAL | Wero"** button above the card one (see *Local payment methods* below).
 
 **VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
@@ -352,11 +355,12 @@ There is no free trial: every new wallet or API key starts at zero checks and bu
 hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at
 most $10 a grant, with the admin token.
 
-**Invites** (`src/unfret/credits/invites.py`): every credited pack comes with invite codes to give away, one per 25
-checks (25 → 1, 50 → 2, 100 → 4), each worth 3 checks, so the 25-pack brings 28 checks in all. An account that never
-had any credit (a wallet we've never credited, an API key never topped up) redeems one, once, with its own sign-in
-(`POST /v1/invites/redeem`). Only each code's SHA-256 is stored, with the day issued and the day redeemed: no buyer,
-no redeemer, no IP. The buyer sees the codes once: the purchase comes with a random claim token (never on chain or
+**Invites** (gift codes, `src/unfret/credits/invites.py`): every credited pack comes with gift codes to give away,
+one per 25 checks (25 → 1, 100 → 4), each worth 5 checks. Any account but the buyer's redeems one with its own sign-in
+(`POST /v1/invites/redeem`), each code once, and one gift code a calendar month (UTC) per pass or wallet: a second
+one that month is refused (`INVITE_MONTHLY_LIMIT`) and stays unused. Only each code's SHA-256 is stored, with the day
+issued and the day redeemed and a keyed hash of the buyer; per account only the month of its latest gift code: no
+redeemer, no IP. The buyer sees the codes once: the purchase comes with a random claim token (never on chain or
 sent to the card provider, stored only hashed); the codes are kept with the quote or card checkout until the first
 status request carrying that token takes them and wipes them in one statement. Invites are a gift: no VAT, no sales
 record. `GET /v1/admin/invites` counts those outstanding.
@@ -373,12 +377,13 @@ are set:
 | --- | --- |
 | `UNFRET_POLAR_ACCESS_TOKEN` | An **Organization Access Token** (Polar → Settings → Developers) with the single scope **`checkouts:write`**. Nothing else is called: no product, order, customer or refund reads |
 | `UNFRET_POLAR_ENVIRONMENT` | `production` (https://api.polar.sh, real money) or `sandbox` (https://sandbox-api.polar.sh; the default, also when empty). The token, products and webhook must come from the same environment |
-| `UNFRET_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,50=<product id>,100=<product id>` |
+| `UNFRET_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,100=<product id>`. A product for a pack no longer on sale (`50=…`) is ignored: no checkout starts for it and its orders are logged, not credited |
 | `UNFRET_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
 
-**In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax ($6.00, $11.50,
-$22.00 at $0.20 a check), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€5.50, €10.00, €19.00;
-keep USD as the organisation's default currency). A checkout is created for the pack's product with `currency:
+**In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax
+(`UNFRET_CARD_PRICES_USD`: $6.00, $20.00), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€5.50,
+€17.50; keep USD as the organisation's default currency). A product whose price differs from the pack's (say, not
+yet changed in Polar after the setting) refuses its checkouts, so nobody pays the old price; the other packs sell on. A checkout is created for the pack's product with `currency:
 "usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our account id
 (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and
 `/checkout?paid=1&checkout={CHECKOUT_ID}` as the success URL (Polar fills in the checkout's id); nothing about the
@@ -475,7 +480,7 @@ make bonus-codes ARGS="list | off SPRING20 | on SPRING20"
 ```
 
 **Gift codes** (the invites that come with a pack) work on any pass or wallet, except the one whose purchase issued
-them. **Intro codes** are retired (`UNFRET_INTRO_CODES_ENABLED`).
+them, one a calendar month per pass or wallet. **Intro codes** are retired (`UNFRET_INTRO_CODES_ENABLED`).
 
 ### Sharing a result
 
@@ -684,8 +689,8 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_SIWS_DOMAIN` | `unfret.net` | Sign-in messages must be bound to this domain |
 | `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
-| `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
-| `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
+| `UNFRET_PACKS` | `[25,100]` | Pack sizes in checks |
+| `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `5` | One gift code per this many checks in a pack (0: none issued), worth this many checks; a pass or wallet redeems one a month |
 | `UNFRET_INTRO_DAILY_CHECKS_CAP` | unset (no cap) | Emergency brake for intro codes (`make codes`): when set, all codes together give at most this many checks a UTC day (0 pauses them all); each code already has its own max uses |
 | `UNFRET_INTRO_CODES_ENABLED` | `false` | Intro codes are retired now that new passes get free checks: redeeming one answers `INVITE_ENDED`. `true` brings them back |
 | `UNFRET_AFFILIATE_BONUS_PCT` / `UNFRET_AFFILIATE_COMMISSION_PCT` / `UNFRET_AFFILIATE_MONTHS` | `20` / `25` / `12` | Affiliates: more checks on an attributed pass's first pack; the affiliate's share of net revenue (after VAT and payment fees) of purchases on it, for this many months after attribution |
@@ -698,8 +703,9 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
-| `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How a pack's card price is derived |
-| `UNFRET_CARD_PRICES_EUR` | `25=5.50,50=10.00,100=19.00` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack, or empty for dollars only. Each Polar product needs the same EUR price |
+| `UNFRET_CARD_PRICES_USD` | `25=6.00,100=20.00` | Each pack's card price in dollars (before tax), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |
+| `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How the card price of a pack without one in `UNFRET_CARD_PRICES_USD` is derived |
+| `UNFRET_CARD_PRICES_EUR` | `25=5.50,100=17.50` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack on sale (others are ignored), or empty for dollars only. Each Polar product needs the same EUR price |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |

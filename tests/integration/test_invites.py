@@ -4,7 +4,7 @@ import asyncio
 import base64
 import hashlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import asyncpg
 import httpx
@@ -23,7 +23,7 @@ from unfret.main import app
 from unfret.migrations import MIGRATIONS, migrate
 from unfret.prices import PriceBook
 
-INVITE = 3 * settings.analysis_price_usd_micros  # 3 checks: $0.60
+INVITE = 5 * settings.analysis_price_usd_micros  # 5 checks: $1.00
 GROSS_NL = {25: 6_050_000, 50: 12_100_000, 100: 24_200_000}  # the packs with Dutch VAT, in lamports at $1,000/SOL
 
 
@@ -66,6 +66,7 @@ async def redeem(client: httpx.AsyncClient, code: str, headers: dict[str, str]) 
 # ── Issuing with crypto purchases ─────────────────────────────────────────────
 
 
+# 50: a quote for the 50-pack made before it went off sale still pays, and still brings its two codes.
 @pytest.mark.parametrize(("checks", "expected"), [(25, 1), (50, 2), (100, 4)])
 async def test_a_crypto_pack_comes_with_its_invites_shown_once(
     client: httpx.AsyncClient, pool: asyncpg.Pool, checks: int, expected: int
@@ -116,7 +117,7 @@ async def test_no_invites_without_a_claim_for_a_short_payment_or_a_second_one(
 async def test_purchase_routes_hand_out_a_claim_that_is_only_stored_hashed(
     client: httpx.AsyncClient, pool: asyncpg.Pool, shop: ChainRpc
 ) -> None:
-    body = {"address": str(Keypair().pubkey()), "checks": 50, "country": "NL"}
+    body = {"address": str(Keypair().pubkey()), "checks": 100, "country": "NL"}
     reply = (await client.post("/v1/credits/purchase-tx", json=body)).json()
     svg = await client.get("/v1/credits/solana-pay.svg", params={"checks": 25, "country": "NL"})
     claims = {reply["claim"]: reply["quote_id"], svg.headers["x-unfret-claim"]: svg.headers["x-unfret-quote"]}
@@ -160,7 +161,7 @@ async def provider(client: httpx.AsyncClient) -> AsyncIterator[FakeFiatProvider]
     app.fiat = None
 
 
-@pytest.mark.parametrize("pack", [(25, 600, 1), (50, 1150, 2), (100, 2200, 4)])
+@pytest.mark.parametrize("pack", [(25, 600, 1), (100, 2000, 4)])
 async def test_a_card_pack_comes_with_its_invites_shown_once(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, pack: tuple[int, int, int]
 ) -> None:
@@ -230,13 +231,14 @@ async def test_a_fresh_wallet_redeems_an_invite_once(client: httpx.AsyncClient, 
 
     assert response.status_code == 200
     assert response.json() == {
-        "checks_added": 3,
+        "checks_added": 5,
         "usd_micros_added": INVITE,
         "balance_usd_micros": INVITE,
-        "checks_remaining": 3,
+        "checks_remaining": 5,
     }
     row = await pool.fetchrow("SELECT * FROM wallets WHERE pubkey = $1", address)
     assert (row["balance_usd_micros"], row["invite_redeemed"]) == (INVITE, True)
+    assert row["gift_month"] == datetime.now(UTC).date().replace(day=1)  # the month only, never which code
     assert await pool.fetchval("SELECT redeemed_on FROM invites") == datetime.now(UTC).date()
     # A gift: no sales record, no fiat payment.
     assert await pool.fetchval("SELECT COUNT(*) FROM crypto_sales") == 0
@@ -244,9 +246,66 @@ async def test_a_fresh_wallet_redeems_an_invite_once(client: httpx.AsyncClient, 
 
     again = await redeem(client, code, bearer(str(Keypair().pubkey())))  # the same code for someone else
     assert (again.status_code, again.json()["error_code"]) == (409, "INVITE_USED")
-    second = await redeem(client, await an_invite(pool), bearer(address))  # a friend's second code: fine
-    assert second.status_code == 200
-    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == 2 * INVITE
+
+
+async def test_one_gift_code_a_month_and_the_second_stays_unused(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    address = str(Keypair().pubkey())
+    assert (await redeem(client, await an_invite(pool), bearer(address))).status_code == 200
+    second = await an_invite(pool)
+
+    refused = await redeem(client, second, bearer(address))  # a second code in the same month
+
+    today = datetime.now(UTC).date()
+    assert (refused.status_code, refused.json()["error_code"]) == (429, "INVITE_MONTHLY_LIMIT")
+    assert refused.json()["detail"] == (
+        "You've already used a gift code this month; this one still works next month, or give it to someone else."
+    )
+    assert refused.json()["metadata"] == {"next_month": invites.next_month(today).isoformat()}
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == INVITE
+    assert await pool.fetchval("SELECT COUNT(*) FROM invites WHERE redeemed_on IS NULL") == 1  # still unused
+    # Someone else can use it now…
+    assert (await redeem(client, second, bearer(str(Keypair().pubkey())))).status_code == 200
+
+
+async def test_a_gift_code_works_again_next_month(pool: asyncpg.Pool) -> None:
+    address = str(Keypair().pubkey())
+    today = datetime.now(UTC).date()
+    following = invites.next_month(today)
+    await invites.redeem(pool, settings, address, await an_invite(pool), today=today)
+    kept = await an_invite(pool)
+    with pytest.raises(invites.InviteError) as refused:
+        last_day = following - timedelta(days=1)
+        await invites.redeem(pool, settings, address, kept, today=last_day)  # the last day of the same month
+    assert refused.value.kind == "monthly"
+    done = await invites.redeem(pool, settings, address, kept, today=following)  # the 1st of the next (UTC)
+    assert done.balance_usd_micros == 2 * INVITE
+    assert await pool.fetchval("SELECT gift_month FROM wallets WHERE pubkey = $1", address) == following
+    assert await pool.fetchval("SELECT MAX(redeemed_on) FROM invites") == following
+    with pytest.raises(invites.InviteError):
+        await invites.redeem(pool, settings, address, await an_invite(pool), today=following + timedelta(days=5))
+
+
+@pytest.mark.parametrize(
+    ("day", "first"),
+    [
+        (date(2026, 11, 17), date(2026, 12, 1)),
+        (date(2026, 12, 31), date(2027, 1, 1)),
+        (date(2027, 1, 1), date(2027, 2, 1)),
+    ],
+)
+def test_next_month(day: date, first: date) -> None:
+    assert invites.next_month(day) == first
+
+
+async def test_two_codes_at_once_on_one_account_credit_one(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    address = str(Keypair().pubkey())
+    codes = [await an_invite(pool) for _ in range(4)]
+    replies = await asyncio.gather(*(redeem(client, code, bearer(address)) for code in codes))
+    assert sorted(r.status_code for r in replies) == [200, 429, 429, 429]
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == INVITE
+    assert await pool.fetchval("SELECT COUNT(*) FROM invites WHERE redeemed_on IS NULL") == 3
 
 
 async def test_a_pass_in_use_redeems_a_friends_code(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -311,6 +370,10 @@ async def test_invites_store_no_link_to_anyone(pool: asyncpg.Pool) -> None:
         "WHERE table_name = 'wallets' AND column_name = 'invite_redeemed'"
     )
     assert added == "boolean"  # that it redeemed one, never which
+    month = await pool.fetchval(
+        "SELECT data_type FROM information_schema.columns WHERE table_name = 'wallets' AND column_name = 'gift_month'"
+    )
+    assert month == "date"  # the month of its latest one, never which
     code = await an_invite(pool, buyer="key:abcdefghij")
     stored = str([dict(r) for r in await pool.fetch("SELECT * FROM invites")]).encode()
     assert code.encode() not in stored

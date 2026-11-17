@@ -18,7 +18,18 @@ async function prices() {
     if (!item) continue;
     const price = cardPrice(body, pack, euros ? "eur" : "usd", hint);
     if (price) item.querySelector(".card-price").textContent = price.text;
+    const gifts = Number(pack.invites?.count) || 0;
+    const gift = item.querySelector(".gift");
+    if (gift) {
+      gift.textContent = gifts === 1 ? "with 1 gift code for a friend" : `with ${gifts} gift codes for friends`;
+      gift.hidden = gifts === 0;
+    }
   }
+  // The free tier and the gift codes' size, as configured.
+  const free = Number(body.free?.checks_per_pass) || 0;
+  if (free > 0) for (const node of document.querySelectorAll("[data-free-count]")) node.textContent = String(free);
+  const each = Number(body.invites?.checks_each) || 0;
+  if (each > 0) for (const node of document.querySelectorAll("[data-gift-checks]")) node.textContent = String(each);
   const note = document.getElementById("price-note");
   if (note && hint) {
     const link = document.createElement("a");

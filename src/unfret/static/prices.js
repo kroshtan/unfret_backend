@@ -63,3 +63,17 @@ export function countryPhrase(code) {
   if (code === "CZ") return "Czechia";
   return WITH_THE.has(code) ? `the ${name}` : name;
 }
+
+/**
+ * The pack a `?checks=<n>` link asks for: that pack if it is on sale, else the one closest in size (the smaller on a
+ * tie), with `replaced: true` (an old link to a pack that's gone, such as the 50-pack). Null without a size or packs.
+ */
+export function packFor(packs, checks) {
+  const asked = Number(checks) || 0;
+  if (asked <= 0 || !packs?.length) return null;
+  const exact = packs.find((p) => p.checks === asked);
+  if (exact) return { pack: exact, replaced: false };
+  const distance = (p) => Math.abs(p.checks - asked);
+  const nearest = [...packs].sort((a, b) => distance(a) - distance(b) || a.checks - b.checks)[0];
+  return { pack: nearest, replaced: true };
+}

@@ -192,8 +192,8 @@ export function setStatus(element, text, kind = "info") {
 export const INVITE_RE = /^ufi_[a-z2-7]{32}$/;
 export const NOT_A_CODE = "That doesn't look like a gift code: they start with ufi_. Check it and try again.";
 export const INVITE_LINE =
-  "Share them with friends: each one gives a friend 3 free checks, on a new pass or one they already have. They " +
-  "don't work on your own pass.";
+  "Share them with friends: each one gives a friend 5 free checks, on a new pass or one they already have (a pass " +
+  "can use one gift code a month). They don't work on your own pass.";
 
 // Redeem an invite for the account behind `token` (a session token or a whole API key). Returns the server's
 // { checks_added, checks_remaining, … }; throws with the server's reason (used, not a new account, …).

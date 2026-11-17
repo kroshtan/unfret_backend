@@ -111,9 +111,9 @@ async def test_metadata_alone_also_names_the_key(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    paid = order("order.paid", "ord_2", metadata=site_meta(issued.account), total_amount=2200)
+    paid = order("order.paid", "ord_2", metadata=site_meta(issued.account), total_amount=2000)
     assert (await send(client, provider, paid)).json() == {"status": "credited"}
-    assert await balance(pool, issued.account) == 20_000_000  # the 100-pack ($22 by card)
+    assert await balance(pool, issued.account) == 20_000_000  # the 100-pack ($20 by card)
 
 
 @pytest.mark.parametrize("site", ["https://other.unfret.invalid", None])
@@ -135,13 +135,13 @@ async def test_partial_refunds_debit_pro_rata_and_may_go_negative(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, graph: FakeGraph
 ) -> None:
     issued = await keys.create(pool)
-    meta = {"metadata": site_meta(issued.account), "total_amount": 2200}
+    meta = {"metadata": site_meta(issued.account), "total_amount": 2000}
     await send(client, provider, order("order.paid", "ord_3", **meta))  # the 100-pack: $20 of credits
     await pool.execute("UPDATE wallets SET balance_usd_micros = 1_000_000 WHERE pubkey = $1", issued.account)  # spent
 
-    quarter = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=550, **meta))
-    again = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=550, **meta))
-    half = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=1100, **meta))
+    quarter = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=500, **meta))
+    again = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=500, **meta))
+    half = await send(client, provider, order("order.refunded", "ord_3", refunded_amount=1000, **meta))
 
     assert [r.json()["status"] for r in (quarter, again, half)] == ["debited", "unchanged", "debited"]
     assert await balance(pool, issued.account) == 1_000_000 - 10_000_000  # half of $20, the balance below zero
@@ -228,8 +228,8 @@ async def polar_provider(client: httpx.AsyncClient, polar_sent: list[dict[str, A
         sent = json.loads(request.content)
         polar_sent.append(sent)
         prices = {
-            "usd": {test_polar.PRODUCTS[25]: 600, test_polar.PRODUCTS[100]: 2200},
-            "eur": {test_polar.PRODUCTS[25]: 550},
+            "usd": {test_polar.PRODUCTS[25]: 600, test_polar.PRODUCTS[100]: 2000},
+            "eur": {test_polar.PRODUCTS[25]: 550, test_polar.PRODUCTS[100]: 1750},
         }
         price = prices[sent["currency"]][sent["products"][0]]
         body = {
@@ -325,6 +325,54 @@ async def test_polar_checkout_failure_is_a_503(client: httpx.AsyncClient, pool: 
     assert await pool.fetchval("SELECT COUNT(*) FROM fiat_checkouts") == 0
 
 
+@pytest.mark.parametrize("country", ["US", "NL"])
+async def test_a_pack_whose_polar_price_is_still_the_old_one_is_refused_before_anyone_pays(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, country: str
+) -> None:
+    # Until the operator changes the 100-pack's product in Polar, its checkouts come back at $22 / €19: the euro
+    # checkout falls back to dollars, the dollar one is refused too, and the buyer gets a calm 503 (and crypto). The
+    # 25-pack's product, unchanged, still sells.
+    old = {"usd": {test_polar.PRODUCTS[25]: 600, test_polar.PRODUCTS[100]: 2200}}
+    old["eur"] = {test_polar.PRODUCTS[25]: 550, test_polar.PRODUCTS[100]: 1900}
+    asked: list[str] = []
+
+    def api(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)
+        asked.append(sent["currency"])
+        price = old[sent["currency"]][sent["products"][0]]
+        body = {
+            "id": test_polar.CHECKOUT_ID,
+            "url": "https://buy.polar.sh/c",
+            "currency": sent["currency"],
+            "amount": price,
+        }
+        return httpx.Response(201, json=body)
+
+    app.fiat = polar.from_settings(test_polar.settings(), transport=httpx.MockTransport(api))
+    try:
+        issued = await keys.create(pool)
+        body = {"key_id": issued.key_id, "checks": 100}
+        refused = await client.post("/v1/credits/fiat-checkout", json=body, headers=from_country(country))
+        assert asked == (["eur", "usd"] if country == "NL" else ["usd"])
+        assert await pool.fetchval("SELECT COUNT(*) FROM fiat_checkouts") == 0
+        sold = await client.post(
+            "/v1/credits/fiat-checkout", json={**body, "checks": 25}, headers=from_country(country)
+        )
+    finally:
+        app.fiat = None
+    assert (refused.status_code, refused.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
+    assert "pay with SOL or USDC" in refused.json()["detail"]
+    assert sold.status_code == 200 and sold.json()["currency"] == ("eur" if country == "NL" else "usd")
+
+
+async def test_an_old_link_to_the_50_pack_is_not_a_pack_for_the_api(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, polar_provider: PolarProvider
+) -> None:
+    issued = await keys.create(pool)
+    refused = await client.post("/v1/credits/fiat-checkout", json={"key_id": issued.key_id, "checks": 50})
+    assert (refused.status_code, refused.json()["metadata"]) == (400, {"packs": [25, 100]})
+
+
 async def test_ready_says_fiat_is_off_without_polar(client: httpx.AsyncClient) -> None:
     assert (await client.get("/v1/health/ready")).json()["fiat"] == "off"
 
@@ -345,7 +393,7 @@ async def test_pricing_has_euro_card_prices_and_the_visitors_card_currency(
     assert body["card_currency"] == currency
     assert body["vat"]["country_hint"] == country
     packs = [(p["checks"], p["price_usd"], p["price_eur"], p["price_eur_cents"]) for p in body["packs"]]
-    assert packs == [(25, "$6.00", "€5.50", 550), (50, "$11.50", "€10.00", 1000), (100, "$22.00", "€19.00", 1900)]
+    assert packs == [(25, "$6.00", "€5.50", 550), (100, "$20.00", "€17.50", 1750)]
     assert body["packs"][0]["price_usd_micros"] == 6_000_000  # every dollar field stays
     assert (await client.get("/v1/pricing")).json()["card_currency"] == "usd"  # no hint: dollars
 
@@ -533,11 +581,11 @@ async def test_euro_refunds_debit_pro_rata_and_a_dispute_takes_back_the_rest(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
-    meta = {"metadata": site_meta(issued.account), "total_amount": 1900, "currency": "eur"}
+    meta = {"metadata": site_meta(issued.account), "total_amount": 1750, "currency": "eur"}
     assert (await send(client, provider, order("order.paid", "ord_eur_2", **meta))).json() == {"status": "credited"}
     assert await balance(pool, issued.account) == 20_000_000  # the 100-pack
 
-    half = await send(client, provider, order("order.refunded", "ord_eur_2", refunded_amount=950, **meta))
+    half = await send(client, provider, order("order.refunded", "ord_eur_2", refunded_amount=875, **meta))
     assert half.json() == {"status": "debited"}
     assert await balance(pool, issued.account) == 10_000_000  # half of the euros back: half of the credits
     disputed = await send(client, provider, order("order.disputed", "ord_eur_2", **meta))
@@ -546,7 +594,7 @@ async def test_euro_refunds_debit_pro_rata_and_a_dispute_takes_back_the_rest(
     row = await pool.fetchrow("SELECT * FROM fiat_payments")
     assert (row["currency"], row["refunded_cents"], row["disputed"], row["debited_usd_micros"]) == (
         "eur",
-        950,
+        875,
         True,
         20_000_000,
     )

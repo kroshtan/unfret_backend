@@ -123,17 +123,18 @@ def purchase_transaction(
 
 def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
     """
-    How a pack is offered: the card price as *the* price, crypto as the lower price, and its invites.
+    How a pack is offered: the card price as *the* price, the crypto price, and its gift codes.
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
     discount for paying another way is fine. "Free checks" is the free tier's name (the checks a new pass comes with,
-    and quick checks: :mod:`unfret.credits.free`), never a "trial". Invites and intro codes keep their own words: an
-    invite is a buyer's gift ("an invite of 3 checks to give away"), never a "free invite" or a "trial".
+    and quick checks: :mod:`unfret.credits.free`), never a "trial". Gift codes (invites) and intro codes keep their
+    own words: a gift code is a buyer's gift for a friend ("with 1 gift code for a friend (5 checks)"), never a "free
+    invite" or a "trial".
 
     :param pack: The pack.
-    :param settings: The service settings (for the invites; without them, none are mentioned).
+    :param settings: The service settings (for the gift codes; without them, none are mentioned).
     :return: ``{"en": …}`` (keyed by language for the clients that read it that way), e.g. ``"25 checks — $6.00 ·
-        pay with crypto: $5.00 + VAT where applicable · comes with 1 invite of 3 checks to give away"``.
+        pay with crypto: $5.00 + VAT where applicable · with 1 gift code for a friend (5 checks)"``.
     """
     count = invites.count_for(settings, pack.checks) if settings else 0
     text = catalogue()["pricing"]
@@ -164,8 +165,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd``
     is the price (by card, before the provider's sales tax/VAT), ``price_eur`` the same in euros for visitors from the
     euro area (``None`` while euro prices are off), and ``crypto_usd`` the lower price when paying with
-    SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the invites it comes with to give away (the
-    25-pack: one of 3 checks, so it brings 28 checks in all).
+    SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the gift codes it comes with to give away (the
+    25-pack: one of 5 checks; the 100-pack: four).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -204,7 +205,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
         "invites": {
             "checks_each": settings.invite_checks,
             "per_checks": settings.invite_per_checks,
-            "for": "accounts that never had checks: a new wallet or a new API key",
+            "for": "any account but the buyer's: a wallet or an API key, new or in use",
+            "redeem_per_month": invites.REDEEM_PER_MONTH,
         },
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,

@@ -1158,6 +1158,7 @@ label.field .small { font-weight: 400; }
 @media (max-width: 48rem) { .paths { grid-template-columns: 1fr; } }
 .pay-panel .howto { margin-top: 0.5rem; }
 .tax-note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
+.pay-note { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 
 /* ── Installed on a phone (the web app, display-mode standalone) ─────────────────────────────────────────────────
    It opens at /check. The site's menu, its "Get Unfret" button and the footer (source code, API reference) are the
@@ -1355,6 +1356,18 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
 .examples h2 { font-size: 1rem; margin: 0 0 0.25rem; }
 .example-links { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
 .example-links button.link { text-align: left; }
+/* /check: the shops whose pages only the extension and the Android app can read */
+.browser-only { margin-top: 1rem; }
+.browser-only summary { font-weight: 600; color: var(--ink-2); min-height: 2rem; }
+.browser-only p { margin: 0.5rem 0; }
+.shop-list { list-style: none; padding: 0; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.shop-list li {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
 
 /* Checkout: the bonus code under the packs, and the note an old intro-code link gets. */
 .bonus-code { margin-top: 1rem; }

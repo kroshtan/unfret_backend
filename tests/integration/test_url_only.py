@@ -16,9 +16,13 @@ import pytest
 from structlog.testing import capture_logs
 
 from tests.integration.conftest import FakeGraph
+from tests.integration.test_free_checks import free_pass
+from tests.integration.test_keys import bearer
 from unfret import page_fetch
 from unfret.config import settings
-from unfret.net import UnsafeURLError
+from unfret.credits import free
+from unfret.main import app
+from unfret.net import RefusedError, UnsafeURLError
 from unfret.routes import analyze
 
 PRICE = settings.analysis_price_usd_micros
@@ -104,6 +108,15 @@ async def test_a_url_checked_by_someone_else_costs_a_check_and_no_fetch(
         ({"error": status_error(404)}, "PAGE_UNAVAILABLE"),
         ({"error": httpx.ConnectError("no route")}, "PAGE_UNAVAILABLE"),
         ({"error": TimeoutError()}, "PAGE_UNAVAILABLE"),
+        ({"error": httpx.ReadTimeout("no answer")}, "PAGE_BLOCKED"),
+        (
+            {
+                "error": RefusedError(
+                    httpx.Response(400, request=httpx.Request("GET", URL)), b"<script>window.KPSDK={}"
+                )
+            },
+            "PAGE_BLOCKED",
+        ),
         ({"error": UnsafeURLError("private address")}, "INVALID_URL"),
         (
             {"body": b"<html><title>Just a moment...</title><script src='/cdn-cgi/challenge-platform/x'></script>"},
@@ -218,3 +231,43 @@ async def test_a_url_only_check_can_be_reported_with_the_page_fetched_again(
     data = json.loads(await pool.fetchval("SELECT payload FROM reports"))
     assert data["url"] == "https://secret-shop.test/products/wool-sweater"  # without the query string
     assert "merino wool" in data["text"]
+
+
+@pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
+async def test_a_blocked_page_keeps_the_free_check_and_runs_nothing(  # noqa: PLR0917 - fixtures and parameters
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    graph: FakeGraph,
+    pool: asyncpg.Pool,
+    shop: dict[str, Any],
+    path: str,
+) -> None:
+    # The link checker's first check is on a free pass; a shop that turns the server away answers at once.
+    monkeypatch.setattr(settings, "key_pow_bits", 4)
+    monkeypatch.setattr(analyze, "_free_outcomes", analyze.RateLimit(1, window_s=3600))
+    issued = await free_pass(client)
+    shop["error"] = status_error(403)
+
+    for _ in range(2):  # and again: a refusal never counts as an uncharged analysis either
+        response = await client.post(path, json={"url": URL}, headers=bearer(issued["key"]))
+        assert response.status_code == 422
+        assert response.json()["error_code"] == "PAGE_BLOCKED"
+
+    assert graph.calls == []
+    assert await free.left(pool, issued["key_id"]) == settings.free_checks_per_pass
+    assert await free.used_today(pool) == 0
+
+
+async def test_a_blocked_page_answers_a_quick_check_without_running_it(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, shop: dict[str, Any]
+) -> None:
+    quick = FakeGraph()
+    monkeypatch.setattr(app, "quick_graph", quick)
+    monkeypatch.setattr(analyze, "_quick_rate", analyze.RateLimit(1000))
+    shop["body"] = b"<html><title>Pardon Our Interruption</title><body>Please verify you are human.</body></html>"
+
+    response = await client.post("/v1/analyze/stream", json={"url": URL, "tier": "quick"})
+
+    assert response.status_code == 422
+    assert response.json()["error_code"] == "PAGE_BLOCKED"
+    assert quick.calls == []

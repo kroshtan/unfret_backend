@@ -357,7 +357,9 @@ valid 7 days. Nothing is stored when a check runs.
   server fetches the page itself (`unfret.page_fetch`) before anything is charged. An account whose balance doesn't
   cover a check gets its 402 without a fetch. A page that can't be checked that way is a free `422` (plain JSON, no
   stream) with `error_code` `PAGE_UNAVAILABLE` (couldn't be fetched), `PAGE_BLOCKED` (the shop answered 401/403/405/
-  406/429/503/999, or with a Cloudflare/DataDome/PerimeterX/Amazon bot check), `PAGE_TOO_THIN` (under 400 characters
+  406/429/503/999, or another error status with a bot wall's page such as Kasada's or Akamai's; with a
+  Cloudflare/DataDome/PerimeterX/Amazon/Akamai/Imperva bot check; or not at all within 6 seconds of connecting:
+  the whole fetch gives up after 12), `PAGE_TOO_THIN` (under 400 characters
   of visible text with no price and no product JSON-LD: a shell its scripts fill in) or `INVALID_URL` (not a public
   http(s) address). Fetches are limited per account (`UNFRET_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
   The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back

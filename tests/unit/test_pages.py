@@ -465,3 +465,12 @@ def test_the_home_page_leads_with_the_seller_then_agents_and_keeps_ads_and_trade
     assert "Check the seller" in hero and 'href="/developers"' in hero  # agents get a way in right at the top
     order = [page.index(f'aria-labelledby="{name}-heading"') for name in ("how", "looks", "dev", "price", "beyond")]
     assert order == sorted(order)  # ads and tradespeople: a secondary section below pricing
+
+
+@pytest.mark.parametrize("path", ["/check", "/checkout", "/connect", "/my-checks", "/"])
+async def test_pages_cannot_be_steered_by_the_window_that_opened_them(client: httpx.AsyncClient, path: str) -> None:
+    # Another site that opens one of our pages must not keep a handle on it (navigating it on to a page that hands a
+    # pass to the extension, say); popups our pages open themselves (wallets) keep theirs.
+    response = await client.get(path)
+
+    assert response.headers["cross-origin-opener-policy"] == "same-origin-allow-popups"

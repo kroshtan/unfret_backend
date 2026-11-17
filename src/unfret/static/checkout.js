@@ -1179,7 +1179,8 @@ async function collectEarlier() {
 }
 
 // From My checks' "Send to the extension" (/checkout?send=pass): the extension takes a pass only from this page, so
-// this browser's pass (the link checker's sign-in) is offered to it here. False when this browser has no pass.
+// this browser's pass (the link checker's sign-in) is offered to it here, on a click: any site can open this link,
+// and a pass must never reach the extension by a page load alone. False when this browser has no pass.
 function sendPass() {
   const stored = storageGet(CHECK_ACCOUNT);
   if (stored?.kind !== "key" || typeof stored.token !== "string" || !KEY_RE.test(stored.token)) return false;
@@ -1189,7 +1190,8 @@ function sendPass() {
   const actions = element("div", "", "result-actions");
   actions.append(back);
   showChoices(false);
-  showPanel("ok", element("p", `Your pass ${showPassId(id)} for the extension`, "headline"), handoffBox({ key: stored.token }), actions);
+  const send = button("Send it to the extension", () => send.replaceWith(handoffBox({ key: stored.token })), "primary");
+  showPanel("ok", element("p", `Your pass ${showPassId(id)} for the extension`, "headline"), send, actions);
   return true;
 }
 

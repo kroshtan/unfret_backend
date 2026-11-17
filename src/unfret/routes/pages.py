@@ -36,6 +36,9 @@ PAGE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-cache",
+    # A site that opens one of these pages gets no handle on it (it can't navigate it on, say from /check#pass=… to
+    # /checkout?send=pass); popups the page opens itself (a wallet's) keep theirs.
+    "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
 }
 
 # The link checker is also an installable web app: it may load its manifest and register its service worker.

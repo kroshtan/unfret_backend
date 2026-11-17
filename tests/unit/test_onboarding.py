@@ -190,3 +190,21 @@ def test_top_up_links_name_a_key_id_only(tmp_path: Path) -> None:
         """.replace("KEY_ARG", json.dumps(KEY)),
     )
     assert out == ["abcdefghij", "abcdefghij", "abcdefghij", None, None, None, None, None, None]
+
+
+def test_a_pass_from_a_link_is_never_kept_without_asking() -> None:
+    # /check#pass=… can be opened by any site: it must not sign this browser in with that pass by itself, even when
+    # the browser has no pass yet (the next stop could hand it to the extension, and the visitor's checks would then
+    # be bought onto someone else's pass).
+    script = (STATIC_DIR / "check.js").read_text()
+    receive = script.split("async function receivePass(pass) {", 1)[1].split("\n}\n", 1)[0]
+    assert "return take()" not in receive
+    assert '$("pass-offer-use").onclick = () => void take();' in receive
+
+
+def test_checkout_sends_a_stored_pass_to_the_extension_only_on_a_click() -> None:
+    script = (STATIC_DIR / "checkout.js").read_text()
+    send = script.split("function sendPass() {", 1)[1].split("\n}\n", 1)[0]
+    before_click, _, on_click = send.partition('button("Send it to the extension", () =>')
+    assert "handoffBox(" not in before_click
+    assert "handoffBox({ key: stored.token })" in on_click

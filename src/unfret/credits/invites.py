@@ -1,5 +1,5 @@
 """
-Invites: codes a buyer gets with a pack, to give to someone who hasn't tried Unfret.
+Invites ("gift codes"): codes a buyer gets with a pack, to give to a friend.
 
 **Issuing.** Every credited pack comes with one invite per ``invite_per_checks`` checks (25 → 1, 50 → 2, 100 → 4),
 each worth ``invite_checks`` checks (3 × the price of a check). They are made in the same database transaction that
@@ -9,8 +9,8 @@ invites: a quote or card checkout started with a claim token (below). A transfer
 none, and neither does a payment that brings in less than :data:`MIN_PAID_PCT` percent of the pack's value.
 
 **Storage.** An invite is ``ufi_`` + 160 random bits. The ``invites`` table holds only its SHA-256 (nothing to
-brute-force at that entropy), the day it was issued and the day it was redeemed: no buyer, no redeemer, no IP. Nothing
-links the buyer to whoever redeems it.
+brute-force at that entropy), the day it was issued and the day it was redeemed, and a keyed hash of the buying account
+(below): no redeemer, no IP. Nothing links the buyer to whoever redeems it.
 
 **Shown once.** The buyer's page gets a random *claim token* with the purchase (``purchase-tx`` → ``claim``, the QR
 code → ``X-Unfret-Claim``, ``fiat-checkout`` → ``claim``); only its hash is stored, with the quote or the checkout.
@@ -21,22 +21,25 @@ can't both get them, and from then on only the hashes exist. Codes nobody collec
 after it expires, a checkout's after :data:`UNCLAIMED_DAYS`. Until then the row links the codes to the account the
 purchase credited, which is why it is wiped at the first read.
 
-**Redeeming.** ``POST /v1/invites/redeem`` with the account's own sign-in: one code, once, for an account that has no
-row in the ledger yet. Every credit (a purchase, a refund, a reward, a grant, an invite) creates that row, so "no row"
-means a wallet we've never credited or a key that was never funded, and the redemption's own row (marked
-``invite_redeemed``) refuses a second one. It is a gift, not a sale: no VAT record, no sales row, only the
-``credits_granted`` log line with ``kind="invite"`` (amounts only).
+**Redeeming.** ``POST /v1/invites/redeem`` with the account's own sign-in: each code once, by any account, new or
+in use, except the one whose purchase issued it (a gift is for a friend). For that, each invite keeps a keyed hash of
+the buying account (``buyer_hash``: HMAC-SHA256 with the session secret, so the table alone names nobody); nothing
+is kept about who redeems it but the account's ``invite_redeemed`` flag (never which code). Invites issued before
+the hash was kept can be redeemed by anyone. It is a gift, not a sale: no VAT record, no sales row, only the
+``credits_granted`` log line with ``kind="invite"`` (amounts only). Gift codes aren't under the intro codes' daily
+cap: they were paid for.
 
-**Intro codes.** Named codes the operator makes per channel (``FRIENDS``, ``DEV``, one per newsletter), redeemed at
-the same endpoint under the same rule: new accounts only, one invite or code per account, setting the same
-``invite_redeemed`` flag (never which code). Each has its own number of checks and ``max_uses``; the table keeps only
-the running count. ``intro_daily_checks_cap`` is an emergency brake, off unless set: then all codes together give at
-most that many checks a UTC day (``usage_counters``, counted either way), so a code shared too widely can't run up the
-bill. ``kind="intro"`` in the log line.
+**Intro codes** (retired with free checks: redeeming one answers ``ended`` unless ``intro_codes_enabled``). Named codes
+the operator made per channel (``FRIENDS``, ``DEV``, one per newsletter), redeemed at the same endpoint for new
+accounts only, one code per account, setting the same ``invite_redeemed`` flag (never which code). Each has its own
+number of checks and ``max_uses``; the table keeps only the running count. ``intro_daily_checks_cap`` is an emergency
+brake, off unless set: then all codes together give at most that many checks a UTC day (``usage_counters``, counted
+either way), so a code shared too widely can't run up the bill. ``kind="intro"`` in the log line.
 """
 
 import base64
 import hashlib
+import hmac
 import re
 import secrets
 from dataclasses import dataclass
@@ -47,6 +50,7 @@ import asyncpg
 import structlog
 
 from unfret.config import Settings
+from unfret.credits import ledger
 
 logger = structlog.get_logger("unfret")
 
@@ -63,7 +67,7 @@ MIN_PAID_PCT = 90
 # Uncollected codes of a card checkout are wiped after this many days.
 UNCLAIMED_DAYS = 7
 
-Failure = Literal["invalid", "unknown", "used", "not_eligible", "ended", "daily_cap"]
+Failure = Literal["invalid", "unknown", "used", "not_eligible", "ended", "daily_cap", "own"]
 
 
 class InviteError(ValueError):
@@ -161,17 +165,38 @@ def claim_digest(claim: str | None) -> bytes | None:
     return digest(claim) if claim and _CLAIM_RE.fullmatch(claim) else None
 
 
-async def _issue(conn: asyncpg.Connection, count: int, today: date | None) -> list[str]:
+def buyer_digest(settings: Settings, account: str) -> bytes:
+    """
+    The keyed hash an invite keeps of the account whose purchase issued it.
+
+    :param settings: The service settings (the session secret is the key).
+    :param account: The buying account.
+    :return: 32 bytes.
+    """
+    key = settings.session_secret.get_secret_value().encode()
+    return hmac.new(key, ("gift-buyer:" + account).encode(), hashlib.sha256).digest()
+
+
+async def _issue(
+    conn: asyncpg.Connection, settings: Settings, count: int, today: date | None, buyer: str | None
+) -> list[str]:
     codes = [new_code() for _ in range(count)]
+    buyer_hash = buyer_digest(settings, buyer) if buyer else None
     await conn.executemany(
-        "INSERT INTO invites (code_hash, issued_on) VALUES ($1, $2)",
-        [(digest(code), today or datetime.now(UTC).date()) for code in codes],
+        "INSERT INTO invites (code_hash, issued_on, buyer_hash) VALUES ($1, $2, $3)",
+        [(digest(code), today or datetime.now(UTC).date(), buyer_hash) for code in codes],
     )
     return codes
 
 
 async def issue_for_quote(
-    conn: asyncpg.Connection, settings: Settings, quote_id: str, paid_net_usd_micros: int, *, today: date | None = None
+    conn: asyncpg.Connection,
+    settings: Settings,
+    quote_id: str,
+    paid_net_usd_micros: int,
+    *,
+    today: date | None = None,
+    buyer: str | None = None,
 ) -> int:
     """
     Issue a crypto purchase's invites (in the scanner's crediting transaction, at its first payment).
@@ -181,6 +206,7 @@ async def issue_for_quote(
     :param quote_id: The quote paid.
     :param paid_net_usd_micros: The net credits the payment brought in.
     :param today: The issue day (injectable for tests).
+    :param buyer: The account the purchase credited (which can't redeem them).
     :return: How many invites were issued (0 without a claim token, or for a short payment).
     """
     row = await conn.fetchrow(
@@ -192,7 +218,7 @@ async def issue_for_quote(
         return 0
     count = count_for(settings, int(row["checks"]))
     if count:
-        codes = await _issue(conn, count, today)
+        codes = await _issue(conn, settings, count, today, buyer)
         await conn.execute("UPDATE vat_quotes SET invite_codes = $2 WHERE id = $1", quote_id, codes)
     return count
 
@@ -205,6 +231,7 @@ async def issue_for_checkout(
     checks: int,
     *,
     today: date | None = None,
+    buyer: str | None = None,
 ) -> int:
     """
     Issue a card purchase's invites (in the webhook's crediting transaction) and mark its checkout paid.
@@ -215,6 +242,7 @@ async def issue_for_checkout(
     :param checkout_id: The order's checkout.
     :param checks: The pack the order paid for exactly (0 when its amount matched no pack: no invites).
     :param today: The issue day (injectable for tests).
+    :param buyer: The account the order credited (which can't redeem them).
     :return: How many invites were issued (0 for a checkout without a claim token or one already paid).
     """
     row = await conn.fetchrow(
@@ -225,7 +253,7 @@ async def issue_for_checkout(
     )
     count = count_for(settings, checks) if row is not None and row["claimable"] else 0
     if count:
-        codes = await _issue(conn, count, today)
+        codes = await _issue(conn, settings, count, today, buyer)
         await conn.execute(
             "UPDATE fiat_checkouts SET invite_codes = $3 WHERE provider = $1 AND checkout_id = $2",
             provider,
@@ -313,47 +341,47 @@ class Redeemed:
 
 async def redeem(db: asyncpg.Pool, settings: Settings, account: str, value: str) -> Redeemed:
     """
-    Redeem an invite for an account that has never had any credit: once per code, once per account.
+    Redeem a gift code (an invite) for any account but the buyer's, once; or, while they are on, an intro code.
 
     :param db: The database pool.
     :param settings: The service settings.
     :param account: The redeeming account (a wallet, or ``key:<id>``), from its own sign-in.
     :param value: The code, as typed.
     :return: The credit and the new balance.
-    :raises InviteError: For a malformed, unknown or used code, or an account that had credit before.
+    :raises InviteError: For a malformed, unknown or used code, the buyer's own pass, or an intro code once they
+        have ended.
     """
     code = normalise(value)
     if code is None:
         if (intro := normalise_intro(value)) is not None:
             return await _redeem_intro(db, settings, account, intro)
-        raise InviteError("invalid", "That isn't an invite or intro code.")
+        raise InviteError("invalid", "That isn't a gift code.")
     amount = value_usd_micros(settings)
     async with db.acquire() as conn, conn.transaction():
-        redeemed_on = await conn.fetchrow(
-            "SELECT redeemed_on FROM invites WHERE code_hash = $1 FOR UPDATE", digest(code)
+        row = await conn.fetchrow(
+            "SELECT redeemed_on, buyer_hash FROM invites WHERE code_hash = $1 FOR UPDATE", digest(code)
         )
-        if redeemed_on is None:
-            raise InviteError("unknown", "Unknown invite code.")
-        if redeemed_on["redeemed_on"] is not None:
-            raise InviteError("used", "This invite has already been used.")
-        # The account's ledger row is created here, or the account had credit before: the conflict refuses it.
-        opened = await conn.fetchval(
-            "INSERT INTO wallets (pubkey, balance_usd_micros, invite_redeemed) VALUES ($1, $2, TRUE) "
-            "ON CONFLICT (pubkey) DO NOTHING RETURNING balance_usd_micros",
-            account,
-            amount,
-        )
-        if opened is None:
-            raise InviteError("not_eligible", _NOT_ELIGIBLE)
+        if row is None:
+            raise InviteError("unknown", "Unknown gift code.")
+        if row["redeemed_on"] is not None:
+            raise InviteError("used", "This gift code has already been used.")
+        if row["buyer_hash"] is not None and hmac.compare_digest(
+            bytes(row["buyer_hash"]), buyer_digest(settings, account)
+        ):
+            raise InviteError("own", "This gift code came with your own pack: give it to a friend.")
+        balance = await ledger.credit(conn, account, amount)
+        await conn.execute("UPDATE wallets SET invite_redeemed = TRUE WHERE pubkey = $1", account)
         await conn.execute("UPDATE invites SET redeemed_on = CURRENT_DATE WHERE code_hash = $1", digest(code))
     logger.info("credits_granted", kind="invite", usd_micros=amount)
-    return Redeemed(amount, int(opened))
+    return Redeemed(amount, balance)
 
 
-_NOT_ELIGIBLE = "Invites and intro codes are for new accounts: this one has had checks before, or used one."
+_NOT_ELIGIBLE = "Intro codes are for new accounts: this one has had checks before, or used a code."
 
 
 async def _redeem_intro(db: asyncpg.Pool, settings: Settings, account: str, code: str) -> Redeemed:
+    if not settings.intro_codes_enabled:
+        raise InviteError("ended", "Codes like this have ended: every new Unfret pass comes with free checks now.")
     today = datetime.now(UTC).date().isoformat()
     async with db.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(

@@ -4,7 +4,7 @@
 //                   provider adds (prices.js). The checks go to the pass this browser already uses, if any; otherwise
 //                   a pass (an API key) is made in this browser just before the card checkout and shown after paying,
 //                   so nobody has to understand passes before they've paid.
-//   I have a code   one field and one button: a new pass is made and the invite or intro code is redeemed onto it.
+//   Gift code       one field and one button: a new pass is made and a friend's gift code is redeemed onto it.
 //   Add to my pass  paste the pass you have (or type its ID), pick a pack, pay by card. A link from the extension,
 //                   /check or /my-checks names the pass's ID (?mode=topup&key_id=<id>): it is filled in.
 //   Crypto          "Prefer crypto?" under the card buttons (or ?mode=crypto): SOL or USDC to a wallet or a pass,
@@ -19,6 +19,12 @@
 // once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto payments have a quote,
 // polled at /v1/credits/quotes/<id> until the transfer is final. Back from the card provider in a browser that has
 // neither the pass nor the claim (a bank app can do that), the return link's checkout id collects the purchase once.
+//
+// Bonus codes: one field under the packs, for card and crypto alike, filled in from an affiliate's link (ref.js).
+// A code adds checks, never lowers the price. It is checked before anyone is sent to pay (POST /v1/credits/codes/check:
+// "+20% checks") and goes with
+// the purchase as `code`; one code per purchase. An old intro-code link (?code=FRIENDS) shows that installing Unfret
+// gives free checks, and loses the code from the address bar: codes aren't how anyone starts any more.
 import {
   INVITE_RE,
   NOT_A_CODE,
@@ -35,7 +41,9 @@ import {
   walletButton,
 } from "./wallet.js";
 import { handOffKey, topupKeyId } from "./handoff.js";
+import { chooseButtons } from "./install-button.js";
 import { makePass } from "./new-pass.js";
+import { storedRef } from "./ref.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
 import { cardPrice as cardPriceFor, countryPhrase, taxNote } from "./prices.js";
 
@@ -395,7 +403,7 @@ async function startCardCheckout(keyId, method = null) {
     : { currency: cardCurrency() };
   const started = await api("/v1/credits/fiat-checkout", {
     method: "POST",
-    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice }),
+    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice, ...(await codeField()) }),
   });
   // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
   rememberClaim("fiat", started.checkout_id, started.claim, pack.checks, keyId);
@@ -470,12 +478,54 @@ $("topup-other").addEventListener("click", () => {
   topupKey.focus();
 });
 
-// ── I have a code ───────────────────────────────────────────────────────────────────────────────────────────────
+// ── Bonus code ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+const codeInput = $("code-input");
+const codeStatus = $("code-status");
+let bonus = null; // { code, label, … } once the code in the field has been checked
+
+async function checkCode() {
+  const typed = codeInput.value.trim().toUpperCase();
+  bonus = null;
+  if (!typed) {
+    setStatus(codeStatus, "");
+    return null;
+  }
+  setStatus(codeStatus, "Checking the code…");
+  try {
+    bonus = await api("/v1/credits/codes/check", { method: "POST", body: JSON.stringify({ code: typed }) });
+    setStatus(codeStatus, `${bonus.code}: ${bonus.label}.`, "ok");
+  } catch (error) {
+    setStatus(codeStatus, error.message || "This code isn't valid, or has ended.", "error");
+  }
+  return bonus;
+}
+
+// What a purchase sends: { code } when the field holds a working code; throws (with the reason shown) when it holds
+// one that doesn't work, so nobody pays without the checks they expected.
+async function codeField() {
+  const typed = codeInput.value.trim().toUpperCase();
+  if (!typed) return {};
+  if (bonus?.code !== typed && !(await checkCode())) {
+    throw new Error("That code doesn't work: remove it, or check it and try again.");
+  }
+  return { code: bonus.code };
+}
+
+$("code-apply").addEventListener("click", () => void checkCode());
+codeInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") void checkCode();
+});
+codeInput.addEventListener("input", () => {
+  bonus = null;
+  setStatus(codeStatus, "");
+});
+
+// ── Gift code ───────────────────────────────────────────────────────────────────────────────────────────────────
 
 function normaliseCode(value) {
-  const typed = value.trim();
-  if (!INVITE_RE.test(typed.toLowerCase())) return null;
-  return typed.toLowerCase().startsWith("ufi_") ? typed.toLowerCase() : typed.toUpperCase();
+  const typed = value.trim().toLowerCase();
+  return INVITE_RE.test(typed) ? typed : null;
 }
 
 $("invite-redeem").addEventListener("click", async (event) => {
@@ -516,7 +566,7 @@ function showResult(headline, issued, extra = [], { saveFirst = false, invites =
   const done = button(
     issued ? "I've saved my backup code" : "Done",
     () => {
-      if (invites.length && !window.confirm("Copied your invites? They can't be shown again.")) return;
+      if (invites.length && !window.confirm("Copied your gift codes? They can't be shown again.")) return;
       if (issued && loadNewKey()?.key === issued.key) saveNewKey(null);
       clearPanel();
       showChoices(true);
@@ -652,10 +702,11 @@ function describe() {
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
 
-// "comes with 1 invite of 3 checks to give away": always called an invite.
+// "+ 1 gift code to share: 3 free checks for a friend".
 function inviteOffer(invites) {
-  const what = invites.count === 1 ? "1 invite" : `${invites.count} invites`;
-  return `comes with ${what} of ${invites.checks_each} checks to give away`;
+  return invites.count === 1
+    ? `+ 1 gift code to share: ${invites.checks_each} free checks for a friend`
+    : `+ ${invites.count} gift codes to share: ${invites.checks_each} free checks for a friend each`;
 }
 
 function renderPacks() {
@@ -834,7 +885,7 @@ function reset() {
 
 // Leaving a confirmation that shows invites removes them from the page for good: ask first.
 function leaveInvites(invites) {
-  if (invites.length && !window.confirm("Copied your invites? They can't be shown again.")) return;
+  if (invites.length && !window.confirm("Copied your gift codes? They can't be shown again.")) return;
   reset();
 }
 
@@ -1018,6 +1069,7 @@ async function buy(wallet) {
         checks: info.checks,
         country: countryField.value,
         ...target,
+        ...(await codeField()),
       }),
     });
     rememberClaim("quote", purchase.quote_id, purchase.claim, info.checks);
@@ -1159,7 +1211,7 @@ async function collectEarlier() {
       invites: codes,
     });
   } else if (codes.length) {
-    showResult("Your earlier purchase came with invites", null, [], { invites: codes });
+    showResult("Your earlier purchase came with gift codes", null, [], { invites: codes });
   }
 }
 
@@ -1178,6 +1230,21 @@ function sendPass() {
   const send = button("Send it to the extension", () => send.replaceWith(handoffBox({ key: stored.token })), "primary");
   showPanel("ok", element("p", `Your pass ${showPassId(id)} for the extension`, "headline"), send, actions);
   return true;
+}
+
+// An old intro-code link (/checkout?code=FRIENDS, ?mode=code): the code leaves the address bar, nothing is redeemed,
+// and the page says what replaced it: free checks when you install Unfret.
+function retiredCode(params) {
+  const keep = new URLSearchParams(params);
+  keep.delete("code");
+  if (keep.get("mode") === "code") keep.delete("mode");
+  history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
+  params.delete("code");
+  if (params.get("mode") === "code") params.delete("mode");
+  const free = Number(pricing?.free?.checks_per_pass) || 0;
+  if (free > 0) $("free-count").textContent = String(free);
+  $("free-note").hidden = false;
+  chooseButtons();
 }
 
 function initialMode(params) {
@@ -1210,6 +1277,13 @@ async function start() {
   const params = new URLSearchParams(window.location.search);
   const shared = params.get("code");
   if (shared && normaliseCode(shared)) $("invite-input").value = normaliseCode(shared);
+  else if (shared) retiredCode(params);
+  // An affiliate's link brought this visitor: their code waits in the code field.
+  const ref = storedRef();
+  if (ref && !codeInput.value) {
+    codeInput.value = ref;
+    void checkCode();
+  }
   setTopupFor(topupKeyId(params));
   const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');

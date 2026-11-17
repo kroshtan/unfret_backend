@@ -21,6 +21,20 @@ FIVE = 5 * settings.analysis_price_usd_micros
 @pytest.fixture(autouse=True)
 def operator(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "admin_token", SecretStr("operator-token"))
+    monkeypatch.setattr(settings, "intro_codes_enabled", True)  # retired by default: these test them switched on
+
+
+async def test_intro_codes_are_retired_by_default(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await make(client, "FRIENDS", 10)).status_code == 201  # the operator commands stay
+    monkeypatch.setattr(settings, "intro_codes_enabled", False)
+
+    response = await redeem(client, "friends", new_wallet())
+
+    assert (response.status_code, response.json()["error_code"]) == (410, "INVITE_ENDED")
+    assert await pool.fetchval("SELECT uses FROM intro_codes") == 0
+    assert await pool.fetchval("SELECT COUNT(*) FROM wallets") == 0  # nothing redeemed or made
 
 
 async def make(client: httpx.AsyncClient, code: str, uses: int, checks: int = 5) -> httpx.Response:

@@ -2,7 +2,8 @@
 The site's pages: home, sign-in, checkout, privacy, accuracy and the link checker.
 
 ``/`` introduces Unfret, ``/welcome`` greets a new extension install, ``/connect`` signs in and hands the session to
-the extension, then ``/checkout`` (which hands a new API key to the extension) and ``/privacy``. ``/check`` checks a
+the extension, then ``/checkout`` (which hands a new API key to the extension), ``/privacy``, ``/affiliates`` (the
+program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/check`` checks a
 link from any browser, phones first; with its web app manifest and service worker it can be installed and shows up in
 Android's share sheet.
 
@@ -250,6 +251,36 @@ def privacy() -> HTMLResponse:
     return _page("privacy.html", "/privacy")
 
 
+@router.get("/affiliates", response_class=HTMLResponse)
+def affiliates_page() -> HTMLResponse:
+    """
+    The affiliate program: how it works, the numbers, and the disclosure rules affiliates follow.
+
+    :return: The page.
+    """
+    page = with_store_links(template("affiliates.html", "/affiliates"))
+    minimum = settings.affiliate_min_payout_cents // 100
+    for name, value in {
+        "bonus_pct": settings.affiliate_bonus_pct,
+        "commission_pct": settings.affiliate_commission_pct,
+        "months": settings.affiliate_months,
+        "hold_days": settings.affiliate_hold_days,
+        "min_payout": f"${minimum} or €{minimum}",
+    }.items():
+        page = page.replace("{{" + name + "}}", str(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/affiliates/stats", response_class=HTMLResponse)
+def affiliate_stats_page() -> HTMLResponse:
+    """
+    An affiliate's own numbers, reached through their private link (the token is in the link's fragment).
+
+    :return: The page.
+    """
+    return _page("affiliate-stats.html")
+
+
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout() -> HTMLResponse:
     """
@@ -276,7 +307,7 @@ def welcome(free: int = 0) -> HTMLResponse:
     if 0 < free <= 100:
         page = with_store_links(template("welcome-free.html", cta=("/check", "Check a link")))
         return HTMLResponse(versioned(page.replace("{{free_checks}}", str(free))), headers=PAGE_HEADERS)
-    return _page("welcome.html", cta=("/checkout?mode=code", "I have a code"))
+    return _page("welcome.html", cta=("/checkout", "Buy checks"))
 
 
 @router.get("/check", response_class=HTMLResponse)

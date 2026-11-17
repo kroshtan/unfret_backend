@@ -186,12 +186,14 @@ export function setStatus(element, text, kind = "info") {
   element.dataset.kind = kind;
 }
 
-// ── Invites: codes a pack comes with, to give to someone who hasn't tried Unfret ───────────────────────────────
+// ── Gift codes (invites): codes a pack comes with, to share with friends ───────────────────────────────────────
 
-// An invite (ufi_…, from a pack) or an intro code (FRIENDS, DEV, …: 3 to 24 letters or digits), lower-cased first.
-export const INVITE_RE = /^(ufi_[a-z2-7]{32}|[a-z0-9]{3,24})$/;
-export const NOT_A_CODE = "That doesn't look like a code. Check it and try again.";
-export const INVITE_LINE = "Give these to people who haven't tried Unfret yet: each one gives them 3 free checks.";
+// A gift code (ufi_…, from a pack), lower-cased first.
+export const INVITE_RE = /^ufi_[a-z2-7]{32}$/;
+export const NOT_A_CODE = "That doesn't look like a gift code: they start with ufi_. Check it and try again.";
+export const INVITE_LINE =
+  "Share them with friends: each one gives a friend 3 free checks, on a new pass or one they already have. They " +
+  "don't work on your own pass.";
 
 // Redeem an invite for the account behind `token` (a session token or a whole API key). Returns the server's
 // { checks_added, checks_remaining, … }; throws with the server's reason (used, not a new account, …).
@@ -208,7 +210,8 @@ export async function redeemInvite(code, token) {
 export function inviteNodes(codes) {
   const heading = document.createElement("p");
   const strong = document.createElement("strong");
-  strong.textContent = codes.length === 1 ? "Your invite to give away:" : `Your ${codes.length} invites to give away:`;
+  strong.textContent =
+    codes.length === 1 ? "Your gift code to share with a friend:" : `Your ${codes.length} gift codes to share with friends:`;
   heading.append(strong);
   const list = document.createElement("ul");
   list.className = "invites";

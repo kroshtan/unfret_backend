@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import CreditsDoor, free, keys
+from unfret.credits import CreditsDoor, affiliates, free, keys
 from unfret.schemas.errors import BadRequestError, ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 
 logger = structlog.get_logger("unfret")
@@ -51,6 +51,12 @@ class CreateKeyRequest(BaseModel):
         default=False,
         description="Ask for the free checks a new pass comes with (the browser extension does on install). Given "
         "only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
+    )
+    ref: str | None = Field(
+        default=None,
+        max_length=40,
+        description="The affiliate code of the link that brought this visitor (unfret.net/?ref=CODE), kept by the "
+        "page: the new pass counts for that affiliate. An unknown or ended code is ignored.",
     )
 
 
@@ -127,7 +133,9 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     if body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
     issued = await keys.create(request.app.db_pool, free_checks=given)
-    logger.info("api_key_created", free_checks=given)
+    # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
+    referred = bool(body.ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, body.ref)
+    logger.info("api_key_created", free_checks=given, referred=referred)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,

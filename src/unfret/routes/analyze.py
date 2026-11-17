@@ -15,7 +15,7 @@ from langchain_core.callbacks import UsageMetadataCallbackHandler
 from unfret import page_fetch, reports, result_cache, shares
 from unfret.auth import optional_account, require_account
 from unfret.config import settings
-from unfret.credits import free, keys, ledger
+from unfret.credits import affiliates, free, keys, ledger
 from unfret.facts import PageFacts
 from unfret.graph.state import SERVICE_TYPES, Finding
 from unfret.schemas.errors import (
@@ -254,8 +254,13 @@ async def _charge(request: Request, body: AnalyzeRequest, account: str | None) -
     :return: What was taken.
     """
     if body.tier == "quick" or account is None:  # without an account, only a quick check gets here (_caller)
-        return Charge(account)
-    return await _debit(request, account)
+        charge = Charge(account)
+    else:
+        charge = await _debit(request, account)
+    if account is not None:
+        # An affiliate's numbers count passes that made a first check: the day only, nothing about the check.
+        await affiliates.first_check(request.app.db_pool, account)
+    return charge
 
 
 async def _refund(request: Request, charge: Charge) -> int | None:

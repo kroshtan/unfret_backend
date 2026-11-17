@@ -286,7 +286,8 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed an invite): no emails, no
+user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed a gift code, and for a pass
+the affiliate it came through, if any): no emails, no
 purchase history (the chain is the ledger), no record of what was analysed.
 
 **Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
@@ -426,6 +427,53 @@ webhook for disputes themselves. Other events are acknowledged and ignored.
 **Dev and production in one Polar organisation:** each site gets its own webhook endpoint (and secret), and Polar
 sends every order to both. A site credits only orders whose checkout it made (its own checkout record, or the
 metadata's site); another site's order answers `other_site` and leaves no trace (no balance, no payment row).
+
+### Affiliates and bonus codes
+
+People who recommend Unfret can earn from it (`src/unfret/credits/affiliates.py`, the program at `/affiliates`):
+
+- **Attribution.** An affiliate's link is `unfret.net/?ref=CODE`, on any page. The site keeps the code in the
+  browser's own storage (no cookie, no third party) until a pass exists, then sends it once: with `POST /v1/keys`
+  (`/check`, `/checkout`), or, for the extension's install pass, from `/welcome` through the extension
+  (`POST /v1/affiliates/attribute`). A code typed at checkout counts too, once the purchase is paid. Only a pass that has
+  never bought checks can be attributed, and only once (the first affiliate stays). Nothing is stored but the pass, the
+  affiliate and the time; no IP address.
+- **The buyer** gets 20% more checks on the first pack bought on an attributed pass (`UNFRET_AFFILIATE_BONUS_PCT`),
+  credited through the ledger in the purchase's own transaction, once per pass.
+- **The affiliate** earns 25% (`UNFRET_AFFILIATE_COMMISSION_PCT`) of the net revenue of every purchase on attributed
+  passes for 12 months (`UNFRET_AFFILIATE_MONTHS`): for a card order, Polar's `net_amount` (before
+  VAT/sales tax) less Polar's fee (`platform_fee_amount`; when Polar doesn't report it in the order's currency, the
+  configured worst case `UNFRET_CARD_FEE_PCT` + `UNFRET_CARD_FEE_FLAT_USD`, marked as estimated); for crypto, what
+  arrived less its VAT. Each purchase is recorded once (unique per order or transaction). Refunds reverse the refunded
+  share and chargebacks all of it, in the month they happen. Dollars and euros are kept apart.
+- **Bonus codes** made by the operator give more checks with a pack (`--bonus PCT`), optionally with a last day, a
+  number of uses (counted at payment, atomically) and an affiliate to count the sales for. Codes never lower the
+  price: card and crypto prices stay the same for everyone. One code per purchase; `/checkout` checks it before
+  anyone pays (`POST /v1/credits/codes/check`).
+- **Payouts** are made by hand, monthly. Commission counts as payable 30 days after the purchase
+  (`UNFRET_AFFILIATE_HOLD_DAYS`, Polar's refund window). A payout needs $25 or €25 per currency
+  (`UNFRET_AFFILIATE_MIN_PAYOUT_CENTS`, never converted), except for an affiliate who was switched off, who is paid
+  everything earned. A refund or chargeback after a payout leaves a negative balance that the next payouts make up for.
+- **Stats without an account**: each affiliate gets a private link `/affiliates/stats#ufa_…` (256 random bits, kept
+  as a hash, replaceable and revocable) with their passes, first checks, purchases and commission per month, and
+  never a pass, a buyer or a page.
+
+Operator commands, against the running service's admin API (`UNFRET_URL`, `UNFRET_ADMIN_TOKEN[_FILE]`, as for
+`make codes`):
+
+```bash
+make affiliates ARGS="create ANNA --name 'Anna (YouTube)' --note 'IBAN …'"   # prints her link and stats link
+make affiliates ARGS="list"                     # codes, passes, owed, payout notes
+make affiliates ARGS="report [--month 2026-12]" # per month: passes, first checks, purchases, earned, reversed, paid;
+                                                # per affiliate now: due, carried over, held
+make affiliates ARGS="paid ANNA --note 'SEPA ref'"   # records a payout of what is due now
+make affiliates ARGS="off ANNA | on ANNA | note ANNA TEXT | stats-link ANNA | revoke ANNA | reverse EARNING_ID | delete ANNA"
+make bonus-codes ARGS="create SPRING20 --bonus 20 --expires 2026-12-31 --uses 200 [--affiliate ANNA]"
+make bonus-codes ARGS="list | off SPRING20 | on SPRING20"
+```
+
+**Gift codes** (the invites that come with a pack) work on any pass or wallet, except the one whose purchase issued
+them. **Intro codes** are retired (`UNFRET_INTRO_CODES_ENABLED`).
 
 ### Sharing a result
 
@@ -627,6 +675,11 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PACKS` | `[25,50,100]` | Pack sizes in checks |
 | `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `3` | One invite per this many checks in a pack (0: none issued), worth this many checks |
 | `UNFRET_INTRO_DAILY_CHECKS_CAP` | unset (no cap) | Emergency brake for intro codes (`make codes`): when set, all codes together give at most this many checks a UTC day (0 pauses them all); each code already has its own max uses |
+| `UNFRET_INTRO_CODES_ENABLED` | `false` | Intro codes are retired now that new passes get free checks: redeeming one answers `INVITE_ENDED`. `true` brings them back |
+| `UNFRET_AFFILIATE_BONUS_PCT` / `UNFRET_AFFILIATE_COMMISSION_PCT` / `UNFRET_AFFILIATE_MONTHS` | `20` / `25` / `12` | Affiliates: more checks on an attributed pass's first pack; the affiliate's share of net revenue (after VAT and payment fees) of purchases on it, for this many months after attribution |
+| `UNFRET_AFFILIATE_HOLD_DAYS` / `UNFRET_AFFILIATE_MIN_PAYOUT_CENTS` | `30` / `2500` | Commission counts as payable this many days after the purchase; a payout needs this much per currency ($25 / €25), except for an affiliate who was switched off |
+| `UNFRET_CODE_CHECKS_PER_IP_PER_DAY` | `30` | Bonus-code look-ups and attributions per visitor network a day (in memory, salted hashes) |
+| `UNFRET_AFFILIATE_RECORDS_RETENTION_DAYS` / `UNFRET_AFFILIATE_PASS_RETENTION_DAYS` | `2557` / `548` | Commission and payout records (bookkeeping: seven years); which affiliate a pass came through (eighteen months) |
 | `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
 | `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
 | `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |

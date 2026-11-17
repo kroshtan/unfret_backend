@@ -2,6 +2,8 @@
 // /checkout (a pass for a purchase or a code) and /check (a free pass on a first visit). The browser extension makes
 // its free pass on install the same way (its src/shared/new-pass.ts follows this file).
 
+import { clearRef, storedRef } from "./ref.js";
+
 function zeroBits(digest) {
   const bytes = new Uint8Array(digest);
   let bits = 0;
@@ -35,6 +37,10 @@ export async function solve(challenge, bits) {
 export async function makePass(api, { free = false } = {}) {
   const challenge = await api("/v1/keys/challenge");
   const solution = await solve(challenge.challenge, challenge.bits);
-  const body = { challenge: challenge.challenge, solution, ...(free ? { free: true } : {}) };
-  return api("/v1/keys", { method: "POST", body: JSON.stringify(body) });
+  // An affiliate's link brought this visitor (ref.js): the new pass counts for them, then the code is forgotten.
+  const ref = storedRef();
+  const body = { challenge: challenge.challenge, solution, ...(free ? { free: true } : {}), ...(ref ? { ref } : {}) };
+  const made = await api("/v1/keys", { method: "POST", body: JSON.stringify(body) });
+  if (ref) clearRef();
+  return made;
 }

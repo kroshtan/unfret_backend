@@ -214,6 +214,75 @@
     "title": "AnalyzeResponse",
     "type": "object"
    },
+   "AttributeRequest": {
+    "description": "The affiliate code an Unfret page kept from a ``?ref=`` link.",
+    "properties": {
+     "code": {
+      "maxLength": 40,
+      "title": "Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code"
+    ],
+    "title": "AttributeRequest",
+    "type": "object"
+   },
+   "AttributeResponse": {
+    "description": "Whether the pass now counts for the code's affiliate.",
+    "properties": {
+     "status": {
+      "description": "attributed; already (it came through an affiliate before: the first one stays); not_eligible (a wallet, or a pass that has bought checks before); invalid (no such affiliate code, or it ended).",
+      "enum": [
+       "attributed",
+       "already",
+       "not_eligible",
+       "invalid"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status"
+    ],
+    "title": "AttributeResponse",
+    "type": "object"
+   },
+   "Balance": {
+    "description": "An affiliate's balance in one currency, in cents.",
+    "properties": {
+     "carried_over": {
+      "description": "What waits for a later payout (below the minimum, or below zero).",
+      "title": "Carried Over",
+      "type": "integer"
+     },
+     "due": {
+      "description": "What the next payout pays: the payable amount once it reaches the minimum.",
+      "title": "Due",
+      "type": "integer"
+     },
+     "held": {
+      "description": "Commission still in its 30-day hold (the refund window).",
+      "title": "Held",
+      "type": "integer"
+     },
+     "payable": {
+      "description": "Commission past its 30-day hold, less what was paid; below zero after a refund that came after a payout (the next payouts make up for it).",
+      "title": "Payable",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "payable",
+     "held",
+     "due",
+     "carried_over"
+    ],
+    "title": "Balance",
+    "type": "object"
+   },
    "ChallengeResponse": {
     "description": "A proof-of-work challenge for creating a key.",
     "properties": {
@@ -310,6 +379,62 @@
     "title": "Checkbox",
     "type": "object"
    },
+   "CodeCheckRequest": {
+    "description": "A code a buyer typed (or a link carried).",
+    "properties": {
+     "code": {
+      "description": "The bonus or affiliate code, as typed.",
+      "maxLength": 40,
+      "title": "Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code"
+    ],
+    "title": "CodeCheckRequest",
+    "type": "object"
+   },
+   "CodeCheckResponse": {
+    "description": "What a code gives on a purchase.",
+    "properties": {
+     "bonus_pct": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Percent more checks with the pack, or null.",
+      "title": "Bonus Pct"
+     },
+     "code": {
+      "description": "The code, as it will be applied (upper case).",
+      "title": "Code",
+      "type": "string"
+     },
+     "first_pack_only": {
+      "description": "The bonus is for a pass's first pack only (an affiliate's code), and only on a pass that hasn't bought before.",
+      "title": "First Pack Only",
+      "type": "boolean"
+     },
+     "label": {
+      "description": "The offer in a few words, e.g. \"+20% checks\" or \"+20% checks on your first pack\".",
+      "title": "Label",
+      "type": "string"
+     }
+    },
+    "required": [
+     "code",
+     "label",
+     "bonus_pct",
+     "first_pack_only"
+    ],
+    "title": "CodeCheckResponse",
+    "type": "object"
+   },
    "CreateKeyRequest": {
     "description": "A solved challenge.",
     "properties": {
@@ -323,6 +448,19 @@
       "description": "Ask for the free checks a new pass comes with (the browser extension does on install). Given only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
       "title": "Free",
       "type": "boolean"
+     },
+     "ref": {
+      "anyOf": [
+       {
+        "maxLength": 40,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The affiliate code of the link that brought this visitor (unfret.net/?ref=CODE), kept by the page: the new pass counts for that affiliate. An unknown or ended code is ignored.",
+      "title": "Ref"
      },
      "solution": {
       "maxLength": 32,
@@ -406,7 +544,7 @@
       "type": "integer"
      },
      "invite_eligible": {
-      "description": "Whether an invite can still be redeemed onto this account: only one that has never had credit.",
+      "description": "Whether a gift code (invite) can be redeemed onto this account: always true now, since a gift code works on any account but the one whose pack it came with (POST /v1/invites/redeem says so for that one).",
       "title": "Invite Eligible",
       "type": "boolean"
      }
@@ -453,6 +591,19 @@
       "exclusiveMinimum": 0.0,
       "title": "Checks",
       "type": "integer"
+     },
+     "code": {
+      "anyOf": [
+       {
+        "maxLength": 40,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks are added when the order is paid. One code per purchase; the price stays the same.",
+      "title": "Code"
      },
      "currency": {
       "anyOf": [
@@ -948,6 +1099,37 @@
      }
     },
     "title": "ListingDetails",
+    "type": "object"
+   },
+   "MoneyMonth": {
+    "description": "Amounts in one currency's cents.",
+    "properties": {
+     "commission": {
+      "title": "Commission",
+      "type": "integer"
+     },
+     "net": {
+      "description": "Net revenue of purchases on your passes: after VAT and payment fees.",
+      "title": "Net",
+      "type": "integer"
+     },
+     "paid": {
+      "title": "Paid",
+      "type": "integer"
+     },
+     "reversed": {
+      "description": "Commission taken back after refunds and chargebacks.",
+      "title": "Reversed",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "net",
+     "commission",
+     "reversed",
+     "paid"
+    ],
+    "title": "MoneyMonth",
     "type": "object"
    },
    "MoveFreeChecksRequest": {
@@ -1610,6 +1792,19 @@
       "title": "Checks",
       "type": "integer"
      },
+     "code": {
+      "anyOf": [
+       {
+        "maxLength": 40,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks are added when the payment is credited. One code per purchase; the price stays the same.",
+      "title": "Code"
+     },
      "country": {
       "description": "The buyer's country (ISO 3166 alpha-2), for VAT. The checkout prefills it from where the request comes from; the buyer can change it.",
       "maxLength": 2,
@@ -1824,7 +2019,7 @@
     "description": "An invite code.",
     "properties": {
      "code": {
-      "description": "The invite code (ufi_\u2026) or intro code (e.g. FRIENDS), as given.",
+      "description": "The gift code (ufi_\u2026), as given.",
       "maxLength": 100,
       "title": "Code",
       "type": "string"
@@ -2067,6 +2262,25 @@
      }
     },
     "title": "Review",
+    "type": "object"
+   },
+   "Rules": {
+    "description": "How payouts work.",
+    "properties": {
+     "hold_days": {
+      "title": "Hold Days",
+      "type": "integer"
+     },
+     "min_payout_cents": {
+      "title": "Min Payout Cents",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "hold_days",
+     "min_payout_cents"
+    ],
+    "title": "Rules",
     "type": "object"
    },
    "SellerProfile": {
@@ -2463,6 +2677,95 @@
      "expires_at"
     ],
     "title": "SharedResult",
+    "type": "object"
+   },
+   "StatsMonth": {
+    "description": "One month of an affiliate's numbers.",
+    "properties": {
+     "first_checks": {
+      "description": "Of those, passes that made their first check this month.",
+      "title": "First Checks",
+      "type": "integer"
+     },
+     "money": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/MoneyMonth"
+      },
+      "description": "Per currency (usd, eur).",
+      "title": "Money",
+      "type": "object"
+     },
+     "month": {
+      "title": "Month",
+      "type": "string"
+     },
+     "passes": {
+      "description": "Passes that came through your link or code.",
+      "title": "Passes",
+      "type": "integer"
+     },
+     "purchases": {
+      "title": "Purchases",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "month",
+     "passes",
+     "first_checks",
+     "purchases",
+     "money"
+    ],
+    "title": "StatsMonth",
+    "type": "object"
+   },
+   "StatsResponse": {
+    "description": "An affiliate's own numbers: counts and amounts only, nothing about any buyer.",
+    "properties": {
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     },
+     "balance": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/Balance"
+      },
+      "description": "Per currency (usd, eur): what is payable, held, due, carried.",
+      "title": "Balance",
+      "type": "object"
+     },
+     "codes": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Codes",
+      "type": "array"
+     },
+     "months": {
+      "description": "The last 13 months with any activity, newest first.",
+      "items": {
+       "$ref": "#/components/schemas/StatsMonth"
+      },
+      "title": "Months",
+      "type": "array"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "rules": {
+      "$ref": "#/components/schemas/Rules"
+     }
+    },
+    "required": [
+     "name",
+     "active",
+     "codes",
+     "months",
+     "balance",
+     "rules"
+    ],
+    "title": "StatsResponse",
     "type": "object"
    },
    "Testimonial": {
@@ -2894,6 +3197,95 @@
  },
  "openapi": "3.1.0",
  "paths": {
+  "/v1/affiliates/attribute": {
+   "post": {
+    "description": "Count the calling pass for the affiliate whose link brought its user (``unfret.net/?ref=CODE``).\n\nFor a page or app that holds a pass made without the code: the browser extension makes its pass on install, and\nthe welcome page relays the code the site kept. Only a pass that has never bought checks, and only once: the first\naffiliate stays. Nothing is stored but the pass, the affiliate and the time.\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The pass (``Authorization: Bearer ufk_\u2026``).\n:return: What happened.",
+    "operationId": "attribute_v1_affiliates_attribute_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AttributeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AttributeResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Attribute",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
+  "/v1/affiliates/stats": {
+   "get": {
+    "description": "An affiliate's numbers per month, for the stats page their secret link opens (``/affiliates/stats#ufa_\u2026``).\n\nThe token travels in the link's fragment (never sent to a server by a browser) and from the page in the\n``X-Unfret-Stats`` header; the operator can replace or revoke it. 404 ``UNKNOWN_STATS_LINK`` otherwise.\n\n:param request: The incoming request.\n:param response: The response (never cached).\n:param x_unfret_stats: The token.\n:return: The numbers.\n:raises NotFoundError: For an unknown or revoked token.",
+    "operationId": "stats_v1_affiliates_stats_get",
+    "parameters": [
+     {
+      "description": "The token from your stats link (ufa_\u2026).",
+      "in": "header",
+      "name": "x-unfret-stats",
+      "required": false,
+      "schema": {
+       "default": "",
+       "description": "The token from your stats link (ufa_\u2026).",
+       "maxLength": 100,
+       "title": "X-Unfret-Stats",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StatsResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Stats",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
   "/v1/analyze": {
    "post": {
     "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache, free of\ncharge. Nothing about the page or the result is stored; the ``report_token`` lets the caller report a wrong\nresult later (``POST /v1/reports``), sharing the page only then and only with their consent; the ``share_token``\nlets them make the verdict public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\nA pass's free checks are used before its balance. Once today's free deep checks are all used (by everyone), a\ncheck that only free checks could pay for is refused with 429 ``FREE_CHECKS_PAUSED`` (until 00:00 UTC).\n``\"tier\": \"quick\"`` runs the rules-only quick check instead: free for everyone, with or without\n``Authorization``, never charged, a few a minute.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick\n    check may do without one).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
@@ -3242,6 +3634,48 @@
     ]
    }
   },
+  "/v1/credits/codes/check": {
+   "post": {
+    "description": "What a bonus or affiliate code gives, so the checkout can show it before the buyer pays.\n\nPass the code as ``code`` to ``/v1/credits/fiat-checkout`` or ``/v1/credits/purchase-tx`` to use it: one code per\npurchase. 404 ``INVALID_CODE`` for any code that can't be used (unknown, ended, used up: one answer for all);\n429 after too many tries from one network in a day.\n\n:param body: The code.\n:param request: The incoming request.\n:return: The offer.\n:raises InvalidCodeError: If the code can't be used.",
+    "operationId": "check_code_v1_credits_codes_check_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CodeCheckRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CodeCheckResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Check Code",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
   "/v1/credits/fiat-checkout": {
    "post": {
     "description": "Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.\n\nThe provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns\nthat the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.\n\nIn euros for ``currency: \"eur\"`` (by default for visitors from the euro area), in dollars otherwise. A local\npayment method (``payment_method``, e.g. ``wero``) is a checkout in its currency with its billing country\nprefilled, which is what makes the provider show it. Should the provider refuse a euro checkout (e.g. a product\nwithout its euro price yet), the buyer gets the dollar card checkout instead of none; ``currency`` and\n``payment_method`` in the response say which it is.\n\n:param body: The key, the pack, the currency and the payment method.\n:param request: The incoming request.\n:return: The checkout URL.\n:raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.\n:raises BadRequestError: For euros while euro prices are off, or a method in another currency than asked for.",
@@ -3491,7 +3925,7 @@
   },
   "/v1/credits/solana-pay.svg": {
    "get": {
-    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``, and the claim\ntoken that collects the pack's invites with that poll in ``X-Unfret-Claim``; the Solana Pay link itself (to open\na wallet app on the same phone) in ``X-Unfret-Pay-Url``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:return: An SVG image.",
+    "description": "The Solana Pay request for a pack as a QR code, for paying from a phone wallet.\n\nThe price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``\nheaders; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``, and the claim\ntoken that collects the pack's invites with that poll in ``X-Unfret-Claim``; the Solana Pay link itself (to open\na wallet app on the same phone) in ``X-Unfret-Pay-Url``.\n\n:param request: The incoming request.\n:param checks: The pack size.\n:param country: The buyer's country (ISO 3166 alpha-2), for VAT.\n:param currency: ``SOL`` or ``USDC``.\n:param beneficiary: The wallet to credit; without it the paying wallet is credited.\n:param key_id: The API key to credit instead.\n:param code: A bonus or affiliate code, as for ``purchase-tx``.\n:return: An SVG image.",
     "operationId": "solana_pay_qr_v1_credits_solana_pay_svg_get",
     "parameters": [
      {
@@ -3561,6 +3995,23 @@
         }
        ],
        "title": "Key Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "code",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maxLength": 40,
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Code"
       }
      }
     ],
@@ -3671,7 +4122,7 @@
   },
   "/v1/invites/redeem": {
    "post": {
-    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nThe code is an invite (``ufi_\u2026``) or an intro code (``FRIENDS``; its own number of checks). Only for an account\nthat never had any checks: a wallet we've never credited (no purchase, refund or reward) or\nan API key that was never topped up, and only once per account. Each code works once. Nothing about the code's\nbuyer is known here, and the account keeps only the fact that it redeemed one (not which). Refusals: 400\n``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_NOT_FOR_THIS_ACCOUNT``\n(the account has had checks, or already redeemed an invite or code), 410 ``INVITE_ENDED`` (an intro code switched\noff), 429 ``INTRO_DAILY_CAP`` (today's checks from intro codes are gone; back the next UTC day), 429\n``TOO_MANY_REQUESTS`` (too many codes tried from one visitor network in ten minutes).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.\n:raises TooManyRequestsError: Over the redemptions allowed from this visitor network.",
+    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nThe code is a gift code that came with a pack (``ufi_\u2026``): any account may redeem it, new or in use, except the\none whose purchase issued it; each code works once. The account keeps only the fact that it redeemed one (not\nwhich). Intro codes (``FRIENDS``) are retired: they answer 410 ``INVITE_ENDED``. Refusals: 400 ``INVALID_INVITE``\n(not a code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_OWN_PACK`` (it came with this account's own\npack: give it to a friend), 410 ``INVITE_ENDED``; while intro codes are on again, also 403\n``INVITE_NOT_FOR_THIS_ACCOUNT`` (an intro code on an account that has had checks) and 429 ``INTRO_DAILY_CAP``;\n429 ``TOO_MANY_REQUESTS`` (too many codes tried from one visitor network in ten minutes).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.\n:raises TooManyRequestsError: Over the redemptions allowed from this visitor network.",
     "operationId": "redeem_v1_invites_redeem_post",
     "requestBody": {
      "content": {

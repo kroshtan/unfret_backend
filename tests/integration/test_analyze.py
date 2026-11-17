@@ -78,9 +78,15 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "ad_contacts",
         "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
         "x402_audit_flags",
+        "affiliates",  # the operator's affiliates and codes; a pass, never a page or a check
+        "bonus_codes",
+        "affiliate_passes",
+        "affiliate_earnings",
+        "affiliate_reversals",
+        "affiliate_payouts",
         "schema_migrations",
     }
-    for table in ("vat_quotes", "crypto_sales", "invites"):  # only a purchase fills them
+    for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings"):  # not a check
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM intro_codes") == 0  # only the operator makes codes
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one

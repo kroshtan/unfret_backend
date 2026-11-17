@@ -263,9 +263,21 @@ async def test_polar_unreachable() -> None:
 def test_order_paid_is_the_pre_tax_amount_and_nothing_about_the_buyer() -> None:
     event = parse("order.paid", order())
     assert event == FiatEvent(
-        kind="paid", provider="polar", order_id=ORDER["id"], amount_cents=600, checkout_id=CHECKOUT_ID, account=ACCOUNT
+        kind="paid",
+        provider="polar",
+        order_id=ORDER["id"],
+        amount_cents=600,
+        checkout_id=CHECKOUT_ID,
+        account=ACCOUNT,
+        fee_cents=69,  # Polar's fee, for the affiliate commission's net revenue
     )
     assert "jan" not in repr(event).lower()
+
+
+def test_a_fee_in_another_currency_is_left_to_the_estimate() -> None:
+    event = parse("order.paid", order(platform_fee_currency="eur"))
+    assert event is not None and event.fee_cents is None
+    assert (no_fee := parse("order.paid", order(platform_fee_amount=0))) is not None and no_fee.fee_cents is None
 
 
 @pytest.mark.parametrize("size", [50, 100])

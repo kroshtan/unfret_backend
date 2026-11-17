@@ -139,6 +139,24 @@ class Settings(BaseSettings):
     # default (each code already has its own max uses). Set, all codes together give at most this many checks a UTC
     # day, so a code shared too widely can't run up the LLM bill; 0 pauses every code.
     intro_daily_checks_cap: int | None = Field(default=None, ge=0)
+    # Intro codes are retired now that every new pass gets free checks: redeeming one answers "ended". True brings
+    # them back (the codes and the operator commands are still there).
+    intro_codes_enabled: bool = False
+    # Affiliates and discount codes (unfret.credits.affiliates). A pass that came through an affiliate gets
+    # affiliate_bonus_pct more checks on its first pack; the affiliate earns affiliate_commission_pct of the net
+    # revenue (after VAT and payment fees) of every purchase on it for affiliate_months months after it was attributed.
+    # code_checks_per_ip_per_day limits code look-ups per visitor network (in memory, salted hashes). Earnings and
+    # payouts are kept affiliate_records_retention_days (bookkeeping); attributions affiliate_pass_retention_days.
+    affiliate_bonus_pct: int = Field(default=20, ge=0, le=200)
+    affiliate_commission_pct: int = Field(default=25, ge=0, le=100)
+    affiliate_months: int = Field(default=12, ge=1)
+    # Commission counts as payable this many days after the purchase (Polar's refund window), and a payout needs at
+    # least this much per currency (cents: $25 or €25, never converted), except for an affiliate who was switched off.
+    affiliate_hold_days: int = Field(default=30, ge=0)
+    affiliate_min_payout_cents: int = Field(default=2500, ge=0)
+    code_checks_per_ip_per_day: int = Field(default=30, ge=1)
+    affiliate_records_retention_days: int = 2557  # seven years
+    affiliate_pass_retention_days: int = 548  # eighteen months: the twelve, plus the refund and chargeback window
     # Free checks (unfret.credits.free). A new pass made with "free": true (the browser extension on install, the
     # link checker on a first visit) comes with free_checks_per_pass deep checks, for at most
     # free_passes_per_ip_per_day new passes per visitor network (in memory, salted hashes); past that the pass is

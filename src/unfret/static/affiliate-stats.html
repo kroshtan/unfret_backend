@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <title>Your affiliate numbers · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/affiliate-stats.js"></script>
+</head>
+<body>
+  {{header}}
+  <main>
+    <h1 id="stats-title">Your affiliate numbers</h1>
+    <p id="stats-status" role="status" aria-live="polite">Loading…</p>
+    <section id="stats" hidden>
+      <p class="lead">Your next payout: <strong id="stats-due">–</strong></p>
+      <p class="small" id="stats-balance"></p>
+      <p class="muted small">Your code: <strong id="stats-codes"></strong> · your link:
+        <code id="stats-link"></code></p>
+      <div class="table-scroll">
+        <table class="stats-table">
+          <thead>
+            <tr><th scope="col">Month</th><th scope="col">Passes</th><th scope="col">First checks</th>
+              <th scope="col">Packs bought</th><th scope="col">Net revenue</th><th scope="col">Earned</th>
+              <th scope="col">Taken back</th><th scope="col">Paid</th></tr>
+          </thead>
+          <tbody id="stats-rows"></tbody>
+        </table>
+      </div>
+      <p class="muted small">Net revenue is what was paid after VAT and payment fees. "Taken back" is commission on
+        refunds and chargebacks, in the month they happened. Commission counts as payable <span
+        id="stats-hold">30</span> days after the purchase, and a payout needs at least <span id="stats-min">$25 or
+        €25</span> per currency; a refund after a payout comes off the next one. Totals only: you never see who.
+        <a href="/affiliates">How the program works</a>.</p>
+    </section>
+  </main>
+
+  {{footer}}
+</body>
+</html>

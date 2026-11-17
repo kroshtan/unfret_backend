@@ -9,7 +9,9 @@
 // Always: a lost pass comes back with its backup code (a new pass, same checks), and a wallet can sign in. A backup
 // code made on /checkout and not yet confirmed as saved ("unfret-new-key") is shown until its owner confirms.
 import { BACKUP_RE, PASS_RE, copyButton, passIdOf, showPassId } from "./pass.js";
-import { api, discoverWallets, signIn, walletButton } from "./wallet.js";
+import { api, discoverWallets, redeemInvite, signIn, walletButton } from "./wallet.js";
+
+const INVITE_CODE = /^ufi_[a-z2-7]{32}$/;
 
 const ACCOUNT = "unfret-account"; // the link checker's sign-in
 const NEW_KEY = "unfret-new-key"; // a pass made on /checkout whose backup code isn't confirmed saved yet
@@ -147,6 +149,27 @@ $("pass-phone").addEventListener("click", async () => {
     $("restore-status").textContent = "Couldn't make the code right now. Please try again.";
   } finally {
     button.disabled = false;
+  }
+});
+
+// A friend's gift code onto this pass: any pass but the one whose pack it came with.
+$("gift-use").addEventListener("click", async () => {
+  const status = $("gift-status");
+  const code = $("gift-input").value.trim().toLowerCase();
+  if (!INVITE_CODE.test(code)) {
+    status.textContent = "That doesn't look like a gift code: they start with ufi_.";
+    return;
+  }
+  $("gift-use").disabled = true;
+  try {
+    const added = await redeemInvite(code, account.token);
+    $("gift-input").value = "";
+    status.textContent = `${added.checks_added} checks added. Enjoy!`;
+    await render();
+  } catch (error) {
+    status.textContent = error.message || "That code didn't work.";
+  } finally {
+    $("gift-use").disabled = false;
   }
 });
 

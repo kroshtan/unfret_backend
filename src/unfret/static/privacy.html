@@ -68,12 +68,23 @@
         address. If your bank app brings you back to another browser after paying, Polar's return link names the
         payment, and that browser can collect your checks once, within a day, as a new pass (the one made where you
         started then stops working); we note only that it happened, and when.</li>
-      <li><strong>Invites</strong>: for each invite code that comes with a pack, a one-way hash, the day it was issued
-        and the day it was used. Not who bought it, not who used it, no IP address:
-        nothing links the buyer to the person they invited. The codes are shown once, on your payment confirmation,
-        and wiped from our server as they are shown (unshown codes go with the purchase record within a week). Until then the checkout page keeps a
-        random claim token for them in your browser, for up to three days. An account that used an invite is marked
-        as having used one, not which.</li>
+      <li><strong>Gift codes</strong>: for each gift code that comes with a pack, a one-way hash, the day it was issued
+        and the day it was used, and a keyed one-way hash of the pass or wallet that bought it, so it can't be used on
+        that one (a gift is for a friend). Not who used it, no IP address: nothing links the buyer to the friend who
+        used it. The codes are shown once, on your payment confirmation, and wiped from our server as they are shown
+        (unshown codes go with the purchase record within a week). Until then the checkout page keeps a random claim
+        token for them in your browser, for up to three days. An account that used a gift code is marked as having
+        used one, not which.</li>
+      <li><strong>Affiliates and bonus codes</strong>: if you came through an affiliate's link
+        (<code>unfret.net/?ref=…</code>) or used their code, this website keeps that code in your browser's own
+        storage (no cookie, nothing sent anywhere) until you get a pass; then we note, with the pass's public ID, which
+        affiliate it came through and when, and the day it made its first check. Nothing else: no IP address, no
+        pages, nothing about your browser. That is what gives you bonus checks on your first pack and pays the
+        affiliate a share of what is paid on that pass, for a year. Affiliates see only totals per month (passes,
+        first checks, purchases, amounts), never a pass, a buyer or what anyone checked. The note goes after 18 months;
+        the commission records (amounts, the order number or transaction, the day) stay for seven years for our
+        bookkeeping. A bonus code you use is counted, not linked to you. See <a href="/affiliates">the affiliate
+        program</a>.</li>
       <li><strong>Not the pages you check.</strong> Page addresses and contents aren't stored and are never linked to
         your wallet or pass. A result stays in memory for up to an hour, so checking the same page again is free; a
         restart clears it. The only results we keep are ones you choose to share, without any link to you
@@ -164,7 +175,7 @@
         country, the amount, the VAT and the transaction signature of each purchase for ten years, as the law
         requires.</li>
     </ul>
-    <p>Nothing is sold. No affiliate links, trackers or ads. This website loads nothing from anyone else: its scripts,
+    <p>Nothing is sold. No affiliate links to shops (Unfret never earns from the shops it checks), no trackers, no ads. This website loads nothing from anyone else: its scripts,
       styles and typeface (Figtree) come from unfret.net itself, so no font service or CDN sees your visit.</p>
 
     <h2>Your choices</h2>

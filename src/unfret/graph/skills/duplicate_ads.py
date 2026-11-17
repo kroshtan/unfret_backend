@@ -14,7 +14,7 @@ copies as a warning with other signs, or when there are several.
 import asyncio
 from datetime import date
 
-from unfret import ad_store, shop_store
+from unfret import ad_store, background, shop_store
 from unfret.config import settings
 from unfret.facts.p2p import EMAIL_RE, phones_in
 from unfret.fingerprint import contact_hash, normalise_email
@@ -27,8 +27,7 @@ _pending: set[asyncio.Task[None]] = set()
 
 async def drain() -> None:
     """Wait for background writes (tests and shutdown)."""
-    while _pending:
-        await asyncio.gather(*list(_pending), return_exceptions=True)
+    await background.drain(_pending)
 
 
 def _record_later(ad: ad_store.AdPrint, day: date) -> None:

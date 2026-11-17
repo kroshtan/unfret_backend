@@ -3,17 +3,30 @@ name: CI
 on:
   push:
     branches: [main]
+  # A pull request is checked once it is ready: not while its title starts with "WIP:" or "[WIP]" (a draft), and
+  # dropping that prefix (an `edited` event; Forgejo has no `ready_for_review`) starts the run (README, "Pull
+  # requests and CI").
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   workflow_dispatch:
 
+# Forgejo applies `concurrency` to whole runs only (a job's own `concurrency` is ignored). A pull request's newer
+# commit cancels its older run; an edit never cancels anything, it queues. On main, runs queue one behind the other
+# and are never cancelled, so a deploy is never cut off or dropped; a superseded run skips its checks instead (check,
+# "Still needed?").
 concurrency:
   group: ${{ forgejo.workflow }}-${{ forgejo.ref }}
-  cancel-in-progress: ${{ forgejo.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ forgejo.event_name == 'pull_request' && forgejo.event.action != 'edited' }}
 
 jobs:
   # The public runner: an unprivileged throwaway container with no docker socket and no secrets.
   check:
+    if: forgejo.event_name != 'pull_request' || !forgejo.event.pull_request.draft
     runs-on: kroshtan-public
+    # A good run takes 5 to 9 minutes; a hang fails here instead of at the runner's 30-minute limit.
+    timeout-minutes: 15
+    outputs:
+      checked: ${{ steps.gate.outputs.run }}
     services:
       postgres:
         image: postgres:17-alpine
@@ -22,34 +35,103 @@ jobs:
           POSTGRES_PASSWORD: unfret
           POSTGRES_DB: unfret
     steps:
+      # Is this check still needed? (README, "Pull requests and CI".) On main, runs queue one behind the other,
+      # and a run whose commit is no longer the branch's newest checks nothing: the newer commit's own run checks it.
+      # On a pull request, an edit that leaves it ready (a new description or title) reports the result its commit
+      # already has instead of checking it again; dropping "WIP:" (the commit has no result yet) runs the checks.
+      - name: Still needed?
+        id: gate
+        env:
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+          EVENT: ${{ forgejo.event_name }}
+          ACTION: ${{ forgejo.event.action }}
+          SHA: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          BRANCH: ${{ forgejo.ref_name }}
+          RUN: ${{ forgejo.run_number }}
+          CONTEXT: CI / ${{ forgejo.job }} (pull_request)
+        run: |
+          python3 -I - <<'PY'
+          import json, os, sys, urllib.parse, urllib.request
+
+          env = os.environ
+
+          def get(path):
+              # The repository is public: its branches and commit statuses need no token.
+              with urllib.request.urlopen(env["API"] + path, timeout=30) as response:
+                  return json.load(response)
+
+          def decide(run, why):
+              print(why)
+              with open(env.get("FORGEJO_OUTPUT") or env["GITHUB_OUTPUT"], "a") as output:
+                  output.write(f"run={run}\n")
+              sys.exit()
+
+          if env["EVENT"] in ("push", "workflow_dispatch"):
+              tip = get("/branches/" + urllib.parse.quote(env["BRANCH"], safe=""))["commit"]["id"]
+              if tip != env["SHA"]:
+                  decide("false", f"::notice::superseded: {env['BRANCH']} is at {tip} now; that commit's run checks it")
+          elif env["EVENT"] == "pull_request" and env["ACTION"] == "edited":
+              statuses = get(f"/commits/{env['SHA']}/statuses?sort=highestindex&limit=50")
+              earlier = [
+                  s for s in statuses
+                  if s["context"] == env["CONTEXT"] and f"/runs/{env['RUN']}/" not in (s["target_url"] or "")
+              ]
+              if earlier:
+                  last = max(earlier, key=lambda s: s["id"])
+                  if last["status"] == "success":
+                      decide("false", f"::notice::this commit already passed: {last['target_url']}")
+                  if last["status"] == "failure" and last["description"].startswith("Failing"):
+                      print(f"::error::this commit already failed: {last['target_url']} (push a fix or re-run it)")
+                      sys.exit(1)
+          decide("true", "checking this commit")
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.gate.outputs.run == 'true'
       - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: steps.gate.outputs.run == 'true'
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: uv sync --all-groups --frozen
       - name: Run pre-commit
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: uv run pre-commit run --all-files --show-diff-on-failure
       - name: Audit dependencies
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: make audit
       - name: Run tests
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 10
         run: uv run pytest
         env:
           UNFRET_TEST_POSTGRES_URI: postgresql://unfret:unfret@postgres:5432/unfret
       - name: Run unit tests with the expansion classes on
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: make test-expansion
       - name: MCP server (mcp/, its own environment)
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: |
           uv sync --project mcp --all-groups --frozen
           uv run --project mcp mypy mcp/src mcp/tests
           uv run --project mcp pytest mcp/tests
       - name: Python client (clients/python, its own environment)
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         run: |
           uv sync --project clients/python --all-groups --frozen
           uv run --project clients/python mypy clients/python/src clients/python/tests
           uv run --project clients/python pytest clients/python/tests
       - uses: https://github.com/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.gate.outputs.run == 'true'
         with:
           node-version: 24
       - name: TypeScript client (clients/typescript)
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
         working-directory: clients/typescript
         run: |
           npm ci --no-audit --no-fund
@@ -63,7 +145,11 @@ jobs:
   # that same image.
   deploy-dev:
     needs: check
-    if: forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main'
+    # Only a commit whose own checks ran and passed: a superseded run checks nothing, and the newer commit's run
+    # deploys instead.
+    if: >-
+      forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main'
+      && needs.check.outputs.checked == 'true'
     runs-on: kroshtan-deploy
     concurrency:
       group: deploy-unfret-dev

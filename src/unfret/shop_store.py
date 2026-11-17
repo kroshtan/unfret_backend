@@ -34,7 +34,7 @@ from typing import Any, Protocol, get_args
 import asyncpg
 import structlog
 
-from unfret import fact_cache
+from unfret import background, fact_cache
 from unfret.config import settings
 from unfret.facts.business import WEBMAIL_DOMAINS
 from unfret.facts.schema import PageFacts, Platform
@@ -651,5 +651,4 @@ def observe_later(state: dict[str, Any]) -> None:
 
 async def drain() -> None:
     """Wait for background writes (tests and shutdown)."""
-    while _pending:
-        await asyncio.gather(*list(_pending), return_exceptions=True)
+    await background.drain(_pending)

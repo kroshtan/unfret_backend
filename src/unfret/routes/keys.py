@@ -1,9 +1,9 @@
 """
 API keys: create, recover, and put one on a phone.
 
-``GET /v1/keys/challenge``, ``POST /v1/keys`` (create, with free checks on request: :mod:`unfret.credits.free`),
-``POST /v1/keys/recover`` (rotate), ``POST /v1/keys/move-free-checks`` and ``GET /v1/keys/phone-qr`` (a QR code that
-puts the key on a phone).
+``GET /v1/keys/challenge``, ``POST /v1/keys`` (create, with free checks on request, or a developer pass's:
+:mod:`unfret.credits.free`), ``POST /v1/keys/recover`` (rotate), ``POST /v1/keys/move-free-checks`` and
+``GET /v1/keys/phone-qr`` (a QR code that puts the key on a phone).
 
 Shoppers know a key as their **Unfret pass** and its recovery code as their **backup code**; the API keeps the
 technical names.
@@ -51,6 +51,12 @@ class CreateKeyRequest(BaseModel):
         default=False,
         description="Ask for the free checks a new pass comes with (the browser extension does on install). Given "
         "only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
+    )
+    developer: bool = Field(
+        default=False,
+        description="Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and "
+        "testing an agent against /v1/check, the MCP server or the clients. One a day per network; past that the pass "
+        "is made empty. Takes the place of free.",
     )
     ref: str | None = Field(
         default=None,
@@ -128,14 +134,18 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
         raise BadRequestError("Challenge invalid, expired or unsolved; get a new one.", error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
-    # Free checks only within this network's share of free passes today; past it, the pass is simply made empty.
+    # Free checks only within this network's share of free (or developer) passes today; past it, the pass is simply
+    # made empty. Either way they come out of the one daily budget for free deep checks (unfret.credits.free).
     given = 0
-    if body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
+    if body.developer:
+        if settings.developer_free_checks > 0 and door.developer_passes.allow(_ip(request)):
+            given = settings.developer_free_checks
+    elif body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
     issued = await keys.create(request.app.db_pool, free_checks=given)
     # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
     referred = bool(body.ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, body.ref)
-    logger.info("api_key_created", free_checks=given, referred=referred)
+    logger.info("api_key_created", free_checks=given, developer=body.developer, referred=referred)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,

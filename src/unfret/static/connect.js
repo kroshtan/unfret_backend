@@ -6,6 +6,10 @@
 // - Phone pairing (/connect?pair=<id>, opened from the extension's QR code in a phone wallet's browser): the
 //   message names the pairing's confirmation code, the server attaches the session to the pairing and the extension
 //   collects it; this page keeps nothing.
+// From extension 0.12.0, when it doesn't sign in at once it answers {type: "unfret-session-status", status}:
+// "needs-click" (it takes a first sign-in only right after a click here, or in a tab it opened itself: a button hands
+// the session over again), "confirm" (it uses another pass or wallet and asks in its own window; the received message
+// follows on a yes) or "kept" (the user said no there). Older extensions never send it.
 // After a same-browser sign-in the page offers "Have an invite?": a code someone gave the user, redeemed for this
 // (new) wallet with the session it just got.
 import { INVITE_RE, NOT_A_CODE, api, discoverWallets, redeemInvite, setStatus, signIn, walletButton } from "./wallet.js";
@@ -20,6 +24,7 @@ const pairCode = document.getElementById("pair-code");
 const pairError = document.getElementById("pair-error");
 const pairDone = document.getElementById("pair-done");
 const invite = document.getElementById("invite");
+const handoff = document.getElementById("handoff");
 let signedIn = null; // this tab's sign-in, for redeeming an invite
 
 const HANDOFF_WAIT_MS = 3000;
@@ -27,11 +32,52 @@ const pairId = new URLSearchParams(window.location.search).get("pair");
 let handedOver = false;
 let pairReady = !pairId;
 
+function postSession(session) {
+  window.postMessage(
+    { type: "veridex-session", token: session.token, address: session.address, expires_at: session.expires_at },
+    window.location.origin,
+  );
+}
+
+function sayHandoff(...nodes) {
+  handoff.replaceChildren(...nodes);
+  handoff.hidden = nodes.length === 0;
+}
+
+function paragraph(text) {
+  const p = document.createElement("p");
+  p.textContent = text;
+  return p;
+}
+
+// The extension's answer when it didn't sign in at once (0.12.0 on).
+function extensionStatus(status) {
+  handedOver = true;
+  noExtension.hidden = true;
+  if (status === "needs-click" && signedIn) {
+    const send = document.createElement("button");
+    send.type = "button";
+    send.className = "primary";
+    send.textContent = "Send it to the extension";
+    send.addEventListener("click", () => {
+      send.disabled = true;
+      postSession(signedIn);
+    });
+    sayHandoff(paragraph("Sign your Unfret extension in with this wallet?"), send);
+  } else if (status === "confirm") {
+    sayHandoff(paragraph("Confirm in the Unfret window that just opened: it names this wallet and the account it uses now."));
+  } else if (status === "kept") {
+    sayHandoff(paragraph("Your Unfret extension keeps what it has. Sign in here again any time to switch it to this wallet."));
+  }
+}
+
 window.addEventListener("message", (event) => {
   if (pairId || event.source !== window || event.origin !== window.location.origin) return;
+  if (event.data?.type === "unfret-session-status") return extensionStatus(event.data.status);
   if (event.data?.type !== "veridex-session-received") return;
   handedOver = true;
   noExtension.hidden = true;
+  sayHandoff();
   done.hidden = false;
   done.focus();
 });
@@ -95,10 +141,7 @@ async function connect(wallet) {
     setStatus(status, `Connected ${session.address.slice(0, 4)}…${session.address.slice(-4)}.`, "ok");
     signedIn = session;
     invite.hidden = false;
-    window.postMessage(
-      { type: "veridex-session", token: session.token, address: session.address, expires_at: session.expires_at },
-      window.location.origin,
-    );
+    postSession(session);
     setTimeout(() => {
       if (!handedOver) noExtension.hidden = false;
     }, HANDOFF_WAIT_MS);

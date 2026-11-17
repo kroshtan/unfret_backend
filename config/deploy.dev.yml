@@ -26,6 +26,11 @@ env:
     # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
     UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"
     UNFRET_MODEL_QUICK_PATH: "<%= ENV.fetch('UNFRET_MODEL_QUICK_PATH', '') %>"
+    # x402 in USDC on Base Sepolia (testnet), off until DEV_BASE_PAY_TO and the facilitator's key exist (README,
+    # "USDC on Base"); then this flips to "true" in a PR. Mainnet stays refused here.
+    UNFRET_X402_BASE_ENABLED: "false"
+    UNFRET_BASE_NETWORK: base-sepolia
+    UNFRET_X402_BASE_ALLOW_MAINNET: "false"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI
@@ -40,6 +45,12 @@ env:
     - UNFRET_POLAR_ENVIRONMENT
     - UNFRET_POLAR_PRODUCTS
     - UNFRET_FIAT_WEBHOOK_SECRET
+    # Optional: x402 on Base Sepolia (off while UNFRET_X402_BASE_ENABLED is "false" above). payTo and the cold
+    # address are public; the CDP API key is the facilitator's credential (Ed25519 secret).
+    - UNFRET_BASE_PAY_TO
+    - UNFRET_BASE_COLD_ADDRESS
+    - UNFRET_CDP_API_KEY_ID
+    - UNFRET_CDP_API_KEY_SECRET
 
 # Retrained scorers never go into the image (built from the public repository): the deploy workflow puts the release
 # it fetched from the private model store here on the server, read-only in the container (README, "The model").

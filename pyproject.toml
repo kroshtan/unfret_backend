@@ -47,6 +47,7 @@ Repository = "https://github.com/kroshtan/unfret_backend"
 [dependency-groups]
 dev = [
     "eth-account>=0.13",
+    "jsonschema>=4.23",
     "mypy>=2.4",
     "pre-commit>=4.7",
     "pydoclint>=0.12",

@@ -2271,6 +2271,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "eth-account" },
+    { name = "jsonschema" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pydoclint" },
@@ -2306,6 +2307,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "eth-account", specifier = ">=0.13" },
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "mypy", specifier = ">=2.4" },
     { name = "pre-commit", specifier = ">=4.7" },
     { name = "pydoclint", specifier = ">=0.12" },

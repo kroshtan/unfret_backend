@@ -135,23 +135,37 @@ def get_x402_base(request: Request) -> BaseX402:
     return service
 
 
-def _resource() -> dict[str, Any]:
-    return {
+def _resource(*, discovery: bool = False) -> dict[str, Any]:
+    """
+    The x402 ``resource`` object of ``/v1/check``.
+
+    :param discovery: Add the Bazaar's service metadata (``tags``, ``iconUrl``): with Base payments, whose
+        facilitator catalogues the endpoint from it.
+    :return: The resource.
+    """
+    resource: dict[str, Any] = {
         "url": f"{settings.public_base_url}/v1/check",
         "description": "Scam, dropshipping and dark-pattern risk check of a store or product page",
         "mimeType": "application/json",
         "serviceName": "Unfret",
     }
+    if discovery:
+        resource["tags"] = list(BAZAAR_TAGS)
+        resource["iconUrl"] = f"{settings.public_base_url}/static/icons/icon-512.png"
+    return resource
 
 
 def _payment_required(accepts: list[dict[str, Any]], error: str, reason: str | None = None) -> JSONResponse:
+    base = any(option["network"].startswith("eip155:") for option in accepts)
     body: dict[str, Any] = {
         "x402Version": 2,
         "error": error,
         "error_code": "PAYMENT_REQUIRED",
-        "resource": _resource(),
+        "resource": _resource(discovery=base),
         "accepts": accepts,
     }
+    if base:  # discovery metadata for the Bazaar; a 402 without a Base option stays exactly as before
+        body["extensions"] = _base_extensions()
     if reason:  # a finer cause the client can act on, e.g. why the payment's simulation failed
         body["reason"] = reason
     return JSONResponse(body, status_code=402, headers={PAYMENT_REQUIRED: encode_header(body)})
@@ -463,7 +477,7 @@ async def _paid_check_base(  # noqa: PLR0911
             status_code=503,
             headers={"Retry-After": str(max(1, int(wait)))},
         )
-    resource, extensions = _resource(), _base_extensions()
+    resource, extensions = _resource(discovery=True), _base_extensions()
     try:
         await base.verify(pre, resource, extensions)
     except PaymentError as exc:
@@ -563,13 +577,87 @@ async def _analyse_before_settling(
     return result, answer, answer.model_dump(mode="json")
 
 
+BAZAAR_TAGS = ("shopping", "scam-detection", "e-commerce", "risk", "agents")
+# What a verdict looks like, for the Bazaar's catalogue (a made-up page; validated against Verdict in the tests).
+VERDICT_EXAMPLE: dict[str, Any] = {
+    "action": "warn",
+    "assessed": True,
+    "risk_score": 0.62,
+    "confidence": 0.8,
+    "flags": [
+        {
+            "type": "generic_product_markup",
+            "evidence": "The same product is sold elsewhere for a fraction of the price.",
+            "weight": 0.3,
+        }
+    ],
+    "policy_applied": "balanced",
+    "tier": "quick",
+    "cached": False,
+    "source": "analysis",
+    "checked_at": "2026-11-17T12:00:00Z",
+    "model_version": "v1-quick-20261109",
+    "band": "careful",
+    "summary": "Signs of a dropshipped generic product at a markup; ask before buying.",
+}
+
+
 def _base_extensions() -> dict[str, Any]:
     """
-    The x402 extensions Unfret declares with Base payments (none yet).
+    The x402 extensions Unfret declares with Base payments: ``bazaar``, so the facilitator's catalogue lists it.
+
+    The facilitator catalogues an endpoint after a settled payment whose payload carries this (Unfret sends its own
+    copy with every settlement, whatever the client echoed). ``info`` describes the call; ``schema`` (JSON Schema
+    2020-12, no external references) validates ``info``.
 
     :return: The ``extensions`` object.
     """
-    return {}
+    body_schema = {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "The store or product page to check."},
+            "page_content": {"type": "string", "description": "The page's HTML (for marketplaces such as Amazon)."},
+            "tier": {"type": "string", "enum": ["quick", "deep"]},
+            "policy": {"type": "string", "enum": ["strict", "balanced", "lenient"]},
+        },
+        "required": ["url"],
+    }
+    return {
+        "bazaar": {
+            "info": {
+                "input": {
+                    "type": "http",
+                    "method": "POST",
+                    "bodyType": "json",
+                    "body": {"url": "https://shop.example/p/42", "tier": "quick", "policy": "balanced"},
+                },
+                "output": {"type": "json", "example": VERDICT_EXAMPLE},
+            },
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "const": "http"},
+                            "method": {"type": "string", "enum": ["POST"]},
+                            "bodyType": {"type": "string", "enum": ["json"]},
+                            "body": body_schema,
+                        },
+                        "required": ["type", "method", "bodyType", "body"],
+                        "additionalProperties": False,
+                    },
+                    "output": {
+                        "type": "object",
+                        "properties": {"type": {"type": "string"}, "example": {"type": "object"}},
+                        "required": ["type"],
+                    },
+                },
+                "required": ["input"],
+            },
+        }
+    }
 
 
 async def _paid_check(  # noqa: PLR0911
@@ -714,11 +802,19 @@ ERRORS: dict[str, tuple[int, str, str]] = {
     "PRICE_UNAVAILABLE": (503, "no", "nothing can be priced right now: retry after Retry-After"),
     "SETTLEMENTS_PAUSED": (503, "no", "too many failed settlements: retry after Retry-After"),
     "SERVICE_UNAVAILABLE": (503, "no", "payments or analysis are off: retry later"),
-    "SETTLEMENT_FAILED": (402, "no", "the network refused the payment: pay again"),
-    "SETTLEMENT_PENDING": (402, "maybe", "don't pay again; if it lands within 2 min its price is credited"),
-    "SETTLEMENT_MISMATCH": (402, "yes", "it landed differently than simulated: no verdict (alerted)"),
-    "GATEWAY_TIMEOUT": (504, "refunded", "the analysis timed out: the price is credited to the paying wallet"),
-    "INTERNAL_ERROR": (500, "refunded", "the analysis failed: the price is credited to the paying wallet"),
+    "SETTLEMENT_FAILED": (402, "no", "the network refused the payment (`reason` on Base): pay again"),
+    "SETTLEMENT_PENDING": (402, "maybe", "Solana: don't pay again; if it lands within 2 min its price is credited"),
+    "SETTLEMENT_MISMATCH": (402, "yes", "it landed differently than required: no verdict (alerted)"),
+    "GATEWAY_TIMEOUT": (
+        504,
+        "refunded / no",
+        "the analysis timed out: Solana credits the price to the paying wallet; Base never settled it",
+    ),
+    "INTERNAL_ERROR": (
+        500,
+        "refunded / no",
+        "the analysis failed: Solana credits the price to the paying wallet; Base never settled it",
+    ),
 }
 
 
@@ -727,7 +823,46 @@ def _errors_table() -> str:
     return "\n".join(["| error_code | HTTP | charged | what to do |", "| --- | --- | --- | --- |", *rows])
 
 
-def _discovery() -> dict[str, Any]:
+def _networks(base: BaseX402 | None) -> list[dict[str, Any]]:
+    """
+    Every network ``/v1/check`` takes payments on, for ``/.well-known/x402``: Solana, and Base while it is set up.
+
+    :param base: The Base payment service (``None``: Solana only).
+    :return: One entry per network.
+    """
+    networks: list[dict[str, Any]] = [
+        {
+            "network": CAIP2[settings.solana_network],
+            "network_name": settings.solana_network,
+            "assets": ["USDC", "wSOL"],
+            "feePayer": "Unfret (the hot wallet co-signs and pays the fee)",
+            "paymentFlow": "upfront",
+        }
+    ]
+    if base is not None and base.configured:
+        name, version = base.domain
+        networks.append(
+            {
+                "network": base.network,
+                "network_name": settings.base_network,
+                "assets": {
+                    "USDC": {
+                        "address": base.usdc,
+                        "decimals": 6,
+                        "eip712": {"name": name, "version": version},
+                        "assetTransferMethod": "eip3009",
+                        "pricing": "exactly the USD price (1 USDC = $1)",
+                    }
+                },
+                "payTo": base.pay_to,
+                "feePayer": "the facilitator pays the gas: you sign a transferWithAuthorization, nothing else",
+                "paymentFlow": "authorization (settled only when the answer is ready: a failed check costs nothing)",
+            }
+        )
+    return networks
+
+
+def _discovery(base: BaseX402 | None = None) -> dict[str, Any]:
     mint = usdc_mint(settings.solana_network, settings.usdc_mint)
     return {
         "x402Version": 2,
@@ -736,8 +871,10 @@ def _discovery() -> dict[str, Any]:
         "endpoint": f"{settings.public_base_url}/v1/check",
         "method": "POST",
         "scheme": "exact",
+        # Solana's network (as before); `networks` lists every network, Base included while it is on.
         "network": CAIP2[settings.solana_network],  # CAIP-2, the same identifier as accepts[].network
         "network_name": settings.solana_network,
+        "networks": _networks(base),
         "pricing": "canonical in USD",
         "assets": {
             "USDC": {
@@ -814,23 +951,44 @@ def _discovery() -> dict[str, Any]:
 
 
 @router.get("/.well-known/x402", include_in_schema=False)
-async def discovery() -> JSONResponse:
+async def discovery(request: Request) -> JSONResponse:
     """
     Describe the paid endpoint, its tiers and prices for x402 directories and agents.
 
+    :param request: The incoming request (for the Base payment service).
     :return: The discovery document.
     """
-    return JSONResponse(_discovery())
+    return JSONResponse(_discovery(get_x402_base(request)))
+
+
+def _llms_base(d: dict[str, Any]) -> str:
+    base = next((n for n in d["networks"] if n["network"].startswith("eip155:")), None)
+    if base is None:
+        return ""
+    usdc = base["assets"]["USDC"]
+    return f"""
+### On Base
+
+USDC on Base (network {base["network"]}, i.e. {base["network_name"]}; USDC contract {usdc["address"]}, 6 decimals)
+is offered after the Solana options. Sign an EIP-3009 `transferWithAuthorization` of exactly `amount` to `payTo`
+(`extra.name` and `extra.version` are the token's EIP-712 domain) with `validBefore` at least two minutes ahead
+(`maxTimeoutSeconds` is 300), and retry with PAYMENT-SIGNATURE as in the x402 `exact` EVM scheme. The facilitator pays
+the gas. Base is settled only once the answer is ready: a page we can't read or assess, or a failed analysis, costs
+nothing (no PAYMENT-RESPONSE, `"charged": false` on an unassessable page). If the settlement is broadcast but not
+confirmed you still get the answer, with PAYMENT-RESPONSE `errorReason: "settlement_pending"`. Retrying with the same
+authorization returns the same answer and is never settled twice.
+"""
 
 
 @router.get("/llms.txt", include_in_schema=False, response_class=PlainTextResponse)
-async def llms_txt() -> str:
+async def llms_txt(request: Request) -> str:
     """
     Describe the service for language-model agents.
 
+    :param request: The incoming request (for the Base payment service).
     :return: Plain text.
     """
-    d = _discovery()
+    d = _discovery(get_x402_base(request))
     quick, deep = d["tiers"]["quick"]["price_usd"], d["tiers"]["deep"]["price_usd"]
     return f"""# Unfret
 
@@ -866,7 +1024,7 @@ converted at the SOL/USD quote (`extra.feeCapNote`). A refused payment answers 4
 the payment's simulation failed, `reason` (e.g. `insufficient_funds`, `source_token_account_missing`,
 `blockhash_not_found`). A page we can't fetch costs nothing. Retrying with the same PAYMENT-SIGNATURE returns the
 same answer and is never charged twice.
-
+{_llms_base(d)}
 ## Or pay with an Unfret pass
 
 Send `Authorization: Bearer ufk_...` (an Unfret pass) instead of PAYMENT-SIGNATURE: a deep check then uses one of the

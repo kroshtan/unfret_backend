@@ -641,11 +641,11 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | `PRICE_UNAVAILABLE` | 503 | no | nothing can be priced right now: retry after Retry-After |
 | `SETTLEMENTS_PAUSED` | 503 | no | too many failed settlements: retry after Retry-After |
 | `SERVICE_UNAVAILABLE` | 503 | no | payments or analysis are off: retry later |
-| `SETTLEMENT_FAILED` | 402 | no | the network refused the payment: pay again |
-| `SETTLEMENT_PENDING` | 402 | maybe | don't pay again; if it lands within 2 min its price is credited |
-| `SETTLEMENT_MISMATCH` | 402 | yes | it landed differently than simulated: no verdict (alerted) |
-| `GATEWAY_TIMEOUT` | 504 | refunded | the analysis timed out: the price is credited to the paying wallet |
-| `INTERNAL_ERROR` | 500 | refunded | the analysis failed: the price is credited to the paying wallet |
+| `SETTLEMENT_FAILED` | 402 | no | the network refused the payment (`reason` on Base): pay again |
+| `SETTLEMENT_PENDING` | 402 | maybe | Solana: don't pay again; if it lands within 2 min its price is credited |
+| `SETTLEMENT_MISMATCH` | 402 | yes | it landed differently than required: no verdict (alerted) |
+| `GATEWAY_TIMEOUT` | 504 | refunded / no | the analysis timed out: Solana credits the price to the paying wallet; Base never settled it |
+| `INTERNAL_ERROR` | 500 | refunded / no | the analysis failed: Solana credits the price to the paying wallet; Base never settled it |
 
 Money flows through, and nothing is ever swapped: SOL reaches the cold wallet as SOL and USDC as USDC (converting it is
 the operator's business, outside the product). A background sweep (one atomic transaction) unwraps the hot wallet's
@@ -696,8 +696,65 @@ flagged like any other, marked "a former cold address, after its cut-off", and s
 time. Keep the cut-off tight: it is the window in which a stolen hot key could drain to the old wallet unnoticed. When
 the cold address changes again, add that one too and move the cut-off to the newer change.
 
-The feature is off (`503`) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet; the server never
-holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
+#### USDC on Base
+
+`/v1/check` also takes **USDC on Base**, off by default (`UNFRET_X402_BASE_ENABLED=false`). While it is off nothing
+about x402 changes. While it is on, the 402 lists one more option after Solana's: the `exact` scheme on
+`eip155:84532` (Base Sepolia, the default `UNFRET_BASE_NETWORK`) or `eip155:8453` (Base mainnet, refused unless
+`UNFRET_X402_BASE_ALLOW_MAINNET=true`), Circle's USDC, the tier's dollar price exactly (6 decimals, the same amount as
+Solana's USDC option), `payTo` = `UNFRET_BASE_PAY_TO`, `maxTimeoutSeconds` 300, and the token's EIP-712 domain in
+`extra.name` / `extra.version` (`USDC`/`2` on Sepolia, `USD Coin`/`2` on mainnet, read from the contracts). The payer
+signs an EIP-3009 `transferWithAuthorization`; a **facilitator** checks it (`/verify`) and submits it, paying the gas
+(`/settle`). Neither Unfret nor the facilitator can change the amount or recipient, which the payer signed. The
+default facilitator is Coinbase's (CDP, `UNFRET_BASE_FACILITATOR_URL` =
+`https://api.cdp.coinbase.com/platform/v2/x402`), authenticated with a CDP secret API key
+(`UNFRET_CDP_API_KEY_ID`, and an **Ed25519** `UNFRET_CDP_API_KEY_SECRET`, CDP's default key type; an ECDSA key leaves
+Base off as `misconfigured`). Any other facilitator URL is used without a key (`https://x402.org/facilitator`:
+Base Sepolia only). CDP settles 1,000 transactions a month free, then $0.001 each (verification is free).
+
+- **No hot key on Base.** The facilitator pays the gas, so nothing on Base is ever signed by the server. `payTo` is an
+  address whose key stays offline (a hardware wallet): the cold wallet itself (`UNFRET_BASE_COLD_ADDRESS` empty), or
+  a receiving address that the operator sweeps to `UNFRET_BASE_COLD_ADDRESS` by hand, with the alert
+  `base_sweep_due` once it holds more than `UNFRET_BASE_SWEEP_ALERT_UNITS` ($50). Addresses are checked at start-up
+  (EIP-55 checksum when mixed-case): a typo leaves Base `misconfigured` rather than paying into it.
+- **Settled only when there is an answer** (x402's default `authorization` flow, unlike Solana's `upfront`): local
+  checks (the option, recipient, exact value, a 32-byte nonce, `validBefore` at least the analysis timeout plus a
+  minute ahead), the facilitator's `/verify` (signature, balance, simulation), fetching and analysing, then `/settle`.
+  An unreadable page (`422`), a failed analysis (`500`/`504`, "you were not charged") or a page that can't be
+  assessed (`200`, `"charged": false`) is never settled, so nothing on Base needs refunding. A settlement that was
+  broadcast but not confirmed still gets its answer, with `PAYMENT-RESPONSE` `errorReason: "settlement_pending"`; a
+  refused one answers `402 SETTLEMENT_FAILED` with `reason` and no verdict. Each counts toward the same breaker.
+- **Checked on chain.** After `/settle`, the transaction's receipt is read from Base (`UNFRET_BASE_RPC_URL`; the
+  network's public RPC when empty): it must show the USDC `Transfer` from the payer to `payTo` of exactly the price
+  and the authorization's `AuthorizationUsed`. Without a receipt, the authorization's state on chain decides. Anything
+  else is `SETTLEMENT_MISMATCH`, no verdict, and the sticky `post_settlement_mismatch` alert.
+- **Replays.** The same authorization (payer and nonce) gets the same answer for 15 minutes and is settled once; the
+  USDC contract refuses a used nonce anyway.
+- **Outflow audit.** Every `sweep_interval_s` the USDC contract's logs are read for `Transfer` and `Approval` events
+  with `payTo` as the first address, from the last audited block to `UNFRET_BASE_AUDIT_CONFIRMATIONS` (5) behind
+  the head, in chunks of 1,000 blocks (a backlog over ten chunks is skipped and flagged). A transfer anywhere but
+  `UNFRET_BASE_COLD_ADDRESS`, or any approval, raises `outflow_to_non_cold`: Base payments pause
+  (`compromise_suspected`) until the operator clears it. With `payTo` as the cold wallet itself every outgoing transfer
+  alarms, so moving funds out of it is followed by clearing the alert. Zero-value transfers (anyone can make one
+  "from" any address: address-poisoning spam) and zero approvals (revocations) are ignored. The cursor and flags live
+  in the same tables as Solana's, keyed `<network>:<payTo>`, so an alarm survives restarts. `GET /v1/admin/x402/alerts`
+  lists them under `base`; `POST /v1/admin/x402/clear-alerts?network=base` clears them (no `network`: both).
+- **Discovery.** With Base on, the 402 carries the Bazaar extension (`extensions.bazaar`: the request body and an
+  example verdict, with its JSON Schema) and the resource's `tags` and `iconUrl`; Unfret sends its own copy of both
+  with every settlement, so Coinbase's facilitator lists `/v1/check` in its Bazaar after the first settled payment
+  (about 15 minutes later, testnet included). `/.well-known/x402` gains `networks` (Solana's top-level fields are
+  unchanged), `/llms.txt` an "On Base" section, and `/developers` names both networks.
+
+Readiness reports `x402_base` (`off`, `ok`, `mainnet_refused`, `misconfigured`, `rpc_unavailable`,
+`compromise_suspected`) and `x402_base_alert_count`; with the operator token also the alerts and `payTo`'s USDC.
+`make e2e-base` (marker `e2e_base`, never part of the dev sweep or the production gate) checks against Base Sepolia:
+with `UNFRET_E2E_BASE_FACILITATOR_URL` (plus `UNFRET_E2E_CDP_API_KEY_ID` / `_SECRET` for CDP), that the facilitator
+takes Unfret's payment shape (a throwaway, unfunded payer gets as far as the balance check); with
+`UNFRET_E2E_BASE_PAYER_KEY` (a Base Sepolia key holding test USDC), a quick check on dev paid in USDC on Base,
+confirmed on chain and answered once for a retried payment. The MCP server (`mcp/`) pays on Solana only for now.
+
+The Solana side is off (`503`, or Base alone) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet;
+the server never holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
 spend cap, or from an Unfret pass (`UNFRET_PASS`): `uvx unfret-mcp` from PyPI, listed in the MCP Registry as
 `net.unfret/mcp`, released by the manual "Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
@@ -796,6 +853,10 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 | `UNFRET_FORMER_COLD_ADDRESSES` / `UNFRET_FORMER_COLD_UNTIL` | — | Earlier cold addresses (comma-separated) whose sweeps before the cut-off (ISO 8601) the outflow audit accepts; see "Changing the cold address" |
+| `UNFRET_X402_BASE_ENABLED` / `UNFRET_BASE_PAY_TO` | `false` / — | x402 in USDC on Base (see "USDC on Base"); off unless both are set |
+| `UNFRET_BASE_NETWORK` / `UNFRET_X402_BASE_ALLOW_MAINNET` / `UNFRET_BASE_RPC_URL` | `base-sepolia` / `false` / the public RPC | Base mainnet stays refused until allowed; set a provider's RPC for production |
+| `UNFRET_BASE_COLD_ADDRESS` / `UNFRET_BASE_SWEEP_ALERT_UNITS` | — (`payTo` is cold) / `50000000` | Where a separate receiving address is swept by hand, and when to ask for that sweep |
+| `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
 | `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (on in dev until the terms are approved) |
@@ -855,6 +916,13 @@ wallet and session secret:
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
 | Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
+
+**x402 on Base** is off in both environments (`UNFRET_X402_BASE_ENABLED: "false"` in dev's deploy file; production
+doesn't set it). Dev reads the optional repo secrets `DEV_BASE_PAY_TO`, `DEV_BASE_COLD_ADDRESS`, `DEV_CDP_API_KEY_ID`
+and `DEV_CDP_API_KEY_SECRET`; once they exist (or `UNFRET_BASE_FACILITATOR_URL` names a keyless testnet facilitator),
+dev is switched on in a PR that sets `UNFRET_X402_BASE_ENABLED: "true"`, on Base Sepolia only. Production needs its own
+plumbing first (`PROD_BASE_PAY_TO`, `PROD_CDP_API_KEY_ID`, `PROD_CDP_API_KEY_SECRET`, `PROD_BASE_RPC_URL`, with
+`UNFRET_BASE_NETWORK: base-mainnet` and `UNFRET_X402_BASE_ALLOW_MAINNET: "true"`), only on the owner's decision.
 
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).

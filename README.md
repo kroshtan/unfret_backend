@@ -312,9 +312,11 @@ which has neither. There `/checkout` reads the checkout's id from the return lin
 `POST /v1/credits/fiat-checkouts/{checkout_id}/pass`, which rotates the paid key (a new key and recovery code, the
 same id and balance; the old key stops working) and hands over the invites: once, within 24 hours of the payment, and
 only while the buying browser hasn't picked the purchase up itself (its status poll with the claim token after
-payment sets `collected_at`), so an old link in a browser's history can't take over a pass in use. The buying browser,
-opened later, learns from the status (`reissued: true`) that its key was replaced and forgets it. The page removes the
-checkout's id from the address bar at once.
+payment sets `collected_at`), so an old link in a browser's history can't take over a pass in use. Only a pass made
+for the purchase is ever rotated: a checkout whose key had been credited before (a top-up), or got credit since (a
+code, another card order), is refused (`CHECKOUT_TOPPED_UP`), so a pass in use in the extension or on a phone is
+never signed out from another browser. The buying browser, opened later, learns from the status (`reissued: true`)
+that its key was replaced and forgets it. The page removes the checkout's id from the address bar at once.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
 **`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,

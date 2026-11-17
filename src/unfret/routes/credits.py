@@ -517,6 +517,13 @@ class CheckoutNotPaidError(ConflictError):
     headers = {"Cache-Control": "no-store", "Retry-After": "3"}
 
 
+class CheckoutToppedUpError(ConflictError):
+    """The checkout added checks to a pass that existed before it: that pass is never replaced from here."""
+
+    error_code = "CHECKOUT_TOPPED_UP"
+    headers = {"Cache-Control": "no-store"}
+
+
 class CheckoutCollectedError(ConflictError):
     """The purchase was already picked up, in the browser that paid or by an earlier reissue."""
 
@@ -663,10 +670,12 @@ async def fiat_checkout_pass(request: Request, response: Response, checkout_id: 
     purchase. The provider's return link names the checkout (``/checkout?paid=1&checkout=<id>``). Allowed once,
     within 24 hours of the payment, and only while the browser that paid hasn't picked the purchase up itself (a
     status poll with its claim token after payment); the key is rotated: a new key and recovery code, the same id
-    and balance, and the old key stops working.
+    and balance, and the old key stops working. Only for a pass made for the purchase: a top-up of a pass that had
+    checks before (or got some since, from a code or another card order) is never rotated from here.
 
     Refusals: 404 ``UNKNOWN_CHECKOUT``; 409 ``CHECKOUT_NOT_PAID`` (not confirmed yet: retry after a few seconds);
-    409 ``CHECKOUT_COLLECTED`` (picked up already); 410 ``CHECKOUT_EXPIRED``; 429 (too many attempts from here).
+    409 ``CHECKOUT_TOPPED_UP`` (the checks went to a pass in use: nothing to collect here); 409
+    ``CHECKOUT_COLLECTED`` (picked up already); 410 ``CHECKOUT_EXPIRED``; 429 (too many attempts from here).
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable).
@@ -676,6 +685,7 @@ async def fiat_checkout_pass(request: Request, response: Response, checkout_id: 
     :raises TooManyRequestsError: If this network tried too many times today.
     :raises UnknownCheckoutError: For an unknown checkout.
     :raises CheckoutNotPaidError: While the payment isn't confirmed.
+    :raises CheckoutToppedUpError: When the purchase topped up a pass in use.
     :raises CheckoutCollectedError: When the purchase was picked up already.
     :raises CheckoutExpiredError: After the window.
     """
@@ -691,6 +701,8 @@ async def fiat_checkout_pass(request: Request, response: Response, checkout_id: 
     except fiat.ReissueError as exc:
         if exc.reason == "not_paid":
             raise CheckoutNotPaidError("The payment isn't confirmed yet; try again in a few seconds.") from exc
+        if exc.reason == "topped_up":
+            raise CheckoutToppedUpError("These checks were added to your pass; open Unfret where you use it.") from exc
         if exc.reason == "collected":
             raise CheckoutCollectedError("These checks were already picked up, in the browser you paid from.") from exc
         if exc.reason == "expired":

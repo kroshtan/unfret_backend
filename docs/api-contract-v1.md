@@ -718,9 +718,11 @@ valid 7 days. Nothing is stored when a check runs.
   another browser, which has neither the pass (API key) made for the purchase nor its claim token. It rotates that key
   and returns `{"key_id", "key", "recovery_code", "account", "checks", "checks_remaining", "invites"}`: the same id and
   balance, a new key and recovery code (the old ones stop working), and the pack's invites if nobody collected them.
-  Once per checkout, within 24 hours of the payment, and only while the buying browser hasn't picked the purchase up
-  itself. Refusals: 404 `UNKNOWN_CHECKOUT`, 409 `CHECKOUT_NOT_PAID` (`Retry-After: 3`; the webhook hasn't arrived
-  yet), 409 `CHECKOUT_COLLECTED`, 410 `CHECKOUT_EXPIRED`, 429, 503 while card payments are off.
+  Once per checkout, within 24 hours of the payment, only while the buying browser hasn't picked the purchase up
+  itself, and only for a pass made for the purchase (never a top-up of a pass in use). Refusals: 404
+  `UNKNOWN_CHECKOUT`, 409 `CHECKOUT_NOT_PAID` (`Retry-After: 3`; the webhook hasn't arrived yet), 409
+  `CHECKOUT_TOPPED_UP` (the checks went to a pass that had credit before or got some since; nothing to collect),
+  409 `CHECKOUT_COLLECTED`, 410 `CHECKOUT_EXPIRED`, 429, 503 while card payments are off.
 - `GET /v1/credits/fiat-checkouts/{checkout_id}` adds `reissued` (bool): the purchase was picked up in another
   browser and the key this browser made for it no longer works. A poll with the claim token after payment marks the
   purchase as picked up by the buying browser, so it can no longer be reissued.

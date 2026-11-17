@@ -512,8 +512,11 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         -- collected_at: the buying browser saw the payment (a status poll with the claim token after it was paid).
         -- reissued_at: the buyer came back in another browser, without the pass, and got a fresh one for the
         -- purchase (unfret.credits.fiat.reissue_pass); a checkout can be picked up only one of the two ways.
+        -- new_pass: the key had never been credited when the checkout was made (a pass made for this purchase, not
+        -- a top-up of one in use); only such a checkout can be reissued. Earlier checkouts can't (FALSE).
         ALTER TABLE fiat_checkouts ADD COLUMN collected_at TIMESTAMPTZ;
         ALTER TABLE fiat_checkouts ADD COLUMN reissued_at TIMESTAMPTZ;
+        ALTER TABLE fiat_checkouts ADD COLUMN new_pass BOOLEAN NOT NULL DEFAULT FALSE;
         """,
     ),
 ]

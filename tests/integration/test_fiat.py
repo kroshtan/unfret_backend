@@ -618,6 +618,22 @@ async def test_migration_21_marks_earlier_card_orders_as_dollars(pool: asyncpg.P
         await pool.execute("UPDATE fiat_payments SET currency = 'EURO'")
 
 
+async def test_migration_22_leaves_earlier_checkouts_unreissuable(pool: asyncpg.Pool) -> None:
+    await pool.execute(DROP_ALL)
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 22])
+    await pool.execute(
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, paid_at) "
+        "VALUES ('fake', 'co_old', 'key:abcdefghij', 25, NOW())"
+    )
+    assert 22 in await migrate(pool)
+    assert await migrate(pool) == []  # applied once
+    row = await pool.fetchrow("SELECT collected_at, reissued_at, new_pass FROM fiat_checkouts")
+    assert (row["collected_at"], row["reissued_at"], row["new_pass"]) == (None, None, False)
+    with pytest.raises(fiat.ReissueError) as refused:
+        await fiat.reissue_pass(pool, "fake", "co_old")
+    assert refused.value.reason == "topped_up"
+
+
 # ── Picking a card purchase up in another browser ─────────────────────────────────────────────────────────────
 
 
@@ -680,6 +696,47 @@ async def test_a_purchase_the_buying_browser_picked_up_cant_be_taken_over(
 
     assert (refused.status_code, refused.json()["error_code"]) == (409, "CHECKOUT_COLLECTED")
     assert await checks_left(client, issued.key) == 25  # untouched
+
+
+async def test_a_top_up_of_a_pass_in_use_is_never_reissued(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
+) -> None:
+    # A pass bought earlier (and in use in the extension, on a phone) is topped up; the bank app brings the buyer
+    # back to another browser. Rotating the pass there would sign every other device out.
+    issued, _, _ = await paid_checkout(client, provider, pool)
+    topup = (await checkout(client, issued.key_id)).json()["checkout_id"]
+    paid = order("order.paid", "ord_topup", checkout_id=topup, total_amount=600)
+    assert (await send(client, provider, paid)).json() == {"status": "credited"}
+
+    refused = await client.post(f"/v1/credits/fiat-checkouts/{topup}/pass")
+
+    assert (refused.status_code, refused.json()["error_code"]) == (409, "CHECKOUT_TOPPED_UP")
+    assert await checks_left(client, issued.key) == 50  # untouched
+
+
+@pytest.mark.parametrize("since", ["code", "order"])
+async def test_a_new_pass_that_got_checks_another_way_before_payment_is_not_reissued(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, since: str
+) -> None:
+    # A pass made for a checkout that was left open, then used with an intro code or paid by another checkout: by
+    # the time this one is paid, the pass is in use.
+    issued, _, checkout_id = await paid_checkout(client, provider, pool, pay=False)
+    if since == "code":
+        await pool.execute(
+            "INSERT INTO wallets (pubkey, balance_usd_micros, invite_redeemed) VALUES ($1, 600000, TRUE)",
+            issued.account,
+        )
+    else:
+        other = (await checkout(client, issued.key_id)).json()["checkout_id"]
+        first = order("order.paid", "ord_other", checkout_id=other, total_amount=600)
+        assert (await send(client, provider, first)).json() == {"status": "credited"}
+    paid = order("order.paid", "ord_left_open", checkout_id=checkout_id, total_amount=600)
+    assert (await send(client, provider, paid)).json() == {"status": "credited"}
+
+    refused = await client.post(f"/v1/credits/fiat-checkouts/{checkout_id}/pass")
+
+    assert (refused.status_code, refused.json()["error_code"]) == (409, "CHECKOUT_TOPPED_UP")
+    assert await checks_left(client, issued.key) is not None  # still works
 
 
 async def test_a_purchase_before_payment_or_unknown_or_too_old_gives_no_pass(

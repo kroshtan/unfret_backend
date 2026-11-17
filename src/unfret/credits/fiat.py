@@ -296,6 +296,9 @@ async def remember_checkout(
     """
     Keep which account a checkout is for, in case the order's webhook doesn't echo the metadata.
 
+    Also whether the account had never been credited (``new_pass``): a pass made for this purchase, which
+    :func:`reissue_pass` may hand to another browser, rather than a top-up of a pass in use, which it never touches.
+
     :param db: The database pool.
     :param provider: The provider's name.
     :param checkout: The checkout.
@@ -305,7 +308,8 @@ async def remember_checkout(
         (:mod:`unfret.credits.invites`).
     """
     await db.execute(
-        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash) VALUES ($1, $2, $3, $4, $5) "
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass) "
+        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3)) "
         "ON CONFLICT DO NOTHING",
         provider,
         checkout.checkout_id,
@@ -319,9 +323,9 @@ REISSUE_WINDOW = timedelta(hours=24)
 
 
 class ReissueError(Exception):
-    """Why a checkout's pass can't be reissued: ``unknown``, ``not_paid``, ``collected`` or ``expired``."""
+    """Why a pass can't be reissued: ``unknown``, ``not_paid``, ``topped_up``, ``collected`` or ``expired``."""
 
-    def __init__(self, reason: Literal["unknown", "not_paid", "collected", "expired"]) -> None:
+    def __init__(self, reason: Literal["unknown", "not_paid", "topped_up", "collected", "expired"]) -> None:
         """
         Name the reason.
 
@@ -350,7 +354,9 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
     checkout paid for (a new key and recovery code, the same id and balance; the old ones stop working) and hands
     over the invites. Only once, only within :data:`REISSUE_WINDOW` of the payment, and only while the buying
     browser hasn't picked the purchase up itself (:func:`unfret.credits.invites.checkout_status`): an old link in a
-    browser's history can't take over a pass that is in use.
+    browser's history can't take over a pass that is in use. Never for a top-up: only a checkout whose key had no
+    credit when it was made (``new_pass``), and that has had none since but this purchase (no code redeemed on it,
+    no other card order), so a pass already in use elsewhere is never rotated.
 
     :param db: The database pool.
     :param provider: The provider's name.
@@ -361,8 +367,11 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
     """
     async with db.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
-            "SELECT account, checks, paid_at, collected_at, reissued_at, invite_codes FROM fiat_checkouts "
-            "WHERE provider = $1 AND checkout_id = $2 FOR UPDATE",
+            "SELECT c.account, c.checks, c.paid_at, c.collected_at, c.reissued_at, c.invite_codes, c.new_pass, "
+            "COALESCE(w.invite_redeemed, FALSE) AS invite_redeemed, "
+            "(SELECT COUNT(*) FROM fiat_payments p WHERE p.account = c.account) AS orders "
+            "FROM fiat_checkouts c LEFT JOIN wallets w ON w.pubkey = c.account "
+            "WHERE c.provider = $1 AND c.checkout_id = $2 FOR UPDATE OF c",
             provider,
             checkout_id,
         )
@@ -370,6 +379,8 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
             raise ReissueError("unknown")
         if row["paid_at"] is None:
             raise ReissueError("not_paid")
+        if not row["new_pass"] or row["invite_redeemed"] or row["orders"] > 1:
+            raise ReissueError("topped_up")
         if row["collected_at"] is not None or row["reissued_at"] is not None:
             raise ReissueError("collected")
         if row["paid_at"] < (now or datetime.now(UTC)) - REISSUE_WINDOW:

@@ -1149,6 +1149,7 @@ async function pickUpElsewhere(checkoutId) {
 
 function pickUpFailed(error) {
   const text = {
+    CHECKOUT_TOPPED_UP: "Payment received: the checks were added to your pass. Open Unfret where you use that pass to see them.",
     CHECKOUT_COLLECTED: "These checks were already collected in the browser you paid from: open Unfret there. Lost that pass? Use your backup code on My checks.",
     CHECKOUT_EXPIRED: "This payment is more than a day old. Your checks are safe on the pass made when you paid: use it there, or its backup code on My checks.",
     UNKNOWN_CHECKOUT: "We couldn't find this payment. If you paid, your checks are safe on the pass made when you started.",

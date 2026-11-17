@@ -115,6 +115,14 @@ def test_listing_keys_ignore_tracking_but_keep_the_product() -> None:
     assert listing_key("not a url") is None
 
 
+def test_listing_keys_ignore_what_the_extension_drops_from_an_address() -> None:
+    # The extension sends an address without its fragment, tracking parameters, sessions, tokens and e-mail addresses
+    # (L8): the same listing as the full address an agent or /check sends.
+    full = "https://shop.test/p.php?id=5&ttclid=1&twclid=2&token=t&sid=s&email=me%40mail.test&hsa_cam=4&linkCode=x"
+    assert listing_key(full) == listing_key("https://shop.test/p.php?id=5")
+    assert listing_key("https://shop.test/p.php?id=5&size=m") != listing_key("https://shop.test/p.php?id=5")
+
+
 async def test_a_fetched_listing_is_answered_from_the_fast_path(
     client: httpx.AsyncClient, graph: AssessingGraph, rpc: FakeRpc
 ) -> None:

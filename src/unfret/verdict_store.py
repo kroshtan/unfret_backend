@@ -22,7 +22,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import asyncpg
 import structlog
 
-from unfret import shop_store
+from unfret import result_cache, shop_store
 from unfret.net import hostname
 from unfret.price_store import registrable_domain
 from unfret.test_shop import is_test_shop
@@ -31,8 +31,13 @@ from unfret.x402.verdict import Policy, Tier, Verdict, action_for
 logger = structlog.get_logger("unfret")
 
 FRESH_DAYS = 1
-# Query parameters that track a visit rather than pick a product.
+# Query parameters that track a visit rather than pick a product: these prefixes, and every parameter the result cache
+# drops (result_cache.is_tracking_param, the list the browser extension drops too).
 _TRACKING = ("utm_", "ref", "fbclid", "gclid", "msclkid", "mc_", "_ga", "srsltid", "tag", "psc", "th")
+
+
+def _tracking(name: str, value: str) -> bool:
+    return name.lower().startswith(_TRACKING) or result_cache.is_tracking_param(name, value)
 
 
 def listing_key(url: str) -> bytes | None:
@@ -46,7 +51,7 @@ def listing_key(url: str) -> bytes | None:
     if not host or "." not in host:
         return None
     parts = urlsplit(url if "://" in url else f"https://{url}")
-    query = sorted((k, v) for k, v in parse_qsl(parts.query) if not k.lower().startswith(_TRACKING))
+    query = sorted((k, v) for k, v in parse_qsl(parts.query) if not _tracking(k, v))
     canonical = f"{registrable_domain(host)}|{parts.path.rstrip('/').lower()}?{urlencode(query)}"
     return hashlib.sha256(canonical.encode()).digest()
 

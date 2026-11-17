@@ -359,21 +359,41 @@ def checkout() -> HTMLResponse:
     return _page("checkout.html", "/checkout")
 
 
+# What the welcome page says above its three ways in when the extension's new pass came without free checks.
+WELCOME_NOTES = {
+    "had-free": "This browser has had its free checks already, so your new Unfret pass starts without them. Quick "
+    "checks stay free; for deep checks, buy a pack or use a gift code from a friend.",
+    "none-today": "There were no free checks to give just now, so your new Unfret pass starts without them. Quick "
+    "checks stay free; for deep checks, buy a pack or use a gift code from a friend.",
+}
+
+
 @router.get("/welcome", response_class=HTMLResponse)
-def welcome(free: int = 0) -> HTMLResponse:
+def welcome(free: int = 0, setup: int = 0, note: str = "") -> HTMLResponse:
     """
     The first page after installing the extension (it opens it once).
 
-    With ``?free=<n>`` (the extension made itself a pass with that many free checks): "You have n free checks", and
-    how to check a page. Without (an older extension, a reinstall): a code, buying checks, or a pass you have.
+    With ``?setup=1`` (extension 0.12.0, on install or from "Get your free checks"): "Getting your free checks
+    ready", while ``welcome.js`` tells the extension whether this browser already had its free checks (the link
+    checker's note, a yes or no) and the extension makes its pass; the page then moves on to one of the others. With
+    ``?free=<n>`` (the pass came with that many free checks): "You have n free checks", and how to check a page.
+    Without: a code, buying checks, or a pass you have; with ``?note=had-free`` or ``?note=none-today`` saying why
+    the extension's new pass has no free checks.
 
     :param free: The free checks the extension's new pass came with.
+    :param setup: 1 while the extension makes its pass.
+    :param note: Why the extension's new pass came without free checks.
     :return: The page.
     """
+    if setup == 1:
+        return _page("welcome-setup.html", cta=("/check", "Check a link"))
     if 0 < free <= 100:
         page = with_store_links(template("welcome-free.html", cta=("/check", "Check a link")))
         return HTMLResponse(versioned(page.replace("{{free_checks}}", str(free))), headers=PAGE_HEADERS)
-    return _page("welcome.html", cta=("/checkout", "Buy checks"))
+    text = WELCOME_NOTES.get(note)
+    shown = f'<p class="note" role="status">{html.escape(text)}</p>' if text else ""
+    page = with_store_links(template("welcome.html", cta=("/checkout", "Buy checks")))
+    return HTMLResponse(versioned(page.replace("{{free_note}}", shown)), headers=PAGE_HEADERS)
 
 
 @router.get("/check", response_class=HTMLResponse)

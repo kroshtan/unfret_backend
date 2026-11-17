@@ -93,7 +93,7 @@ def share_url(url: str) -> str:
         raise ShareError("NOT_SHAREABLE", "Only a check of a web page's address can be shared.") from exc
     netloc = (parts.hostname or "") + (f":{port}" if port else "")
     query = urlencode(
-        [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not result_cache.is_tracking_param(k)]
+        [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not result_cache.is_tracking_param(k, v)]
     )
     return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
 

@@ -20,7 +20,10 @@
     <p>Nothing leaves your browser until you click <strong>Check this page</strong> in the extension (or an agent calls
       <code>/v1/check</code>). Then the page address, the product facts (title, brand, seller, price, ratings, reviews,
       shop policies) and the page's visible text go to our server in the EU. Account menus, addresses, forms and
-      anything you typed are removed in your browser first.</p>
+      anything you typed are removed in your browser first, and so is what the address carries about you: the part
+      after <code>#</code>, tracking and referral parameters (such as <code>utm_…</code>, <code>gclid</code> or
+      <code>fbclid</code>), sessions, tokens and e-mail addresses. What picks the product or its size or colour
+      stays.</p>
     <p>On a service company's own site or a provider's profile on a platform (a plumber, a locksmith, a Werkspot or
       Thumbtack profile) the check also sends what the business publishes about itself: its name, KvK or licence number,
       address, phone numbers and e-mail addresses (from its footer, contact and legal sections and its structured
@@ -42,7 +45,10 @@
       time, it asks our server for a new Unfret pass with a few free checks. That request carries nothing about you or
       the pages you visit. To give free checks only once, the extension remembers in your browser's own extension
       storage that it got them (your browser may sync that note between your devices, as it does settings), and the
-      link checker in this browser's storage; neither note says anything else. Our server counts new free passes per
+      link checker in this browser's storage; neither note says anything else. Removing the extension removes its
+      note, so before it asks for free checks, the welcome page it opens tells it whether the link checker's note is
+      in this browser: a yes or no, from the page to the extension in your browser, nowhere else. A pass made with
+      free checks sets that note too. Our server counts new free passes per
       internet connection for a day, in memory only and under a salted one-way hash of the address, gone at the next
       restart: <strong>it never stores your IP address for this</strong> (the proxy's request log, under "Server
       logs and limits" below, is the one place an IP address is kept). Of the free checks it stores only how many a pass has
@@ -182,8 +188,8 @@
         until you remove it on My checks.</li>
       <li><strong>A new pass</strong> made on the checkout page, until you confirm you've saved its backup code.</li>
       <li><strong>Claim tokens</strong> for a purchase's invites, for up to three days.</li>
-      <li><strong>A note</strong> that this browser has had its free pass on the link checker, so it gets one only
-        once.</li>
+      <li><strong>A note</strong> that this browser has had its free pass, on the link checker or in the extension,
+        so it gets one only once.</li>
       <li><strong>An affiliate's code</strong>, if you came through an affiliate's link, for up to 30 days or until you
         get a pass (see "Affiliates and bonus codes" above).</li>
       <li>For one browser tab only (session storage): a wallet's sign-in on the checkout and wallet pages.</li>

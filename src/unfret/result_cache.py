@@ -18,6 +18,7 @@ neither and a restart forgets it with the results.
 
 import hashlib
 import hmac
+import re
 import secrets
 import time
 from collections import OrderedDict
@@ -27,9 +28,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 RESULT_TTL_S = 3600.0
 _MAX_ENTRIES = 5_000
 
-# Query parameters that track the visitor or the referral, never the product.
+# Query parameters that track the visitor or the referral, never the product. The browser extension drops the same ones
+# (and the private ones below) from a checked page's address before sending it (its src/shared/urls.ts; `make parity`
+# there copies this list into its tests), so an address keys the same here whichever client sent it.
 _TRACKING_PARAMS = frozenset(
     {
+        # ad clicks and campaigns
         "gclid",
         "gbraid",
         "wbraid",
@@ -37,31 +41,107 @@ _TRACKING_PARAMS = frozenset(
         "fbclid",
         "msclkid",
         "yclid",
+        "ttclid",
+        "twclid",
+        "li_fat_id",
+        "epik",
+        "s_kwcid",
+        "ef_id",
         "igshid",
+        "igsh",
         "mc_cid",
         "mc_eid",
         "_ga",
         "_gl",
+        "_hsenc",
+        "_hsmi",
+        "mkt_tok",
+        "oly_anon_id",
+        "oly_enc_id",
+        "vero_id",
+        "vero_conv",
+        "rb_clickid",
+        "irclickid",
+        "cjevent",
+        "awc",
+        "sscid",
+        "ranmid",
+        "raneaid",
+        "ransiteid",
+        "wickedid",
+        # referrals and affiliate tags
         "ref",
         "ref_",
+        "ref_src",
+        "ref_url",
         "referrer",
         "tag",
+        "aff_id",
+        "affid",
+        "linkcode",
+        "linkid",
+        "ascsubtag",
+        "creativeasin",
         "si",
         "spm",
         "scm",
         "srsltid",
+        # Amazon's search and placement trail (the product is the path's ASIN)
+        "pd_rd_i",
         "pd_rd_r",
         "pd_rd_w",
         "pd_rd_wg",
+        "pf_rd_i",
+        "pf_rd_m",
         "pf_rd_p",
         "pf_rd_r",
+        "pf_rd_s",
+        "pf_rd_t",
         "psc",
         "qid",
         "sr",
         "keywords",
         "crid",
         "sprefix",
+        "dib",
+        "dib_tag",
+        "content-id",
     }
+)
+_TRACKING_PREFIXES = ("utm_", "hsa_")
+# Query parameters that carry a session, a token or an e-mail address in a shop's own links (a password reset, a
+# newsletter's click, an old shop's session in the address): never the product.
+_PRIVATE_PARAMS = frozenset(
+    {
+        "token",
+        "access_token",
+        "auth_token",
+        "id_token",
+        "reset_token",
+        "auth",
+        "secret",
+        "api_key",
+        "apikey",
+        "password",
+        "pwd",
+        "session",
+        "sessionid",
+        "session_id",
+        "sid",
+        "oscsid",
+        "phpsessid",
+        "jsessionid",
+        "cfid",
+        "cftoken",
+        "email",
+        "e-mail",
+        "e_mail",
+        "email_address",
+    }
+)
+# A value that is an e-mail address (also with its @ escaped), or an Unfret pass or backup code, whatever its name.
+_PRIVATE_VALUE = re.compile(
+    r"[^\s@/?#&=]+(?:@|%40)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|uf[kr]_[a-z2-7]{6,}", re.IGNORECASE
 )
 
 _entries: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
@@ -71,15 +151,22 @@ _MAX_PAID = 20_000
 _PAID_KEY = secrets.token_bytes(32)
 
 
-def is_tracking_param(name: str) -> bool:
+def is_tracking_param(name: str, value: str = "") -> bool:
     """
-    Whether a query parameter tracks the visitor or the referral rather than naming the product.
+    Whether a query parameter tracks the visitor or the referral, or carries their session, rather than the product.
 
     :param name: The parameter's name.
-    :return: ``True`` for tracking and referral parameters (``utm_*``, ``gclid``, ``ref``, …).
+    :param value: Its value (decoded): an e-mail address or an Unfret pass there is never the product either.
+    :return: ``True`` for tracking and referral parameters (``utm_*``, ``gclid``, ``ref``, …), sessions, tokens and
+        e-mail addresses.
     """
     lowered = name.lower()
-    return lowered in _TRACKING_PARAMS or lowered.startswith("utm_")
+    return (
+        lowered in _TRACKING_PARAMS
+        or lowered in _PRIVATE_PARAMS
+        or lowered.startswith(_TRACKING_PREFIXES)
+        or bool(_PRIVATE_VALUE.search(value))
+    )
 
 
 def _listing(url: str) -> str:
@@ -93,7 +180,7 @@ def _listing(url: str) -> str:
     :return: The normalised listing.
     """
     parts = urlsplit(url.strip())
-    query = sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not is_tracking_param(k))
+    query = sorted((k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not is_tracking_param(k, v))
     return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), urlencode(query), ""))
 
 

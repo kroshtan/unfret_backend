@@ -710,6 +710,13 @@ valid 7 days. Nothing is stored when a check runs.
   "use another key"). Only the public key ID goes in the link, never the key. The extension (0.11.0) and `/check` link
   there for a signed-in key; a wallet's link stays `/checkout`.
 
+## Changes (a limit on uncharged analyses, backwards-compatible)
+
+- `POST /v1/analyze` and `/v1/analyze/stream`: 429 `TOO_MANY_REQUESTS` (`metadata.retry_after_s`) once an account has
+  had `UNFRET_ANALYZE_FREE_OUTCOMES_PER_HOUR` (30) analyses in the past hour that ran but weren't charged (the client
+  hung up before the result, or the page couldn't be assessed: score -1). Refunds are unchanged; analyses that failed
+  on our side (timeout, error) don't count.
+
 ## Changes (card purchases picked up in another browser, card prices with VAT; backwards-compatible; migration 22)
 
 - The card checkout's success URL is now `/checkout?paid=1&checkout=<checkout id>` (Polar fills in `{CHECKOUT_ID}`).

@@ -11,6 +11,7 @@ from tests.integration.conftest import FakeGraph
 from unfret.config import settings
 from unfret.routes import analyze
 from unfret.schemas.requests import AnalyzeRequest
+from unfret.visitors import RateLimit
 
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater", "flags": ["domain_age"]}
 PRICE = settings.analysis_price_lamports
@@ -393,3 +394,60 @@ async def test_stream_failure_is_refunded_without_details(
     assert "event: error" in response.text
     assert "sk-secret" not in response.text
     assert await balance(pool, address) == PRICE
+
+
+@pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
+async def test_uncharged_analyses_are_limited_per_account(
+    *,
+    client: httpx.AsyncClient,
+    graph: FakeGraph,
+    pool: asyncpg.Pool,
+    wallet: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    # A page that can't be assessed is refunded, but its analysis still cost LLM calls: one check's balance must not
+    # buy an endless run of them.
+    monkeypatch.setattr(analyze, "_free_outcomes", RateLimit(2, window_s=3600))
+    address, headers = await wallet(PRICE)
+    graph.result = {"score": -1, "explanation": "No product referenced on this page"}
+
+    for n in range(2):
+        assert (
+            await client.post(path, json={**PAGE, "url": f"https://shop.test/{n}"}, headers=headers)
+        ).status_code == 200
+    refused = await client.post(path, json={**PAGE, "url": "https://shop.test/2"}, headers=headers)
+
+    assert (refused.status_code, refused.json()["error_code"]) == (429, "TOO_MANY_REQUESTS")
+    assert len(graph.calls) == 2
+    assert await balance(pool, address) == PRICE
+
+
+async def test_a_hang_up_counts_as_an_uncharged_analysis(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(analyze, "_free_outcomes", RateLimit(1, window_s=3600))
+    address, headers = await wallet(PRICE)
+    graph.error = asyncio.CancelledError()  # type: ignore[assignment]  # the client went away mid-analysis
+
+    with pytest.raises(asyncio.CancelledError):
+        await client.post("/v1/analyze", json=PAGE, headers=headers)
+    assert await balance(pool, address) == PRICE  # refunded, as before
+    graph.error = None
+    refused = await client.post("/v1/analyze", json={**PAGE, "url": "https://shop.test/again"}, headers=headers)
+    assert (refused.status_code, refused.json()["error_code"]) == (429, "TOO_MANY_REQUESTS")
+
+
+async def test_our_own_failures_do_not_count_against_the_account(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(analyze, "_free_outcomes", RateLimit(1, window_s=3600))
+    _, headers = await wallet(PRICE)
+    graph.error = RuntimeError("provider down")
+    assert (await client.post("/v1/analyze", json=PAGE, headers=headers)).status_code == 500
+    stream = await client.post("/v1/analyze/stream", json={**PAGE, "url": "https://shop.test/s"}, headers=headers)
+    assert "INTERNAL_ERROR" in stream.text
+    graph.error = None
+    assert (
+        await client.post("/v1/analyze", json={**PAGE, "url": "https://shop.test/ok"}, headers=headers)
+    ).status_code == 200

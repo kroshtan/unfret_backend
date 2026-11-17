@@ -40,6 +40,26 @@ _TITLE = "title"
 _PRIVATE = "private"
 # Pages fetched for URL-only requests, per account: a page we can't read is free, so this bounds the free fetches.
 _fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
+# Analyses per account that ran but were refunded (hung up, or not assessable): they cost LLM calls all the same.
+_free_outcomes = RateLimit(settings.analyze_free_outcomes_per_hour, window_s=3600)
+
+
+def _check_free_outcomes(address: str) -> None:
+    """
+    Refuse a new analysis while the account has had too many uncharged ones this hour.
+
+    :param address: The account.
+    :raises TooManyRequestsError: Over :attr:`~unfret.config.Settings.analyze_free_outcomes_per_hour`.
+    """
+    if (wait := _free_outcomes.waiting(address)) is not None:
+        raise TooManyRequestsError(
+            "Too many checks this hour ended without a result; wait a while before the next one.",
+            metadata={"retry_after_s": max(1, int(wait) + 1)},
+        )
+
+
+def _count_free_outcome(address: str) -> None:
+    _free_outcomes.retry_after(address)  # counts it (the result, a wait, is for the next request)
 
 
 def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str, object]]:
@@ -259,6 +279,7 @@ async def analyze_page(
         balance = await _balance(request, address)
         return _response(cached, balance, charged=False, report_token=token, shared_from=body)
 
+    _check_free_outcomes(address)
     await _fetch_if_url_only(request, body, address, state)
     left = await _debit(request, address)
     usage = UsageMetadataCallbackHandler()
@@ -270,6 +291,7 @@ async def analyze_page(
         await _refund(request, address)
         raise GatewayTimeoutError("Analysis took too long.") from exc
     except asyncio.CancelledError:
+        _count_free_outcome(address)
         await _refund(request, address)  # the client went away before the result
         raise
     except Exception as exc:
@@ -286,6 +308,7 @@ async def analyze_page(
     logger.info("skills_used", **skill_counts)
 
     if result["score"] == -1:
+        _count_free_outcome(address)
         return _response(result, await _refund(request, address), charged=False)
     token = _report_token(body, address, result)
     return _response(kept, left, charged=True, report_token=token, shared_from=body)
@@ -352,6 +375,7 @@ async def analyze_page_stream(
         hit = _response(cached, balance, charged=False, report_token=token, shared_from=body)
         return _stream(_replay(hit))
 
+    _check_free_outcomes(address)
     await _fetch_if_url_only(request, body, address, state)
     left = await _debit(request, address)
     return _stream(_live_events(request, body, address, graph, state, key=key, left=left))
@@ -390,6 +414,7 @@ async def _live_events(
     usage = UsageMetadataCallbackHandler()
     final: dict[str, Any] = {}
     refund = True  # until the analysis has finished (its result is then cached and handed over)
+    failed = False  # our side failed (timeout, error), rather than the client hanging up
     try:
         try:
             async with asyncio.timeout(settings.analysis_timeout_s):
@@ -399,21 +424,25 @@ async def _live_events(
                     for event in _update_events(update, final):
                         yield event
         except TimeoutError:
+            failed = True
             logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
             yield _event("error", {"detail": "Analysis took too long.", "error_code": "GATEWAY_TIMEOUT"})
             return
         except Exception:
+            failed = True
             logger.exception("graph_execution_failed")
             yield _event("error", {"detail": "Analysis failed.", "error_code": "INTERNAL_ERROR"})
             return
         finally:
             _log_usage(usage)
         if "score" not in final:
+            failed = True
             yield _event("error", {"detail": "Analysis failed.", "error_code": "INTERNAL_ERROR"})
             return
         result_cache.put(key, dict(final))
         refund = False
         if final["score"] == -1:
+            _count_free_outcome(address)
             result = _response(final, await _refund(request, address), charged=False)
         else:
             token = _report_token(body, address, final)
@@ -421,4 +450,6 @@ async def _live_events(
         yield _event("result", result.model_dump(mode="json", exclude_none=True))
     finally:
         if refund:
+            if not failed:
+                _count_free_outcome(address)  # the client hung up before the result
             await _refund(request, address)

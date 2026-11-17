@@ -141,6 +141,10 @@ ignore = [
     # Same as tests/
     "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "S311",
 ]
+"examples/**" = [
+    # Runnable examples: they print to the terminal and aren't packages
+    "T201", "INP001",
+]
 "clients/python/tests/**" = [
     # Same as tests/
     "D", "ANN", "INP001", "PLR2004", "S101", "S105", "S106", "T201",

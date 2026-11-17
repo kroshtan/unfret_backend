@@ -1,0 +1,21 @@
+[project]
+name = "unfret-browser-use-example"
+description = "A browser-use agent that checks the shop with Unfret before it goes to checkout"
+version = "0.1.0"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = ["unfret-client"]
+
+[project.optional-dependencies]
+# The agent itself (an LLM and a headless Chrome); --gate-only needs neither.
+agent = ["browser-use==1.0.6"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+unfret-client = { path = "../../clients/python", editable = true }
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+target-version = "py311"

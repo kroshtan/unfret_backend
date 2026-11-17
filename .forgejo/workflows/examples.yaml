@@ -1,0 +1,32 @@
+name: Examples against dev
+
+# Manual (Actions → "Examples against dev" → Run workflow): the clients' live tests and the browser-use example's
+# hard gate, against dev.unfret.net, each with a fresh developer pass (20 free deep checks; one a day per network, so a
+# second run the same day falls back to free quick checks or skips the deep ones). No secrets, no money: the public
+# runner. The example's agent itself needs an LLM key and a browser, so it is run by hand
+# (examples/browser-use-checkout/README.md).
+on:
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: kroshtan-public
+    env:
+      UNFRET_LIVE_URL: https://dev.unfret.net
+      UNFRET_API_URL: https://dev.unfret.net
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: The example's gate on the test shop (Unfret must block it)
+        working-directory: examples/browser-use-checkout
+        run: uv run --frozen checkout_agent.py --gate-only --expect block
+      - name: Python client, live
+        run: uv run --project clients/python --frozen pytest clients/python/tests -m live -v -s
+      - uses: https://github.com/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: TypeScript client, live
+        working-directory: clients/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:live

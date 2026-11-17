@@ -306,7 +306,7 @@ function handoffBox(issued, steps = null) {
         say("info", element("p", "Your extension keeps what it has. To use this pass there later, paste it when the extension asks.", "small")),
       );
       actions.append(use, keep);
-      say("ask", element("p", "Your Unfret extension uses another pass or wallet. Switch it to this new pass?"), actions);
+      say("ask", element("p", "Your Unfret extension uses another pass or wallet. Switch it to this pass?"), actions);
       return;
     }
     say(
@@ -1178,6 +1178,21 @@ async function collectEarlier() {
   }
 }
 
+// From My checks' "Send to the extension" (/checkout?send=pass): the extension takes a pass only from this page, so
+// this browser's pass (the link checker's sign-in) is offered to it here. False when this browser has no pass.
+function sendPass() {
+  const stored = storageGet(CHECK_ACCOUNT);
+  if (stored?.kind !== "key" || typeof stored.token !== "string" || !KEY_RE.test(stored.token)) return false;
+  const id = KEY_RE.exec(stored.token)[1];
+  const back = element("a", "Back to My checks", "button");
+  back.href = "/my-checks";
+  const actions = element("div", "", "result-actions");
+  actions.append(back);
+  showChoices(false);
+  showPanel("ok", element("p", `Your pass ${showPassId(id)} for the extension`, "headline"), handoffBox({ key: stored.token }), actions);
+  return true;
+}
+
 function initialMode(params) {
   const asked = params.get("mode");
   if (MODES.includes(asked) && (asked !== "crypto" || cryptoAvailable())) return asked;
@@ -1226,6 +1241,12 @@ async function start() {
   renderWallets([]);
   setMode(initialMode(params));
   const returned = CHECKOUT_ID_RE.test(params.get("checkout") ?? "") ? params.get("checkout") : null;
+  const send = params.get("send") === "pass";
+  if (send) {
+    const keep = new URLSearchParams(window.location.search);
+    keep.delete("send");
+    history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
+  }
   if (params.has("paid") || params.has("checkout")) {
     // The checkout's id is a one-day pass to these checks: don't leave it in the address bar or the history.
     const keep = new URLSearchParams(params);
@@ -1234,7 +1255,7 @@ async function start() {
     history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
   }
   if (params.get("paid")) void watchCard(returned);
-  else void collectEarlier();
+  else if (!(send && sendPass())) void collectEarlier();
   discoverWallets(renderWallets);
 }
 

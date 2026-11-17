@@ -754,10 +754,10 @@ valid 7 days. Nothing is stored when a check runs.
   (the QR code above), sending the pass to the extension, removing it, a new pass from the backup code
   (`POST /v1/keys/recover`, moved here from `/checkout`'s top-up tab), a backup code from `/checkout` not yet
   confirmed as saved, and the wallet sign-in (SIWS, for checks bought with crypto).
-- **Extension hand-off from `/my-checks` too:** "Send to the extension" posts the same
-  `{"type": "unfret-key", "key"}` message as `/checkout`. The extension's content script should run on
-  `<site>/my-checks*` as well as `<site>/checkout*` for it to be answered; without that the page says no extension
-  answered and offers the pass to copy.
+- **Extension hand-off from `/my-checks` too:** "Send to the extension" opens `/checkout?send=pass`, which offers
+  this browser's pass (the link checker's sign-in) to the extension with the same `{"type": "unfret-key", "key"}`
+  message and the same answers as every other hand-off. The extension's key relay and its sender check stay on
+  `<site>/checkout*` only: nothing changes for extension 0.11.0. `/checkout` drops `send` from the address bar.
 - `/check` no longer signs in with a wallet itself (that moved to `/my-checks`); it still uses a wallet's sign-in
   stored by `/my-checks`. Without checks it shows "Get checks to start" (buy, a code, or paste a pass). Its progress
   list follows the page type from the classifier's `step` event (`page_type`): a shop's, an ad's or a company's five

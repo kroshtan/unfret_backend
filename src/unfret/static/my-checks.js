@@ -8,7 +8,6 @@
 //   - nothing: get checks (/checkout) or paste a pass.
 // Always: a lost pass comes back with its backup code (a new pass, same checks), and a wallet can sign in. A backup
 // code made on /checkout and not yet confirmed as saved ("unfret-new-key") is shown until its owner confirms.
-import { handOffKey } from "./handoff.js";
 import { BACKUP_RE, PASS_RE, copyButton, passIdOf, showPassId } from "./pass.js";
 import { api, discoverWallets, signIn, walletButton } from "./wallet.js";
 
@@ -156,17 +155,8 @@ $("pass-qr-hide").addEventListener("click", () => {
   $("pass-qr-box").hidden = true;
 });
 
-$("pass-extension").addEventListener("click", async () => {
-  const status = $("pass-extension-status");
-  status.textContent = "Looking for the Unfret extension in this browser…";
-  const answer = await handOffKey(account.token);
-  status.textContent =
-    {
-      "signed-in": "Done: the extension uses this pass now.",
-      already: "The extension already uses this pass.",
-      "other-account": "The extension uses another pass or wallet. To switch, copy this pass and paste it there.",
-    }[answer] ?? "No Unfret extension answered in this browser. Add it from the Get Unfret page, or copy your pass below.";
-});
+// "Send to the extension" opens /checkout?send=pass: the extension (0.11.0 on) takes a pass only from /checkout, so
+// the hand-off happens there, with this browser's pass (the link checker's sign-in, which both pages share).
 
 $("pass-remove").addEventListener("click", () => {
   const ok = window.confirm(

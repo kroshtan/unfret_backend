@@ -1,0 +1,50 @@
+{
+  "name": "unfret-client",
+  "version": "0.1.0",
+  "description": "Minimal client for Unfret: check a store or product page before an AI agent buys (allow, warn or block)",
+  "keywords": [
+    "unfret",
+    "scam-detection",
+    "ai-agents",
+    "shopping",
+    "dropshipping"
+  ],
+  "homepage": "https://unfret.net/developers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kroshtan/unfret_backend.git",
+    "directory": "clients/typescript"
+  },
+  "bugs": "https://git.kroshtan.com/kroshtan/unfret_backend/issues",
+  "license": "MIT",
+  "author": "Floris van Beers <hello@unfret.net>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test build-test/test/client.test.js",
+    "test:live": "tsc -p tsconfig.test.json && node --test build-test/test/live.test.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
+}

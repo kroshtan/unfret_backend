@@ -51,6 +51,14 @@ def restore_app_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             setattr(app, name, value)
 
 
+@pytest.fixture(autouse=True)
+def fresh_analysis_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Uncharged analyses are counted per account in memory: each test starts afresh."""
+    from unfret.routes import analyze  # noqa: PLC0415 - keep the app out of import time for unrelated tests
+
+    monkeypatch.setattr(analyze, "_free_outcomes", RateLimit(analyze.settings.analyze_free_outcomes_per_hour, 3600))
+
+
 @pytest.fixture
 def node() -> None:
     """Tests that run the pages' JavaScript need node (CI has it: it runs the checkout action)."""

@@ -50,6 +50,21 @@ class RateLimit:
     clock: Callable[[], float] = time.monotonic
     _hits: dict[str, deque[float]] = field(default_factory=dict)
 
+    def waiting(self, ip: str) -> float | None:
+        """
+        How long until another request is allowed, without counting one.
+
+        :param ip: The client address (or any other key).
+        :return: Seconds to wait, or ``None`` if a request would be allowed now.
+        """
+        hits = self._hits.get(visitor_key(ip))
+        now = self.clock()
+        while hits and hits[0] <= now - self.window_s:
+            hits.popleft()
+        if hits is not None and len(hits) >= self.limit:
+            return hits[0] + self.window_s - now
+        return None
+
     def retry_after(self, ip: str) -> float | None:
         """
         Count a request, or say how long to wait.

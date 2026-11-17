@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.
     analyze_fetch_per_minute: int = Field(default=10, ge=1)
+    # Analyses per account per hour that end without a charge although the analysis ran: refunded because the client
+    # hung up, or because the page couldn't be assessed (score -1). Each still costs LLM calls; past this, the
+    # account's next analyses answer 429 until the hour has passed.
+    analyze_free_outcomes_per_hour: int = Field(default=30, ge=1)
     # Attempts (including the first) for graph nodes that call the LLM or fetch outside data, when they fail with a
     # transient error (dropped connection, provider 5xx, rate limit): LangGraph's RetryPolicy. 1 turns retries off.
     graph_retry_attempts: int = Field(default=2, ge=1, le=5)

@@ -42,7 +42,7 @@ from unfret.x402.base import (
     SettlementRefusedError,
     SettlementUnknownError,
 )
-from unfret.x402.facilitator import FacilitatorError
+from unfret.x402.facilitator import FacilitatorError, FacilitatorUnreachableError
 from unfret.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from unfret.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
 from unfret.x402.solana import (
@@ -442,7 +442,7 @@ async def _answer_once(
     return JSONResponse(content, status_code=status, headers=headers)
 
 
-async def _paid_check_base(  # noqa: PLR0911
+async def _paid_check_base(  # noqa: C901, PLR0911
     body: CheckRequest,
     request: Request,
     base: BaseX402,
@@ -497,6 +497,16 @@ async def _paid_check_base(  # noqa: PLR0911
 
     try:
         settlement = await base.settle(pre, resource, extensions)
+    except FacilitatorUnreachableError as exc:  # never sent: nothing settled, and not the payer's doing
+        logger.warning("x402_base_settle_unreachable", error=str(exc)[:120])
+        return JSONResponse(
+            {
+                "detail": "Payments on Base are not available right now; you were not charged.",
+                "error_code": "SERVICE_UNAVAILABLE",
+            },
+            status_code=503,
+            headers={"Retry-After": "30"},
+        )
     except SettlementRefusedError as exc:
         base.breaker.record_failure(payer, ip)  # the work was done for nothing
         headers = {

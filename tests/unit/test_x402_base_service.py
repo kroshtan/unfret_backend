@@ -34,7 +34,7 @@ from unfret.x402.base import (
     SettlementUnknownError,
 )
 from unfret.x402.evm import APPROVAL_TOPIC, TRANSFER_TOPIC, USDC
-from unfret.x402.facilitator import FacilitatorError
+from unfret.x402.facilitator import FacilitatorError, FacilitatorUnreachableError
 from unfret.x402.payment import PaymentError
 
 THIEF = Account.create().address
@@ -356,10 +356,13 @@ async def test_settlement_refusals_and_pending(base: BaseX402, facilitator: Fake
     with pytest.raises(SettlementUnknownError) as pending:
         await base.settle(pre, RESOURCE, {})
     assert pending.value.transaction == TX
-    facilitator.settle = httpx.ReadTimeout("no answer")
+    facilitator.settle = httpx.ReadTimeout("no answer")  # sent, no answer: it may have been broadcast
     with pytest.raises(SettlementUnknownError) as unknown:
         await base.settle(pre, RESOURCE, {})
     assert unknown.value.transaction == ""
+    facilitator.settle = httpx.ConnectError("refused")  # never sent
+    with pytest.raises(FacilitatorUnreachableError):
+        await base.settle(pre, RESOURCE, {})
 
 
 # --- health and the outflow audit ----------------------------------------------------------------------------------

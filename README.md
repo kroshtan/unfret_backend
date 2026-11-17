@@ -723,7 +723,8 @@ Base Sepolia only). CDP settles 1,000 transactions a month free, then $0.001 eac
   An unreadable page (`422`), a failed analysis (`500`/`504`, "you were not charged") or a page that can't be
   assessed (`200`, `"charged": false`) is never settled, so nothing on Base needs refunding. A settlement that was
   broadcast but not confirmed still gets its answer, with `PAYMENT-RESPONSE` `errorReason: "settlement_pending"`; a
-  refused one answers `402 SETTLEMENT_FAILED` with `reason` and no verdict. Each counts toward the same breaker.
+  refused one answers `402 SETTLEMENT_FAILED` with `reason` and no verdict; each counts toward the same breaker. A
+  facilitator that can't be reached at all answers `503 SERVICE_UNAVAILABLE` (nothing was sent, nothing charged).
 - **Checked on chain.** After `/settle`, the transaction's receipt is read from Base (`UNFRET_BASE_RPC_URL`; the
   network's public RPC when empty): it must show the USDC `Transfer` from the payer to `payTo` of exactly the price
   and the authorization's `AuthorizationUsed`. Without a receipt, the authorization's state on chain decides. Anything

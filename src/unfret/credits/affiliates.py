@@ -909,7 +909,8 @@ async def stats(db: asyncpg.Pool, settings: Settings, token: str) -> dict[str, A
         return None
     affiliate_id = int(row["id"])
     codes = await db.fetch(
-        "SELECT code FROM bonus_codes WHERE affiliate_id = $1 ORDER BY code",
+        # Their own code first: the stats page builds their link from it.
+        "SELECT code FROM bonus_codes WHERE affiliate_id = $1 ORDER BY bonus_pct IS NOT NULL, code",
         affiliate_id,
     )
     months = await monthly(db, affiliate_id)

@@ -221,7 +221,7 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
     The headline without an LLM: the verdict's (up to two) strongest concerns, else the band's sentence.
 
     Every client shows the verdict's label right above the headline, so the headline never repeats it: "Fake
-    countdown and unknown brand.", not "Many warning signs: fake countdown and unknown brand.". A reliable page names
+    countdown and unknown brand.", not "Serious concerns: fake countdown and unknown brand.". A reliable page names
     its one note ("One thing to note: …") rather than saying nothing stood out.
 
     :param band: The verdict band.
@@ -250,7 +250,7 @@ def template_headline(band: Band, fired: list[str], reasons: list[Reason], copy:
 
 def without_label(text: str, label: str) -> str:
     """
-    A headline without the verdict's label in front ("Many warning signs: fake countdown." → "Fake countdown.").
+    A headline without the verdict's label in front ("Serious concerns: fake countdown." → "Fake countdown.").
 
     Clients show the label right above the headline; repeating it reads as a stutter.
 
@@ -778,6 +778,11 @@ def build(
     strongest first, and at most two positives. When the score is low but no single reason fired, an honest
     "several small signals" reason stands in.
 
+    "Serious concerns" (``junk_or_scam``) only at high confidence: when the scorer set the score and its confidence
+    is below ``verdict_serious_min_confidence`` (``verdict_serious_min_confidence_quick`` with ``concrete_only``, the
+    quick tier's scorer), a junk_or_scam score is shown as "Think twice" (``careful``). The warning bands together are
+    unchanged (the same pages are warned about); only the harshest word waits for a sure scorer.
+
     A shopper is only told "careful" (or worse) when there is something concrete to show for it, or the scorer is
     sure: when the only reasons are things missing from the page (:data:`ABSENCE_REASONS`, or none at all) and the
     scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead. With
@@ -801,6 +806,9 @@ def build(
         by_type.setdefault(finding.type, []).append(finding)
     evidence = _Evidence(features, by_type, facts, page_type, market)
     band = band_for(score)
+    sure = settings.verdict_serious_min_confidence_quick if concrete_only else settings.verdict_serious_min_confidence
+    if band == "junk_or_scam" and confidence is not None and confidence < sure:
+        band = "careful"  # "Serious concerns" only when the scorer is sure; otherwise "Think twice"
 
     fired: dict[str, dict[str, str]] = {}
     rules_in_order = (

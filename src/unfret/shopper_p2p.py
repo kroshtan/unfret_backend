@@ -7,18 +7,18 @@ so the extension and the link checker show it unchanged; the copy is in ``copy/e
 The rules, from the p2p skills' features (``seller_profile``, ``off_platform``, ``price_outlier``,
 ``duplicate_ads``, ``reverse_image``) and the shared ones (``content``, ``injection``):
 
-- **Many warning signs** (``junk_or_scam``) only for the strong combinations: payment pushed off the platform
+- **Serious concerns** (``junk_or_scam``) only for the strong combinations: payment pushed off the platform
   (up front, untraceable, protection refused, "I'm abroad", or a bank transfer for an item that is only shipped)
   together with a weak or copied seller (a new account, no ratings, many ads at once, text, photo or phone number
   seen in other ads) or a price far below the usual; a photo from other ads with a price far below the usual; or
   three serious reasons at once.
-- **Some warning signs** (``careful``): any serious reason on its own, or two of the middling ones.
+- **Think twice** (``careful``): any serious reason on its own, or two of the middling ones.
 - **Looks fine** (``reliable``) only when nothing at all fired, the ad's own text was read, the content read doesn't
   lean towards payment off the platform, and the positives are concrete: an account of two years or more with the
   platform's payment protection or pickup (a well-rated one may also show a checked normal price instead). Many
   platforms show no rating count (Marktplaats and 2dehands don't); a low or missing rating is its own reason, so an
   old account without one is not held back. Never for lack of evidence.
-- **A few things to check** (``concerns``) otherwise, with "little to go on" as the reason when nothing fired.
+- **Worth a look** (``concerns``) otherwise, with "little to go on" as the reason when nothing fired.
 
 The same ad text in other ads only counts when something else about the ad or seller is off: an account of years
 with nothing else against it is a seller with several things for sale (three bikes, one description), and the ad

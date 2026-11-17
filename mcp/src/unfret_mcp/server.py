@@ -132,7 +132,9 @@ async def check_store(
     :param policy: How cautious the returned action is: strict, balanced or lenient.
     :param page_content: The page's HTML, if available.
     :return: ``status`` (ok, not_paid, pending, unknown, unavailable), ``ok``, the ``verdict`` (action, risk_score,
-        confidence, flags) or ``error``, the payment, and ``next_step`` when there's something to do.
+        confidence, flags, and ``band``: what a shopper is shown, ``reliable`` "Looks fine", ``concerns`` "Worth a
+        look", ``careful`` "Think twice" or ``junk_or_scam`` "Serious concerns") or ``error``, the payment, and
+        ``next_step`` when there's something to do.
     """
     body: dict[str, Any] = {"url": url, "tier": tier, "policy": policy}
     if page_content:

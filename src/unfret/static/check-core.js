@@ -46,9 +46,9 @@ export function sharedLink(params) {
 // The same words and symbols as the extension, so a verdict never relies on colour alone.
 export const BAND_WORD = {
   reliable: "Looks fine",
-  concerns: "A few things to check",
-  careful: "Some warning signs",
-  junk_or_scam: "Many warning signs",
+  concerns: "Worth a look",
+  careful: "Think twice",
+  junk_or_scam: "Serious concerns",
 };
 export const BAND_SYMBOL = { reliable: "✓", concerns: "!", careful: "⚠", junk_or_scam: "✕" };
 

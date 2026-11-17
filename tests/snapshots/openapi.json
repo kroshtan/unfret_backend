@@ -2901,7 +2901,7 @@
         "type": "null"
        }
       ],
-      "description": "reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees.",
+      "description": "reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees, in words \"Looks fine\", \"Worth a look\", \"Think twice\" or \"Serious concerns\".",
       "title": "Band"
      },
      "cached": {

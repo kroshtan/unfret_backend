@@ -523,7 +523,7 @@ async def test_off_platform_payment_on_a_new_account_is_many_warning_signs() -> 
     score, verdict = await _verdict(facts_of("marktplaats-iphone"))
 
     assert verdict.band == "junk_or_scam" and score < settings.verdict_careful_min
-    assert verdict.label == "Many warning signs"
+    assert verdict.label == "Serious concerns"
     assert [r.severity for r in verdict.reasons] == ["high", "high", "high"]
     assert "“Betaling vooraf via overboeking" in verdict.reasons[0].detail
     words = [verdict.label, verdict.headline, *(f"{r.title} {r.detail}" for r in verdict.reasons)]
@@ -614,7 +614,7 @@ async def test_little_to_go_on_says_so() -> None:
     _, verdict = await _verdict(PageFacts(platform="marktplaats"))
 
     assert [r.type for r in verdict.reasons] == ["p2p_little_known"]
-    assert verdict.headline == "Little to go on."  # the label ("A few things to check") is shown above it
+    assert verdict.headline == "Little to go on."  # the label ("Worth a look") is shown above it
 
 
 def test_ad_copy_is_complete_and_plain() -> None:

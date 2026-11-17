@@ -15,7 +15,15 @@ from evals.features import (
 )
 from evals.label import apply_decision, describe
 from evals.llm_cache import CacheMissError, SQLiteLLMCache
-from evals.metrics import Outcome, binary_metrics, page_type_confusion, roc_auc, summarise, to_markdown
+from evals.metrics import (
+    Outcome,
+    band_precision,
+    binary_metrics,
+    page_type_confusion,
+    roc_auc,
+    summarise,
+    to_markdown,
+)
 from evals.run import select
 from evals.second_opinion import STRICT_DATASETS, reconcile, reset
 from evals.shopcheck import looks_like_shop
@@ -276,6 +284,21 @@ def test_page_type_confusion_and_summary() -> None:
     assert (report["pages"], report["scored"], report["not_analysed"]) == (6, 4, 1)
     assert report["failures"] == [{"id": "f", "error": "boom"}]
     assert "| <40 |" in to_markdown(report)
+
+
+def test_each_band_has_its_pages_and_precision() -> None:
+    outcomes = [
+        Outcome("a", "scam", 10, band="junk_or_scam", confidence=0.8),
+        Outcome("b", "legit", 12, band="junk_or_scam", confidence=0.5),
+        Outcome("c", "junk", 40, band="careful"),
+        Outcome("d", "legit", 90, band="reliable"),
+        Outcome("e", "scam", -1, band=""),  # not analysed: no band
+    ]
+    bands = band_precision(outcomes)
+    assert bands["junk_or_scam"] == {"n": 2, "legit": 1, "unreliable": 1, "precision": 0.5}
+    assert bands["careful+"] == {"n": 3, "legit": 1, "unreliable": 2, "precision": 0.667}
+    assert "concerns" not in bands
+    assert "| junk_or_scam | 2 | 1 | 1 | 0.5 |" in to_markdown(summarise(outcomes))
 
 
 def test_select_is_balanced_and_stable() -> None:

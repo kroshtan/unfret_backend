@@ -33,7 +33,7 @@ def _state(facts: PageFacts, text: str = "", url: str = "https://shop.example.co
 @pytest.mark.parametrize(
     ("risk", "policy", "band", "action"),
     [
-        (0.45, "balanced", "concerns", "allow"),  # was "warn": the shopper sees "a few things to check"
+        (0.45, "balanced", "concerns", "allow"),  # was "warn": the shopper sees "Worth a look"
         (0.45, "balanced", "careful", "warn"),
         (0.45, "strict", "concerns", "warn"),  # strict callers asked for it
         (0.30, "strict", "reliable", "warn"),

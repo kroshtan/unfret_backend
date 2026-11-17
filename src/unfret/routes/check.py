@@ -632,7 +632,8 @@ same answer and is never charged twice.
 "policy_applied", "tier", "cached", "checked_at", "model_version", "band"}}. "warn" means: ask your human before
 buying.
 Under the balanced and lenient policies you are never told to warn about a page a shopper would be shown as
-"reliable" or "concerns" (the band); choose strict to be warned about those too.
+"reliable" or "concerns" (the band); choose strict to be warned about those too. A shopper reads the four bands
+reliable, concerns, careful and junk_or_scam as "Looks fine", "Worth a look", "Think twice" and "Serious concerns".
 
 ## Errors
 

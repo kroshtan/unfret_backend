@@ -225,8 +225,19 @@ def test_the_page_says_who_checked_it_only_as_an_unfret_user_and_isnt_indexed() 
     assert "Checked by an Unfret user on 9 November 2026; the page may have changed." in page
     assert '<meta name="robots" content="noindex, nofollow">' in page
     assert 'href="https://shop.example/p?id=1&amp;x=2" rel="nofollow noopener noreferrer"' in page
-    assert "Unfret would warn you about this listing" in page
+    assert '<p class="label">Serious concerns</p>' in page  # the verdict's name, as on every other page
     assert "scam" not in page.lower()
+
+
+def test_a_share_names_the_verdict_as_every_page_does_also_when_stored_before() -> None:
+    shown = view()
+    assert (shown["label"], shown["result"]["verdict"]["label"]) == ("Serious concerns", "Serious concerns")
+    # The former label in front of a stored headline goes, as it would under the current one.
+    assert shown["headline"] == shown["result"]["verdict"]["headline"] == "A discount it never had."
+    stored = shares.public_share_result(response())  # what shares stored before: the showcase's wording
+    assert stored["verdict"]["label"] == "Unfret would warn you about this listing"
+    old = view(result=stored)
+    assert old["label"] == "Serious concerns" and old["band"] == "warning" and old["symbol"] == "✕"
 
 
 def test_the_page_escapes_html_in_titles_and_reasons() -> None:

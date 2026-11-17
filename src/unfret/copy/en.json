@@ -2,9 +2,9 @@
   "language": "en",
   "labels": {
     "reliable": "Looks fine",
-    "concerns": "A few things to check",
-    "careful": "Some warning signs",
-    "junk_or_scam": "Many warning signs"
+    "concerns": "Worth a look",
+    "careful": "Think twice",
+    "junk_or_scam": "Serious concerns"
   },
   "headlines": {
     "reliable": "Nothing worrying stood out on this page.",
@@ -388,6 +388,10 @@
     "p2p_little_known": {
       "title": "Little to go on",
       "detail": "The ad shows too little about the seller or the payment to call it fine. Pay through the platform, or when you collect the item."
+    },
+    "service_little_known": {
+      "title": "Little to go on",
+      "detail": "The page shows too little about who the business is to call it fine. Ask for the company's details and a written quote before you hire."
     },
     "not_local": {
       "title": "May not be a local business",

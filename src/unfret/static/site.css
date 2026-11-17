@@ -1204,6 +1204,9 @@ label.field .small { font-weight: 400; }
 @media (max-width: 40rem) { .paths.two { grid-template-columns: 1fr; } }
 .restore { margin-top: 2rem; }
 .restore h2 { margin-top: 0; }
+/* A backup code is long: on a phone the field takes the whole row and the button goes under it. */
+.restore .code-form { flex-wrap: wrap; }
+.restore .code-form input { flex: 1 1 14rem; }
 .save-backup { border-left: 4px solid var(--note); margin-bottom: 1.5rem; }
 .save-backup h2 { margin-top: 0; }
 .save-backup .secret-value, #pass-value-row { margin: 0.6rem 0; }

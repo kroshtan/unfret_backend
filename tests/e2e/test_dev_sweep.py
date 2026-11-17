@@ -28,6 +28,7 @@ from unfret_mcp.solana import CAIP2, USDC_MINTS, WSOL_MINT, Rpc, associated_toke
 
 from tests.e2e.conftest import Account, Target, bearer, key_balance
 from tests.e2e.helpers import (
+    BASE_SEPOLIA_CAIP2,
     DEV_APP_FILTER,
     DEV_DB_CONTAINER,
     DEVNET_CAIP2,
@@ -412,11 +413,17 @@ async def test_an_unpaid_check_asks_for_the_tier_price_in_usdc_and_wsol(
 ) -> None:
     prices = (await pricing(api))["x402"]
     for tier in ("quick", "deep"):
-        accepts = await offered(api, page(target, PRODUCT_PAGE, f"unpaid-{tier}"), tier)
+        offers = await offered(api, page(target, PRODUCT_PAGE, f"unpaid-{tier}"), tier)
+        # USDC on Base Sepolia may follow Solana's options (x402 on Base, when dev has it on); never a mainnet.
+        assert {option["network"] for option in offers} <= {DEVNET_CAIP2, BASE_SEPOLIA_CAIP2}
+        accepts = [option for option in offers if option["network"] == DEVNET_CAIP2]
         assets = {option["asset"]: option for option in accepts}
         assert set(assets) == {str(DEVNET_USDC), str(WSOL_MINT)}, "both USDC and wSOL should be offered"
         assert int(assets[str(DEVNET_USDC)]["amount"]) == prices[f"{tier}_usd_micros"]
-        assert all(option["network"] == DEVNET_CAIP2 and option["extra"]["tier"] == tier for option in accepts)
+        assert all(option["extra"]["tier"] == tier for option in offers)
+        for option in offers:
+            if option["network"] == BASE_SEPOLIA_CAIP2:
+                assert int(option["amount"]) == prices[f"{tier}_usd_micros"]
 
 
 async def test_a_quick_check_paid_in_usdc_by_the_mcp_client(

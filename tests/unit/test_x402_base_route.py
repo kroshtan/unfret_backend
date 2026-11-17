@@ -300,3 +300,14 @@ async def test_a_solana_payment_while_only_base_is_on_is_refused(base_only: http
     response = await base_only.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": paid_header()})
     assert response.status_code == 402
     assert decode_header(response.headers["PAYMENT-REQUIRED"])["error"] == "requirements_mismatch"
+
+
+async def test_an_unreachable_facilitator_at_settlement_is_a_503_not_a_free_answer(
+    base_only: httpx.AsyncClient, facilitator: FakeFacilitator, base: BaseX402
+) -> None:
+    (option,) = await offered(base_only)
+    facilitator.settle = httpx.ConnectError("refused")
+    response = await base_only.post("/v1/check", json=BODY, headers={"PAYMENT-SIGNATURE": base_header(option)})
+    assert (response.status_code, response.json()["error_code"]) == (503, "SERVICE_UNAVAILABLE")
+    assert "action" not in response.json()
+    assert base.breaker.global_failures == 0  # Unfret's outage, not the payer's doing

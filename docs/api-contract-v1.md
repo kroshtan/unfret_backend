@@ -968,6 +968,19 @@ client are unchanged.
   flagged transactions); `POST /v1/admin/x402/clear-alerts` takes `?network=solana|base` (both by default) and
   answers `base_cleared` and `x402_base` next to the existing fields.
 
+## Changes (x402 on Base: discovery; backwards-compatible)
+
+- `/.well-known/x402` gains `networks`: one entry per network `/v1/check` takes, `{network, network_name, assets,
+  feePayer, paymentFlow}`; Solana's first (`paymentFlow: "upfront"`), then, while Base is on, Base's with `assets.USDC`
+  `{address, decimals, eip712: {name, version}, assetTransferMethod: "eip3009", pricing}` and `payTo`. The top-level
+  `network`, `network_name` and `assets` still describe Solana, unchanged.
+- A 402 that offers Base adds `extensions.bazaar` (`info`: the request body and an example verdict; `schema`: JSON
+  Schema 2020-12 for `info`) and the resource's `tags` and `iconUrl` (x402's Bazaar discovery). A 402 without a Base
+  option is unchanged. Unfret sends its own `resource` and `extensions` to the facilitator with each Base payment.
+- `/llms.txt` gains an "On Base" section while Base is on. `/developers` names both networks then.
+- `/v1/check` errors: `GATEWAY_TIMEOUT` and `INTERNAL_ERROR` are "refunded" on Solana and "not charged" on Base;
+  `SETTLEMENT_FAILED` carries `reason` on Base. The table in `/llms.txt` says so.
+
 ## Changes (a cached result costs a check; backwards-compatible)
 
 - A deep result served from the 1-hour result cache (`POST /v1/analyze`, `/v1/analyze/stream`) now **uses a check**

@@ -32,6 +32,7 @@ DEV_URL = "https://dev.unfret.net"
 DEVNET_RPC = "https://api.devnet.solana.com"
 DEVNET_CAIP2 = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 MAINNET_CAIP2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+BASE_SEPOLIA_CAIP2 = "eip155:84532"  # x402 on Base: dev may offer it next to Solana (testnet only)
 # Fixture pages are served from the forge at an immutable commit, so the page a run checks can't change under it.
 FORGE_RAW = "https://git.kroshtan.com/kroshtan/unfret_backend/raw/commit"
 FIXTURES = "tests/fixtures/pages"

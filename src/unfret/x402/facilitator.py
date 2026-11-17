@@ -31,6 +31,10 @@ class FacilitatorError(RuntimeError):
     """The facilitator couldn't be reached, or answered something other than a verify/settle response."""
 
 
+class FacilitatorUnreachableError(FacilitatorError):
+    """No connection to the facilitator: the request was never sent, so nothing can have been settled."""
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -146,6 +150,8 @@ class Facilitator:
             return await self._client.post(
                 f"{self.url}/{endpoint}", json=body, headers=self._headers("POST", endpoint)
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            raise FacilitatorUnreachableError(f"{endpoint}: {type(exc).__name__}") from exc
         except httpx.HTTPError as exc:
             raise FacilitatorError(f"{endpoint}: {type(exc).__name__}") from exc
 

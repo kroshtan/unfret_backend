@@ -49,7 +49,13 @@ from unfret.x402.evm import (
     topic_address,
     word,
 )
-from unfret.x402.facilitator import Facilitator, FacilitatorAnswer, FacilitatorError, facilitator_auth
+from unfret.x402.facilitator import (
+    Facilitator,
+    FacilitatorAnswer,
+    FacilitatorError,
+    FacilitatorUnreachableError,
+    facilitator_auth,
+)
 from unfret.x402.payment import X402_VERSION, PaymentError
 from unfret.x402.service import Flag
 from unfret.x402.solana import RpcError
@@ -415,10 +421,13 @@ class BaseX402:
         :return: The settlement.
         :raises SettlementRefusedError: If it was refused or reverted (nothing moved).
         :raises SettlementUnknownError: If it was broadcast but not confirmed, or the facilitator didn't answer.
+        :raises FacilitatorUnreachableError: If the facilitator couldn't be reached (nothing was sent).
         """
         assert self.facilitator is not None  # noqa: S101
         try:
             answer = await self.facilitator.settle(self._outgoing(pre, resource, extensions), pre.requirement)
+        except FacilitatorUnreachableError:
+            raise
         except FacilitatorError as exc:
             logger.warning("x402_base_settle_unanswered", error=str(exc)[:120])
             raise SettlementUnknownError from exc

@@ -139,9 +139,10 @@
             <code>page_content</code> (the page's HTML) for marketplaces such as Amazon that refuse server-side
             visits.</li>
           <li><b>Pay.</b> The answer is <code>402</code> with a <code>PAYMENT-REQUIRED</code> header listing what it
-            accepts: USDC and wSOL on {{network_name}}, scheme <code>exact</code>. Unfret is the fee payer, so you pay
-            only the price.</li>
-          <li><b>Ask again</b> with the payment in <code>PAYMENT-SIGNATURE</code>. The same signature always gets
+            accepts: {{payment_options}}, scheme <code>exact</code>. Unfret (or, on Base, the facilitator) pays the
+            network fee, so you pay only the price. On Base you sign a USDC <code>transferWithAuthorization</code>,
+            and it is settled only once the answer is ready.</li>
+          <li><b>Ask again</b> with the payment in <code>PAYMENT-SIGNATURE</code>. The same payment always gets
             the same answer and is never charged twice.</li>
         </ol>
         <p>Every error is JSON with <code>detail</code> and <code>error_code</code>, and says whether you were
@@ -186,8 +187,11 @@
           <div>
             <h2>Coming next</h2>
             <ul>
+              <!-- base-off -->
               <li><b>x402 on Base:</b> pay in USDC on Base, next to Solana, so agents with an EVM wallet can use
                 Unfret too.</li>
+              <!-- /base-off -->
+              <li><b>The MCP server on Base:</b> paying from an EVM wallet, next to Solana.</li>
             </ul>
             <p class="small muted">Unfret is run by one person: there's no SLA, and a verdict is a signal, not a
               certainty. <a href="/accuracy">How often it's right</a>, measured.</p>

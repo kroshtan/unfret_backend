@@ -18,13 +18,14 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from unfret import __version__, accuracy
 from unfret.config import settings
 from unfret.credits import invites
 from unfret.prices import format_usd
+from unfret.routes.check import get_x402_base
 from unfret.x402.verdict import tier_description
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -243,18 +244,31 @@ def developer_fields() -> dict[str, str]:
     }
 
 
+_BASE_NAMES = {"base-mainnet": "Base", "base-sepolia": "Base Sepolia"}
+_COMING_BASE = re.compile(r"\s*<!-- base-off -->.*?<!-- /base-off -->", re.DOTALL)
+
+
 @router.get("/developers", response_class=HTMLResponse)
-def developers() -> HTMLResponse:
+def developers(request: Request) -> HTMLResponse:
     """
     For developers and AI agents: the MCP server, x402 on ``/v1/check`` and a prepaid pass as an API key.
 
     The tiers' prices and what they include come from the same settings as ``/.well-known/x402``, so the page can't
-    drift from what a check costs.
+    drift from what a check costs; the networks are those ``/v1/check`` takes (Base only while it is set up).
 
+    :param request: The incoming request (for the Base payment service).
     :return: The page.
     """
+    network = developer_fields()["network_name"]
+    base_on = get_x402_base(request).configured
+    options = f"USDC and wSOL on {network}"
+    if base_on:
+        options += f", and USDC on {_BASE_NAMES[settings.base_network]}"
+    fields = {**developer_fields(), "payment_options": options}
     page = template("developers.html", "/developers")
-    for name, value in developer_fields().items():
+    if base_on:  # no longer "coming next"
+        page = _COMING_BASE.sub("", page)
+    for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 

@@ -5,11 +5,13 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from solders.keypair import Keypair
 from solders.message import to_bytes_versioned
 from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 
+from tests.unit.x402_base_helpers import FakeBaseRpc, FakeFacilitator, base_settings, make_base
 from tests.unit.x402_helpers import FakeRpc
 from unfret.x402.payment import confirm_by_simulation, precheck
 from unfret.x402.solana import CAIP2, USDC_MINTS, associated_token_address
@@ -18,7 +20,7 @@ from unfret.x402.wallet import HotWallet
 
 # The MCP package lives in mcp/ with its own environment; its payment module needs only solders and httpx.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "mcp" / "src"))
-from unfret_mcp.payer import build_payment, choose_requirement
+from unfret_mcp.payer import PaymentFailedError, build_payment, choose_requirement
 
 from unfret.x402.payment import requirements
 
@@ -71,3 +73,16 @@ async def test_mcp_usdc_payment_passes_server_verification() -> None:
     assert (
         VersionedTransaction.from_bytes(HotWallet(HOT, COLD, mint).sign(payment)).signatures[0] != Signature.default()
     )
+
+
+def test_the_mcp_client_ignores_the_base_option() -> None:
+    """With Base on, the 402 lists a Base option after Solana's: the MCP client (Solana only) still pays on Solana."""
+    network = CAIP2["solana-devnet"]
+    usdc = requirements(
+        network=network, amount=10_000, pay_to=HOT.pubkey(), fee_payer=HOT.pubkey(), asset=USDC_MINTS["solana-devnet"]
+    )
+    base = make_base(base_settings(), FakeBaseRpc(), FakeFacilitator()).requirements("quick")
+    for accepts in ([usdc, base], [base, usdc]):
+        assert choose_requirement({"accepts": accepts}, network, ("USDC",)) == usdc
+    with pytest.raises(PaymentFailedError):
+        choose_requirement({"accepts": [base]}, network, ("USDC", "SOL"))

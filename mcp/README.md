@@ -33,6 +33,11 @@ Every tool, here and there, has a title and explicit hints: `check_store` (and t
 read-only (it spends a payment or a check), not destructive, not idempotent and open-world (it reads a third-party
 page); the others are read-only.
 
+Unfret can also take USDC on Base (x402's `exact` scheme with an EIP-3009 authorization). This server doesn't pay on
+Base yet: it holds one Solana keypair, and paying on Base would mean giving the agent a second private key (an EVM
+one) and a new signing library. It ignores the Base option in Unfret's 402 and pays on Solana as before. Agents with
+an EVM wallet can call `POST /v1/check` directly with any x402 client (see Unfret's `/llms.txt`).
+
 | Tool | Input | Output |
 | --- | --- | --- |
 | `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.20), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |

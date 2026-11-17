@@ -11,6 +11,7 @@ from tests.unit.x402_helpers import FakeRpc, configured, make_x402
 from unfret.config import settings
 from unfret.main import app
 from unfret.x402.service import X402
+from unfret.x402.solana import RpcError
 
 HOT = Keypair()
 COLD = Keypair().pubkey()
@@ -126,3 +127,40 @@ async def test_an_outflow_is_caught_before_it_finalizes() -> None:
     rpc.unfinalized = {"theft"}
     rpc.transactions["theft"] = transfer(THIEF)
     assert await x402.audit_outflows() == [f"system transfer to {THIEF}"]
+
+
+async def test_an_outflow_found_before_a_failed_lookup_still_raises_the_alarm() -> None:
+    # The RPC fails half-way through a pass (devnet's public endpoint rate-limits): the theft found before the failure
+    # is already marked audited, so it must raise the alarm now, not be lost with the pass.
+    class FlakyRpc(CountingRpc):
+        async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
+            if signature == "flaky":
+                raise RpcError("429 Too Many Requests")
+            return await super().parsed_transaction(signature, commitment)
+
+    rpc = FlakyRpc()
+    rpc.signatures = ["flaky", "theft", "old"]
+    rpc.transactions.update(old=transfer(str(COLD)), theft=transfer(THIEF), flaky=transfer(str(COLD)))
+    x402 = service(rpc)
+    with pytest.raises(RpcError):
+        await x402.audit_outflows()
+    assert (await x402.health()).status == "compromise_suspected"
+    assert [(f.signature, f.reason) for f in x402.flagged()] == [("theft", f"system transfer to {THIEF}")]
+    assert x402._audit_cursor == "theft"  # the progress is kept: the next pass starts after it
+
+
+async def test_a_transaction_that_cant_be_read_is_audited_again() -> None:
+    # A transaction the audit can't read (a malformed instruction) fails the pass; it must not count as audited, or
+    # the next pass would skip it and move the cursor past it.
+    rpc = CountingRpc()
+    rpc.signatures = ["bad", "old"]
+    malformed = transfer(THIEF)
+    malformed["transaction"]["message"]["instructions"].append(None)
+    rpc.transactions.update(old=transfer(str(COLD)), bad=malformed)
+    x402 = service(rpc)
+    with pytest.raises(AttributeError):
+        await x402.audit_outflows()
+    assert x402._audit_cursor == "old"
+    rpc.transactions["bad"] = transfer(THIEF)
+    assert await x402.audit_outflows() == [f"system transfer to {THIEF}"]
+    assert x402._audit_cursor == "bad"

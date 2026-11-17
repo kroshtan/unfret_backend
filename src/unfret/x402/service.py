@@ -684,24 +684,28 @@ class X402:
                 Flag(entries[-1]["signature"], "audit backlog: older transactions skipped", datetime.now(UTC))
             )
         contiguous = True  # everything older is audited, so the cursor may move here
-        for entry in reversed(entries):  # oldest first
-            signature = entry["signature"]
-            if signature not in self._seen:
-                tx = None if entry.get("err") is not None else await self.rpc.parsed_transaction(signature)
-                if tx is None and entry.get("err") is None:
-                    contiguous = False  # not indexed yet; look again next time
-                    continue
-                self._mark_seen(signature)
-                issues = [] if tx is None else self._outflows(tx)
-                if issues:
-                    logger.error("x402_outflow_to_non_cold", signature=signature, issues=issues)
-                    now = datetime.now(UTC)
-                    flags.extend(Flag(signature, issue[:_REASON_MAX], now) for issue in issues)
-            if contiguous:
-                self._audit_cursor = signature
-        async with self._audit_lock:
-            raised = await self._save(flags)
-            self._compromise.extend(raised)
+        try:
+            for entry in reversed(entries):  # oldest first
+                signature = entry["signature"]
+                if signature not in self._seen:
+                    tx = None if entry.get("err") is not None else await self.rpc.parsed_transaction(signature)
+                    if tx is None and entry.get("err") is None:
+                        contiguous = False  # not indexed yet; look again next time
+                        continue
+                    issues = [] if tx is None else self._outflows(tx)
+                    self._mark_seen(signature)  # only once read: one that can't be is looked at again next time
+                    if issues:
+                        logger.error("x402_outflow_to_non_cold", signature=signature, issues=issues)
+                        now = datetime.now(UTC)
+                        flags.extend(Flag(signature, issue[:_REASON_MAX], now) for issue in issues)
+                if contiguous:
+                    self._audit_cursor = signature
+        finally:
+            # Also when a lookup fails half-way (the RPC): what was found so far is marked seen, so it must raise
+            # the alarm now, and the cursor keeps the progress.
+            async with self._audit_lock:
+                raised = await self._save(flags)
+                self._compromise.extend(raised)
         return [flag.reason for flag in raised]
 
     def _outflows(self, tx: dict[str, Any]) -> list[str]:

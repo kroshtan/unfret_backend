@@ -13,6 +13,7 @@ from unfret.config import settings
 from unfret.main import app
 from unfret.migrations import MIGRATIONS
 from unfret.x402.service import X402
+from unfret.x402.solana import RpcError
 
 HOT = Keypair()
 COLD = Keypair().pubkey()
@@ -151,3 +152,21 @@ async def test_only_the_operator_sees_which_transactions_raised_the_alarm(
     assert [(f["signature"], f["reason"]) for f in alerts["flagged"]] == [("theft", f"system transfer to {THIEF}")]
     ready = (await client.get("/v1/health/ready", headers=operator)).json()
     assert ready["x402_alerts"] == ["outflow_to_non_cold"]
+
+
+async def test_a_pass_that_fails_half_way_saves_what_it_found(pool: asyncpg.Pool) -> None:
+    class FlakyRpc(CountingRpc):
+        async def parsed_transaction(self, signature: str, commitment: str = "confirmed") -> dict[str, Any] | None:
+            if signature == "flaky":
+                raise RpcError("429 Too Many Requests")
+            return await super().parsed_transaction(signature, commitment)
+
+    rpc = FlakyRpc()
+    rpc.signatures = ["flaky", "theft", "old"]
+    rpc.transactions.update(old=sweep(), theft=theft(), flaky=sweep())
+    x402 = await started(pool, rpc)
+    with pytest.raises(RpcError):
+        await x402.audit_outflows()
+    restarted = await started(pool, rpc)
+    assert restarted._audit_cursor == "theft"
+    assert [(f.signature, f.reason) for f in restarted.flagged()] == [("theft", f"system transfer to {THIEF}")]

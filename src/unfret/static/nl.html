@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Plak de link van een advertentie of webshop, en Unfret zegt je in gewone woorden wat opvalt. Gratis checks, geen account.">
+  <title>Unfret · Check de verkoper voordat je betaalt</title>
+  {{hreflang}}
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/nl.js"></script>
+</head>
+<body class="landing">
+  {{header}}
+
+  <main>
+    <section class="hero hero-start">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">Voor Marktplaats en webshops</p>
+          <h1>Check de verkoper <span class="soft">voordat je betaalt.</span></h1>
+          <p class="lead">Een koopje op Marktplaats, of een webshop die je nog niet kent? Plak de link hieronder. Unfret
+            leest die ene pagina en zegt je rustig wat opvalt, en waarom.</p>
+          <form class="start-check" id="start-check" novalidate data-empty="Plak eerst een link."
+            data-invalid="Dat lijkt geen link. Kopieer het hele adres van de pagina.">
+            <label class="visually-hidden" for="start-link">Link naar een advertentie of product</label>
+            <div class="field-row">
+              <input id="start-link" type="text" inputmode="url" autocomplete="off" autocapitalize="off"
+                spellcheck="false" placeholder="Plak hier een link" aria-describedby="start-hint">
+              <button class="primary large" type="submit">Check</button>
+            </div>
+            <p class="error-text" data-error role="alert" hidden></p>
+            <p class="start-hint" id="start-hint">Je eerste <span data-free-count>5</span> uitgebreide checks zijn
+              gratis, daarna blijven snelle checks gratis. Geen account, niets te installeren. Unfret antwoordt in het
+              Engels.</p>
+          </form>
+        </div>
+
+        <div class="nl-example">
+          <h2>Zo werkt het op Marktplaats</h2>
+          <p>Een bijna nieuwe telefoon voor de helft van de prijs. De verkoper zit in het buitenland, stuurt hem graag
+            op en wil dat je vooraf betaalt, via een link. Unfret let op precies zulke dingen:</p>
+          <ul class="checklist">
+            <li>vooraf betalen, of betalen buiten Marktplaats om (een betaalverzoek of een link)</li>
+            <li>een verkoper die in het buitenland zit en niet kan afspreken</li>
+            <li>foto's en tekst die ook in andere advertenties staan</li>
+            <li>een prijs ver onder wat het normaal kost</li>
+            <li>een nieuw account met veel advertenties tegelijk</li>
+          </ul>
+          <p class="small muted">Bij webshops kijkt Unfret onder meer naar wie er echt verkoopt, nepkortingen,
+            aftellers die steeds opnieuw beginnen en levering van ver weg.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-band" aria-label="Waarom je Unfret kunt vertrouwen">
+      <ul class="proof wrap">
+        <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener" hreflang="en">Open source</a></li>
+        <li>De AI draait in de EU, bij Scaleway</li>
+        <li>Leest alleen als jij klikt</li>
+        <li>Geen account</li>
+        <li>Geen advertenties, geen affiliatelinks naar winkels</li>
+      </ul>
+    </section>
+
+    <section class="section" aria-labelledby="nl-price-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="nl-price-heading">Gratis beginnen</h2>
+          <p>Je eerste <span data-free-count>5</span> uitgebreide checks zijn gratis, en snelle checks blijven gratis.
+            Meer nodig? Koop een pakket: geen abonnement, en checks verlopen niet.</p>
+        </div>
+        <ul class="prices" id="prices">
+          <li class="free"><a href="/check"><span class="n">Gratis</span><span class="unit"><span data-free-count>5</span> uitgebreide checks, daarna snelle checks</span><span class="card-price">€ 0</span><span class="choose">Begin</span></a></li>
+          <li data-checks="25"><a href="/checkout?checks=25" hreflang="en"><span class="n">25</span><span class="unit">checks</span><span class="card-price">€ 6,66</span><span class="gift">met 1 cadeaucode voor een vriend</span><span class="choose">Kies</span></a></li>
+          <li data-checks="100" class="featured"><a href="/checkout?checks=100" hreflang="en"><span class="n">100</span><span class="unit">checks</span><span class="card-price">€ 21,18</span><span class="gift">met 4 cadeaucodes voor vrienden</span><span class="choose">Kies</span></a></li>
+        </ul>
+        <p class="small muted price-note">Prijzen inclusief <span data-vat-nl>21</span>% btw. Betaal met
+          <strong>iDEAL | Wero</strong> of met je kaart. Afrekenen gaat in het Engels.</p>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="nl-more-heading">
+      <div class="wrap nl-more">
+        <div>
+          <h2 id="nl-more-heading">Liever met één klik?</h2>
+          <p>Met de browserextensie voor Chrome of Firefox check je een pagina met één klik, ook bij grote winkels die
+            automatische checks weigeren. Op Android kan het ook met de app.
+            <a href="/extension" hreflang="en">Unfret installeren</a></p>
+          <p>Unfret noemt niemand een oplichter. Het laat zien wat opvalt en waar dat vandaan komt; jij beslist.</p>
+        </div>
+        <div>
+          <h2>Meer weten?</h2>
+          <p>De rest van de site is in het Engels:</p>
+          <ul class="en-links">
+            <li><a href="/" hreflang="en">Unfret in het kort</a></li>
+            <li><a href="/accuracy" hreflang="en">Hoe nauwkeurig is Unfret?</a></li>
+            <li><a href="/money" hreflang="en">Hoe Unfret geld verdient</a></li>
+            <li><a href="/privacy" hreflang="en">Privacy</a> en <a href="/terms" hreflang="en">voorwaarden</a></li>
+          </ul>
+          <p>Vragen? Mail gerust in het Nederlands: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  {{footer}}
+</body>
+</html>

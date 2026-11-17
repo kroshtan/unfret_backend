@@ -6,8 +6,9 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Unfret checks the seller before you pay: on Amazon and other marketplaces, in web shops you've never heard of and in second-hand ads, in plain words. For your browser and your phone, and pay-per-check for AI agents over x402.">
-  <title>Unfret · check the seller before you pay</title>
+  <meta name="description" content="Check before you pay: paste a link and Unfret tells you, in plain words, who you'd be buying from and whether it all adds up. For Amazon sellers, web shops you've never heard of and second-hand ads, and pay-per-check over x402 for AI agents.">
+  <title>Unfret · check before you pay</title>
+  {{hreflang}}
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/home.js"></script>
@@ -16,188 +17,88 @@
   {{header}}
 
   <main>
-    <section class="hero">
+    <section class="hero hero-start">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Shop without the worry, in web shops and on marketplaces</p>
-          <h1>Check the seller <span class="soft">before you pay.</span></h1>
-          <p class="lead">On Amazon, bol.com or eBay, the seller is often someone other than the platform, and a web
-            shop you've never heard of can be anyone. Before you pay, ask Unfret: it reads the page for you and tells
-            you in plain words who you'd be buying from and whether it all adds up. When it does, it shows you what
-            looks good.</p>
-          <div class="buttons">
-            <a class="button primary large" data-get="main" href="{{store_url}}" rel="noopener">Add to Chrome</a>
-            <a class="button large quiet" data-get="link" href="/check">Check a link instead</a>
+          <p class="eyebrow">Marketplace sellers, web shops, second-hand ads</p>
+          <h1>Check before <span class="soft">you pay.</span></h1>
+          <p class="lead">On Amazon and other marketplaces, the seller is often someone other than the platform, and a
+            web shop you've never heard of can be anyone. Paste the link: Unfret reads that one page and tells you in
+            plain words who you'd be buying from and whether it all adds up.</p>
+          <form class="start-check" id="start-check" novalidate data-empty="Paste or type a link first."
+            data-invalid="That doesn't look like a link. Copy the whole address from the shop's page.">
+            <label class="visually-hidden" for="start-link">Link to a product, an ad or a shop</label>
+            <div class="field-row">
+              <input id="start-link" type="text" inputmode="url" autocomplete="off" autocapitalize="off"
+                spellcheck="false" placeholder="Paste a product link" aria-describedby="start-hint">
+              <button class="primary large" type="submit">Check</button>
+            </div>
+            <p class="error-text" data-error role="alert" hidden></p>
+            <p class="start-hint" id="start-hint">Your first <span data-free-count>5</span> deep checks are free, then
+              quick checks stay free. No key, no account, nothing to install.
+              <button type="button" class="link" data-example="/test-shop">Try the test shop</button></p>
+          </form>
+          <div class="buttons get-buttons">
+            <a class="button primary" data-get="main" href="{{store_url}}" rel="noopener">Add to Chrome</a>
+            <a class="button quiet" data-get="link" href="/check">Check a link instead</a>
           </div>
           <p class="also" data-get="also">Also for <a href="{{firefox_url}}" rel="noopener">Firefox</a> and
             <a href="/extension#phone">your phone</a>.</p>
           <p class="also">Some big shops, bol.com and eBay among them, turn automatic checks away, so
             <a href="/check">checking a link</a> from them on this site doesn't work: the browser extension and the
             Android app still read them, in your own browser.</p>
-          <p class="also agents">Building a shopping agent? <a href="/developers">Let it pay per check with x402</a>:
-            one HTTP call, no account.</p>
-          <ul class="reassure">
-            <li>Free to install</li>
-            <li>Pay per check, no subscription</li>
-            <li>No account, no tracking</li>
+        </div>
+
+        <figure class="sample" aria-labelledby="sample-caption">
+          <p class="sample-page"><span class="i i-lock" aria-hidden="true"></span> unfret.net/test-shop</p>
+          <div class="verdict junk_or_scam">
+            <span class="symbol" aria-hidden="true">✕</span>
+            <p class="label">Serious concerns</p>
+          </div>
+          <p class="headline">Fake countdown and paid extra already ticked.</p>
+          <ul class="cards">
+            <li class="card high"><span class="title">Fake countdown</span><p class="detail">This countdown restarts
+              when you reload the page: the deadline isn't real.</p></li>
+            <li class="card high"><span class="title">Paid extra already ticked</span><p class="detail">A paid extra is
+              ticked for you in advance (“Add Worry-Free Delivery Protection (+$4.99)”). That's not allowed in the
+              EU: untick it if you don't want it.</p></li>
+            <li class="card high"><span class="title">Unbelievable discount</span><p class="detail">79% off: discounts
+              this deep are almost always measured against a price nobody paid.</p></li>
           </ul>
-        </div>
-
-        <div class="demo" role="img" aria-label="An example: Unfret's answer on a product page reads Looks fine, with what looks good: a known brand, sold by the brand itself, and an established shop.">
-          <div class="shop" aria-hidden="true">
-            <div class="bar"><i></i><i></i><i></i><span></span><b></b></div>
-            <div class="page">
-              <div class="photo"></div>
-              <div class="lines"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-            </div>
-          </div>
-          <div class="popup" aria-hidden="true">
-            <div class="top">
-              <svg viewBox="0 0 128 128" width="22" height="22"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Unfret
-            </div>
-            <div class="badge"><span class="symbol">✓</span> Looks fine</div>
-            <p class="said">Nothing worrying stood out on this page.</p>
-            <h3>What looks good</h3>
-            <ul>
-              <li><div><b>Known brand</b><span>Philips is an established brand.</span></div></li>
-              <li><div><b>Sold by the brand</b><span>The brand sells this itself.</span></div></li>
-              <li><div><b>Established shop</b><span>This web shop has been around for 12 years.</span></div></li>
-            </ul>
-          </div>
-        </div>
+          <figcaption id="sample-caption">Unfret's real answer for the <a href="/test-shop" rel="nofollow">Unfret test
+            shop</a>, a made-up shop whose tricks are copied from real listings, names removed.</figcaption>
+        </figure>
       </div>
     </section>
 
-    <section class="section" aria-labelledby="how-heading">
-      <div class="wrap">
-        <div class="section-head">
-          <h2 id="how-heading">One click, a calm answer</h2>
-          <p>On Amazon, bol.com and other marketplaces, where the seller behind a listing is often a stranger, and in
-            web shops you've never heard of. Second-hand ads work too.</p>
-        </div>
-        <ol class="steps-row">
-          <li><h3>Find what you're after</h3><p>A product on a marketplace or in a web shop, or a second-hand
-            bargain.</p></li>
-          <li><h3>Ask Unfret</h3><p>Click it in your browser, or share the link to it on your phone. It reads that one
-            page, only when you ask. A few big shops, such as bol.com, only open in the browser extension or the
-            Android app.</p></li>
-          <li><h3>Read it in plain words</h3><p>“Looks fine”, “Worth a look”, “Think twice” or “Serious concerns”, with the reasons. Never a cryptic score.</p></li>
-        </ol>
-      </div>
+    <section class="proof-band" aria-label="Why you can trust Unfret">
+      <ul class="proof wrap">
+        <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Open source</a></li>
+        <li>AI in the EU, at Scaleway</li>
+        <li>Reads only when you click</li>
+        <li>No account</li>
+        <li><a href="/money">No ads or affiliate links to shops</a></li>
+      </ul>
     </section>
 
-    <section class="section" aria-labelledby="looks-heading">
-      <div class="wrap">
-        <div class="section-head">
-          <h2 id="looks-heading">The homework, done for you</h2>
-          <p>The things you'd check yourself if you had the time, in the few seconds before you buy.</p>
-        </div>
-        <div class="tiles">
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M10 21v-6h4v6"/></svg>
-            <div><h3>Who's really selling</h3><p>The seller behind the listing, not just the platform: company details, a real address, and how long they've been around.</p></div>
-          </div>
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
-            <div><h3>The real product</h3><p>A brand with a name of its own, or generic factory goods with a new label.</p></div>
-          </div>
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2.2 0 3 6 1.6 6 4.6 0 1.3-1.3 2.2-3 2.2-1.4 0-2.6-.6-3.1-1.6M12 6.5v11"/></svg>
-            <div><h3>Honest prices</h3><p>Discounts measured against prices people actually paid.</p></div>
-          </div>
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>
-            <div><h3>Time to decide</h3><p>No countdowns that reset, no extras ticked for you, no costs that appear at the very end.</p></div>
-          </div>
-        </div>
-        <p class="aside-note">And when something doesn't add up, Unfret tells you what and why, calmly, so you can
-          decide for yourself.</p>
-      </div>
-    </section>
-    <section class="section" aria-labelledby="dev-heading">
+    <section class="section" id="agents" aria-labelledby="dev-heading">
       <div class="wrap">
         <div class="dev">
           <div>
-            <h2 id="dev-heading">For developers and AI agents</h2>
-            <p>Shopping agents can ask Unfret before they pay: one HTTP call per check over x402, paid in USDC or SOL
-              with no account, or the MCP server that does it for them. The answer is an action (allow, warn or block) and the evidence
-              behind it. Open source, MIT licensed.</p>
+            <p class="eyebrow">The other way in</p>
+            <h2 id="dev-heading">For AI agents: pay per check with x402</h2>
+            <p>A shopping agent can ask Unfret before it pays: one HTTP call to <code>/v1/check</code>, paid per check
+              over x402 in USDC or SOL, from {{quick_price}} for a quick check and {{deep_price}} for a deep one. No
+              account, no key. Or add the MCP server and let it pay for the agent. The answer is an action (allow, warn
+              or block) and the evidence behind it.</p>
             <p class="buttons"><a class="button primary" href="/developers">Developer guide</a>
               <a class="button quiet" href="/docs">API reference</a></p>
           </div>
           <pre class="terminal"><span class="c"># Any MCP client: the agent pays from its own wallet</span>
 <span class="k">uvx</span> unfret-mcp
 
-<span class="c"># Or call the API yourself</span>
-<span class="k">POST</span> https://unfret.net/v1/check</pre>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" aria-labelledby="price-heading">
-      <div class="wrap">
-        <div class="section-head">
-          <h2 id="price-heading">Pay for what you use</h2>
-          <p>Start free: a new Unfret pass comes with <span data-free-count>5</span> free deep checks, and quick checks
-            stay free. Need more? Checks come in packs that never expire, with no subscription and no account, and
-            every pack comes with gift codes for friends (<span data-gift-checks>5</span> checks each).</p>
-        </div>
-        <div class="pricing">
-          <div class="price-list">
-          <ul class="prices" id="prices">
-            <li class="free"><a href="/check"><span class="n">Free</span><span class="unit"><span data-free-count>5</span> deep checks, then quick checks</span><span class="card-price">$0</span><span class="choose">Start</span></a></li>
-            <li data-checks="25"><a href="/checkout?checks=25"><span class="n">25</span><span class="unit">checks</span><span class="card-price">$6.00</span><span class="gift">with 1 gift code for a friend</span><span class="choose">Choose</span></a></li>
-            <li data-checks="100" class="featured"><a href="/checkout?checks=100"><span class="n">100</span><span class="unit">checks</span><span class="card-price">$20.00</span><span class="gift">with 4 gift codes for friends</span><span class="choose">Choose</span></a></li>
-          </ul>
-          <p class="small muted price-note" id="price-note" hidden></p>
-          <p class="small muted price-note">Pay by card, or with iDEAL | Wero in the Netherlands. Paying with crypto?
-            <a href="/checkout?mode=crypto">USDC and SOL</a> work too.</p>
-          </div>
-          <div class="code-box">
-            <h3>Start free</h3>
-            <p>Every new Unfret pass comes with free checks, and quick checks stay free. A pack comes with gift codes to
-              share with friends; a pass can use one gift code a month.</p>
-            <p class="small">Unfret never earns from shops: no affiliate links to shops, no paid placements. Our
-              <a href="/affiliates">affiliate program</a> pays people who recommend Unfret, never a shop.</p>
-            <p class="small"><a href="/checkout">Buy checks</a>: no subscription, and checks never expire.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="section" aria-labelledby="privacy-heading">
-      <div class="wrap">
-        <div class="section-head">
-          <h2 id="privacy-heading">Private by design</h2>
-          <p>Unfret is there to put your mind at ease, not to watch you shop.</p>
-        </div>
-        <ul class="promises">
-          <li><b>Only when you click</b><span>Nothing is read until you click, and then only that one page.</span></li>
-          <li><b>Nothing kept</b><span>The pages you check aren't stored and are never linked to you.</span></li>
-          <li><b>No strings</b><span>No account, no tracking, no ads, no affiliate links to shops. Paying by card, our payment
-            provider asks for your email for the receipt; with crypto, nobody does.</span></li>
-        </ul>
-        <p class="aside-note"><a href="/privacy">Read the privacy statement</a></p>
-      </div>
-    </section>
-    <section class="section" aria-labelledby="beyond-heading">
-      <div class="wrap">
-        <div class="section-head">
-          <h2 id="beyond-heading">Not just web shops</h2>
-          <p>The same calm answer for a bargain from a stranger, or a company you're about to let into your home.</p>
-        </div>
-        <div class="tiles">
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10l1.5 13h-13z"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7"/><path d="M9.5 12.5l1.8 1.8 3.2-3.3"/></svg>
-            <div><h3>Second-hand ads</h3><p>Photos taken from other ads, prices too good to be true, and sellers who
-              want you to pay outside the platform or have the item sent from abroad.</p></div>
-          </div>
-          <div class="tile">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>
-            <div><h3>Tradespeople</h3><p>Call centres posing as the plumber around the corner, payment before the
-              work, prices only named at your door, and reviews copied from site to site.</p></div>
-          </div>
+<span class="c"># Or call the API yourself, paid per call</span>
+<span class="k">POST</span> {{base_url}}/v1/check</pre>
         </div>
       </div>
     </section>
@@ -205,11 +106,18 @@
     <section id="tricks" class="section" aria-labelledby="tricks-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="tricks-heading">The tricks Unfret catches</h2>
-          <p>The same few tricks turn up on shop after shop. Each one is easy to miss when you're about to pay, and
-            each one is something Unfret checks for you.</p>
+          <h2 id="tricks-heading">What Unfret checks</h2>
+          <p>Who's really selling, and the same few tricks that turn up on shop after shop. Each one is easy to miss
+            when you're about to pay, and each one is something Unfret checks for you.</p>
         </div>
         <ul class="patterns">
+          <li class="pattern">
+            <div class="mock" aria-hidden="true"><span class="mock-seller">Sold by <b>another seller</b> · <small>ships from overseas</small></span></div>
+            <h3>Who's really selling</h3>
+            <p>On a marketplace, the seller behind the listing is often a stranger, not the platform.</p>
+            <p class="how">Unfret looks at the seller: company details, a real address, and how long they've been
+              around.</p>
+          </li>
           <li class="pattern">
             <div class="mock" aria-hidden="true"><span class="mock-timer">Sale ends in <b>09:59</b></span></div>
             <h3>A countdown that starts again</h3>
@@ -255,28 +163,108 @@
             <p>A long history on the page, on a web address that was registered a few weeks ago.</p>
             <p class="how">Unfret looks up when the address was registered and compares it with the story.</p>
           </li>
-          <li class="pattern">
-            <div class="mock" aria-hidden="true"><span class="mock-tick"><span class="box"></span> Shipping protection +$2.99</span></div>
-            <h3>Extras ticked for you</h3>
-            <p>A paid extra already ticked at checkout, or a total that's higher than the price on the page.</p>
-            <p class="how">Unfret flags pre-ticked extras and a checkout that costs more than the page said.</p>
-          </li>
         </ul>
         <p class="aside-note">The examples above are made up; the tricks are real, seen again and again on real shops.
           Unfret describes what a page shows and lets you decide: it never calls a shop names.</p>
       </div>
     </section>
 
-    <section class="closing" aria-labelledby="closing-heading">
-      <h2 id="closing-heading">Less double-checking, more enjoying.</h2>
-      <p>Let Unfret check the seller the next time you're about to pay.</p>
-      <div class="buttons">
-        <a class="button primary large" data-get="main" href="{{store_url}}" rel="noopener">Add to Chrome</a>
-        <a class="button large quiet" data-get="link" href="/check">Check a link instead</a>
+    <section class="section" aria-labelledby="price-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="price-heading">Start free, pay only for what you use</h2>
+          <p>Your first <span data-free-count>5</span> deep checks are free, and quick checks stay free. Need more?
+            Checks come in packs that never expire, with no subscription and no account, and every pack comes with
+            gift codes for friends (<span data-gift-checks>5</span> checks each).</p>
+        </div>
+        <div class="pricing">
+          <div class="price-list">
+          <ul class="prices" id="prices">
+            <li class="free"><a href="/check"><span class="n">Free</span><span class="unit"><span data-free-count>5</span> deep checks, then quick checks</span><span class="card-price">$0</span><span class="choose">Start</span></a></li>
+            <li data-checks="25"><a href="/checkout?checks=25"><span class="n">25</span><span class="unit">checks</span><span class="card-price">$6.00</span><span class="gift">with 1 gift code for a friend</span><span class="choose">Choose</span></a></li>
+            <li data-checks="100" class="featured"><a href="/checkout?checks=100"><span class="n">100</span><span class="unit">checks</span><span class="card-price">$20.00</span><span class="gift">with 4 gift codes for friends</span><span class="choose">Choose</span></a></li>
+          </ul>
+          <p class="small muted price-note" id="price-note" hidden></p>
+          <p class="small muted price-note">Pay by card, or with iDEAL | Wero in the Netherlands. Paying with crypto?
+            <a href="/checkout?mode=crypto">USDC and SOL</a> work too.</p>
+          </div>
+          <div class="code-box">
+            <h3>What's a quick check?</h3>
+            <p>A quick check reads only the page, by Unfret's rules, and is always free. A deep check also looks the
+              seller up elsewhere and has the page read by a language model; that's what a pack pays for.</p>
+            <p class="small">Unfret never earns from shops: no affiliate links to shops, no paid placements. Our
+              <a href="/affiliates">affiliate program</a> pays people who recommend Unfret, never a shop.</p>
+          </div>
+        </div>
       </div>
-      <p class="also" data-get="also">Also for <a href="{{firefox_url}}" rel="noopener">Firefox</a> and
-        <a href="/extension#phone">your phone</a>.</p>
     </section>
+
+    <section class="section" aria-labelledby="faq-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="faq-heading">Questions</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Does Unfret tell me a shop is a scam?</summary>
+            <p>No. Unfret never calls a shop a scam. It shows what it noticed on the page and where that comes from,
+              in one of four words: Looks fine, Worth a look, Think twice or Serious concerns. It can be wrong, in
+              both directions; the decision is yours. See <a href="/accuracy">how accurate it is</a>.</p>
+          </details>
+          <details>
+            <summary>Which sites does it work on?</summary>
+            <p>Product pages on marketplaces such as Amazon, web shops of any size, and second-hand ads. Some big
+              shops turn automatic checks away; for those, use the <a href="/extension">browser extension</a> or the
+              Android app, which read the page in your own browser.</p>
+          </details>
+          <details>
+            <summary>What happens to the links I check?</summary>
+            <p>Unfret reads the one page you ask about, only when you ask. The links you check aren't stored and are
+              never linked to you. The <a href="/privacy">privacy statement</a> has the details.</p>
+          </details>
+          <details>
+            <summary>Do I need an account?</summary>
+            <p>No. Your checks are held by an Unfret pass, made for you on your first check: no email, no password.
+              Paying by card, our payment provider asks for your email for the receipt; with crypto, nobody does.</p>
+          </details>
+          <details>
+            <summary>How does Unfret make money?</summary>
+            <p>From the checks people buy, and nothing else: no ads, no selling data, no affiliate links to shops.
+              <a href="/money">How Unfret makes money</a>.</p>
+          </details>
+          <details>
+            <summary>Who makes Unfret?</summary>
+            <p>Floris van Beers, a one-person company in the Netherlands (Kroshtan). The code is open source under the
+              MIT licence, and
+              the language model that reads pages runs in the EU, at Scaleway. <a href="/about">About Unfret</a>.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="beyond-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="beyond-heading">Not just web shops</h2>
+          <p>The same calm answer for a bargain from a stranger, or a company you're about to let into your home.</p>
+        </div>
+        <div class="tiles">
+          <div class="tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10l1.5 13h-13z"/><path d="M9 7V5.5a3 3 0 0 1 6 0V7"/><path d="M9.5 12.5l1.8 1.8 3.2-3.3"/></svg>
+            <div><h3>Second-hand ads</h3><p>Photos taken from other ads, prices too good to be true, and sellers who
+              want you to pay outside the platform or have the item sent from abroad.</p></div>
+          </div>
+          <div class="tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>
+            <div><h3>Tradespeople</h3><p>Call centres posing as the plumber around the corner, payment before the
+              work, prices only named at your door, and reviews copied from site to site.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="dev-line wrap">Building with Unfret? The API, x402 and the MCP server are on the
+      <a href="/developers">developer page</a>.</p>
   </main>
 
   {{footer}}

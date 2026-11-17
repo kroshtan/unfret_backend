@@ -412,16 +412,6 @@ label { color: var(--ink-2); }
 .hero h1 .soft { color: var(--brand); }
 .hero .lead { max-width: 33rem; font-size: clamp(1.08rem, 1rem + 0.35vw, 1.25rem); margin-bottom: 1.75rem; }
 .hero .buttons { gap: 0.75rem; }
-.reassure { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; margin: 1.5rem 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.92rem; }
-.reassure li { display: inline-flex; align-items: center; gap: 0.4rem; }
-.reassure li::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--brand);
-  opacity: 0.6;
-}
 @media (max-width: 56rem) {
   .hero { padding-top: 2.25rem; }
   .hero .wrap { grid-template-columns: 1fr; gap: 2.5rem; }
@@ -525,35 +515,7 @@ label { color: var(--ink-2); }
   .demo .popup { position: static; width: 100%; }
 }
 
-/* How it works: three steps. */
-.steps-row { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; counter-reset: step; }
-.steps-row li {
-  position: relative;
-  padding: 1.35rem 1.25rem 1.25rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.steps-row li::before {
-  counter-increment: step;
-  content: counter(step);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  margin-bottom: 0.85rem;
-  border-radius: 10px;
-  background: var(--brand-soft);
-  color: var(--brand-ink);
-  font-weight: 700;
-}
-.steps-row h3 { margin: 0 0 0.35rem; font-size: 1.08rem; }
-.steps-row p { margin: 0; color: var(--ink-2); }
-@media (max-width: 48rem) { .steps-row { grid-template-columns: 1fr; } }
-
-/* What Unfret looks at: four tiles. */
+/* Tiles: ads and tradespeople, lower on the home page. */
 .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
 .tile {
   display: grid;
@@ -606,17 +568,6 @@ label { color: var(--ink-2); }
 .mock-price i { font-style: normal; font-weight: 700; color: var(--stop); }
 .mock-small small, .mock-reviews small { font-size: 0.72rem; color: var(--muted); }
 .mock-reviews { color: var(--note); }
-.mock-tick { display: inline-flex; align-items: center; gap: 0.45rem; }
-.mock-tick .box {
-  flex: none;
-  width: 1.05rem;
-  height: 1.05rem;
-  border-radius: 4px;
-  background: var(--brand);
-  -webkit-mask: var(--i-check) center / 80% no-repeat, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: var(--i-check) center / 80% no-repeat exclude, linear-gradient(#000 0 0);
-}
 
 /* Pricing. */
 .pricing { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1.25rem; align-items: stretch; }
@@ -671,13 +622,6 @@ label { color: var(--ink-2); }
 @media (max-width: 56rem) { .pricing { grid-template-columns: 1fr; } }
 @media (max-width: 30rem) { .prices { gap: 0.5rem; } .prices a { padding: 0.9rem 0.5rem; } }
 
-/* Private by design. */
-.promises { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 0; padding: 0; list-style: none; }
-.promises li { padding: 1.15rem 1.2rem; border-radius: var(--radius); background: var(--surface-2); border: 1px solid var(--line); }
-.promises b { display: block; margin-bottom: 0.25rem; color: var(--ink); }
-.promises span { color: var(--ink-2); }
-@media (max-width: 48rem) { .promises { grid-template-columns: 1fr; } }
-
 /* For developers and agents. */
 .dev {
   display: grid;
@@ -710,11 +654,69 @@ label { color: var(--ink-2); }
 .terminal .k { color: #7fdcbf; }
 @media (max-width: 52rem) { .dev { grid-template-columns: 1fr; padding: 1.5rem; } }
 
-/* Closing call to action. */
-.closing { text-align: center; padding: 3.5rem 1rem 4.5rem; }
-.closing h2 { margin: 0 0 0.6rem; font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.1rem); letter-spacing: -0.02em; }
-.closing p { color: var(--ink-2); margin: 0 auto 1.5rem; max-width: 32rem; }
-.closing .buttons { justify-content: center; }
+/* The home page's start (and /nl's): a paste-a-link field in the hero, a real result for the test shop beside it. */
+.hero-start .wrap { align-items: start; }
+.start-check { display: grid; gap: 0.5rem; max-width: 34rem; }
+.start-check .field-row input { flex: 1; min-width: 0; min-height: 3.25rem; }
+.start-check .field-row button { flex: none; }
+.start-hint { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.start-hint button.link { font-size: inherit; }
+.get-buttons { margin-top: 1.5rem; }
+.sample {
+  margin: 0;
+  padding: 1.25rem 1.25rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.sample-page { display: flex; align-items: center; gap: 0.4rem; margin: 0; color: var(--muted); font-size: 0.88rem; overflow-wrap: anywhere; }
+.sample .verdict { margin-top: 0.75rem; }
+.sample .headline { margin-bottom: 1rem; }
+.card .detail { margin: 0.2rem 0 0; color: var(--ink-2); }
+.sample figcaption { margin-top: 0.9rem; color: var(--muted); font-size: 0.88rem; }
+
+/* What Unfret stands for, in one strip under the hero. */
+.proof-band { border-block: 1px solid var(--line); background: var(--surface-2); }
+.proof { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem 1.75rem; margin: 0 auto; padding-block: 1rem; list-style: none; color: var(--ink-2); font-weight: 600; font-size: 0.95rem; }
+.proof li { display: inline-flex; align-items: center; gap: 0.45rem; }
+.proof li::before, .checklist li::before {
+  content: "";
+  flex: none;
+  width: 1em;
+  height: 1em;
+  background: var(--brand);
+  -webkit-mask: var(--i-check) center / contain no-repeat;
+  mask: var(--i-check) center / contain no-repeat;
+}
+.proof a { color: inherit; }
+@media (max-width: 40rem) { .proof { justify-content: flex-start; } }
+
+.mock-seller small { font-size: 0.72rem; color: var(--muted); }
+
+/* Questions: one fold-out each. */
+.faq { max-width: var(--text); border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { display: flex; min-height: 3rem; padding: 0.75rem 0; font-weight: 650; color: var(--ink); }
+.faq details p { margin: 0 0 1rem; padding-left: 1.25rem; color: var(--ink-2); }
+
+/* The page's last line: where developers go. */
+.dev-line { margin: 0 auto; padding-top: 1rem; padding-bottom: 4rem; color: var(--ink-2); }
+
+/* /nl: the Marktplaats example beside the field, and where the rest is. */
+.nl-example { padding: 1.4rem 1.4rem 1.2rem; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow); }
+.nl-example h2 { margin: 0 0 0.6rem; font-size: 1.25rem; }
+.nl-example p { color: var(--ink-2); }
+.checklist { display: grid; gap: 0.45rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.checklist li { display: flex; align-items: baseline; gap: 0.55rem; }
+.checklist li::before { transform: translateY(0.15em); }
+.nl-more { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; }
+.nl-more h2 { margin: 0 0 0.6rem; font-size: 1.35rem; }
+.nl-more p { color: var(--ink-2); }
+.section-head + #prices + .price-note { margin-top: 0.75rem; }
+.en-links { margin: 0 0 1rem; padding-left: 1.2rem; }
+.en-links li { margin: 0.3rem 0; }
+@media (max-width: 48rem) { .nl-more { grid-template-columns: 1fr; gap: 1rem; } }
 
 /* ── Checkout and sign-in ────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -1172,7 +1174,6 @@ label.field .small { font-weight: 400; }
 
 /* Under the main button: the other ways to get Unfret, in one quiet line. */
 .also { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.95rem; }
-.closing .also { text-align: center; }
 
 /* /extension: the phone app, with a code to scan on a computer and a button on a phone. */
 .phone-get { display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: start; }

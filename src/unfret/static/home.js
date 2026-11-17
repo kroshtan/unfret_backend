@@ -1,7 +1,8 @@
-// The home page: live pack prices from /v1/pricing, and the install button for the visitor's browser. Without
-// JavaScript the page still reads well: the prices in the HTML are the defaults.
+// The home page: the paste-a-link field (start-check.js), live pack prices from /v1/pricing, and the install button
+// for the visitor's browser. Without JavaScript the page still reads well: the prices in the HTML are the defaults.
 import { chooseButtons } from "./install-button.js";
 import { cardPrice, taxNote } from "./prices.js";
+import { wireStartForm } from "./start-check.js";
 
 // The card prices follow Cloudflare's country hint, visibly: euros in the euro area, and with the VAT the card
 // provider adds for an EU country (prices.js), with a note naming the country, which the visitor can change at
@@ -40,7 +41,7 @@ async function prices() {
   }
 }
 
-
-
+const form = document.getElementById("start-check");
+wireStartForm(form, { empty: form?.dataset.empty ?? "", invalid: form?.dataset.invalid ?? "" });
 chooseButtons();
 prices().catch(() => {});

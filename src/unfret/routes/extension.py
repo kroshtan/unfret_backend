@@ -1,10 +1,11 @@
 """
-The browser extension's install page and its self-hosted update channels.
+The install page ("Get Unfret") and the browser extension's self-hosted update channels.
 
-``/extension`` points to the Chrome Web Store listing. ``/extension/updates.xml`` is the update manifest that copies
-installed by browser policy before the store listing (the self-hosted production channel, no longer offered) still
-poll,
-``/extension/<file>`` the release files themselves. ``/extension/updates-dev.xml`` is the manifest of "Unfret Dev", a
+``/extension`` points to the Chrome Web Store and Firefox Add-ons listings, and to the phone app (the link checker,
+``/check``, which installs from the phone's browser) with a QR code for a visitor on a computer.
+``/extension/updates.xml`` is the update manifest that copies installed by browser policy before the store listing
+(the self-hosted production channel, no longer offered) still poll, ``/extension/<file>`` the release files
+themselves. ``/extension/updates-dev.xml`` is the manifest of "Unfret Dev", a
 separate extension (own key and ID) that only talks to the dev deployment, for testing.
 
 Releases are signed CRX packages built by the extension repository (``make release``) and copied into
@@ -12,16 +13,21 @@ Releases are signed CRX packages built by the extension repository (``make relea
 ungoogled-chromium flag) and keeps them updated from ``updates.xml``; no store is involved.
 """
 
+import base64
+import functools
+import html
+import io
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import segno
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from unfret.config import settings
-from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned, with_store_links
+from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, template, versioned, with_store_links
 
 RELEASE_DIR = STATIC_DIR / "extension"
 
@@ -98,12 +104,29 @@ def current_release(release_dir: Path | None = None, manifest: str = "updates.xm
 @router.get("/extension", response_class=HTMLResponse)
 def install_page() -> HTMLResponse:
     """
-    Where to install the extension: its Chrome Web Store and Firefox Add-ons listings.
+    Where to get Unfret: the extension's Chrome Web Store and Firefox Add-ons listings, and the phone app.
 
     :return: The page.
     """
-    page = with_store_links((STATIC_DIR / "extension.html").read_text(encoding="utf-8"))
+    page = with_store_links(template("extension.html", "/extension"))
+    link = f"{settings.public_base_url.rstrip('/')}/check"
+    page = page.replace("{{phone_qr}}", phone_qr(link)).replace(
+        "{{check_link}}", html.escape(link.rsplit("://", maxsplit=1)[-1])
+    )
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@functools.cache
+def phone_qr(link: str) -> str:
+    """
+    A QR code that opens ``link`` on a phone, as an image the page's policy allows (a ``data:`` URL).
+
+    :param link: The address, this site's link checker (``/check``), which installs as an app.
+    :return: ``data:image/svg+xml;base64,…``.
+    """
+    buffer = io.BytesIO()
+    segno.make(link, error="m").save(buffer, kind="svg", scale=4, border=2, dark="#12302a", xmldecl=False)
+    return "data:image/svg+xml;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 @router.get("/extension/updates.xml")

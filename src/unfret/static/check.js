@@ -3,37 +3,43 @@
 // (the shop blocks automatic visitors, a bot check, a page that needs a browser) comes back as a free 422, shown as
 // such and never as a verdict.
 //
-// What this page keeps, in localStorage: only the sign-in (a wallet's session token or an API key) until sign-out.
-// No history: the link lives in the text field and in memory for the one check (and goes into a shared result
-// only when the shopper shares it, after a preview). A shared link (/check?url=… or,
-// via the service worker, /check#url=…) is read here and removed from the address bar at once.
+// This page is also the phone app (installed from the browser). Its checks come from an Unfret pass (an API key) or,
+// for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. Without either, it offers to get
+// checks (/checkout) or to paste a pass; a pass also arrives by QR code from /my-checks in another browser
+// (/check#pass=ufk_…, read here and cleared from the address bar at once).
+//
+// What this page keeps, in localStorage: only the sign-in (the pass, or a wallet's session token) until it's removed
+// on /my-checks. No history: the link lives in the text field and in memory for the one check (and goes into a shared
+// result only when the shopper shares it, after a preview). A shared link (/check?url=… or, via the service worker,
+// /check#url=…) is read here and removed from the address bar at once.
 import {
   BAND_SYMBOL,
   BAND_WORD,
-  CHECKLIST,
+  CHECKLISTS,
   SseParser,
   bandOf,
   checklistDone,
+  checklistFor,
   extractLink,
   sharedLink,
 } from "./check-core.js";
 import { el, resultNodes } from "./check-render.js";
-import { INVITE_RE, NOT_A_CODE, discoverWallets, redeemInvite, signIn, walletButton } from "./wallet.js";
+import { PASS_RE, passIdOf, showPassId } from "./pass.js";
+import { INVITE_RE, NOT_A_CODE, redeemInvite } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
-const KEY_RE = /^ufk_([a-z2-7]{10})_[a-z2-7]{52}$/;
 const UNREADABLE = {
   PAGE_BLOCKED: {
-    heading: "This shop blocks automatic checks",
-    body: "The shop refused Unfret's server, or showed it a bot check instead of the page. Unfret won't guess from half a page, so there is no verdict.",
+    heading: "This site turns automatic visits away",
+    body: "It refused Unfret, or showed it a robot check instead of the page. Unfret won't guess from half a page, so there is no verdict.",
   },
   PAGE_TOO_THIN: {
-    heading: "This page needs a browser to show itself",
-    body: "Without a browser the shop sends an almost empty page, too little to judge. If this was a search or home page, try the link to the product itself.",
+    heading: "This page only shows itself in a browser",
+    body: "Opened by Unfret, it was almost empty: too little to judge. If this was a search or home page, try the link to the product, the ad or the company itself.",
   },
   PAGE_UNAVAILABLE: {
     heading: "Couldn't open this page",
-    body: "Unfret's server couldn't load it: the address may be wrong, the page gone or the shop down. Check the link and try again.",
+    body: "The address may be wrong, the page gone or the site down. Check the link and try again.",
   },
 };
 
@@ -46,6 +52,7 @@ const checkButton = $("check");
 let account = null; // { kind: "wallet" | "key", token, address, expires_at }
 let expired = false;
 let checks = null;
+let inviteEligible = false;
 let pricing = null;
 let running = null; // the AbortController of the check in progress
 let last = null; // { body, result } of the check on screen, for a report or a share
@@ -135,27 +142,26 @@ function renderAccount() {
   if (account) {
     $("account-status").textContent =
       account.kind === "key"
-        ? `Using API key ${account.address.slice("key:".length)}.`
-        : `Signed in as ${shortAddress(account.address)}.`;
+        ? `on pass ${showPassId(account.address.slice("key:".length))}`
+        : `on wallet ${shortAddress(account.address)}`;
     $("checks").textContent = checks === null ? "" : checksText(checks);
     $("buy-more").href = buyPath();
   }
+  // An invite or intro code works only on a pass (or wallet) that never had checks.
+  $("invite").hidden = !(account && inviteEligible);
   $("sign-in-note").textContent = expired
-    ? "Your sign-in expired; your checks are still there. Sign in again to use them."
-    : "Use an API key, or sign in with a Solana wallet. Your link stays here while you do.";
-  // Out of checks with a key: "Pay by card" tops that key up; crypto opens the crypto tab.
-  $("buy-card").href = account?.kind === "key" ? buyPath() : "/checkout?for=key";
-  $("buy-crypto").href = account?.kind === "key" ? "/checkout?mode=crypto" : buyPath();
-  $("buy-card-note").hidden = account?.kind === "key";
-  const card = Boolean(pricing?.fiat?.available);
-  $("buy-card").hidden = !card;
-  $("buy-crypto").className = `button ${card ? "secondary" : "primary"}`;
+    ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."
+    : "Checks come in packs, with no subscription and no account.";
+  // Out of checks: add checks to this pass (or to this wallet, in crypto).
+  $("buy-card").href = account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
 }
 
 async function refreshChecks() {
   if (!account) return;
   try {
-    checks = (await getJson("/v1/credits", true)).checks_remaining;
+    const credits = await getJson("/v1/credits", true);
+    checks = credits.checks_remaining;
+    inviteEligible = credits.invite_eligible === true;
   } catch (error) {
     if (error.status === 401) return signedOut(true);
   }
@@ -184,46 +190,68 @@ function signedIn(value) {
   else field.focus();
 }
 
-async function pickWallet(wallet) {
-  const status = $("wallet-status");
-  status.textContent = `Waiting for ${wallet.name}… Check the wallet for a sign-in request.`;
+// A pass, checked with the server before it is kept: { ok: true, checks } or { ok: false, reason }.
+async function tryPass(pass) {
   try {
-    const { session } = await signIn(wallet);
-    status.textContent = "";
-    signedIn({ kind: "wallet", token: session.token, address: session.address, expires_at: session.expires_at });
-  } catch (error) {
-    status.textContent = error.message || "Sign-in failed.";
+    const response = await fetch("/v1/credits", { headers: { Authorization: `Bearer ${pass}` }, cache: "no-store" });
+    if (response.status === 401) {
+      return { ok: false, reason: "This pass no longer works: it was replaced, with its backup code or after a payment in another browser." };
+    }
+    if (!response.ok) return { ok: false, reason: "Couldn't check the pass right now. Please try again." };
+    const credits = await response.json();
+    return { ok: true, checks: credits.checks_remaining, inviteEligible: credits.invite_eligible === true };
+  } catch {
+    return { ok: false, reason: "Couldn't reach Unfret. Check your connection." };
   }
-}
-
-function renderWallets(wallets) {
-  $("wallets").replaceChildren(...wallets.map((wallet) => walletButton(wallet, pickWallet)));
-  $("no-wallets").hidden = wallets.length > 0;
 }
 
 async function useKey() {
   const status = $("key-status");
-  const key = $("key").value.trim();
-  const match = KEY_RE.exec(key);
-  if (!match) {
-    status.textContent = "That isn't an API key (it starts with ufk_).";
+  const pass = $("key").value.trim();
+  const id = passIdOf(pass);
+  if (!id) {
+    status.textContent = "That doesn't look like an Unfret pass. Copy it again in full.";
     return;
   }
-  status.textContent = "Checking the key…";
-  try {
-    const response = await fetch("/v1/credits", { headers: { Authorization: `Bearer ${key}` }, cache: "no-store" });
-    if (response.status === 401) {
-      status.textContent = "The server doesn't know this key (or it was replaced with its recovery code).";
-      return;
-    }
-    if (!response.ok) throw await failure(response);
-    checks = (await response.json()).checks_remaining;
-    $("key").value = "";
-    status.textContent = "";
-    signedIn({ kind: "key", token: key, address: `key:${match[1]}` });
-  } catch {
-    status.textContent = "Couldn't reach Unfret. Check your connection.";
+  status.textContent = "Checking your pass…";
+  const tried = await tryPass(pass);
+  if (!tried.ok) {
+    status.textContent = tried.reason;
+    return;
   }
+  checks = tried.checks;
+  inviteEligible = tried.inviteEligible;
+  $("key").value = "";
+  status.textContent = "";
+  signedIn({ kind: "key", token: pass, address: `key:${id}` });
+}
+
+// A pass from a QR code on /my-checks (/check#pass=ufk_…): kept like a pasted one. If this device already uses
+// another pass or a wallet, it asks first: the one here may be the only copy of a pass with checks on it.
+async function receivePass(pass) {
+  const id = passIdOf(pass);
+  if (!id || account?.token === pass) return;
+  const take = async () => {
+    const tried = await tryPass(pass);
+    $("pass-offer").hidden = true;
+    if (!tried.ok) return showPassAdded(tried.reason);
+    checks = tried.checks;
+    inviteEligible = tried.inviteEligible;
+    signedIn({ kind: "key", token: pass, address: `key:${id}` });
+    showPassAdded(`Your pass ${showPassId(id)} is on this device now.`);
+  };
+  if (!account) return take();
+  $("pass-offer-id").textContent = showPassId(id);
+  $("pass-offer").hidden = false;
+  $("pass-offer-use").onclick = () => void take();
+  $("pass-offer-keep").onclick = () => {
+    $("pass-offer").hidden = true;
+  };
+}
+
+function showPassAdded(text) {
+  $("pass-added-text").textContent = text;
+  $("pass-added").hidden = false;
 }
 
 // ── The link ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -256,14 +284,18 @@ async function paste() {
   renderPaste();
 }
 
-// A shared link arrives as ?url=… (or #url=… through the service worker); take it and clear the address bar.
+// A shared link arrives as ?url=… (or #url=… through the service worker), a pass as #pass=…; take them and clear
+// the address bar.
 function takeSharedLink() {
   const params = new URLSearchParams(window.location.search);
-  for (const [name, value] of new URLSearchParams(window.location.hash.slice(1))) params.append(name, value);
+  const fragment = new URLSearchParams(window.location.hash.slice(1));
+  const pass = fragment.get("pass");
+  fragment.delete("pass");
+  for (const [name, value] of fragment) params.append(name, value);
   const link = sharedLink(params);
   if (window.location.search || window.location.hash) history.replaceState(null, "", window.location.pathname);
   if (link) field.value = link;
-  return link;
+  return { link, pass: pass && PASS_RE.test(pass) ? pass : null };
 }
 
 // ── Views ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -279,9 +311,12 @@ function busy(on) {
   renderPaste();
 }
 
-function buildSteps() {
+let stepsKind = "shop";
+
+function buildSteps(kind = "shop") {
+  stepsKind = kind;
   $("steps").replaceChildren(
-    ...CHECKLIST.map((item) => {
+    ...CHECKLISTS[kind].map((item) => {
       const li = el("li");
       const tick = el("span", "tick");
       tick.setAttribute("aria-hidden", "true");
@@ -295,29 +330,29 @@ function updateSteps(done) {
   [...$("steps").children].forEach((li, i) => {
     if (li.classList.contains("done") === done[i]) return;
     li.classList.toggle("done", done[i]);
-    li.querySelector(".tick").textContent = done[i] ? "✓" : "";
-    if (done[i]) li.setAttribute("aria-label", `${CHECKLIST[i].label}: done`);
+    if (done[i]) li.setAttribute("aria-label", `${CHECKLISTS[stepsKind][i].label}: done`);
   });
 }
 
 function renderResult(result) {
   const band = bandOf(result);
-  const { nodes, details } = resultNodes(result, {
+  const { nodes } = resultNodes(result, {
     band,
     label: result.verdict?.label ?? (band ? BAND_WORD[band] : "Not assessed"),
     symbol: band ? BAND_SYMBOL[band] : "–",
   });
 
   if (band === null) {
-    nodes.push(el("p", "small", "Unfret checks product pages and shops. Try the link to the product itself."));
+    nodes.push(
+      el("p", "small", "Unfret checks product pages, second-hand ads and companies' websites. Try the link to the product, the ad or the company itself."),
+    );
   }
   nodes.push(
-    el("p", "muted small source-note", "Checked from the page as Unfret's server loaded it, which can differ from what your browser shows."),
+    el("p", "muted small source-note", "Unfret opened this page itself, so it may look a little different from what you see."),
   );
   if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
   else if (result.charged === false) nodes.push(el("p", "small", "Checked recently: no check was used."));
 
-  if (details) nodes.push(details);
   $("result-body").replaceChildren(...nodes);
 
   const reportable = Boolean(result.report_token && account);
@@ -330,7 +365,7 @@ function renderResult(result) {
   if (reward) {
     $("report-consent").textContent =
       "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
-      `Personal details are removed first; once reviewed, it is kept without any link to you. If the score was far off, you get ${reward} free checks.`;
+      `Personal details are removed first; once reviewed, it is kept without any link to you. If Unfret was clearly wrong, you get ${reward} free checks.`;
   }
 }
 
@@ -410,12 +445,14 @@ async function check(link) {
     });
     if (!response.ok) return await failed(await failure(response), link);
     $("progress-status").textContent = "Checking… this usually takes 10–30 seconds.";
-    const outcome = await readStream(response.body, (skill) => {
+    const outcome = await readStream(response.body, (skill, pageType) => {
+      // The classifier names the kind of page: a shop, a second-hand ad or a company; its own checklist follows.
+      if (pageType && checklistFor(pageType) !== stepsKind) buildSteps(checklistFor(pageType));
       steps.push(skill);
-      updateSteps(checklistDone(steps, false));
+      updateSteps(checklistDone(steps, false, stepsKind));
     });
     if (outcome.kind === "result") {
-      updateSteps(checklistDone(steps, true));
+      updateSteps(checklistDone(steps, true, stepsKind));
       last = { body, result: outcome.result };
       renderResult(outcome.result);
       showOnly("result", "again-row");
@@ -446,7 +483,7 @@ async function readStream(stream, onStep) {
       } catch {
         continue;
       }
-      if (event === "step" && typeof parsed.skill === "string") onStep(parsed.skill);
+      if (event === "step" && typeof parsed.skill === "string") onStep(parsed.skill, parsed.page_type);
       else if (event === "result") return { kind: "result", result: parsed };
       else if (event === "error") return { kind: "error", detail: parsed.detail };
     }
@@ -571,7 +608,7 @@ async function openShare() {
   shareStatus("Preparing the preview…");
   try {
     preview = await postShare("/v1/shares/preview");
-    const { nodes, details } = resultNodes(preview.result, {
+    const { nodes } = resultNodes(preview.result, {
       band: preview.band,
       label: preview.label,
       symbol: preview.symbol,
@@ -583,7 +620,6 @@ async function openShare() {
       meta,
       el("p", "muted small", `Checked by an Unfret user on ${preview.checked_on_text}; the page may have changed.`),
       ...nodes,
-      ...(details ? [details] : []),
     );
     $("share-notice").replaceChildren(el("strong", undefined, preview.notice));
     $("share-open-row").hidden = true;
@@ -673,11 +709,7 @@ $("again").addEventListener("click", () => {
   renderPaste();
   field.focus();
 });
-$("sign-out").addEventListener("click", () => {
-  signedOut(false);
-  showOnly();
-});
-// "Have an invite?": a code someone gave the user, for this (new) wallet or key's own sign-in.
+// "Have an invite?": a code someone gave the user, for this (new) pass or wallet.
 $("invite-redeem").addEventListener("click", async () => {
   const status = $("invite-status");
   const code = $("invite-input").value.trim().toLowerCase();
@@ -729,22 +761,14 @@ $("report").addEventListener("submit", (event) => {
   if (reason) void sendReport(reason);
 });
 
-// A phone's system browser has no wallet: these reopen /check inside the wallet app's own browser.
-const here = `${window.location.origin}/check`;
-$("open-phantom").href =
-  `https://phantom.app/ul/browse/${encodeURIComponent(here)}?ref=${encodeURIComponent(window.location.origin)}`;
-$("open-solflare").href =
-  `https://solflare.com/ul/v1/browse/${encodeURIComponent(here)}?ref=${encodeURIComponent(window.location.origin)}`;
-
 account = loadAccount();
 const shared = takeSharedLink();
 renderAccount();
 renderPaste();
 showSignIn(!account);
 if (account) void refreshChecks();
-if (shared && account) checkButton.focus();
-renderWallets([]);
-discoverWallets(renderWallets);
+if (shared.link && account) checkButton.focus();
+if (shared.pass) void receivePass(shared.pass);
 getJson("/v1/pricing")
   .then((value) => {
     pricing = value;
@@ -752,3 +776,40 @@ getJson("/v1/pricing")
   })
   .catch(() => {});
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/check-sw.js", { scope: "/check" }).catch(() => {});
+
+// ── The app itself ───────────────────────────────────────────────────────────────────────────────────────
+// This page is the phone app. Installed (opened from the home screen), the logo leads back here rather than to the
+// website. In a phone's browser, a box at the bottom offers to install it: the browser's own prompt behind a button
+// where there is one (Android), otherwise how to do it from the browser's menu (an iPhone's Share menu).
+
+const installed =
+  window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+if (installed) for (const logo of document.querySelectorAll(".site-header .wordmark")) logo.href = "/check";
+
+let installPrompt = null;
+function offerInstall() {
+  const phone = window.matchMedia?.("(pointer: coarse)").matches && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (installed || !phone) return;
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  $("install-ios").hidden = !ios;
+  $("install-button").hidden = !installPrompt;
+  $("install-android").hidden = ios || Boolean(installPrompt);
+  $("install-app").hidden = false;
+}
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPrompt = event;
+  offerInstall();
+});
+window.addEventListener("appinstalled", () => {
+  $("install-app").hidden = true;
+});
+$("install-button").addEventListener("click", async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice.catch(() => ({ outcome: "dismissed" }));
+  installPrompt = null;
+  if (outcome === "accepted") $("install-app").hidden = true;
+  else offerInstall();
+});
+offerInstall();

@@ -10,24 +10,11 @@
   <script type="module" src="/static/checkout.js"></script>
 </head>
 <body>
-  <header class="site-header">
-    <div class="inner">
-      <a class="wordmark" href="/" aria-label="Unfret home">
-        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Unfret</span>
-      </a>
-      <nav class="site-nav" aria-label="Main">
-        <a class="optional" href="/check">Check a link</a>
-        <a href="/checkout" aria-current="page">Buy checks</a>
-        <a class="optional" href="/connect">Sign in</a>
-        <a class="cta" href="/extension">Get Unfret</a>
-      </nav>
-    </div>
-  </header>
+  {{header}}
   <main class="checkout" data-mode="new">
     <h1>Buy checks</h1>
-    <p class="lead">One check is one product page read by Unfret. No subscription, and checks never expire.</p>
-    <p id="network" class="muted"></p>
+    <p class="lead">One check is one page read by Unfret: a product, an ad or a company's website. No subscription,
+      and checks never expire.</p>
 
     <p id="unavailable" hidden>Buying checks isn't available right now. Please try again later.</p>
 
@@ -35,8 +22,16 @@
       <div class="tabs" role="tablist" aria-label="How would you like to get checks?">
         <button type="button" role="tab" id="tab-new" data-mode="new" aria-controls="panel-new" aria-selected="true">Buy checks</button>
         <button type="button" role="tab" id="tab-code" data-mode="code" aria-controls="panel-code" aria-selected="false" tabindex="-1">I have a code</button>
-        <button type="button" role="tab" id="tab-topup" data-mode="topup" aria-controls="panel-topup" aria-selected="false" tabindex="-1">Top up my key</button>
-        <button type="button" role="tab" id="tab-crypto" data-mode="crypto" aria-controls="panel-crypto" aria-selected="false" tabindex="-1">Pay with crypto</button>
+        <button type="button" role="tab" id="tab-topup" data-mode="topup" aria-controls="panel-topup" aria-selected="false" tabindex="-1">Add to my pass</button>
+      </div>
+      <!-- Crypto is a way to pay, not a tab: a quiet link under the card buttons opens it, and it has its way back. -->
+      <div id="crypto-head" class="crypto-head" hidden>
+        <p><button type="button" class="link back" id="crypto-back"><span class="i i-arrow"
+          aria-hidden="true"></span> Back to card and iDEAL | Wero</button></p>
+        <h2 id="crypto-heading">Pay with crypto</h2>
+        <p class="muted">USDC or SOL, from a wallet in this browser or on your phone. You get a small discount on the
+          card price: you pay the pack's value, plus VAT where it applies.</p>
+        <p id="network" class="muted"></p>
       </div>
 
       <section id="pack-section" aria-labelledby="amount-heading">
@@ -49,6 +44,8 @@
 
       <!-- New here: pay by card (or the visitor's local method); the key is made for you and shown after paying. -->
       <section id="panel-new" role="tabpanel" aria-labelledby="tab-new">
+        <p id="new-for" class="topup-for" hidden>These checks go to your pass <strong id="new-for-id"></strong>
+          · <button type="button" class="link" id="new-fresh">get a new pass instead</button></p>
         <div class="pay-country">
           <p class="small"><span id="new-country-from" hidden>Paying from: </span><strong id="new-country-name">Choose your country</strong>
             <button type="button" class="link" id="new-country-change" aria-expanded="false"
@@ -62,34 +59,38 @@
           <button id="new-local" class="primary large wide" type="button" hidden></button>
           <button id="new-pay" class="primary large wide" type="button">Pay by card</button>
         </div>
-        <p class="reassure-line">Secure checkout by our payment provider, Polar. Afterwards you get your own Unfret key:
-          no account and no password.</p>
+        <p id="new-tax" class="tax-note"></p>
+        <p class="crypto-way" hidden><button type="button" class="link" data-to-crypto>Prefer crypto? Pay with USDC or
+          SOL for a small discount</button></p>
+        <p class="reassure-line"><span class="i i-lock" aria-hidden="true"></span> Secure checkout by our payment
+          provider, Polar. Your checks come on an Unfret pass, made for you: no account and no password.</p>
         <p id="new-status" class="small" role="status" aria-live="polite"></p>
       </section>
 
       <!-- An intro code or invite: one click makes a key and adds the free checks. -->
       <section id="panel-code" role="tabpanel" aria-labelledby="tab-code" hidden>
         <h2 class="step">Have an invite or intro code?</h2>
-        <p class="muted">Someone shared a code like FRIENDS with you? It gives free checks to someone new to Unfret.</p>
+        <p class="muted">Someone shared a code like FRIENDS with you? It gives free checks to someone new to Unfret, on a
+          pass made for you.</p>
         <label class="visually-hidden" for="invite-input">Your code</label>
         <div class="code-form">
           <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="Your code, for example FRIENDS">
           <button id="invite-redeem" class="primary" type="button">Get my free checks</button>
         </div>
         <p id="invite-status" class="small" role="status" aria-live="polite"></p>
-        <p class="small muted">Signed in to the extension with a wallet? Use your code on the
-          <a href="/connect">sign-in page</a> instead.</p>
+        <p class="small muted">Signed in to the extension with a crypto wallet? Use your code on the
+          <a href="/connect">wallet sign-in page</a> instead.</p>
       </section>
 
       <!-- Bought before: top up the key you have. -->
       <section id="panel-topup" role="tabpanel" aria-labelledby="tab-topup" hidden>
-        <p id="topup-for" class="topup-for" hidden>Topping up key <strong id="topup-for-id"></strong>
-          · <button type="button" class="link" id="topup-other">use another key</button></p>
+        <p id="topup-for" class="topup-for" hidden>Adding checks to pass <strong id="topup-for-id"></strong>
+          · <button type="button" class="link" id="topup-other">use another pass</button></p>
         <div id="topup-key-field">
-          <label class="field" for="topup-key">Your Unfret key
-            <span class="muted small">It starts with ufk_. The 10-letter key ID works too.</span>
+          <label class="field" for="topup-key">Your Unfret pass
+            <span class="muted small">Paste it, or type its ID, such as ABCDE-FGHIJ (shown on My checks).</span>
           </label>
-          <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="ufk_…">
+          <input id="topup-key" class="wide-input" autocomplete="off" spellcheck="false" placeholder="Your pass or its ID">
         </div>
         <p id="topup-status" class="small" role="status" aria-live="polite"></p>
         <div class="pay-country">
@@ -105,35 +106,30 @@
           <button id="topup-local" class="primary large wide" type="button" hidden></button>
           <button id="topup-pay" class="primary large wide" type="button">Pay by card</button>
         </div>
-        <details id="recover-box" class="invite">
-          <summary>Lost your key?</summary>
-          <p class="muted">Your recovery code (it starts with ufr_) gets you a new key with the same checks.</p>
-          <label class="visually-hidden" for="recovery-input">Recovery code</label>
-          <div class="code-form">
-            <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="ufr_…">
-            <button id="recover" type="button">Get a new key</button>
-          </div>
-          <p id="recover-status" class="small" role="status" aria-live="polite"></p>
-        </details>
+        <p id="topup-tax" class="tax-note"></p>
+        <p class="crypto-way" hidden><button type="button" class="link" data-to-crypto>Prefer crypto? Pay with USDC or
+          SOL for a small discount</button></p>
+        <p class="small muted topup-lost">Lost your pass? Get a new one with your backup code on
+          <a href="/my-checks">My checks</a>.</p>
       </section>
 
       <!-- Crypto: SOL or USDC, to a wallet or a key. -->
-      <section id="panel-crypto" role="tabpanel" aria-labelledby="tab-crypto" hidden>
+      <section id="panel-crypto" aria-labelledby="crypto-heading" hidden>
         <h2 class="step">Where should the checks go?</h2>
         <fieldset class="choices" id="beneficiary">
           <legend class="visually-hidden">Where the checks go</legend>
           <label><input type="radio" name="for" value="wallet" checked> To my wallet
             <span class="muted">Use them in the extension after signing in with that wallet.</span></label>
-          <label><input type="radio" name="for" value="key"> To an Unfret key
-            <span class="muted">No wallet sign-in needed: in the extension, choose API key and paste it.</span></label>
+          <label><input type="radio" name="for" value="key"> To an Unfret pass
+            <span class="muted">No wallet sign-in needed: use the pass in the extension and the app.</span></label>
         </fieldset>
         <div id="key-panel" hidden>
-          <label class="custom">Paste your key or its ID
-            <input id="key-input" autocomplete="off" spellcheck="false" placeholder="ufk_… or the 10-letter ID">
+          <label class="custom">Paste your pass or its ID
+            <input id="key-input" autocomplete="off" spellcheck="false" placeholder="Your pass, or an ID like ABCDE-FGHIJ">
           </label>
-          <p><button id="new-key" type="button">Make a new key</button></p>
+          <p><button id="new-key" type="button">Make a new pass</button></p>
           <div id="key-reveal" hidden></div>
-          <label id="saved-row" hidden><input type="checkbox" id="saved"> I've saved my key and recovery code</label>
+          <label id="saved-row" hidden><input type="checkbox" id="saved"> I've saved my backup code</label>
           <p id="key-status" role="status" aria-live="polite"></p>
         </div>
 
@@ -175,32 +171,6 @@
     </template>
   </main>
 
-  <footer class="site-footer">
-    <div class="inner">
-      <div class="about">
-        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
-        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
-      </div>
-      <div>
-        <h2>Use Unfret</h2>
-        <ul>
-          <li><a href="/extension">Get the extension</a></li>
-          <li><a href="/check">Check a link</a></li>
-          <li><a href="/checkout">Buy checks</a></li>
-          <li><a href="/connect">Sign in</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>About</h2>
-        <ul>
-          <li><a href="/privacy">Privacy</a></li>
-          <li><a href="/llms.txt">For AI agents</a></li>
-          <li><a href="/docs">API reference</a></li>
-          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
-        </ul>
-      </div>
-      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
-    </div>
-  </footer>
+  {{footer}}
 </body>
 </html>

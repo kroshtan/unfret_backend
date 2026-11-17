@@ -227,7 +227,7 @@ quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an
 the older `unfret:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each
 transfer is credited exactly once. Sweeps, fees and x402 settlements are ignored.
 
-[`/connect`](https://unfret.net/connect) signs a wallet in and hands the session to the browser extension
+[`/connect`](https://unfret.net/connect) signs a crypto wallet in and hands the session to the browser extension
 (`window.postMessage`, relayed by the extension's content script); [`/checkout`](https://unfret.net/checkout) hands
 every new API key it shows to the extension the same way (`unfret-key`, API contract), so a new user never pastes a key,
 and [`/welcome`](https://unfret.net/welcome) is the page the extension opens once after installing. The pages are static HTML and vanilla JS with a
@@ -238,7 +238,15 @@ taken atomically before it runs and refunded when the page can't be analysed (sc
 sends only the link (`POST /v1/analyze/stream` with `{"url"}`), the server fetches the page itself before charging,
 and a page it can't read (an error, a shop that refuses automatic visitors, a bot check, an empty shell that needs a
 browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
-share target; the sign-in or API key is kept in the browser until sign-out, and there is no history.
+share target (**the phone app**); the sign-in is kept in the browser until it's removed, and there is no history.
+
+**Words for shoppers.** The pages call an API key an **Unfret pass** (its ID shown as `ABCDE-FGHIJ`) and its recovery
+code a **backup code**; "API key", `ufk_`/`ufr_` and wallets appear only where crypto buyers and developers look. A
+pass bought in one browser gets to a phone by [`/my-checks`](https://unfret.net/my-checks) ("My checks": the pass or
+wallet on this device, its checks, adding checks, a new pass from the backup code, and the wallet sign-in): "Use on
+your phone" shows a QR code (`GET /v1/keys/phone-qr`, the key as `Authorization`) for `<site>/check#pass=<key>`; the
+key sits in the fragment, which browsers never send, and `/check` keeps it and clears the address bar. A page's
+verdict headline never repeats its label, which every client shows right above it.
 
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant an API key credit by
 hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at
@@ -272,8 +280,9 @@ are set:
 $22.00 at $0.20 a check), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€5.50, €10.00, €19.00;
 keep USD as the organisation's default currency). A checkout is created for the pack's product with `currency:
 "usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our account id
-(`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and `/checkout?paid=1` as the success
-URL; nothing about the buyer is sent. If Polar answers with another currency or price, the checkout is refused before
+(`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and
+`/checkout?paid=1&checkout={CHECKOUT_ID}` as the success URL (Polar fills in the checkout's id); nothing about the
+buyer is sent. If Polar answers with another currency or price, the checkout is refused before
 anyone pays; a refused euro checkout falls back to the dollar one (logged as `fiat_checkout_eur_fallback`), so a
 product still missing its euro price costs euro-area buyers iDEAL | Wero, not the sale.
 
@@ -291,6 +300,21 @@ the page has no country list of its own. **To add a country**, add one entry to 
 method id, button label, billing country, currency), but first check by hand that Polar really offers that method:
 create a checkout in that currency, set that billing country on Polar's page and look. An entry for a method Polar
 doesn't show there would only put a card form behind a button that promises something else.
+
+**Prices as shown:** Polar adds VAT on top of a product's price. The pages show each card price with the VAT Polar
+will add for the chosen EU country (`/v1/pricing`'s `vat.card_rates_pct`: each country's standard rate, whatever
+`UNFRET_VAT_MODE` says about our own crypto sales), so a price never goes up at Polar's checkout; outside the EU they
+say that tax is added at checkout where it applies.
+
+**Back in another browser:** the pass (API key) for a card purchase is made in the buying browser and kept only there,
+with the claim token that collects the pack's invites. A bank app or a phone can return the buyer to another browser,
+which has neither. There `/checkout` reads the checkout's id from the return link and calls
+`POST /v1/credits/fiat-checkouts/{checkout_id}/pass`, which rotates the paid key (a new key and recovery code, the
+same id and balance; the old key stops working) and hands over the invites: once, within 24 hours of the payment, and
+only while the buying browser hasn't picked the purchase up itself (its status poll with the claim token after
+payment sets `collected_at`), so an old link in a browser's history can't take over a pass in use. The buying browser,
+opened later, learns from the status (`reissued: true`) that its key was replaced and forgets it. The page removes the
+checkout's id from the address bar at once.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
 **`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,
@@ -660,6 +684,12 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
   user sees (to buy). The server holds no user keys; a session token can spend Unfret credits, never SOL.
 - **Exactly-once crediting.** Credits and the scanner cursor move in one transaction, by compare-and-swap; debits are
   a single conditional `UPDATE`, so concurrent analyses never overspend.
+
+## Roadmap
+
+- **x402 on Base.** Pay-per-check is Solana only (USDC and wSOL). Most x402 tooling for agents starts from an EVM
+  wallet, so `/v1/check` should also accept USDC on Base: a second entry in the 402's `accepts`, a facilitator or
+  our own settlement on Base, and the MCP server able to pay from either. `/developers` names it as coming next.
 
 ## Limitations and responsible use
 

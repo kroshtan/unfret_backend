@@ -451,4 +451,7 @@ def describe(settings: Settings) -> dict[str, Any]:
         "home_country": HOME_COUNTRY,
         "eu_rates_pct": effective_rates(settings),
         "applies_to": "crypto purchases (card purchases: the payment provider adds its own sales tax/VAT)",
+        # What the card provider (the Merchant of Record) adds to a card price for a consumer in each EU country: its
+        # standard rate, whatever our own mode. Pages show card prices with it, so the price doesn't go up at checkout.
+        "card_rates_pct": {code: format(rate, "f") for code, rate in standard_rates().items()},
     }

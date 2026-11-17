@@ -60,9 +60,9 @@ def test_checkout_hands_every_new_key_to_the_extension() -> None:
     # The code, card, recovery results (showResult) and the crypto tab's "Make a new key".
     assert "nodes.push(handoffBox(issued, steps), keyCard(issued)" in script
     assert "keyReveal.replaceChildren(handoffBox(issued), keyCard(issued));" in script
-    assert "Your Unfret extension is signed in with this key — you can start checking pages now." in script
-    assert "Switch it to this new key?" in script
-    assert "choose “API key” and paste your key" in script
+    assert "Your Unfret extension uses this pass now: you can start checking pages." in script
+    assert "Switch it to this new pass?" in script
+    assert "Paste your pass into the extension when it asks." in script
 
 
 def test_check_page_tops_up_a_key_by_its_id() -> None:

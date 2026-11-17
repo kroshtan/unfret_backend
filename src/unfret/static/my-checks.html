@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#1f8a70">
+  <title>My checks · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/my-checks.js"></script>
+</head>
+<body class="app">
+  {{header}}
+  <main class="mine">
+    <h1>My checks</h1>
+
+    <!-- A backup code made on /checkout that its owner hasn't confirmed saving yet. -->
+    <section id="save-backup" class="panel save-backup" aria-labelledby="save-backup-heading" hidden>
+      <h2 id="save-backup-heading">Save your backup code</h2>
+      <p>If you ever lose your pass, this code gets you a new one with the same checks. We can't show it again once
+        you've confirmed.</p>
+      <div class="secret-value" id="save-backup-row"></div>
+      <p class="buttons"><button id="save-backup-done" type="button" class="primary">I've saved it</button></p>
+    </section>
+
+    <!-- A pass on this device. -->
+    <section id="mine-pass" aria-label="Your pass" hidden>
+      <div class="pass-card">
+        <div class="pass-top">
+          <svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#fff" fill-opacity="0.18"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="pass-name">Unfret pass</span>
+          <span class="pass-id" id="pass-id"></span>
+        </div>
+        <p class="pass-checks"><strong id="pass-checks">–</strong> <span id="pass-checks-word">checks left</span></p>
+      </div>
+      <p class="buttons pass-actions">
+        <a id="pass-add" class="button primary" href="/checkout">Add checks</a>
+        <button id="pass-phone" type="button"><span class="i i-phone" aria-hidden="true"></span> Use on your phone</button>
+      </p>
+
+      <div id="pass-qr-box" class="panel qr-box" hidden>
+        <img id="pass-qr" width="220" height="220" alt="QR code that puts your pass on your phone">
+        <div>
+          <h2>Scan it with your phone's camera</h2>
+          <p>It opens Unfret on your phone with this pass, so your checks are there too. Then add Unfret to your home
+            screen to keep it.</p>
+          <p class="small muted"><span class="i i-lock" aria-hidden="true"></span> Anyone who scans this code can use
+            your checks: show it only to your own phone.</p>
+          <button id="pass-qr-hide" type="button">Done</button>
+        </div>
+      </div>
+
+      <details class="choice" id="pass-elsewhere">
+        <summary>Use it in your browser extension or somewhere else</summary>
+        <p class="small">Unfret's browser extension in this browser can take it over by itself:</p>
+        <p><button id="pass-extension" type="button">Send to the extension</button></p>
+        <p id="pass-extension-status" class="small" role="status" aria-live="polite"></p>
+        <p class="small">Or copy your pass and paste it where Unfret asks for it:</p>
+        <div class="secret-value" id="pass-value-row"></div>
+      </details>
+
+      <p class="small mine-remove"><button id="pass-remove" type="button" class="link">Remove it from this
+        device</button> <span class="muted">Your checks stay on the pass.</span></p>
+      <p class="small"><button id="restore-show" type="button" class="link">Lost another pass? Use its backup
+        code</button></p>
+    </section>
+
+    <!-- A crypto wallet's sign-in (for checks bought with a wallet). -->
+    <section id="mine-wallet" class="panel" aria-label="Your wallet" hidden>
+      <p class="pass-checks"><strong id="wallet-checks">–</strong> <span id="wallet-checks-word">checks left</span></p>
+      <p class="muted">On your crypto wallet <strong id="wallet-address"></strong>.</p>
+      <p class="buttons"><a class="button primary" href="/checkout?mode=crypto">Add checks</a>
+        <button id="wallet-sign-out" type="button">Sign out</button></p>
+    </section>
+
+    <!-- Nothing on this device yet. -->
+    <section id="mine-none" aria-label="Get started" hidden>
+      <p class="lead">Your checks live on an Unfret pass, which you get with your first checks. There's none on this
+        device yet.</p>
+      <ul class="paths two">
+        <li class="main">
+          <h2>Get checks</h2>
+          <p>Pay once, no subscription, and checks never expire. Your pass is made for you.</p>
+          <p class="buttons"><a class="button primary" href="/checkout">Buy checks</a>
+            <a class="button" href="/checkout?mode=code">I have a code</a></p>
+        </li>
+        <li>
+          <h2>I have a pass</h2>
+          <p>Paste it here to use it on this device.</p>
+          <label class="visually-hidden" for="pass-input">Your pass</label>
+          <input id="pass-input" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your pass">
+          <p><button id="pass-use" type="button">Use this pass</button></p>
+          <p id="pass-use-status" class="small" role="status" aria-live="polite"></p>
+        </li>
+      </ul>
+    </section>
+
+    <section id="restore" class="panel restore" aria-labelledby="restore-heading">
+      <h2 id="restore-heading">Lost your pass?</h2>
+      <p>The backup code you saved with it gets you a new pass with the same checks. The old pass stops working.</p>
+      <label class="visually-hidden" for="restore-input">Your backup code</label>
+      <div class="code-form">
+        <input id="restore-input" type="password" autocomplete="off" spellcheck="false" placeholder="Your backup code">
+        <button id="restore-go" type="button">Get a new pass</button>
+      </div>
+      <p id="restore-status" class="small" role="status" aria-live="polite"></p>
+    </section>
+
+    <details class="choice quiet-choice" id="wallet-sign-in">
+      <summary>Bought checks with a crypto wallet?</summary>
+      <p class="small">Sign in with that wallet. It is a plain message, not a payment: it costs nothing and gives Unfret
+        no access to your funds.</p>
+      <div id="wallets" class="wallets"></div>
+      <p id="no-wallets" class="muted small">No crypto wallet in this browser. On a phone, open this page in your
+        wallet app's browser: <a id="open-phantom" href="#" rel="noopener">Phantom</a> ·
+        <a id="open-solflare" href="#" rel="noopener">Solflare</a>.</p>
+      <p id="wallet-status" class="small" role="status" aria-live="polite"></p>
+    </details>
+  </main>
+  {{footer}}
+</body>
+</html>

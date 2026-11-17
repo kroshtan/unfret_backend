@@ -709,3 +709,65 @@ valid 7 days. Nothing is stored when a check runs.
 - `/checkout?mode=topup&key_id=<10-letter key ID>` opens "Top up my key" with that key filled in ("Topping up key …",
   "use another key"). Only the public key ID goes in the link, never the key. The extension (0.11.0) and `/check` link
   there for a signed-in key; a wallet's link stays `/checkout`.
+
+## Changes (card purchases picked up in another browser, card prices with VAT; backwards-compatible; migration 22)
+
+- The card checkout's success URL is now `/checkout?paid=1&checkout=<checkout id>` (Polar fills in `{CHECKOUT_ID}`).
+  `/checkout` removes both parameters from the address bar at once.
+- `POST /v1/credits/fiat-checkouts/{checkout_id}/pass` (no auth): for a buyer the bank app or phone brought back to
+  another browser, which has neither the pass (API key) made for the purchase nor its claim token. It rotates that key
+  and returns `{"key_id", "key", "recovery_code", "account", "checks", "checks_remaining", "invites"}`: the same id and
+  balance, a new key and recovery code (the old ones stop working), and the pack's invites if nobody collected them.
+  Once per checkout, within 24 hours of the payment, and only while the buying browser hasn't picked the purchase up
+  itself. Refusals: 404 `UNKNOWN_CHECKOUT`, 409 `CHECKOUT_NOT_PAID` (`Retry-After: 3`; the webhook hasn't arrived
+  yet), 409 `CHECKOUT_COLLECTED`, 410 `CHECKOUT_EXPIRED`, 429, 503 while card payments are off.
+- `GET /v1/credits/fiat-checkouts/{checkout_id}` adds `reissued` (bool): the purchase was picked up in another
+  browser and the key this browser made for it no longer works. A poll with the claim token after payment marks the
+  purchase as picked up by the buying browser, so it can no longer be reissued.
+- `GET /v1/pricing` adds `vat.card_rates_pct`: each EU country's standard VAT rate (percent, as text), which is what
+  the card provider adds to a card price for a consumer there. Pages show card prices with it ("€6.66 incl. VAT" for
+  the 25-pack in the Netherlands), so the price doesn't go up at the provider's checkout. `vat.eu_rates_pct` is
+  unchanged: what Unfret itself charges on a crypto purchase (the Dutch rate for everyone while under the EU
+  threshold).
+- `/checkout` sells by card while crypto purchases are off (no hot wallet or scanner) and hides only the crypto tab;
+  it says "not available" only when neither way is.
+
+## Changes (plain words for shoppers: the pass, My checks; backwards-compatible)
+
+- **Words.** The pages call an API key an **Unfret pass** and its recovery code a **backup code**. A pass is shown by
+  its ID in capitals in two groups: `ABCDE-FGHIJ` (the key ID `abcdefghij`); `/checkout?mode=topup` and the crypto
+  tab accept the ID typed that way. Nothing changes in the API. The extension should use the same words ("Paste your
+  pass", "I have a pass") so the pages' instructions match it.
+- **Headlines never repeat the label.** `verdict.headline` (and `explanation`) no longer start with the label, which
+  every client shows right above them: "Fake countdown and unknown brand." rather than "Many warning signs: fake
+  countdown and unknown brand."; a reliable page with a note reads "One thing to note: …". An LLM-written headline
+  that starts with the label has it removed. Results cached or shared before this still carry the old form: clients
+  may strip a leading `"<label>: "` (the site does, `headlineOf` in `static/check-render.js`).
+- `GET /v1/keys/phone-qr` (`Authorization: Bearer <key>`; API keys only, 400 for a wallet's session, 401 without a
+  valid key) → `image/svg+xml`, `Cache-Control: no-store`: a QR code for `<site>/check#pass=<key>`. `/check` reads
+  `#pass=`, checks the key against `/v1/credits`, keeps it as its sign-in (asking first when it already has another
+  pass or a wallet) and clears the address bar.
+- `GET /my-checks` ("My checks", in the menu instead of "Sign in"): the pass or wallet on this device (the link
+  checker's `localStorage` sign-in), its checks, adding checks (`/checkout?mode=topup&key_id=`), "Use on your phone"
+  (the QR code above), sending the pass to the extension, removing it, a new pass from the backup code
+  (`POST /v1/keys/recover`, moved here from `/checkout`'s top-up tab), a backup code from `/checkout` not yet
+  confirmed as saved, and the wallet sign-in (SIWS, for checks bought with crypto).
+- **Extension hand-off from `/my-checks` too:** "Send to the extension" posts the same
+  `{"type": "unfret-key", "key"}` message as `/checkout`. The extension's content script should run on
+  `<site>/my-checks*` as well as `<site>/checkout*` for it to be answered; without that the page says no extension
+  answered and offers the pass to copy.
+- `/check` no longer signs in with a wallet itself (that moved to `/my-checks`); it still uses a wallet's sign-in
+  stored by `/my-checks`. Without checks it shows "Get checks to start" (buy, a code, or paste a pass). Its progress
+  list follows the page type from the classifier's `step` event (`page_type`): a shop's, an ad's or a company's five
+  points. The scorer's details ("Show details": signals, model, confidence) are no longer shown on `/check`, shared
+  results or the showcase; the API still returns `assessment`.
+- `/checkout` tabs: `mode=new` ("Buy checks"), `code`, `topup` ("Add to my pass"). `mode=crypto` is no longer a tab
+  but still opens the crypto panel directly (links from the extension keep working); without crypto purchases it
+  falls back to `new`. In a browser whose link checker uses a pass, "Buy checks" tops that pass up.
+
+## Changes (a page for developers and agents, backwards-compatible)
+
+- `GET /developers`: the MCP server, x402 on `/v1/check` and a prepaid pass as an API key, with the tiers' prices
+  and descriptions from the same settings as `/.well-known/x402`. Linked from every page's menu and footer and from
+  the OpenAPI document's `info.description` (so from `/docs`).
+- Roadmap: x402 on Base (USDC), next to Solana.

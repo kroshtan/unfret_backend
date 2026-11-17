@@ -512,6 +512,12 @@
       "description": "True once the provider's webhook confirmed the payment and the key was credited.",
       "title": "Paid",
       "type": "boolean"
+     },
+     "reissued": {
+      "default": false,
+      "description": "True when the purchase was picked up in another browser (POST /v1/credits/fiat-checkouts/{checkout_id}/pass): the key this browser made for it was replaced and no longer works.",
+      "title": "Reissued",
+      "type": "boolean"
      }
     },
     "required": [
@@ -1769,6 +1775,66 @@
     "title": "RedeemResponse",
     "type": "object"
    },
+   "ReissuedPassResponse": {
+    "description": "A card purchase picked up in another browser: a fresh pass (API key) for it, shown this once.",
+    "properties": {
+     "account": {
+      "description": "The ledger account, key:<id>.",
+      "title": "Account",
+      "type": "string"
+     },
+     "checks": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pack size the checkout paid for.",
+      "title": "Checks"
+     },
+     "checks_remaining": {
+      "description": "The key's balance in checks.",
+      "title": "Checks Remaining",
+      "type": "integer"
+     },
+     "invites": {
+      "description": "The pack's invite codes, if not collected yet.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Invites",
+      "type": "array"
+     },
+     "key": {
+      "description": "The new key (the pass). Send as Authorization: Bearer <key>.",
+      "title": "Key",
+      "type": "string"
+     },
+     "key_id": {
+      "description": "The key's public id (unchanged).",
+      "title": "Key Id",
+      "type": "string"
+     },
+     "recovery_code": {
+      "description": "The new recovery code (the backup code).",
+      "title": "Recovery Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key_id",
+     "key",
+     "recovery_code",
+     "account",
+     "checks",
+     "checks_remaining"
+    ],
+    "title": "ReissuedPassResponse",
+    "type": "object"
+   },
    "ReportRequest": {
     "description": "A wrong result, sent back with the check it came from.",
     "properties": {
@@ -2954,6 +3020,7 @@
   }
  },
  "info": {
+  "description": "Scam, dropshipping and dark-pattern signals for a web shop, a marketplace listing, a second-hand ad or a service provider's site. Start with the [developer guide](/developers): the MCP server, pay-per-check over x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as `Authorization: Bearer ufk_\u2026`, on `POST /v1/analyze`.",
   "title": "Unfret API",
   "version": "<version>"
  },
@@ -3409,6 +3476,49 @@
     ]
    }
   },
+  "/v1/credits/fiat-checkouts/{checkout_id}/pass": {
+   "post": {
+    "description": "Pick up a card purchase in another browser: a fresh pass (API key) for the key it paid for, and its invites.\n\nFor a buyer whose bank app or phone brought them back to a browser without the pass that was made for the\npurchase. The provider's return link names the checkout (``/checkout?paid=1&checkout=<id>``). Allowed once,\nwithin 24 hours of the payment, and only while the browser that paid hasn't picked the purchase up itself (a\nstatus poll with its claim token after payment); the key is rotated: a new key and recovery code, the same id\nand balance, and the old key stops working.\n\nRefusals: 404 ``UNKNOWN_CHECKOUT``; 409 ``CHECKOUT_NOT_PAID`` (not confirmed yet: retry after a few seconds);\n409 ``CHECKOUT_COLLECTED`` (picked up already); 410 ``CHECKOUT_EXPIRED``; 429 (too many attempts from here).\n\n:param request: The incoming request.\n:param response: The response (marked uncacheable).\n:param checkout_id: The checkout's id, from the return link.\n:return: The new pass, shown this once.\n:raises ServiceUnavailableError: While card payments are off.\n:raises TooManyRequestsError: If this network tried too many times today.\n:raises UnknownCheckoutError: For an unknown checkout.\n:raises CheckoutNotPaidError: While the payment isn't confirmed.\n:raises CheckoutCollectedError: When the purchase was picked up already.\n:raises CheckoutExpiredError: After the window.",
+    "operationId": "fiat_checkout_pass_v1_credits_fiat_checkouts__checkout_id__pass_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "checkout_id",
+      "required": true,
+      "schema": {
+       "title": "Checkout Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ReissuedPassResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Fiat Checkout Pass",
+    "tags": [
+     "Credits"
+    ]
+   }
+  },
   "/v1/credits/purchase-tx": {
    "post": {
     "description": "Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.\n\nThe pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the\ntransaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15\u201330 seconds):\nwhat arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.\nNo sign-in needed: anyone may fund any wallet or API key.\n\n:param body: Which pack, for whom, paid how, from where.\n:param request: The incoming request.\n:return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.",
@@ -3792,6 +3902,24 @@
      }
     },
     "summary": "Challenge",
+    "tags": [
+     "API keys"
+    ]
+   }
+  },
+  "/v1/keys/phone-qr": {
+   "get": {
+    "description": "A QR code that puts this key on a phone: it opens the link checker (``/check``) signed in with it.\n\nFor a shopper who bought checks in one browser and wants them in the phone app. The code holds\n``<site>/check#pass=<key>``: the key is in the fragment, which a browser never sends anywhere; ``/check`` reads it,\nkeeps it like a pasted key and clears the address bar. Only for an API key (send it as ``Authorization: Bearer``);\nanyone who scans the code can use the key's checks, so pages show it only on request.\n\n:param request: The incoming request (its ``Authorization`` header is the key).\n:param account: The account (injected by require_account).\n:return: The SVG, never cached.\n:raises BadRequestError: For a wallet's session: a wallet signs in on the phone itself.",
+    "operationId": "phone_qr_v1_keys_phone_qr_get",
+    "responses": {
+     "200": {
+      "content": {
+       "image/svg+xml": {}
+      },
+      "description": "The QR code."
+     }
+    },
+    "summary": "Phone Qr",
     "tags": [
      "API keys"
     ]

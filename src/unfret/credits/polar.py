@@ -52,6 +52,8 @@ class PolarProvider:
     """Polar's hosted checkout and order webhooks (see the module docstring)."""
 
     name = "polar"
+    # Polar puts the checkout's id in the success URL in place of this.
+    checkout_id_placeholder = "{CHECKOUT_ID}"
 
     def __init__(
         self,

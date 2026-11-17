@@ -9,90 +9,51 @@
   <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
-  <header class="site-header">
-    <div class="inner">
-      <a class="wordmark" href="/" aria-label="Unfret home">
-        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Unfret</span>
-      </a>
-      <nav class="site-nav" aria-label="Main">
-        <a class="optional" href="/check">Check a link</a>
-        <a href="/checkout">Buy checks</a>
-        <a class="optional" href="/connect">Sign in</a>
-        <a class="cta" href="/checkout?mode=code">I have a code</a>
-      </nav>
-    </div>
-  </header>
+  {{header}}
   <main class="welcome">
     <p class="eyebrow">Unfret is installed</p>
     <h1>Shop without the worry</h1>
-    <p class="lead">One step left: get a few checks. Then click Unfret on any product page, and it tells you in plain
-      words whether the shop and the offer add up.</p>
+    <p class="lead">One step left: get a few checks. Then click Unfret on a product, an ad or a company's website, and
+      it tells you in plain words whether it all adds up.</p>
 
     <ul class="paths">
       <li class="main">
-        <h2>I have a code</h2>
-        <p>Someone shared a code like FRIENDS with you? It gives you free checks, and your extension signs in by
-          itself.</p>
-        <a class="button primary large" href="/checkout?mode=code">Use my code</a>
-      </li>
-      <li>
         <h2>Buy checks</h2>
-        <p>Pay once by card, no subscription, and checks never expire. Your extension signs in by itself
+        <p>Pay once, no subscription, and checks never expire. Your extension is ready to use by itself
           afterwards.</p>
         <a class="button primary large" href="/checkout">Buy checks</a>
       </li>
       <li>
-        <h2>I already have a key</h2>
-        <p>Your Unfret key starts with ufk_. Paste it into the extension once, or sign in with your wallet.</p>
+        <h2>I have a code</h2>
+        <p>Someone shared a code like FRIENDS with you? It gives you free checks, and your extension is ready to use
+          by itself.</p>
+        <a class="button primary large" href="/checkout?mode=code">Use my code</a>
+      </li>
+      <li>
+        <h2>I already have a pass</h2>
+        <p>Bought checks before, on another device or in the app? Use the same pass here.</p>
         <a class="button large" href="#have-key">Show me how</a>
       </li>
     </ul>
 
     <section class="prose" aria-labelledby="have-key">
-      <h2 id="have-key">Signing in with a key you have</h2>
+      <h2 id="have-key">Using a pass you already have</h2>
       <ol class="howto">
         <li><b>Pin Unfret.</b> Click the puzzle piece in your browser's toolbar and pin Unfret, so it's one click
           away.</li>
-        <li><b>Click the Unfret icon</b>, then “Sign in with an API key or wallet” and choose <b>API key</b>.</li>
-        <li><b>Paste your key</b> and click “Use this key”. With a Solana wallet, choose a wallet instead, or
-          <a href="/connect">sign in here</a>.</li>
+        <li><b>Copy your pass</b> from <a href="/my-checks">My checks</a> on the device where you have it.</li>
+        <li><b>Click the Unfret icon</b> and paste your pass when it asks. Bought your checks with a crypto wallet?
+          Choose the wallet instead.</li>
       </ol>
-      <p class="muted small">Lost your key? Your recovery code (ufr_…) gets you a new one with the same checks under
-        <a href="/checkout?mode=topup">Top up my key</a>.</p>
+      <p class="muted small">Lost your pass? Your backup code gets you a new one with the same checks on
+        <a href="/my-checks">My checks</a>.</p>
 
-      <h2>Then, on a product page</h2>
+      <h2>Then, when you're about to buy</h2>
       <p>Click the Unfret icon and choose “Check this page”. Unfret reads that one page, only when you click, and
         answers in plain words. One check per page. <a href="/privacy">What is sent, and what isn't</a>.</p>
     </section>
   </main>
 
-  <footer class="site-footer">
-    <div class="inner">
-      <div class="about">
-        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
-        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
-      </div>
-      <div>
-        <h2>Use Unfret</h2>
-        <ul>
-          <li><a href="/extension">Get the extension</a></li>
-          <li><a href="/check">Check a link</a></li>
-          <li><a href="/checkout">Buy checks</a></li>
-          <li><a href="/connect">Sign in</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>About</h2>
-        <ul>
-          <li><a href="/privacy">Privacy</a></li>
-          <li><a href="/llms.txt">For AI agents</a></li>
-          <li><a href="/docs">API reference</a></li>
-          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
-        </ul>
-      </div>
-      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
-    </div>
-  </footer>
+  {{footer}}
 </body>
 </html>

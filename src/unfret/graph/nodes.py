@@ -408,7 +408,8 @@ Write the headline of a shopping check for an ordinary shopper: ONE sentence of 
 The verdict is "{label}". Base the sentence only on the verdict and the points below; don't invent anything.
 Use plain everyday words: no technical terms, model names, scores or percentages. Be calm and factual, and \
 consistent with the verdict: a reliable verdict is reassuring (mention a note only lightly), a low one is a clear \
-warning. Only the lowest verdict may suggest the offer could be dishonest.\
+warning. Only the lowest verdict may suggest the offer could be dishonest. The verdict's words are shown right \
+above your sentence: don't start with them or repeat them.\
 """
 
 
@@ -493,7 +494,7 @@ async def _verdict(
                 HumanMessage(content="Points:\n" + ("\n".join(points) or "- (none)")),
             ]
         )
-        written = shopper.fit_headline(output.explanation)  # the 25-word limit, enforced
+        written = shopper.fit_headline(output.explanation, verdict.label)  # the 25-word limit, enforced
     except Exception:  # noqa: BLE001 - the template headline is a fine answer
         return verdict
     return verdict.model_copy(update={"headline": written}) if written else verdict

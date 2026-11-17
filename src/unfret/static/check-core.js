@@ -62,17 +62,41 @@ export function bandOf(result) {
   return "junk_or_scam";
 }
 
-// A fixed, friendly checklist instead of skill names: each item ticks off when one of its checks finishes.
-export const CHECKLIST = [
-  { label: "Reviews", skills: ["reviews"] },
-  { label: "Seller", skills: ["listing", "content"] },
-  { label: "Price", skills: ["dark_patterns"] },
-  { label: "Page code", skills: ["html_source_signals", "injection"] },
-  { label: "Company details", skills: ["eu_registry", "domain_age"] },
-];
+// A fixed, friendly checklist instead of skill names, one per kind of page: each item ticks off when one of its
+// checks finishes. The classifier's step names the page type; until then, and for a page type not listed, the shop's.
+export const CHECKLISTS = {
+  shop: [
+    { label: "Who's behind the shop", skills: ["eu_registry", "us_identity", "domain_age", "shop_policies"] },
+    { label: "The product and the brand", skills: ["listing", "content", "brand_presence"] },
+    { label: "Reviews", skills: ["reviews", "review_copies"] },
+    { label: "Prices and discounts", skills: ["pricing", "market_price", "dark_patterns"] },
+    { label: "Hidden tricks", skills: ["html_source_signals", "injection"] },
+  ],
+  ad: [
+    { label: "The seller", skills: ["seller_profile"] },
+    { label: "The price", skills: ["price_outlier"] },
+    { label: "The photos", skills: ["reverse_image", "duplicate_ads"] },
+    { label: "How you'd pay", skills: ["off_platform"] },
+    { label: "The ad's text", skills: ["content", "injection"] },
+  ],
+  service: [
+    { label: "Who the company is", skills: ["service_identity", "platform_profile", "eu_registry", "us_identity"] },
+    { label: "Where they really are", skills: ["doorway_pages", "shop_links", "domain_age"] },
+    { label: "Reviews", skills: ["testimonials"] },
+    { label: "Prices and payment", skills: ["service_terms", "dark_patterns"] },
+    { label: "The photos", skills: ["reverse_image"] },
+  ],
+};
 
-export function checklistDone(steps, finished) {
-  return CHECKLIST.map((item) => finished || item.skills.some((skill) => steps.includes(skill)));
+/** Which checklist a page type gets: "shop", "ad" or "service". */
+export function checklistFor(pageType) {
+  if (pageType === "p2p_listing") return "ad";
+  if (pageType === "service_listing" || pageType === "service_site") return "service";
+  return "shop";
+}
+
+export function checklistDone(steps, finished, kind = "shop") {
+  return CHECKLISTS[kind].map((item) => finished || item.skills.some((skill) => steps.includes(skill)));
 }
 
 /** Thumbnails may only come from this server's own image proxy, so the page never loads anything from a shop. */

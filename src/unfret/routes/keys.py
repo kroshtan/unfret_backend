@@ -1,16 +1,27 @@
 """
-API keys: ``GET /v1/keys/challenge``, ``POST /v1/keys`` (create) and ``POST /v1/keys/recover`` (rotate).
+API keys: create, recover, and put one on a phone.
+
+``GET /v1/keys/challenge``, ``POST /v1/keys`` (create), ``POST /v1/keys/recover`` (rotate) and ``GET
+/v1/keys/phone-qr`` (a QR code that puts the key on a phone).
+
+Shoppers know a key as their **Unfret pass** and its recovery code as their **backup code**; the API keeps the
+technical names.
 
 A key is an account without a wallet: create it (empty), then top it up with ``/v1/credits/purchase-tx``
 (``key_id``) or, once a provider is wired in, ``/v1/credits/fiat-checkout``. Use it as ``Authorization: Bearer
 ufk_…`` wherever a session token works. The key and its recovery code are shown once and stored only as hashes.
 """
 
+import io
+
+import segno
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from unfret.auth import get_credits
+from unfret.auth import get_credits, require_account
+from unfret.config import settings
 from unfret.credits import CreditsDoor, keys
 from unfret.schemas.errors import BadRequestError, ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 
@@ -129,3 +140,31 @@ async def recover_key(body: RecoverRequest, request: Request) -> KeyResponse:
         account=issued.account,
         balance_usd_micros=await keys.balance(request.app.db_pool, issued.key_id),
     )
+
+
+@router.get(
+    "/phone-qr",
+    response_class=Response,
+    responses={200: {"content": {"image/svg+xml": {}}, "description": "The QR code."}},
+)
+async def phone_qr(request: Request, account: str = Depends(require_account)) -> Response:
+    """
+    A QR code that puts this key on a phone: it opens the link checker (``/check``) signed in with it.
+
+    For a shopper who bought checks in one browser and wants them in the phone app. The code holds
+    ``<site>/check#pass=<key>``: the key is in the fragment, which a browser never sends anywhere; ``/check`` reads it,
+    keeps it like a pasted key and clears the address bar. Only for an API key (send it as ``Authorization: Bearer``);
+    anyone who scans the code can use the key's checks, so pages show it only on request.
+
+    :param request: The incoming request (its ``Authorization`` header is the key).
+    :param account: The account (injected by require_account).
+    :return: The SVG, never cached.
+    :raises BadRequestError: For a wallet's session: a wallet signs in on the phone itself.
+    """
+    if not keys.is_key_account(account):
+        raise BadRequestError("Only an API key can be moved to a phone this way; sign in with the wallet there.")
+    key = request.headers["authorization"].partition(" ")[2].strip()
+    buffer = io.BytesIO()
+    link = f"{settings.public_base_url.rstrip('/')}/check#pass={key}"
+    segno.make(link, error="m").save(buffer, kind="svg", scale=5, border=2, dark="#12302a", xmldecl=False)
+    return Response(buffer.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})

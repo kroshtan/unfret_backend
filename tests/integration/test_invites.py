@@ -194,7 +194,7 @@ async def test_an_odd_card_amount_or_a_checkout_without_a_claim_issues_none(
     assert (await send(client, provider, odd)).json() == {"status": "credited"}  # credits what it covers
     status = f"/v1/credits/fiat-checkouts/{started['checkout_id']}"
     shown = (await client.get(status, headers={"X-Unfret-Claim": started["claim"]})).json()
-    assert shown == {"paid": True, "checks": 25, "invites": []}
+    assert shown == {"paid": True, "checks": 25, "invites": [], "reissued": False}
     metadata_only = {
         "type": "order.paid",
         "data": {"id": "ord_m", "metadata": {"account": issued.account, "site": settings.public_base_url}},

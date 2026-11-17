@@ -2,6 +2,8 @@
 // Wallets announce themselves on the `wallet-standard:register-wallet` event; the page announces itself with
 // `wallet-standard:app-ready`. Both carry the same `{ register }` API.
 
+import { copyButton } from "./pass.js";
+
 const SESSION_KEY = "unfret-session";
 
 export function discoverWallets(onChange) {
@@ -91,6 +93,7 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const error = new Error(body.detail ?? `Request failed (${response.status})`);
     error.status = response.status;
+    error.code = typeof body.error_code === "string" ? body.error_code : "";
     throw error;
   }
   return body;
@@ -187,9 +190,8 @@ export function setStatus(element, text, kind = "info") {
 
 // An invite (ufi_…, from a pack) or an intro code (FRIENDS, DEV, …: 3 to 24 letters or digits), lower-cased first.
 export const INVITE_RE = /^(ufi_[a-z2-7]{32}|[a-z0-9]{3,24})$/;
-export const NOT_A_CODE = "That isn't an invite (ufi_…) or an intro code.";
-export const INVITE_LINE =
-  "Give this to someone who hasn't tried Unfret: it adds 3 checks to a new wallet or a new API key.";
+export const NOT_A_CODE = "That doesn't look like a code. Check it and try again.";
+export const INVITE_LINE = "Give these to people who haven't tried Unfret yet: each one gives them 3 free checks.";
 
 // Redeem an invite for the account behind `token` (a session token or a whole API key). Returns the server's
 // { checks_added, checks_remaining, … }; throws with the server's reason (used, not a new account, …).
@@ -206,32 +208,22 @@ export async function redeemInvite(code, token) {
 export function inviteNodes(codes) {
   const heading = document.createElement("p");
   const strong = document.createElement("strong");
-  strong.textContent = codes.length === 1 ? "Your invite (shown only now):" : `Your ${codes.length} invites (shown only now):`;
+  strong.textContent = codes.length === 1 ? "Your invite to give away:" : `Your ${codes.length} invites to give away:`;
   heading.append(strong);
   const list = document.createElement("ul");
   list.className = "invites";
   for (const code of codes) {
     const item = document.createElement("li");
+    item.className = "secret-value";
     const value = document.createElement("code");
     value.textContent = code;
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.textContent = "Copy";
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(code);
-        copy.textContent = "Copied";
-      } catch {
-        copy.textContent = "Select and copy it";
-      }
-    });
-    item.append(value, document.createTextNode(" "), copy);
+    item.append(value, copyButton(code));
     list.append(item);
   }
   const line = document.createElement("p");
   line.textContent = INVITE_LINE;
   const keep = document.createElement("p");
   keep.className = "muted";
-  keep.textContent = "Copy them now: Unfret keeps only a fingerprint of each, so they can't be shown again.";
+  keep.textContent = "Copy them now: we can't show them again.";
   return [heading, list, line, keep];
 }

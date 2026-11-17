@@ -264,6 +264,7 @@ class CheckoutStatus:
     paid: bool
     checks: int | None
     invites: list[str]
+    reissued: bool = False  # picked up in another browser: the pass this browser made no longer works
 
 
 async def checkout_status(
@@ -271,6 +272,9 @@ async def checkout_status(
 ) -> CheckoutStatus | None:
     """
     Whether a card checkout is paid, and its invite codes the first time they're asked for (then wiped).
+
+    Asked with the claim token once it is paid, the checkout counts as picked up by the browser that bought it
+    (``collected_at``): from then on it can't be reissued elsewhere (:func:`unfret.credits.fiat.reissue_pass`).
 
     :param db: The database pool.
     :param provider: The provider's name.
@@ -282,17 +286,21 @@ async def checkout_status(
     if hashed is None:
         return None
     row = await db.fetchrow(
-        "UPDATE fiat_checkouts c SET invite_codes = NULL FROM (SELECT provider, checkout_id, invite_codes "
+        "UPDATE fiat_checkouts c SET invite_codes = NULL, "
+        "collected_at = CASE WHEN c.paid_at IS NOT NULL THEN COALESCE(c.collected_at, NOW()) END "
+        "FROM (SELECT provider, checkout_id, invite_codes "
         "FROM fiat_checkouts WHERE provider = $1 AND checkout_id = $2 AND claim_hash = $3 FOR UPDATE) old "
         "WHERE c.provider = old.provider AND c.checkout_id = old.checkout_id "
-        "RETURNING c.paid_at IS NOT NULL AS paid, c.checks, old.invite_codes",
+        "RETURNING c.paid_at IS NOT NULL AS paid, c.checks, old.invite_codes, c.reissued_at IS NOT NULL AS reissued",
         provider,
         checkout_id,
         hashed,
     )
     if row is None:
         return None
-    return CheckoutStatus(bool(row["paid"]), row["checks"], list(row["invite_codes"] or []))
+    return CheckoutStatus(
+        bool(row["paid"]), row["checks"], list(row["invite_codes"] or []), reissued=bool(row["reissued"])
+    )
 
 
 @dataclass(frozen=True)

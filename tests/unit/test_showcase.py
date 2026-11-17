@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from evals import reports as labelling
-from unfret import showcase
+from unfret import shopper, showcase
 from unfret.routes.pages import STATIC_DIR
 from unfret.routes.showcase import render_case_page
 from unfret.showcase import cli
@@ -90,7 +90,7 @@ def test_the_public_view_never_says_scam_and_shows_no_score() -> None:
     assert "scam" not in text.lower() and "fraud" not in text.lower()
     assert "score" not in text and "explanation" not in text and "risk" not in text
     verdict = view["result"]["verdict"]
-    assert verdict["headline"].startswith("Many warning signs: ")  # the catalogue's headline for the band
+    assert verdict["headline"] == shopper.catalogue()["headlines"]["junk_or_scam"]  # the catalogue's for the band
     assert [r["title"] for r in verdict["reasons"]] == ["A brand-new shop", "Pushy sales talk"]
     assert verdict["reasons"][1]["detail"] == ""  # the quote is left out, the finding stays
     assert verdict["positives"] == [{"title": "A valid VAT number", "detail": "NL123"}]

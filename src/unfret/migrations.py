@@ -505,6 +505,17 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE fiat_payments ADD COLUMN currency TEXT NOT NULL DEFAULT 'usd' CHECK (currency ~ '^[a-z]{3}$');
         """,
     ),
+    (
+        22,
+        "card purchases picked up in another browser",
+        """
+        -- collected_at: the buying browser saw the payment (a status poll with the claim token after it was paid).
+        -- reissued_at: the buyer came back in another browser, without the pass, and got a fresh one for the
+        -- purchase (unfret.credits.fiat.reissue_pass); a checkout can be picked up only one of the two ways.
+        ALTER TABLE fiat_checkouts ADD COLUMN collected_at TIMESTAMPTZ;
+        ALTER TABLE fiat_checkouts ADD COLUMN reissued_at TIMESTAMPTZ;
+        """,
+    ),
 ]
 
 

@@ -9,20 +9,7 @@
   <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
-  <header class="site-header">
-    <div class="inner">
-      <a class="wordmark" href="/" aria-label="Unfret home">
-        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Unfret</span>
-      </a>
-      <nav class="site-nav" aria-label="Main">
-        <a class="optional" href="/check">Check a link</a>
-        <a href="/checkout">Buy checks</a>
-        <a class="optional" href="/connect">Sign in</a>
-        <a class="cta" href="/extension">Get Unfret</a>
-      </nav>
-    </div>
-  </header>
+  {{header}}
   <main>
     <h1>Privacy</h1>
     <p><em>Last updated: 16 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands).</p>
@@ -46,26 +33,32 @@
       fingerprints described below.</p>
     <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
-      your browser until you tap Check. The page keeps no history; only your sign-in or API key stays in your browser,
-      until you sign out.</p>
+      your browser until you tap Check. The page keeps no history; only your Unfret pass (or a wallet's sign-in) stays
+      in your browser, until you remove it on My checks.</p>
 
-    <p>When the checkout page shows you a new API key, it hands it to the Unfret extension in the same browser, if
-      you have it, so you don't have to paste it there: the key goes from the page to the extension only, in your
-      browser, and nowhere else. If the extension is signed in with another key or wallet, the page asks you first.
-      The extension reads nothing else from the page and tells it only whether it signed in.</p>
+    <p>Your <strong>Unfret pass</strong> is what holds your checks (developers know it as an API key). When the
+      checkout page or My checks gives you a pass, it can hand it to the Unfret extension in the same browser, so you
+      don't have to paste it there: the pass goes from the page to the extension only, in your browser, and nowhere
+      else. If the extension uses another pass or wallet, the page asks you first. The extension reads nothing else
+      from the page and tells it only whether it took the pass. <strong>Use on your phone</strong> on My checks shows
+      a QR code with a link to the link checker that carries your pass after a <code>#</code>, a part of a link
+      browsers never send to any server; the phone keeps the pass like a pasted one. The code is made on our server
+      and not kept.</p>
 
     <h2>What we keep</h2>
     <ul>
       <li><strong>Your wallet and its balance</strong>: the Solana address you signed in with and how many checks you
         have left. No name, e-mail or password.</li>
-      <li><strong>Or your API key and its balance</strong>: the key's public ID, its balance, and one-way hashes of the
-        key and its recovery code. We show you the key once and never store it, so keep the recovery code: we can't
-        recover the key for you.</li>
+      <li><strong>Or your Unfret pass and its balance</strong>: the pass's public ID, its balance, and one-way hashes of
+        the pass and its backup code. We never store either in readable form, so keep the backup code: we can't
+        recover the pass for you.</li>
       <li><strong>Card payments</strong>: <a href="https://polar.sh" rel="noopener">Polar</a> sells the pack to you as
         merchant of record. It collects your payment details, e-mail and country, charges VAT and sends the receipt,
-        under its own privacy policy. We tell Polar only the pack and the key's public ID. We keep the order number,
-        the amount and the key it topped up for 180 days, for refunds and questions; never your name, e-mail or
-        address.</li>
+        under its own privacy policy. We tell Polar only the pack and the pass's public ID. We keep the order number,
+        the amount and the pass it topped up for 180 days, for refunds and questions; never your name, e-mail or
+        address. If your bank app brings you back to another browser after paying, Polar's return link names the
+        payment, and that browser can collect your checks once, within a day, as a new pass (the one made where you
+        started then stops working); we note only that it happened, and when.</li>
       <li><strong>Invites</strong>: for each invite code that comes with a pack, a one-way hash, the day it was issued
         and the day it was used. Not who bought it, not who used it, no IP address:
         nothing links the buyer to the person they invited. The codes are shown once, on your payment confirmation,
@@ -73,7 +66,7 @@
         random claim token for them in your browser, for up to three days. An account that used an invite is marked
         as having used one, not which.</li>
       <li><strong>Not the pages you check.</strong> Page addresses and contents aren't stored and are never linked to
-        your wallet or key. A result stays in memory for up to an hour, so checking the same page again is free; a
+        your wallet or pass. A result stays in memory for up to an hour, so checking the same page again is free; a
         restart clears it. The only results we keep are ones you choose to share, without any link to you
         (below).</li>
       <li><strong>Price history</strong>: for product pages with a public product number (an Amazon ASIN, a bol.com
@@ -120,7 +113,7 @@
         preview. Anyone with the link then sees the verdict in our public wording (no score, no quotes from the page),
         the product's title, the shop, the product link (without tracking parameters) and the day of the check, for 90
         days; then it is deleted. Nothing about who shared it: the share is sent without your sign-in, and we keep no
-        wallet, key, IP address, time of day or view count with it. You get a delete code once (we keep only its hash)
+        wallet, pass, IP address, time of day or view count with it. You get a delete code once (we keep only its hash)
         to delete it sooner. Shared pages ask search engines not to list them.</li>
     </ul>
 
@@ -146,7 +139,7 @@
       page text and result are shared for review. Personal details are removed in your browser and again on our
       server: greetings with your name, delivery and e-mail addresses, phone numbers, bank and card numbers, and
       everything after the <code>?</code> in links. The checkout page is never kept.</p>
-    <p>Until it is reviewed, a report is linked to your wallet or key, only so a good report can earn free checks, and
+    <p>Until it is reviewed, a report is linked to your wallet or pass, only so a good report can earn free checks, and
       we count your reports per month (as a keyed hash). After review the report is deleted; the page and its label
       stay, without any link to you, as an example for improving the checks. Reports not reviewed within 30 days are
       deleted. If the result was right, we may check the same public page again ourselves and, after review, show that
@@ -175,32 +168,6 @@
       the extension stored. Questions: see the contact details at kroshtan.com.</p>
   </main>
 
-  <footer class="site-footer">
-    <div class="inner">
-      <div class="about">
-        <a class="wordmark" href="/" aria-label="Unfret home"><svg viewBox="0 0 128 128" width="26" height="26" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></a>
-        <p>Shop without the worry. Unfret reads a product page for you and tells you, in plain words, whether it all adds up.</p>
-      </div>
-      <div>
-        <h2>Use Unfret</h2>
-        <ul>
-          <li><a href="/extension">Get the extension</a></li>
-          <li><a href="/check">Check a link</a></li>
-          <li><a href="/checkout">Buy checks</a></li>
-          <li><a href="/connect">Sign in</a></li>
-        </ul>
-      </div>
-      <div>
-        <h2>About</h2>
-        <ul>
-          <li><a href="/privacy">Privacy</a></li>
-          <li><a href="/llms.txt">For AI agents</a></li>
-          <li><a href="/docs">API reference</a></li>
-          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a></li>
-        </ul>
-      </div>
-      <p class="made">Made in the Netherlands by <a href="https://kroshtan.com">Kroshtan</a>. Open source under the MIT licence.</p>
-    </div>
-  </footer>
+  {{footer}}
 </body>
 </html>

@@ -14,7 +14,6 @@ from unfret.routes.reports import router as reports_router
 from unfret.routes.session import router as session_router
 from unfret.routes.shares import pages as share_pages
 from unfret.routes.shares import router as shares_router
-from unfret.routes.showcase import router as showcase_router
 from unfret.routes.test_shop import router as test_shop_router
 
 router = APIRouter()
@@ -28,7 +27,6 @@ router.include_router(check_router)
 router.include_router(probes_router)
 router.include_router(pages_router)
 router.include_router(test_shop_router)
-router.include_router(showcase_router)
 router.include_router(shares_router)
 router.include_router(share_pages)
 router.include_router(extension_router)

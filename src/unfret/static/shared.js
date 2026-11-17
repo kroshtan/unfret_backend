@@ -1,5 +1,5 @@
 // A shared result's page (/r/{id}): the server puts the share's facts and verdict in the HTML and the result in a
-// data block; this renders the result like the link checker does (the showcase's renderer), and wires the shop
+// data block; this renders the result like the link checker does (check-render.js), and wires the shop
 // owner's objection and the sharer's delete. Nothing is stored in the browser.
 import { resultNodes } from "./check-render.js";
 

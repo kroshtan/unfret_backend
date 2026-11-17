@@ -362,7 +362,7 @@ valid 7 days. Nothing is stored when a check runs.
   `{"url": …}` and the server fetches the page again for the review queue.
 - Requests that send the page (the extension) are unchanged.
 
-## Changes (the "Spotted recently" showcase, backwards-compatible)
+## Changes (the "Spotted recently" showcase, backwards-compatible; retired, see the end)
 
 - `GET /v1/showcase?limit=<1-24, default 6>` (no auth) → `{"items": [{"id", "title", "host", "product_url",
   "checked_at", "checked_on", "published_at", "band", "label", "symbol", "headline", "page_url",
@@ -795,3 +795,10 @@ valid 7 days. Nothing is stored when a check runs.
   words in `label` and `result.verdict.label`, also for shares stored before ("Unfret would warn you about this
   listing" before); a stored headline that starts with a former label loses it. The share token and what is stored
   are unchanged. The public `band` stays `warning` for `junk_or_scam`.
+
+## Changes (the showcase is retired; migration 24)
+
+- `GET /v1/showcase`, `GET /v1/showcase/{id}`, the pages `/showcase/{id}` and `/showcase/{id}/screenshot` and the
+  operator's `/v1/admin/showcase…` endpoints are gone (404). Migration 24 drops `showcase_cases`. No client used them
+  but the site itself, whose home page shows cards about the tricks Unfret catches instead.
+- Shared results (`/v1/shares…`, `/r/{id}`) are unchanged: the same public wording, now in `unfret.public_result`.

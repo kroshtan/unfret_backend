@@ -1,5 +1,5 @@
-// How a result looks, shared by the link checker (/check), shared results (/r/{id}) and the showcase pages
-// (/showcase/{id}): the verdict band as a word and a sign, the headline, and the findings as cards.
+// How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the verdict band as a word
+// and a sign, the headline, and the findings as cards.
 import { ownThumbnails } from "./check-core.js";
 
 export function el(tag, className, text) {

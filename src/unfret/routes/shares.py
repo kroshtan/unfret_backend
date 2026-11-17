@@ -17,8 +17,7 @@ from pydantic import BaseModel, Field
 
 from unfret import shares
 from unfret.config import settings
-from unfret.routes.pages import PAGE_HEADERS
-from unfret.routes.showcase import fill_page
+from unfret.routes.pages import PAGE_HEADERS, fill_page
 from unfret.schemas.errors import (
     BadRequestError,
     CustomAPIError,
@@ -164,7 +163,7 @@ async def create_share(body: ShareRequest, request: Request) -> CreatedShare:
     Make a result public as a link: ``/r/<id>``, for 90 days. Send it without Authorization; it names no account.
 
     The token must match the url and the result exactly (a share can only show a verdict Unfret gave for that page)
-    and be under 7 days old. What is stored is what the preview shows: the verdict in the showcase's wording (no
+    and be under 7 days old. What is stored is what the preview shows: the verdict in public wording (no
     score, never "scam" or "fraud"), the product's title and link, the shop and the day of the check; no quotes from
     the page and nothing about who checked. A check that included checkout_content can't be shared. 20 shares per
     visitor network per day.
@@ -258,7 +257,7 @@ async def object_to_share(share_id: str, body: Objection, request: Request) -> d
 
 def render_share_page(view: dict[str, Any]) -> str:
     """
-    A shared result's page, in the link checker's presentation (the showcase's renderer).
+    A shared result's page, in the link checker's presentation (the same renderer).
 
     :param view: The share's :func:`~unfret.shares.public_view`.
     :return: The page.

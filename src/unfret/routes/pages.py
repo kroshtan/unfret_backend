@@ -11,8 +11,10 @@ Policy lets them load only their own scripts and talk only to this API.
 """
 
 import html
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -107,6 +109,31 @@ def template(name: str, current: str | None = None, cta: tuple[str, str] | None 
         header = _CTA_RE.sub(f'<a class="cta" href="{html.escape(href)}">{html.escape(text)}</a>', header, count=1)
     footer = (PARTIALS_DIR / "footer.html").read_text(encoding="utf-8")
     return page.replace("{{header}}", _indented(header, "  ")).replace("{{footer}}", _indented(footer, "  "))
+
+
+def _data_block(value: Any) -> str:
+    # JSON inside <script type="application/json">: nothing in it can close the element or start markup.
+    text = json.dumps(value, ensure_ascii=False, default=str)
+    return text.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+
+
+_PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
+
+
+def fill_page(name: str, fields: dict[str, Any], data: Any, markup: dict[str, str] | None = None) -> str:
+    """
+    A result page from its template, in one pass (so text from a page can't bring in a placeholder of its own).
+
+    :param name: The template's file name in the static directory.
+    :param fields: Text for ``{{name}}`` placeholders, HTML-escaped.
+    :param data: The result, for the ``{{data}}`` block (JSON, made safe inside a script element).
+    :param markup: Trusted HTML for other placeholders.
+    :return: The page.
+    """
+    values = {key: html.escape(str(value)) for key, value in fields.items()} | (markup or {})
+    values["data"] = _data_block(data)
+    page = versioned(template(name))
+    return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), page)
 
 
 router = APIRouter(include_in_schema=False)

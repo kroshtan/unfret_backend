@@ -1,12 +1,12 @@
 """
 The site's pages: home, sign-in, checkout, the link checker, accuracy, and the pages about Unfret.
 
-``/`` introduces Unfret, ``/welcome`` greets a new extension install, ``/connect`` signs in and hands the session to
-the extension, then ``/checkout`` (which hands a new API key to the extension), ``/affiliates`` (the program)
-and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``, ``/money``, ``/press``, ``/terms``, ``/privacy``
-and ``/objection`` (for shop owners) are in the footer. ``/check`` checks a
-link from any browser, phones first; with its web app manifest and service worker it can be installed and shows up in
-Android's share sheet.
+``/`` introduces Unfret (``/nl`` is its one Dutch counterpart), ``/welcome`` greets a new extension install,
+``/connect`` signs in and hands the session to the extension, then ``/checkout`` (which hands a new API key to the
+extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``,
+``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer. ``/check``
+checks a link from any browser, phones first; with its web app manifest and service worker it can be installed and
+shows up in Android's share sheet.
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -146,9 +146,44 @@ def home() -> HTMLResponse:
     """
     The home page: what Unfret is, for shoppers and for agents (also the homepage of the store listing).
 
+    The agents' section quotes the x402 prices from the same settings as ``/developers``, and the page names ``/nl``
+    as its Dutch counterpart.
+
     :return: The page.
     """
-    return _page("index.html", "/")
+    page = with_store_links(template("index.html", "/")).replace("{{hreflang}}", hreflang_links())
+    fields = developer_fields()
+    for name in ("base_url", "quick_price", "deep_price"):
+        page = page.replace("{{" + name + "}}", html.escape(fields[name]))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+def hreflang_links() -> str:
+    """
+    The home page and the Dutch landing page name each other as the same page in another language.
+
+    :return: ``<link rel="alternate">`` elements for English (also the default) and Dutch, with absolute addresses.
+    """
+    base = html.escape(settings.public_base_url.rstrip("/"))
+    return "\n  ".join(
+        f'<link rel="alternate" hreflang="{lang}" href="{base}{path}">'
+        for lang, path in (("en", "/"), ("nl", "/nl"), ("x-default", "/"))
+    )
+
+
+@router.get("/nl", response_class=HTMLResponse)
+def dutch() -> HTMLResponse:
+    """
+    The one Dutch page: check the seller before you pay, with Marktplaats as the example, and iDEAL | Wero.
+
+    Everything else is on the English pages it links to; the shared header and footer stay English, marked as such.
+
+    :return: The page.
+    """
+    page = template("nl.html").replace("{{hreflang}}", hreflang_links())
+    page = page.replace('<header class="site-header">', '<header class="site-header" lang="en">', 1)
+    page = page.replace('<footer class="site-footer">', '<footer class="site-footer" lang="en">', 1)
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 def with_store_links(template: str) -> str:
@@ -190,6 +225,24 @@ def connect() -> HTMLResponse:
     return _page("connect.html", "/connect")
 
 
+def developer_fields() -> dict[str, str]:
+    """
+    What the pages for developers and agents say about x402: the address, the network and each tier's price.
+
+    :return: Text for the ``{{base_url}}``, ``{{network_name}}``, ``{{quick_price}}``, ``{{deep_price}}``,
+        ``{{quick_includes}}`` and ``{{deep_includes}}`` placeholders (not yet HTML-escaped).
+    """
+    network = "Solana" if settings.solana_network == "solana-mainnet" else f"Solana {settings.solana_network[7:]}"
+    return {
+        "base_url": settings.public_base_url.rstrip("/"),
+        "network_name": network,
+        "quick_price": format_usd(settings.x402_price_quick_usd_micros),
+        "deep_price": format_usd(settings.x402_price_deep_usd_micros),
+        "quick_includes": tier_description("quick"),
+        "deep_includes": tier_description("deep"),
+    }
+
+
 @router.get("/developers", response_class=HTMLResponse)
 def developers() -> HTMLResponse:
     """
@@ -200,17 +253,8 @@ def developers() -> HTMLResponse:
 
     :return: The page.
     """
-    network = "Solana" if settings.solana_network == "solana-mainnet" else f"Solana {settings.solana_network[7:]}"
-    fields = {
-        "base_url": settings.public_base_url.rstrip("/"),
-        "network_name": network,
-        "quick_price": format_usd(settings.x402_price_quick_usd_micros),
-        "deep_price": format_usd(settings.x402_price_deep_usd_micros),
-        "quick_includes": tier_description("quick"),
-        "deep_includes": tier_description("deep"),
-    }
     page = template("developers.html", "/developers")
-    for name, value in fields.items():
+    for name, value in developer_fields().items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 

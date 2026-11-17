@@ -355,8 +355,9 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
     over the invites. Only once, only within :data:`REISSUE_WINDOW` of the payment, and only while the buying
     browser hasn't picked the purchase up itself (:func:`unfret.credits.invites.checkout_status`): an old link in a
     browser's history can't take over a pass that is in use. Never for a top-up: only a checkout whose key had no
-    credit when it was made (``new_pass``), and that has had none since but this purchase (no code redeemed on it,
-    no other card order), so a pass already in use elsewhere is never rotated.
+    credit when it was made (``new_pass``), and whose balance is still exactly this purchase (no code redeemed on
+    it, no other card order, no crypto top-up, grant or refund, nothing spent), so a pass already in use elsewhere is
+    never rotated.
 
     :param db: The database pool.
     :param provider: The provider's name.
@@ -368,8 +369,10 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
     async with db.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
             "SELECT c.account, c.checks, c.paid_at, c.collected_at, c.reissued_at, c.invite_codes, c.new_pass, "
-            "COALESCE(w.invite_redeemed, FALSE) AS invite_redeemed, "
-            "(SELECT COUNT(*) FROM fiat_payments p WHERE p.account = c.account) AS orders "
+            "COALESCE(w.invite_redeemed, FALSE) AS invite_redeemed, w.balance_usd_micros AS balance, "
+            "(SELECT COUNT(*) FROM fiat_payments p WHERE p.account = c.account) AS orders, "
+            "(SELECT SUM(p.credited_usd_micros - p.debited_usd_micros) FROM fiat_payments p "
+            "WHERE p.account = c.account) AS bought "
             "FROM fiat_checkouts c LEFT JOIN wallets w ON w.pubkey = c.account "
             "WHERE c.provider = $1 AND c.checkout_id = $2 FOR UPDATE OF c",
             provider,
@@ -379,7 +382,9 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
             raise ReissueError("unknown")
         if row["paid_at"] is None:
             raise ReissueError("not_paid")
-        if not row["new_pass"] or row["invite_redeemed"] or row["orders"] > 1:
+        # The pass must hold exactly this purchase: anything else on it (crypto, a grant, a refund) or already spent
+        # from it means it is in use somewhere, and rotating it would sign that device out (or hand its checks over).
+        if not row["new_pass"] or row["invite_redeemed"] or row["orders"] > 1 or row["balance"] != row["bought"]:
             raise ReissueError("topped_up")
         if row["collected_at"] is not None or row["reissued_at"] is not None:
             raise ReissueError("collected")

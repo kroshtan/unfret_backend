@@ -12,7 +12,7 @@ import pytest
 from tests.integration.conftest import DROP_ALL, FakeGraph
 from tests.unit import test_polar  # Polar's sample payloads
 from unfret.config import settings
-from unfret.credits import fiat, keys, polar
+from unfret.credits import fiat, keys, ledger, polar
 from unfret.credits.fiat import FakeFiatProvider, FiatEvent
 from unfret.credits.packs import EURO_AREA
 from unfret.credits.polar import PolarProvider
@@ -737,6 +737,25 @@ async def test_a_new_pass_that_got_checks_another_way_before_payment_is_not_reis
 
     assert (refused.status_code, refused.json()["error_code"]) == (409, "CHECKOUT_TOPPED_UP")
     assert await checks_left(client, issued.key) is not None  # still works
+
+
+@pytest.mark.parametrize("when", ["before_payment", "after_payment"])
+@pytest.mark.parametrize("how", ["crypto", "grant"])
+async def test_a_pass_that_got_checks_besides_this_purchase_is_not_reissued(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, when: str, how: str
+) -> None:
+    # Checks bought with crypto (or granted, or refunded) onto the pass while its card checkout was open, or after
+    # it was paid: the pass holds more than this purchase, so it is in use and never rotated from another browser.
+    issued, _, checkout_id = await paid_checkout(client, provider, pool, pay=when == "after_payment")
+    await ledger.credit(pool, issued.account, 5_000_000, purchase=how == "crypto")
+    if when == "before_payment":
+        paid = order("order.paid", "ord_after_crypto", checkout_id=checkout_id, total_amount=600)
+        assert (await send(client, provider, paid)).json() == {"status": "credited"}
+
+    refused = await client.post(f"/v1/credits/fiat-checkouts/{checkout_id}/pass")
+
+    assert (refused.status_code, refused.json()["error_code"]) == (409, "CHECKOUT_TOPPED_UP")
+    assert await checks_left(client, issued.key) == 50  # still works, with everything on it
 
 
 async def test_a_purchase_before_payment_or_unknown_or_too_old_gives_no_pass(

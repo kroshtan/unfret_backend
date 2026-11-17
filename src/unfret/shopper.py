@@ -181,6 +181,9 @@ class Reason(BaseModel):
     thumbnails: list[str] = Field(
         default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
     )
+    source: str | None = Field(
+        default=None, description='Where the evidence comes from, in words: "Domain registry (RDAP)", "The page", …'
+    )
 
 
 class Positive(BaseModel):
@@ -189,6 +192,49 @@ class Positive(BaseModel):
     type: str
     title: str
     detail: str
+    source: str | None = Field(default=None, description="Where the evidence comes from, in words.")
+
+
+CheckStatus = Literal["checked", "concern", "not_checked"]
+
+
+class CheckItem(BaseModel):
+    """One line of the result card's "What we checked": an area, and whether it was checked."""
+
+    key: str = Field(
+        description="who, product, reviews, prices, tricks (shops); seller, price, photos, payment, text "
+        "(ads); company, location, reviews, terms, photos (service providers)."
+    )
+    label: str = Field(description='The area in words: "Who\'s behind the shop", "Reviews", …')
+    status: CheckStatus = Field(
+        description="checked (nothing to note), concern (a reason above is about it) or not_checked (see note)."
+    )
+    note: str = Field(default="", description="Why it wasn't checked; empty otherwise.")
+
+
+class NextStep(BaseModel):
+    """The one thing the card suggests doing next."""
+
+    type: str = Field(description="What the step is about (the reason it follows from, or the band).")
+    text: str
+
+
+class SameProduct(BaseModel):
+    """The same product photo on another shop or listing (Unfret's image index): shown first, with both photos."""
+
+    title: str = Field(description='"Looks like the same product, sold elsewhere".')
+    detail: str = Field(description="Where, and for how much when Unfret has seen its price.")
+    where: str = Field(description='The other shop\'s domain, or "Amazon" for an Amazon listing.')
+    domain: str | None = Field(default=None, description="The other shop's registrable domain, when it is a shop.")
+    others: int = Field(default=0, ge=0, description="How many more shops show the same photo.")
+    price: float | None = Field(default=None, description="The other listing's price when Unfret has seen it.")
+    currency: str | None = Field(default=None, description="ISO 4217 code of price.")
+    price_text: str | None = Field(default=None, description='The price in words: "$12.99".')
+    price_seen_on: str | None = Field(default=None, description="The day Unfret saw that price (YYYY-MM-DD).")
+    image: str = Field(description="Thumbnail URL of the other listing's photo (this server's image proxy).")
+    own_image: str | None = Field(
+        default=None, description="Thumbnail URL of this page's own photo, when the index keeps it."
+    )
 
 
 class Verdict(BaseModel):
@@ -200,6 +246,16 @@ class Verdict(BaseModel):
     reasons: list[Reason] = Field(default_factory=list, max_length=3)
     positives: list[Positive] = Field(default_factory=list, max_length=3)
     language: str = Field(default=LANGUAGE, description="Always en (kept for clients that read it).")
+    checklist: list[CheckItem] = Field(
+        default_factory=list, description="What was checked, area by area (the result card's checklist)."
+    )
+    checks_run: int | None = Field(
+        default=None, ge=0, description="How many separate checks ran on this page and had something to check."
+    )
+    next_step: NextStep | None = Field(default=None, description="One suggested next step.")
+    same_product: SameProduct | None = Field(
+        default=None, description="A likely same product on another shop, shown first (with both photos)."
+    )
 
 
 @cache
@@ -759,6 +815,57 @@ def _positive(key: str, params: dict[str, str]) -> Positive:
     return Positive(type=key, title=copy["title"], detail=copy["detail"].format(**params))
 
 
+def _evidence(
+    features: dict[str, float], findings: list[Finding], facts: PageFacts, page_type: str, market: str
+) -> _Evidence:
+    by_type: dict[str, list[Finding]] = {}
+    for finding in findings:
+        by_type.setdefault(finding.type, []).append(finding)
+    return _Evidence(features, by_type, facts, page_type, market)
+
+
+def _fired(evidence: _Evidence) -> dict[str, dict[str, str]]:
+    fired: dict[str, dict[str, str]] = {}
+    rules_in_order = (
+        _pressure,
+        _reviews,
+        _product,
+        _supply,
+        _network,
+        _shop,
+        _claims,
+        _payment_and_market,
+        _product_facts,
+        _manipulation,
+    )
+    for rules in rules_in_order:
+        rules(evidence, fired)
+    for group in _GROUPS:
+        for key in [k for k in group if k in fired][1:]:
+            del fired[key]
+    return fired
+
+
+def fired_reasons(
+    *, features: dict[str, float], findings: list[Finding], facts: PageFacts, page_type: str, market: str = "eu"
+) -> list[str]:
+    """
+    Every reason that fired on a product page, strongest first, before the verdict keeps at most three.
+
+    The result card's checklist marks an area as a concern for any of them, not only the ones shown.
+
+    :param features: The skill features.
+    :param findings: The skill findings.
+    :param facts: The page facts.
+    :param page_type: The classified page type.
+    :param market: The shop's market.
+    :return: The reasons' keys.
+    """
+    fired = _fired(_evidence(features, findings, facts, page_type, market))
+    order = list(REASON_SEVERITY)
+    return sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
+
+
 def build(
     score: int,
     *,
@@ -801,33 +908,13 @@ def build(
     :param concrete_only: Never warn without a concrete reason, whatever the scorer's confidence.
     :return: The verdict.
     """
-    by_type: dict[str, list[Finding]] = {}
-    for finding in findings:
-        by_type.setdefault(finding.type, []).append(finding)
-    evidence = _Evidence(features, by_type, facts, page_type, market)
+    evidence = _evidence(features, findings, facts, page_type, market)
     band = band_for(score)
     sure = settings.verdict_serious_min_confidence_quick if concrete_only else settings.verdict_serious_min_confidence
     if band == "junk_or_scam" and confidence is not None and confidence < sure:
         band = "careful"  # "Serious concerns" only when the scorer is sure; otherwise "Think twice"
 
-    fired: dict[str, dict[str, str]] = {}
-    rules_in_order = (
-        _pressure,
-        _reviews,
-        _product,
-        _supply,
-        _network,
-        _shop,
-        _claims,
-        _payment_and_market,
-        _product_facts,
-        _manipulation,
-    )
-    for rules in rules_in_order:
-        rules(evidence, fired)
-    for group in _GROUPS:
-        for key in [k for k in group if k in fired][1:]:
-            del fired[key]
+    fired = _fired(evidence)
     unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
     not_enough = _QUICK_NOT_ENOUGH_ALONE if concrete_only else frozenset(ABSENCE_REASONS)
     if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= not_enough:

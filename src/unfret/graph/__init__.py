@@ -263,6 +263,28 @@ def _recording(
     return node
 
 
+def _carded(
+    judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]], available: list[Skill]
+) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """
+    Wrap a class's judge so that its verdict carries the result card (:func:`unfret.card.complete`).
+
+    :param judge: The judge node.
+    :param available: The skills this graph runs (the quick tier's are fewer than :data:`SKILLS`).
+    :return: The wrapped node.
+    """
+
+    from unfret import card  # noqa: PLC0415 - card reads the shopper catalogue, which imports this package
+
+    async def node(state: AnalysisState) -> dict[str, Any]:
+        update = await judge(state)
+        if update.get("verdict"):
+            update["verdict"] = card.complete(update["verdict"], state, available=available, applicable=SKILLS)
+        return update
+
+    return node
+
+
 # Triage runs after the cheap skills and once more after the first expensive round (the bounded re-triage).
 MAX_TRIAGE_ROUNDS = 2
 
@@ -384,16 +406,17 @@ def build_graph(
         Which skills run is the caller's choice.
     :return: A compiled LangGraph ``StateGraph``.
     """
+    products = [s for s in skills if s.page_types & PRODUCT_TYPES]
     product = _class_graph(
-        [s for s in skills if s.page_types & PRODUCT_TYPES],
-        _triage_node(skills),
-        _recording(make_judge_node(model_path, llm=llm)),
+        products, _triage_node(skills), _recording(_carded(make_judge_node(model_path, llm=llm), products))
     )
     judges = {"product": product}
     ads = [s for s in skills if s.page_types & PAGE_CLASSES["p2p"]]
-    judges["p2p"] = _class_graph(ads, p2p.make_triage(ads), p2p.make_judge())
+    judges["p2p"] = _class_graph(ads, p2p.make_triage(ads), _carded(p2p.make_judge(), ads))
     handled = [s for s in skills if s.page_types & PAGE_CLASSES["service"]]
-    judges["service"] = _class_graph(handled, _service_triage_node(handled), _recording(services.make_service_judge()))
+    judges["service"] = _class_graph(
+        handled, _service_triage_node(handled), _recording(_carded(services.make_service_judge(), handled))
+    )
 
     builder = StateGraph(AnalysisState)
     builder.add_node("preprocess", preprocess_node)

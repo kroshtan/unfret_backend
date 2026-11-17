@@ -173,6 +173,14 @@ class PriceStore(Protocol):
         :return: The history.
         """
 
+    async def latest(self, key: bytes) -> Observation | None:
+        """
+        The product's most recent observation (today's included), in whatever currency it was.
+
+        :param key: From :func:`product_key`.
+        :return: The observation, or ``None`` when the product was never seen (or not in the last 90 days).
+        """
+
     async def purge(self, before: date) -> None:
         """
         Delete observations from before a day.
@@ -214,6 +222,16 @@ class MemoryPriceStore:
             days=len({o.day for o in window}),
             lowest=min((o.price for o in window), default=None),
         )
+
+    async def latest(self, key: bytes) -> Observation | None:
+        """
+        The most recent observation.
+
+        :param key: The product key.
+        :return: It, or ``None``.
+        """
+        mine = [o for (k, _), o in self.rows.items() if k == key]
+        return max(mine, key=lambda o: o.day, default=None)
 
     async def purge(self, before: date) -> None:
         """
@@ -277,6 +295,23 @@ class PostgresPriceStore:
             lowest=float(row["lowest"]) if row["lowest"] is not None else None,
         )
 
+    async def latest(self, key: bytes) -> Observation | None:
+        """
+        The most recent observation.
+
+        :param key: The product key.
+        :return: It, or ``None``.
+        """
+        row: Any = await self.pool.fetchrow(
+            "SELECT day, price, currency, was_price FROM price_observations WHERE product_key = $1 "
+            "ORDER BY day DESC LIMIT 1",
+            key,
+        )
+        if row is None:
+            return None
+        was = row["was_price"]
+        return Observation(row["day"], float(row["price"]), row["currency"], float(was) if was is not None else None)
+
     async def purge(self, before: date) -> None:
         """
         Delete old observations.
@@ -337,3 +372,20 @@ async def observe(url: str, facts: PageFacts) -> tuple[bytes, History] | None:
         logger.warning("price_store_failed", error=type(exc).__name__)
         return None
     return key, history
+
+
+async def seen_price(key: bytes) -> Observation | None:
+    """
+    The last price Unfret saw for a listing (by its stored key), for "sold elsewhere for $X".
+
+    The image index keys a shop's listing the same way as this store (registrable domain and public product ID), so
+    a photo match on another shop can name that shop's price when Unfret has seen it. Never raises.
+
+    :param key: The listing's key.
+    :return: The latest observation, or ``None``.
+    """
+    try:
+        return await _store.latest(key)
+    except Exception as exc:  # noqa: BLE001 - optional
+        logger.warning("price_store_failed", error=type(exc).__name__)
+        return None

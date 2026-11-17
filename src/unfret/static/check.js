@@ -685,7 +685,7 @@ async function readStream(stream, onStep) {
   }
 }
 
-// ── "This is wrong" ──────────────────────────────────────────────────────────────────────────────────────
+// ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
 
 const REPORT_OUTCOME = {
   queued: "Thanks! We'll review this page. If we got it badly wrong, you get free checks.",

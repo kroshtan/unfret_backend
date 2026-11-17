@@ -1054,3 +1054,42 @@ Additive: x402 clients see the same requests, responses, headers and status code
   before.
 - CORS allows the `Mcp-Protocol-Version`, `Mcp-Session-Id`, `Mcp-Method`, `Mcp-Name` and `Last-Event-ID` request
   headers and exposes `Mcp-Session-Id` and `WWW-Authenticate`.
+
+## Changes (the result card; the same product sold elsewhere; backwards-compatible)
+
+`POST /v1/analyze`, the stream's `result` event (and so `/check`), and shared results add the **result card** to
+`verdict`. All fields are new and optional: a cached result, a share made earlier or an older server has none of them,
+and clients show what is there.
+
+- `reasons[].source` and `positives[].source` (string): where the evidence comes from, in words, e.g. "Domain registry
+  (RDAP)", "EU VAT register (VIES)", "Unfret's price history", "Unfret's image index", "The page", "The page's code",
+  "The shop's terms and legal pages", "All signals together (Unfret's model)". Show it under the finding ("Source: …").
+- `checklist`: `[{"key", "label", "status": "checked"|"concern"|"not_checked", "note"}]`, what was checked, area by
+  area: for shops (storefronts and marketplace listings) `who` "Who's behind the shop", `product` "The product and the
+  brand", `reviews` "Reviews", `prices` "Prices and discounts", `tricks` "Hidden tricks"; for ads `seller`, `price`,
+  `photos`, `payment`, `text`; for service providers `company`, `location`, `reviews`, `terms`, `photos`. `concern`
+  when a finding is about the area (also one beyond the three shown; `note` names the strongest), `not_checked` with
+  `note` saying why ("The page shows no reviews.", "Not part of a quick check.", "Couldn't be checked this time.",
+  "Doesn't apply to this page.", "Nothing on the page to check."). An area nothing looks at on such a page is left out.
+  New keys may be added; show `label`.
+- `checks_run` (int): how many separate checks ran on the page and had something to check. A clean result (`reliable`
+  without reasons) says so: "Nothing worrying in 14 checks."
+- `next_step`: `{"type", "text"}`, one suggested next step, from the strongest finding (`type` names it, e.g.
+  `shop_reviews`, `compare_price`, `check_basket`) or the band (`type` = the band, `ad_<band>` or `service_<band>`).
+- `same_product` (shops and marketplace listings only; `null` otherwise): the product photo is the same photo as on
+  another shop or listing in Unfret's image index. `{"title": "Looks like the same product, sold elsewhere[ for
+  $X]", "detail", "where": the other shop's domain, "Amazon", or "an Amazon catalogue listing (brand: …)", "domain":
+  the other shop's registrable domain or null, "others": how many more shops show it, "price", "currency",
+  "price_text", "price_seen_on": the other listing's price and the day Unfret saw it (only when Unfret's price
+  history has that listing: a shop's listing with a public product ID such as a GTIN, seen in the last 90 days;
+  otherwise absent), "image": the other photo's thumbnail (`/v1/images/{id}/thumbnail.jpg`), "own_image": this page's
+  photo's thumbnail (null when the index doesn't keep it, e.g. the test shop)}`. Show it **first**, with both photos.
+  Nothing else of the other listing, and nothing of the public catalogue seed but the brand it names, is in the
+  response. Load the photos only from the API's own `/v1/images/` (as reason thumbnails).
+- Shared results (`/v1/shares/preview`, `GET /v1/shares/{id}`, `/r/{id}`) carry the same fields, in public wording; a
+  `same_product` with a word a public result never uses is left out whole. A share token issued for a result without
+  them still matches it.
+- Clients: the card's links are "Wrong result?" (the report flow, `POST /v1/reports`, for a result with
+  `report_token`) and the shop owner's objection (`/objection`). `/r/{id}` links "Wrong result? Check the page again"
+  to `/check?url=…` and "Object to this result" to its own form.
+- x402 `POST /v1/check` and the MCP server are unchanged.

@@ -74,8 +74,49 @@ def _items(kind: str, entries: list[dict[str, Any]], notes: list[str]) -> list[d
         item: dict[str, Any] = {"title": title, "detail": detail or ""}
         if kind == "reason":
             item |= {"severity": entry.get("severity", "low"), "thumbnails": list(entry.get("thumbnails", []))}
+        if source := _clean(entry.get("source")):
+            item["source"] = source  # only when the result has one, so older results hash as before
         out.append(item)
     return out
+
+
+_SAME_PRODUCT_TEXT = ("title", "detail", "where", "domain", "price_text")
+_SAME_PRODUCT_KEPT = ("others", "price", "currency", "price_seen_on", "image", "own_image")
+
+
+def _card(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+    """
+    The result card's fields of a verdict, in public wording; only those the verdict has (older results have none).
+
+    The checklist, the number of checks and the next step come from the catalogue. The same product elsewhere names
+    another shop's domain, its price and the two thumbnails; it is left out whole when any of its words is one a
+    public result never uses.
+    """
+    card: dict[str, Any] = {}
+    checklist = [
+        {
+            "key": str(i.get("key", "")),
+            "label": label,
+            "status": i.get("status", "checked"),
+            "note": _clean(i.get("note")) or "",
+        }
+        for i in verdict.get("checklist") or []
+        if (label := _clean(i.get("label")))
+    ]
+    if checklist:
+        card["checklist"] = checklist
+    if isinstance(verdict.get("checks_run"), int):
+        card["checks_run"] = verdict["checks_run"]
+    step = verdict.get("next_step") or {}
+    if text := _clean(step.get("text")):
+        card["next_step"] = {"type": str(step.get("type", "")), "text": text}
+    same = verdict.get("same_product") or {}
+    if same:
+        if any(_clean(same.get(k)) is None for k in _SAME_PRODUCT_TEXT):
+            notes.append("same product")
+        else:
+            card["same_product"] = {k: same.get(k) for k in (*_SAME_PRODUCT_TEXT, *_SAME_PRODUCT_KEPT)}
+    return card
 
 
 def _flags(flags: list[dict[str, Any]], notes: list[str]) -> list[dict[str, Any]]:
@@ -125,6 +166,7 @@ def public_result(response: dict[str, Any], left_out: list[str] | None = None) -
             "headline": headline,
             "reasons": _items("reason", verdict.get("reasons") or [], notes),
             "positives": _items("positive", verdict.get("positives") or [], notes),
+            **_card(verdict, notes),
         },
     }
     if flags:

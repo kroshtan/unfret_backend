@@ -141,18 +141,6 @@ async def give_back(db: Executor, spent: Spent) -> None:
     await db.execute("UPDATE api_keys SET free_checks = free_checks + 1 WHERE id = $1", spent.key_id)
 
 
-async def grant(db: Executor, key_id: str, checks: int) -> None:
-    """
-    Put free deep checks on a new pass.
-
-    :param db: A pool or connection.
-    :param key_id: The pass's id.
-    :param checks: How many.
-    """
-    if checks > 0:
-        await db.execute("UPDATE api_keys SET free_checks = free_checks + $2 WHERE id = $1", key_id, checks)
-
-
 async def left(db: Executor, key_id: str) -> int:
     """
     A pass's free deep checks left.

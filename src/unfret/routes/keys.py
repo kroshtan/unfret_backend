@@ -122,12 +122,11 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
         raise BadRequestError("Challenge invalid, expired or unsolved; get a new one.", error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
-    issued = await keys.create(request.app.db_pool)
     # Free checks only within this network's share of free passes today; past it, the pass is simply made empty.
     given = 0
     if body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
-        await free.grant(request.app.db_pool, issued.key_id, given)
+    issued = await keys.create(request.app.db_pool, free_checks=given)
     logger.info("api_key_created", free_checks=given)
     return KeyResponse(
         key_id=issued.key_id,

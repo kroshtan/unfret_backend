@@ -117,22 +117,27 @@ def _secrets_for(key_id: str) -> tuple[str, str]:
     return f"{KEY_PREFIX}{key_id}_{_b32(32)}", f"{RECOVERY_PREFIX}{key_id}_{_b32(32)}"
 
 
-async def create(db: Executor) -> IssuedKey:
+async def create(db: Executor, *, free_checks: int = 0) -> IssuedKey:
     """
-    Create an empty key (balance 0).
+    Create a key with balance 0.
+
+    The one place a new pass is made (``POST /v1/keys``, for the extension's install, the link checker and the
+    checkout alike).
 
     :param db: A pool or connection.
+    :param free_checks: Free deep checks it comes with (:mod:`unfret.credits.free`).
     :return: The key and recovery code (not stored anywhere in plain).
     """
     while True:
         key_id = _b32(8)[:_ID_LEN]
         key, recovery = _secrets_for(key_id)
         inserted = await db.fetchval(
-            "INSERT INTO api_keys (id, key_hash, recovery_hash) VALUES ($1, $2, $3) "
+            "INSERT INTO api_keys (id, key_hash, recovery_hash, free_checks) VALUES ($1, $2, $3, $4) "
             "ON CONFLICT (id) DO NOTHING RETURNING TRUE",
             key_id,
             _hash(key),
             _hash(recovery),
+            max(free_checks, 0),
         )
         if inserted:
             return IssuedKey(key_id, key, recovery)

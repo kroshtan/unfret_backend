@@ -100,6 +100,13 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     rates_age = (datetime.now(UTC).date() - vat.rates_checked_on()).days
     if rates_age > 45:  # `make vat-rates-check` compares the vendored table with the EU's TEDB
         logger.warning("vat_rates_stale", checked_days_ago=rates_age)
+    # A configured scorer (UNFRET_MODEL_PATH, UNFRET_MODEL_QUICK_PATH) that can't be loaded stops the start here.
+    scorers = scoring.check_models({f"{s.name}.{f}" for s in SKILLS for f in s.features})
+    logger.info(
+        "scorer_loaded",
+        **scorers,
+        source="configured" if settings.model_path or settings.model_quick_path else "baseline",
+    )
     api.graph = build_graph(SKILLS)
     api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
     api.db_pool = await create_pool()

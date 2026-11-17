@@ -14,9 +14,8 @@ measure too:
 - **C**: B without the feature columns that mirror the rule features, an estimate of how much the score leans on
   re-learning the rules.
 
-``--quick`` trains on the quick tier's skills only and ships ``model-quick.json``. Needed only once the full model
-uses features the quick tier doesn't compute (e.g. network lookups); until then the quick tier falls back to the
-full model, which ``tests/unit/test_x402_verdict.py`` checks.
+``--quick`` trains on the quick tier's skills only (a server runs it with ``UNFRET_MODEL_QUICK_PATH``): the full
+model uses features the quick tier doesn't compute (e.g. network lookups).
 
 Each is a standardised logistic regression with its L2 regularisation chosen by cross-validation on TRAIN (the
 balanced log loss of the held-out folds), calibrated with isotonic regression on cross-validated TRAIN predictions,
@@ -28,8 +27,10 @@ label, how well the features tell the corpus sources apart, and how the scorer d
 both legit and scam pages. The calibration reweights
 the classes to a base rate of ``--prior`` (default 0.5): the corpus share of unreliable pages says how the corpus was
 collected, not how likely a page is to be unreliable, and left in it tilts every page towards "unreliable". A
-gradient-boosted model is reported for comparison only. The shipped artifact goes to
-``src/unfret/scoring/model.json``; the report to ``<corpus>/reports/scorer-<stamp>.md``.
+gradient-boosted model is reported for comparison only. The shipped variant goes to the private model store,
+``<store>/<version>/model.json`` with its ``RELEASE.md`` (:mod:`evals.release`; ``<corpus>/models`` by default), never
+into ``src/``: the scorer in the repository is the open baseline. The report goes to
+``<corpus>/reports/scorer-<stamp>.md``.
 """
 
 import argparse
@@ -49,12 +50,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
+from evals import release
 from evals.corpus import Corpus, LabelRecord, dump_json, is_product
 from evals.metrics import Outcome, binary_metrics, roc_auc, score_distributions
 from unfret.graph import SKILLS
 from unfret.scoring import (
-    MODEL_PATH,
-    MODEL_QUICK_PATH,
     Model,
     neutral_features,
     not_applicable_skills,
@@ -548,16 +548,19 @@ def top_coefficients(model: Model, n: int = 12) -> list[tuple[str, float]]:
     return [(name, round(c, 3)) for name, c in pairs[:n]]
 
 
-def write_artifact(model: Model, path: Path, *, features_file: str, train_n: int, prior: float, test: Dataset) -> None:
+def write_artifact(
+    model: Model, path: Path, *, features_file: str, train_n: int, prior: float, test: Dataset, corpus_root: Path
+) -> None:
     """
     Write a model's JSON artifact (what :func:`unfret.scoring.load_model` reads), with its provenance and TEST metrics.
 
     :param model: The model.
-    :param path: Where to write it (``model.json`` or ``model-quick.json``).
+    :param path: Where to write it (:func:`evals.release.artifact_path`, outside the repository).
     :param features_file: The features file it was trained on.
     :param train_n: Its number of training pages.
     :param prior: The base rate its calibration assumes.
     :param test: The TEST split, in the model's feature columns.
+    :param corpus_root: The corpus it was trained on (its commit is the data snapshot).
     """
     metrics = evaluate(model, test, model.features)
     artifact = {
@@ -568,10 +571,16 @@ def write_artifact(model: Model, path: Path, *, features_file: str, train_n: int
         "coefficients": model.coefficients,
         "intercept": model.intercept,
         "calibration": model.calibration,
-        "trained_on": {"features_file": features_file, "train_n": train_n, "prior": prior},
+        "trained_on": {
+            "features_file": features_file,
+            "train_n": train_n,
+            "prior": prior,
+            **release.snapshot(corpus_root),
+        },
         "test": {k: metrics[k] for k in ("roc_auc", "brier", "thresholds")},
     }
     path.write_text(json.dumps(artifact, indent=1) + "\n")
+    release.write_note(path.parent)
 
 
 def leakage_lines(leakage: dict[str, Any]) -> list[str]:
@@ -632,7 +641,7 @@ def to_markdown(report: dict[str, Any]) -> str:
             f"GBM AUC {variant['gbm_auc']}; top coefficients {variant['top']}"
         )
     lines += ["", "## Source-prediction leakage test (storefronts)", "", *leakage_lines(report.get("leakage", {}))]
-    lines += ["", f"Shipped: {report['shipped']}"]
+    lines += ["", f"Shipped: {report['shipped']}" + (f" (`{report['artifact']}`)" if report.get("artifact") else "")]
     return "\n".join(lines) + "\n"
 
 
@@ -643,7 +652,7 @@ def main() -> None:
     parser.add_argument("--ship", choices=["A", "B", "C", "none"], default="B")
     parser.add_argument("--prior", type=float, default=0.5, help="base rate of unreliable pages to calibrate to")
     parser.add_argument(
-        "--quick", action="store_true", help="train on the quick tier's skills only; ship model-quick.json"
+        "--quick", action="store_true", help="train on the quick tier's skills only (UNFRET_MODEL_QUICK_PATH)"
     )
     args = parser.parse_args()
 
@@ -692,14 +701,17 @@ def main() -> None:
     report["shipped"] = "none" if args.ship == "none" else models[args.ship].version
 
     if args.ship != "none":
+        out = release.artifact_path(models[args.ship].version)
         write_artifact(
             models[args.ship],
-            MODEL_QUICK_PATH if args.quick else MODEL_PATH,
+            out,
             features_file=path.name,
             train_n=report["variants"][args.ship]["train_n"],
             prior=args.prior,
             test=build(test_records, features, models[args.ship].features),
+            corpus_root=corpus.root,
         )
+        report["artifact"] = str(out)
     dump_json(reports / f"scorer-{tag}{stamp}.json", report)
     markdown = to_markdown(report)
     (reports / f"scorer-{tag}{stamp}.md").write_text(markdown)

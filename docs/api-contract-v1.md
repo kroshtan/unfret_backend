@@ -1006,3 +1006,10 @@ client are unchanged.
   code stays unused, for this account next month or for someone else now. Show the `detail` as it is. The server keeps
   only the month of the account's latest gift code (`wallets.gift_month`, migration 28), never which code.
 - `/checkout?checks=50` (an old link) selects the nearest pack on sale (25) and says the 50-pack isn't sold any more.
+
+## Changes (the scorers in health, backwards-compatible)
+
+- `GET /v1/health` and `GET /v1/health/ready` add `model_version` (the scorer analyses and deep checks run) and
+  `quick_model_version` (the x402 quick tier's), the same strings as `assessment.model_version` and the x402
+  verdict's `model_version`, or `null` without a scorer. A server runs the open baseline in the repository unless its
+  operator configured another (`UNFRET_MODEL_PATH`, `UNFRET_MODEL_QUICK_PATH`).

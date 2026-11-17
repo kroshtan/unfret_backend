@@ -12,7 +12,8 @@ from :func:`unfret.market.shop_market` on its facts and original URL.
 
 It reports the shipped model on TEST with the old and the new features, split by market, and a retrained candidate
 (variant C, as shipped: no rule-only labels, no rule-mirroring columns). ``--ship`` writes the candidate to
-``model.json`` only when it improves the overall AUC and Brier without lowering EU AUC; otherwise it says why not.
+the private model store (:mod:`evals.release`, never into ``src/``) only when it improves the overall AUC and Brier
+without lowering EU AUC; otherwise it says why not.
 The merged features go to ``<corpus>/reports/<stamp>-us-features.jsonl``, the report next to it.
 """
 
@@ -24,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from evals import release
 from evals.corpus import Corpus, LabelRecord, dump_json, is_product
 from evals.train import RULE_MIRRORS, build, evaluate, feature_names, fit, load_features
 from unfret.facts import parse_page
@@ -159,11 +161,18 @@ async def main_async(args: argparse.Namespace) -> None:
             "coefficients": candidate.coefficients,
             "intercept": candidate.intercept,
             "calibration": candidate.calibration,
-            "trained_on": {"features_file": out_features.name, "train_n": len(train.records)},
+            "trained_on": {
+                "features_file": out_features.name,
+                "train_n": len(train.records),
+                **release.snapshot(corpus.root),
+            },
             "test": {k: test_metrics[k] for k in ("roc_auc", "brier", "thresholds")},
         }
-        MODEL_PATH.write_text(json.dumps(artifact, indent=1) + "\n")
+        out = release.artifact_path(candidate.version)
+        out.write_text(json.dumps(artifact, indent=1) + "\n")
+        release.write_note(out.parent)
         report["shipped"] = candidate.version
+        report["artifact"] = str(out)
     dump_json(reports / f"us-market-{stamp}.json", report)
     print(json.dumps(report, indent=1))  # noqa: T201 - command-line report
 

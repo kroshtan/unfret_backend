@@ -83,17 +83,26 @@ jobs:
           UNFRET_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
           UNFRET_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
           UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
+          # Read-only access to the private model store (README, "The model"); unset: the open baseline scorer.
+          MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
         run: |
           set -euo pipefail
           [[ -n "$UNFRET_LLM_API_KEY" ]] || { echo "::error::repo secret LLM_API_KEY is not set"; exit 1; }
           [[ -n "$POSTGRES_PASSWORD" ]] || { echo "::error::repo secret DEV_POSTGRES_PASSWORD is not set"; exit 1; }
+          # The scorer: the model store's current release, or the baseline (fetched before anything changes).
+          scorer="$RUNNER_TEMP/scorer"
+          scripts/private-model.sh fetch "$scorer"
           # Build and push first: a failed build then leaves the running service alone.
           kamal build push -d dev
           # `details` echoes its docker ps command (which names the container), so match a running row instead.
           if ! kamal accessory details db -d dev 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d dev
           fi
+          scripts/private-model.sh install dev "$scorer"
+          while read -r line; do export "$line"; done < <(scripts/private-model.sh env "$scorer")
           kamal deploy -d dev --skip-push
+          # The production deploy runs the release dev runs, so dev must report exactly these versions.
+          scripts/private-model.sh verify https://dev.unfret.net "$scorer"
       - name: Discard the deploy key
         if: always()
         run: rm -f ~/.ssh/id_ed25519

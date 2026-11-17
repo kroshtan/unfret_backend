@@ -48,9 +48,32 @@ market, the limits and the model's history are on [unfret.net/accuracy](https://
 ## The model
 
 The scoring model in this repository ([`src/unfret/scoring/`](src/unfret/scoring/), a logistic regression over the
-skills' features) is an **open baseline**: it is what a self-hosted Unfret uses. The service at unfret.net runs
-privately retrained versions of it. The labelled corpus and the duplicate-product image dataset (the photo index's
-seed) are private, so the baseline can be inspected and run but not retrained from this repository alone.
+skills' features) is an **open baseline** (`v1-20261109-222323-C`, and `v1-quick-20261109-222308-C` for the x402
+quick tier, as of v0.12.0). The service at unfret.net runs privately retrained versions of it. The labelled corpus
+and the duplicate-product image dataset (the photo index's seed) are private, so the baseline can be inspected and
+run but not retrained from this repository alone. `/v1/health` names the scorers a server runs (`model_version`,
+`quick_model_version`).
+
+**Self-hosting uses the open baseline model.** It is in the image; nothing to configure.
+
+**Bring your own scorer.** The training code is here (`evals/train.py`), so you can train on a corpus of your own
+(`UNFRET_CORPUS_DIR`, in the layout `evals/corpus.py` reads) and run the result:
+
+```bash
+make train TRAIN_ARGS="--ship C"            # → $UNFRET_CORPUS_DIR/models/<version>/model.json and RELEASE.md
+make train TRAIN_ARGS="--ship C --quick"    # the quick tier's own scorer (optional)
+UNFRET_MODEL_PATH=…/models/<version>/model.json make accuracy   # replay your corpus with it (→ accuracy.json there)
+```
+
+Then point the server at the files: `UNFRET_MODEL_PATH` for analyses and deep checks, `UNFRET_MODEL_QUICK_PATH` for
+the quick tier (in Docker, mount them read-only, e.g. `-v /srv/scorer:/app/private-model:ro` and
+`UNFRET_MODEL_PATH=/app/private-model/model.json`). Either left empty runs the baseline; without a quick scorer of
+its own the quick tier keeps the baseline's. A path that is set but missing, unreadable or made for features no
+skill produces stops the server at start-up instead of letting it score with something else. Retrained models go to
+the model store (`UNFRET_MODELS_DIR`, default `<corpus>/models`), never into `src/`: a pre-commit hook
+(`scripts/check_scorer_baseline.py`, also run by CI) refuses a changed baseline or any other scorer artifact in the
+repository. The `/accuracy` page and `static/accuracy.json` keep the baseline's numbers and say so when the server
+runs another scorer.
 
 ## Run your own
 
@@ -279,7 +302,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
 | `GET` `DELETE` | `/v1/shares/{id}` | A shared result; delete it with `X-Delete-Code` |
 | `POST` | `/v1/shares/{id}/object` | A shop owner's objection: hides the shared result until reviewed |
-| `GET` | `/v1/health` | Liveness probe |
+| `GET` | `/v1/health` | Liveness probe (version, commit, and the scorers' `model_version` / `quick_model_version`) |
 | `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
 | `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
 | `GET` | `/llms.txt` \| `/.well-known/x402` | Machine-readable description of `/v1/check`, its tiers and prices |
@@ -681,6 +704,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
+| `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH` | — (the open baseline) | A scorer of your own for analyses and deep checks / for the x402 quick tier; see [The model](#the-model) |
 | `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `UNFRET_SKILL_TIMEOUT_S` / `UNFRET_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `UNFRET_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
@@ -728,6 +752,7 @@ make audit             # pip-audit over the locked dependencies
 make vat-rates-check   # vendored EU VAT rates and Cloudflare ranges vs their sources (CI runs it monthly)
 make safety-gate       # add the EU Safety Gate's new weekly reports to the vendored index (safety-gate-check: CI, monthly)
 make run               # uvicorn with auto-reload
+make train             # retrain the scorer into the model store outside the repository (see The model)
 ```
 
 Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection, x402
@@ -772,6 +797,16 @@ wallet and session secret:
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).
 
+**The scorer** never goes into the image, which is built from this public repository. Both deploys run
+`scripts/private-model.sh`: with the `MODEL_READ_TOKEN` repo secret (read-only access to the private model store),
+they fetch the store's current release, copy it to the server (`/home/kamal/unfret-model/<destination>`, swapped in
+whole) and mount it read-only at `/app/private-model`, setting `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH`;
+without the secret, or when the store names no release, the baseline in the image runs. After the deploy they wait
+for `/v1/health` to report the expected `model_version` and `quick_model_version`. The production deploy also
+refuses unless dev, which just passed the sweep, runs exactly the release it fetched; a new scorer therefore reaches
+production by deploying dev again (*Actions → CI → Run workflow* on `main`), testing it, then running the production
+deploy.
+
 **Changing a cold address** (`DEV_COLD_ADDRESS`, `PROD_COLD_ADDRESS`): in the same change, add the old address and the
 moment sweeps to it stopped to that destination's `config/deploy.<destination>.yml`, under `env.clear`
 (`UNFRET_FORMER_COLD_ADDRESSES`, `UNFRET_FORMER_COLD_UNTIL`; see [the x402 section](#pay-per-check-for-agents-x402)).
@@ -791,6 +826,8 @@ The production workflow refuses unless:
 - dev reports that very commit (`/v1/health` → `commit`; the workflow waits up to 10 minutes for it) and passes the
   [end-to-end sweep](#end-to-end-sweep) against it;
 - every production secret is set, and the RPC URL isn't a test network.
+
+- dev runs the scorer the private model store names now (see "The scorer" above).
 
 Nothing is tagged or deployed when the sweep fails.
 
@@ -855,7 +892,7 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 ## Limitations and responsible use
 
 - Scores come from a logistic regression over skill features (see [The model](#the-model); trained with
-  `python -m evals.train`). They are a calibrated signal, not a verdict, and can be wrong in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
+  `make train`). They are a calibrated signal, not a verdict, and can be wrong in both directions. Part of the training data is synthetic (marketplace pages rendered from public review data),
   so marketplace accuracy on real pages is likely lower than measured.
 - Page content is passed to the LLM, so a hostile page can attempt prompt injection to influence its own score. It is
   delimited as untrusted data, and attempts to address the model are detected and count against the page.

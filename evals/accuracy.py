@@ -15,6 +15,10 @@ per-verdict counts and shares, and the scorer's version. Never a URL, a shop's o
 other corpus record; :func:`check_aggregates_only` refuses to write a summary that holds anything that looks like
 one. A page whose recorded LLM responses are missing from the cache fails the replay and is counted as such, so the
 page can say what couldn't be measured rather than hide it.
+
+It measures the scorer the server would run: with ``UNFRET_MODEL_PATH`` set to a retrained (private) scorer, the
+summary goes next to it by default (``<store>/<version>/accuracy.json``, see :mod:`evals.release`) and its
+``RELEASE.md`` is updated with the numbers; the page's ``static/accuracy.json`` stays the open baseline's.
 """
 
 import argparse
@@ -30,6 +34,7 @@ from typing import Any
 
 import structlog
 
+from evals import release
 from evals.corpus import PRODUCT_CLASS, UNRELIABLE, Corpus, LabelRecord, page_class
 from evals.metrics import BANDS, Outcome, roc_auc
 from evals.run import DEFAULT_EXCLUDED, configure, evaluate
@@ -37,7 +42,7 @@ from unfret.config import settings
 from unfret.facts import parse_page
 from unfret.graph import SKILLS
 from unfret.market import shop_market
-from unfret.scoring import load_model
+from unfret.scoring import MODEL_PATH, configured_path, load_model
 
 logger = structlog.get_logger("unfret.evals")
 
@@ -433,7 +438,10 @@ def main() -> None:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--reuse", metavar="STAMP", help="summarise an earlier replay's outcomes instead of replaying")
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    # A retrained scorer's numbers go next to it, not into the repository's page.
+    configured = configured_path(MODEL_PATH)
+    default_out = configured.parent / release.ACCURACY if configured != MODEL_PATH else DEFAULT_OUT
+    parser.add_argument("--out", type=Path, default=default_out)
     parser.add_argument("--concurrency", type=int, default=8)
     args = parser.parse_args()
 
@@ -465,6 +473,8 @@ def main() -> None:
     markets = asyncio.run(_markets(corpus, list(records.values())))
     summary = summarise(on, off, records, markets, unlabelled)
     args.out.write_text(json.dumps(summary, indent=2) + "\n")
+    if (args.out.parent / release.ARTIFACT).exists() and args.out.name == release.ACCURACY:
+        release.write_note(args.out.parent)  # a private release: its note gets the replay's numbers
     print(json.dumps(summary, indent=2))  # noqa: T201 - command-line report
 
 

@@ -7,6 +7,7 @@ from unfret.config import settings
 from unfret.routes.check import get_x402, get_x402_base
 from unfret.schemas.errors import ServiceUnavailableError
 from unfret.schemas.responses import Healthy
+from unfret.scoring import running_versions
 
 logger = structlog.get_logger("unfret")
 
@@ -27,9 +28,9 @@ def health() -> Healthy:
     """
     Liveness probe. Always returns 200 while the process is serving requests.
 
-    :return: Healthy response with the running version and the commit it was built from.
+    :return: Healthy response with the running version, the commit it was built from and the scorers' versions.
     """
-    return Healthy(status="healthy", version=__version__, commit=build_commit())
+    return Healthy(status="healthy", version=__version__, commit=build_commit(), **running_versions())
 
 
 @router.get("/ready", response_model=Healthy)
@@ -64,6 +65,7 @@ async def ready(request: Request) -> Healthy:
         status="ready",
         version=__version__,
         commit=build_commit(),
+        **running_versions(),
         x402=x402.status,
         x402_alert_count=len(x402.alerts),
         x402_base=base.status,

@@ -135,6 +135,23 @@ jobs:
           fi
           uv sync --frozen
           uv run pytest -m e2e tests/e2e -x --no-cov -p no:cacheprovider -v
+      - name: Fetch the scorer dev runs
+        id: scorer
+        # Retrained scorers come from the private model store, never from the image. Production runs the store's
+        # current release only when dev, which just passed the sweep, runs exactly that release too.
+        env:
+          MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! -x scripts/private-model.sh ]]; then
+            echo "::warning::this release predates private scorers (v0.12 or older): it runs the baseline in its image"
+            echo "managed=false" >> "$FORGEJO_OUTPUT"
+            exit 0
+          fi
+          echo "managed=true" >> "$FORGEJO_OUTPUT"
+          scripts/private-model.sh fetch "$RUNNER_TEMP/scorer"
+          scripts/private-model.sh verify https://dev.unfret.net "$RUNNER_TEMP/scorer" \
+            || { echo "::error::dev runs another scorer than the model store's current release: deploy dev again (Actions → CI → Run workflow on main) and test it"; exit 1; }
       - name: Tag the release
         if: steps.release.outputs.new_tag != ''
         env:
@@ -153,6 +170,7 @@ jobs:
         # production never starts with a feature silently off or pointing at the wrong network.
         env:
           SHA: ${{ steps.release.outputs.sha }}
+          SCORER_MANAGED: ${{ steps.scorer.outputs.managed }}
           UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
           UNFRET_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
@@ -185,8 +203,15 @@ jobs:
           if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d production
           fi
+          if [[ "$SCORER_MANAGED" == true ]]; then
+            scripts/private-model.sh install production "$RUNNER_TEMP/scorer"
+            while read -r line; do export "$line"; done < <(scripts/private-model.sh env "$RUNNER_TEMP/scorer")
+          fi
           # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
           kamal deploy -d production --skip-push --version "$SHA"
+          if [[ "$SCORER_MANAGED" == true ]]; then
+            scripts/private-model.sh verify https://unfret.net "$RUNNER_TEMP/scorer"
+          fi
       - name: Discard the deploy key
         if: always()
         run: rm -f ~/.ssh/id_ed25519

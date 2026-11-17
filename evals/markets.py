@@ -21,10 +21,11 @@ warnings.
 
 ``--train`` fits candidates on the merged features (variant C, as shipped: no rule-only labels, no rule-mirroring
 columns; calibrated to a base rate of ``--prior``) and reports them next to the shipped models; ``--ship`` writes a
-candidate's artifact. The merged features go to ``<corpus>/reports/<stamp>-markets-features.jsonl`` (pages from the
-run only, usable with ``evals.train``) and ``<stamp>-markets-quick-features.jsonl`` (every page, complete for the
-quick model only), the report to ``markets-<stamp>.json`` and ``.md``. Groups: every market, and the EU split into
-``eu_archived`` (the pages the corpus had) and ``eu_live`` (fetched live by :mod:`evals.sources.eu_shops`).
+candidate's artifact to the private model store (:mod:`evals.release`), never into ``src/``. The merged features go to
+``<corpus>/reports/<stamp>-markets-features.jsonl`` (pages from the run only, usable with ``evals.train``) and
+``<stamp>-markets-quick-features.jsonl`` (every page, complete for the quick model only), the report to
+``markets-<stamp>.json`` and ``.md``. Groups: every market, and the EU split into ``eu_archived`` (the pages the corpus
+had) and ``eu_live`` (fetched live by :mod:`evals.sources.eu_shops`).
 """
 
 import argparse
@@ -39,6 +40,7 @@ from typing import Any
 
 from sklearn.metrics import brier_score_loss
 
+from evals import release
 from evals.corpus import UNRELIABLE, Corpus, LabelRecord, dump_json, is_product
 from evals.metrics import Outcome, roc_auc
 from evals.train import RULE_MIRRORS, build, feature_names, fit, load_features, write_artifact
@@ -302,11 +304,12 @@ async def main_async(args: argparse.Namespace) -> None:
         data = build([p.record for p in test], {p.record.id: p.features for p in test}, model.features)
         write_artifact(
             model,
-            MODEL_QUICK_PATH if quick else MODEL_PATH,
+            release.artifact_path(model.version),
             features_file=(out_quick if quick else out_features).name,
             train_n=train_n,
             prior=args.prior,
             test=data,
+            corpus_root=corpus.root,
         )
         report[f"shipped_{name}"] = model.version
 

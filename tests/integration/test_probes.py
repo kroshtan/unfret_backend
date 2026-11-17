@@ -2,6 +2,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from unfret import scoring
 from unfret.config import settings
 from unfret.main import app
 
@@ -22,6 +23,18 @@ async def test_both_probes_report_the_build_commit(client: httpx.AsyncClient, mo
     monkeypatch.setattr(settings, "git_sha", "0123abcd" * 5)
     assert (await client.get("/v1/health")).json()["commit"] == "0123abcd" * 5
     assert (await client.get("/v1/health/ready")).json()["commit"] == "0123abcd" * 5
+
+
+async def test_both_probes_report_the_scorers(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    empty = {"features": [], "means": [], "scales": [], "coefficients": [], "intercept": 0}
+    full = scoring.Model.from_dict({**empty, "version": "v9-private"})
+    quick = scoring.Model.from_dict({**empty, "version": "v9-quick-private"})
+    monkeypatch.setattr(
+        scoring, "load_model", lambda path=scoring.MODEL_PATH: quick if path == scoring.MODEL_QUICK_PATH else full
+    )
+    for probe in ("/v1/health", "/v1/health/ready"):
+        body = (await client.get(probe)).json()
+        assert (body["model_version"], body["quick_model_version"]) == ("v9-private", "v9-quick-private")
 
 
 async def test_not_ready_when_database_fails(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:

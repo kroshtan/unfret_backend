@@ -871,3 +871,52 @@ client and `/v1/check` are unchanged).
   pass, or when a deep check needs checks the pass doesn't have (402, or 429 `FREE_CHECKS_PAUSED`), the page runs a
   quick check instead and says why. Example links to try (`UNFRET_CHECK_EXAMPLES`, label and address pairs; the test
   shop by default).
+
+## Changes (affiliates and bonus codes; gift codes for any pass; intro codes retired; backwards-compatible; migration 26)
+
+Additive: every new request field is optional, and every new response field is new. Extension 0.11.0 and the MCP
+client are unchanged.
+
+- **Affiliate links**: `unfret.net/?ref=CODE` on any page. The site keeps the code in `localStorage` (`unfret-ref`,
+  the first one, 30 days; no cookie, no request) until a pass exists, and then sends it once:
+  - `POST /v1/keys` takes an optional `"ref"` (the code). The new pass counts for that code's affiliate. An unknown or
+    ended code is ignored (the pass is made either way).
+  - `POST /v1/affiliates/attribute` (`Authorization: Bearer <pass>`, `{"code": "…"}`) →
+    `{"status": "attributed" | "already" | "not_eligible" | "invalid"}`. It is for a pass made without the code: the
+    extension's install pass, relayed by `/welcome` (below). It returns `not_eligible` for a wallet or for a pass that has bought
+    checks before, and `already` once a pass counts for an affiliate: the first one stays. 429 after
+    `code_checks_per_ip_per_day` (30) look-ups from one network.
+  - `/welcome` (both versions) posts `{type: "unfret-ref", code}` to itself while it has a kept code, and forgets the
+    code once it gets `{type: "unfret-ref-received", status}` back. Extension 0.12.0's content script on `/welcome`
+    relays it to the background, which calls `POST /v1/affiliates/attribute` with its own pass.
+- **Bonus codes**: `POST /v1/credits/codes/check` (`{"code": "…"}`) → `{"code", "label", "bonus_pct",
+  "first_pack_only"}` shows what a code gives ("+20% checks", or an affiliate's "+20% checks on your first pack").
+  It returns **404 `INVALID_CODE`** ("This code isn't valid, or has ended.") for every code that can't be used
+  (unknown, past its last day, used up, switched off), with one answer for all, and 429 after too many tries from one
+  network. Codes give checks, never a lower price.
+  - `POST /v1/credits/fiat-checkout`, `POST /v1/credits/purchase-tx` and `GET /v1/credits/solana-pay.svg` take an
+    optional `code`, one per purchase (404 `INVALID_CODE` as above). The price is unchanged; when the pack is paid, a
+    bonus code adds `bonus_pct` more checks (whole checks). A code's use is counted when the purchase is paid,
+    atomically: purchases started on a code's last use get it once, and the others are credited without it.
+  - Without a code, or with an affiliate's own code, the **first pack** bought on a pass that counts for an
+    affiliate comes with `affiliate_bonus_pct` (20%) more checks, once per pass. A paid purchase started with an
+    affiliate-linked code also makes a pass that never bought before count for that affiliate. Bonus checks are part of
+    a card order's credits, so a refund or chargeback takes their share back.
+- `GET /v1/affiliates/stats` (header `X-Unfret-Stats: ufa_…`, the token from an affiliate's private link
+  `/affiliates/stats#ufa_…`) → `{"name", "active", "codes", "months": [{"month", "passes", "first_checks",
+  "purchases", "money": {"usd"|"eur": {"net", "commission", "reversed", "paid"}}}], "balance": {"usd"|"eur":
+  {"payable", "held", "due", "carried_over"}}, "rules": {"hold_days", "min_payout_cents"}}`, in cents. Commission is
+  held 30 days (the refund window), a payout needs 2500 cents per currency (all of it once the affiliate is switched
+  off), and a refund after a payout makes `payable` negative until later commission makes up for it. These are counts
+  and amounts only. 404 `UNKNOWN_STATS_LINK` for an unknown or revoked token; `Cache-Control: no-store`.
+- **Gift codes** (invites, `ufi_…`): `POST /v1/invites/redeem` now accepts **any** account, new or in use, except the
+  one whose purchase issued the code: **403 `INVITE_OWN_PACK`** ("This gift code came with your own pack: give it to
+  a friend."). Each code still works once (409 `INVITE_USED`), and an account may redeem several friends' codes.
+  Codes issued before migration 26 don't know their buyer and work for anyone. `GET /v1/credits`'s
+  `invite_eligible` is now always `true`.
+- **Intro codes are retired** (`UNFRET_INTRO_CODES_ENABLED`, default false): redeeming one answers **410
+  `INVITE_ENDED`**. The codes and `make codes` stay. `/checkout?code=<anything but a gift code>` (and `?mode=code` with
+  it) takes the code out of the address bar, redeems nothing, and shows "You get 5 free checks when you install
+  Unfret" with the install button for the visitor's browser.
+- Pages: `/affiliates` (the program and its disclosure rules) and `/affiliates/stats` (an affiliate's own numbers).
+  The site's footer loads `static/ref.js` on every page.

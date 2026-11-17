@@ -17,6 +17,8 @@ Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is cr
   the order is for a configured pack's product and its ``net_amount`` is exactly that pack's card price in the
   order's currency (USD, or EUR for a pack with a euro price); anything else (another currency, a zero or changed
   price, an unknown product) credits nothing and is logged as ``polar_order_not_credited`` for a person to look at.
+  Polar's fee (``platform_fee_amount``, when in the order's currency) goes along, for an affiliate's commission on
+  the net revenue (:mod:`unfret.credits.affiliates`).
 - ``order.refunded`` → ``refunded``, with the order's ``refunded_amount`` (the total refunded so far, before tax, in
   the order's currency; Polar reports the refunded tax separately in ``refunded_tax_amount``).
 - ``refund.created`` / ``refund.updated`` → ``disputed`` when the refund carries a dispute Polar lost; other refunds
@@ -211,6 +213,8 @@ class PolarProvider:
             )
             return None
         metadata = data.get("metadata") or {}
+        # Polar's fee, if it reports one in the order's currency; otherwise the commission estimates it.
+        fee, fee_currency = data.get("platform_fee_amount"), str(data.get("platform_fee_currency") or currency)
         return FiatEvent(
             kind="paid",
             provider=self.name,
@@ -220,6 +224,7 @@ class PolarProvider:
             checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
             account=str(metadata["account"]) if metadata.get("account") else None,
             site=str(metadata["site"]) if metadata.get("site") else None,
+            fee_cents=int(fee) if fee and fee_currency.lower() == currency else None,
         )
 
     async def aclose(self) -> None:

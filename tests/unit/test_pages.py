@@ -141,8 +141,10 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert response.text.count(f'href="{settings.chrome_store_url}"') == 2
     assert response.text.count(f'href="{settings.firefox_store_url}"') == 2
     assert 'href="https://addons.mozilla.org/' in response.text
-    # Its only script fills in the prices (/v1/pricing), the store buttons and the code box.
-    assert response.text.count("<script") == 1
+    # Its script fills in the prices (/v1/pricing) and the store buttons; the footer's keeps an affiliate link's
+    # code (ref.js).
+    assert response.text.count("<script") == 2
+    assert f'<script type="module" src="/static/{asset_tag()}/ref.js"></script>' in response.text
     assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text
 
 
@@ -164,21 +166,23 @@ def test_scripts_only_load_images_the_policy_allows() -> None:
         assert "createObjectURL" not in script.read_text(encoding="utf-8"), script.name
 
 
-async def test_privacy_statement_describes_invites(client: httpx.AsyncClient) -> None:
+async def test_privacy_statement_describes_gift_codes_and_affiliates(client: httpx.AsyncClient) -> None:
     text = (await client.get("/privacy")).text
-    assert "<strong>Invites</strong>" in text and "nothing links the buyer to the person they invited" in text
+    assert "<strong>Gift codes</strong>" in text and "nothing links the buyer to the friend who" in text
+    assert "<strong>Affiliates and bonus codes</strong>" in text and "no IP address" in text
+    assert "No affiliate links to shops" in text
 
 
 def test_pages_show_invites_and_offer_to_redeem_one() -> None:
     wallet = (STATIC_DIR / "wallet.js").read_text()
-    assert "Give these to people who haven't tried Unfret yet: each one gives them 3 free checks." in wallet
+    assert "Share them with friends: each one gives a friend 3 free checks" in wallet
     assert "/v1/invites/redeem" in wallet and "copyButton(code)" in wallet  # Copy, as for the pass
     checkout = (STATIC_DIR / "checkout.js").read_text()
     assert '"X-Unfret-Claim"' in checkout and "inviteNodes(" in checkout  # the payment-received panel
-    assert "to give away" in checkout  # each pack's offer
+    assert "gift code to share" in checkout  # each pack's offer
     for page in ("checkout", "connect", "check"):
         html = (STATIC_DIR / f"{page}.html").read_text()
-        assert "Have an invite or intro code?" in html and 'id="invite-redeem"' in html, page
+        assert "Got a gift code from a friend?" in html and 'id="invite-redeem"' in html, page
     for name in ("index.html", "checkout.html", "checkout.js", "wallet.js", "connect.html", "check.html"):
         text = (STATIC_DIR / name).read_text().lower()
         assert "free invite" not in text and "trial" not in text, name  # an invite, never "free" or a "trial"
@@ -237,9 +241,9 @@ def test_no_page_carries_its_own_header_or_footer() -> None:
         assert "<header" not in text and "<footer" not in text, page.name
 
 
-async def test_the_welcome_page_offers_a_code_rather_than_the_extension(client: httpx.AsyncClient) -> None:
+async def test_the_welcome_page_offers_checks_rather_than_the_extension(client: httpx.AsyncClient) -> None:
     nav = (await client.get("/welcome")).text.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
-    assert '<a class="cta" href="/checkout?mode=code">I have a code</a>' in nav
+    assert '<a class="cta" href="/checkout">Buy checks</a>' in nav
 
 
 async def test_the_typeface_is_served_from_here(client: httpx.AsyncClient) -> None:
@@ -407,7 +411,7 @@ def test_the_four_verdicts_and_a_reason_below_looks_fine(tmp_path: Path) -> None
 def test_checkout_has_three_tabs_and_crypto_behind_a_link() -> None:
     page = (STATIC_DIR / "checkout.html").read_text()
     tabs = re.findall(r'role="tab"[^>]*>([^<]+)</button>', page)
-    assert tabs == ["Buy checks", "I have a code", "Add to my pass"]
+    assert tabs == ["Buy checks", "Gift code", "Add to my pass"]
     assert "tab-crypto" not in page and page.count("data-to-crypto") == 2  # under Buy checks and Add to my pass
     assert 'id="crypto-back"' in page
     # The test network's "no real money" concerns crypto only: it sits with the crypto panel, not above the tabs.

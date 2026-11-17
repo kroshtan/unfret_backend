@@ -21,12 +21,13 @@ from solders.pubkey import Pubkey
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import fiat, free, invites, keys, ledger, local_methods, vat
+from unfret.credits import affiliates, fiat, free, invites, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
+from unfret.routes.affiliates import InvalidCodeError
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -62,7 +63,8 @@ class CreditsResponse(BaseModel):
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
     invite_eligible: bool = Field(
-        description="Whether an invite can still be redeemed onto this account: only one that has never had credit."
+        description="Whether a gift code (invite) can be redeemed onto this account: always true now, since a gift "
+        "code works on any account but the one whose pack it came with (POST /v1/invites/redeem says so for that one)."
     )
     free_checks_remaining: int = Field(
         default=0, description="Free deep checks left on this pass (included in checks_remaining); 0 for a wallet."
@@ -96,6 +98,12 @@ class PurchaseRequest(BaseModel):
         default=None,
         max_length=120,
         description="Top up this API key instead (its id, or the key itself: only the id is used).",
+    )
+    code: str | None = Field(
+        default=None,
+        max_length=40,
+        description="A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks "
+        "are added when the payment is credited. One code per purchase; the price stays the same.",
     )
 
     @model_validator(mode="after")
@@ -233,7 +241,7 @@ async def get_balance(request: Request, address: str = Depends(require_account))
         balance_usd_micros=balance,
         checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros + free_left,
         balance_lamports=balance,
-        invite_eligible=row is None,  # the same test redeem makes: an account with a ledger row had credit
+        invite_eligible=True,  # a gift code works on any account (but its buyer's: redeem refuses that one)
         free_checks_remaining=free_left,
         free_checks_paused=bool(free_left) and await free.paused(pool, settings),
     )
@@ -281,14 +289,36 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
     return wallet
 
 
+async def _code(request: Request, value: str | None) -> affiliates.Code | None:
+    """The usable code a purchase was started with; 404 ``INVALID_CODE`` for one that can't be used."""
+    if not value or not value.strip():
+        return None
+    found = await affiliates.usable(request.app.db_pool, value)
+    if found is None:
+        raise InvalidCodeError(affiliates.NOT_VALID)
+    return found
+
+
 async def _quote(
-    request: Request, checks: int, country: str, currency: Currency, beneficiary: str | None
+    request: Request,
+    checks: int,
+    country: str,
+    currency: Currency,
+    beneficiary: str | None,
+    *,
+    code: affiliates.Code | None = None,
 ) -> tuple[vat.Quote, int, str]:
     """Price and store a pack for ``country``, convert its total into ``currency``'s base units, make its claim."""
     chosen = _pack(checks)
     edge = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
     quote = vat.price_quote(
-        settings, chosen.checks, chosen.value_usd_micros, _country(country), edge=edge, beneficiary=beneficiary
+        settings,
+        chosen.checks,
+        chosen.value_usd_micros,
+        _country(country),
+        edge=edge,
+        beneficiary=beneficiary,
+        code=code.code if code else None,
     )
     try:
         amount = await get_credits(request).book.amount(quote.gross_usd_micros, currency)
@@ -332,7 +362,8 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         beneficiary = await _key_account(request, body.key_id)
     elif body.beneficiary:
         beneficiary = str(_wallet(body.beneficiary, hot))
-    quote, amount, claim = await _quote(request, body.checks, body.country, body.currency, beneficiary)
+    code = await _code(request, body.code)
+    quote, amount, claim = await _quote(request, body.checks, body.country, body.currency, beneficiary, code=code)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
     reference = Pubkey.from_string(quote.reference) if quote.reference else None
@@ -400,6 +431,7 @@ async def solana_pay_qr(
     currency: Currency = Query(default="SOL"),
     beneficiary: str | None = Query(default=None, max_length=64),
     key_id: str | None = Query(default=None, max_length=120),
+    code: str | None = Query(default=None, max_length=40),
 ) -> Response:
     """
     The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
@@ -415,6 +447,7 @@ async def solana_pay_qr(
     :param currency: ``SOL`` or ``USDC``.
     :param beneficiary: The wallet to credit; without it the paying wallet is credited.
     :param key_id: The API key to credit instead.
+    :param code: A bonus or affiliate code, as for ``purchase-tx``.
     :return: An SVG image.
     """
     _quote_allowed(request)
@@ -422,7 +455,7 @@ async def solana_pay_qr(
     target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:
         target = await _key_account(request, key_id)
-    quote, amount, claim = await _quote(request, checks, country, currency, target)
+    quote, amount, claim = await _quote(request, checks, country, currency, target, code=await _code(request, code))
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
@@ -472,6 +505,12 @@ class FiatCheckoutRequest(BaseModel):
         description="card (default: the buyer picks their country on the provider's page), or a local method's id "
         "from /v1/pricing's local_payment_methods for the buyer's chosen country (e.g. wero: iDEAL | Wero, a EUR "
         "checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
+    )
+    code: str | None = Field(
+        default=None,
+        max_length=40,
+        description="A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks "
+        "are added when the order is paid. One code per purchase; the price stays the same.",
     )
 
     @field_validator("currency", "payment_method", mode="before")
@@ -627,6 +666,7 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     if currency == "eur" and not euros_on(settings):
         raise BadRequestError("Card payments are in US dollars only.")
     account = await _key_account(request, body.key_id)
+    code = await _code(request, body.code)
     # The provider fills in the checkout's id: back in another browser (a bank app, a phone), which has neither the
     # pass nor the claim token, /checkout can still pick the purchase up (fiat_checkout_pass).
     return_url = f"{settings.public_base_url}/checkout?paid=1&checkout={provider.checkout_id_placeholder}"
@@ -648,7 +688,13 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
         )
     claim = invites.new_claim()
     await fiat.remember_checkout(
-        request.app.db_pool, provider.name, checkout, account, checks=chosen.checks, claim_hash=invites.digest(claim)
+        request.app.db_pool,
+        provider.name,
+        checkout,
+        account,
+        checks=chosen.checks,
+        claim_hash=invites.digest(claim),
+        code=code.code if code else None,
     )
     return FiatCheckoutResponse(
         checkout_url=checkout.url,

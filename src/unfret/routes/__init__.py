@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 
 from unfret.routes.admin import router as admin_router
+from unfret.routes.affiliates import admin as affiliates_admin
+from unfret.routes.affiliates import router as affiliates_router
 from unfret.routes.analyze import router as analyze_router
 from unfret.routes.check import router as check_router
 from unfret.routes.credits import router as credits_router
@@ -21,6 +23,7 @@ router.include_router(session_router)
 router.include_router(keys_router)
 router.include_router(credits_router)
 router.include_router(invites_router)
+router.include_router(affiliates_router)
 router.include_router(analyze_router)
 router.include_router(reports_router)
 router.include_router(check_router)
@@ -32,5 +35,6 @@ router.include_router(share_pages)
 router.include_router(extension_router)
 router.include_router(images_router)
 router.include_router(admin_router)
+router.include_router(affiliates_admin)
 
 __all__ = ["router"]

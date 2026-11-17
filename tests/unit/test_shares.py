@@ -247,7 +247,7 @@ def test_the_page_escapes_html_in_titles_and_reasons() -> None:
     page = render_share_page(view(title="</script><script>alert(1)</script>{{robots}}", result=result))
 
     assert "<script>alert(1)" not in page and "<img src=x" not in page and "<b>bold" not in page
-    assert page.count("</script>") == 2  # the data block's and the module script's own
+    assert page.count("</script>") == 3  # the data block's, the module script's own and the footer's (ref.js)
     assert "&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;{{robots}}" in page  # no placeholder from a title
     assert "\\u003c/script\\u003e\\u003cimg src=x" in page  # the data block can't close its element
 

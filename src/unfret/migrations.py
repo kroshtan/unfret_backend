@@ -564,6 +564,88 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE api_keys ADD COLUMN free_checks INTEGER NOT NULL DEFAULT 0 CHECK (free_checks >= 0);
         """,
     ),
+    (
+        26,
+        "affiliates and bonus codes",
+        """
+        -- Affiliates (unfret.credits.affiliates): people who bring buyers and earn a share of what those buyers pay.
+        -- A name and a payout note for the operator; the stats link's token only as its SHA-256 (NULL: revoked).
+        CREATE TABLE affiliates (
+            id           SERIAL PRIMARY KEY,
+            name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+            payout_note  TEXT NOT NULL DEFAULT '' CHECK (length(payout_note) <= 500),
+            stats_hash   BYTEA UNIQUE CHECK (octet_length(stats_hash) = 32),
+            active       BOOLEAN NOT NULL DEFAULT TRUE,
+            created_on   DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        -- Codes typed at checkout or carried by an affiliate link (?ref=CODE): an affiliate's own code (bonus_pct
+        -- NULL: the first-pack bonus), or an operator's bonus code giving bonus_pct more checks, optionally counted
+        -- for an affiliate. Codes give checks, never a lower price. Counts only: nothing says who used a code.
+        CREATE TABLE bonus_codes (
+            code          TEXT PRIMARY KEY CHECK (code ~ '^[A-Z0-9]{3,24}$'),
+            affiliate_id  INTEGER REFERENCES affiliates (id),
+            bonus_pct     INTEGER CHECK (bonus_pct BETWEEN 1 AND 200),
+            expires_on    DATE,
+            max_uses      INTEGER CHECK (max_uses >= 0),
+            uses          INTEGER NOT NULL DEFAULT 0 CHECK (uses >= 0),
+            active        BOOLEAN NOT NULL DEFAULT TRUE,
+            created_on    DATE NOT NULL DEFAULT CURRENT_DATE,
+            CHECK (affiliate_id IS NOT NULL OR bonus_pct IS NOT NULL)
+        );
+        -- Which affiliate a pass came through: one row per pass, ever (the first attribution wins), made only for a
+        -- pass that has never bought anything. No IP, no URL, no code, nothing about the browser.
+        CREATE TABLE affiliate_passes (
+            account         TEXT PRIMARY KEY CHECK (length(account) <= 64),
+            affiliate_id    INTEGER NOT NULL REFERENCES affiliates (id),
+            attributed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            first_check_on  DATE,
+            bonus_used      BOOLEAN NOT NULL DEFAULT FALSE
+        );
+        CREATE INDEX affiliate_passes_affiliate_idx ON affiliate_passes (affiliate_id);
+        -- What an affiliate earned: one row per purchase on an attributed pass (UNIQUE: never counted twice), in the
+        -- order's currency's cents. No account: the order id or transaction signature is the reference.
+        CREATE TABLE affiliate_earnings (
+            id                BIGSERIAL PRIMARY KEY,
+            affiliate_id      INTEGER NOT NULL REFERENCES affiliates (id),
+            source            TEXT NOT NULL CHECK (source IN ('card', 'crypto')),
+            ref               TEXT NOT NULL CHECK (length(ref) <= 200),
+            currency          TEXT NOT NULL CHECK (currency IN ('usd', 'eur')),
+            net_minor         BIGINT NOT NULL CHECK (net_minor >= 0),
+            commission_minor  BIGINT NOT NULL CHECK (commission_minor >= 0),
+            reversed_minor    BIGINT NOT NULL DEFAULT 0 CHECK (reversed_minor BETWEEN 0 AND commission_minor),
+            fee_estimated     BOOLEAN NOT NULL DEFAULT FALSE,
+            earned_on         DATE NOT NULL DEFAULT CURRENT_DATE,
+            UNIQUE (source, ref)
+        );
+        CREATE INDEX affiliate_earnings_affiliate_idx ON affiliate_earnings (affiliate_id, earned_on);
+        -- A refund or chargeback taking (part of) a commission back, in the month it happened.
+        CREATE TABLE affiliate_reversals (
+            id            BIGSERIAL PRIMARY KEY,
+            earning_id    BIGINT NOT NULL REFERENCES affiliate_earnings (id),
+            amount_minor  BIGINT NOT NULL CHECK (amount_minor > 0),
+            reversed_on   DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        CREATE INDEX affiliate_reversals_earning_idx ON affiliate_reversals (earning_id);
+        -- Payouts made by hand: what was owed up to and including a month, per currency.
+        CREATE TABLE affiliate_payouts (
+            id            BIGSERIAL PRIMARY KEY,
+            affiliate_id  INTEGER NOT NULL REFERENCES affiliates (id),
+            month         TEXT NOT NULL CHECK (month ~ '^[0-9]{4}-[0-9]{2}$'),
+            currency      TEXT NOT NULL CHECK (currency IN ('usd', 'eur')),
+            amount_minor  BIGINT NOT NULL,
+            paid_on       DATE NOT NULL DEFAULT CURRENT_DATE,
+            note          TEXT NOT NULL DEFAULT '' CHECK (length(note) <= 500)
+        );
+        CREATE INDEX affiliate_payouts_affiliate_idx ON affiliate_payouts (affiliate_id);
+        -- The code a purchase was started with, applied when it is paid.
+        ALTER TABLE fiat_checkouts ADD COLUMN code TEXT CHECK (code ~ '^[A-Z0-9]{3,24}$');
+        ALTER TABLE vat_quotes ADD COLUMN code TEXT CHECK (code ~ '^[A-Z0-9]{3,24}$');
+        -- Bonus checks a card order came with (part of credited_usd_micros, so a refund takes their share back).
+        ALTER TABLE fiat_payments ADD COLUMN bonus_usd_micros BIGINT NOT NULL DEFAULT 0 CHECK (bonus_usd_micros >= 0);
+        -- A gift code can't go back to the pass that bought it: a keyed hash of that account (never the redeemer).
+        ALTER TABLE invites ADD COLUMN buyer_hash BYTEA CHECK (octet_length(buyer_hash) = 32);
+        """,
+    ),
 ]
 
 

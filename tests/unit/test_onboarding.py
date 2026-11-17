@@ -6,6 +6,7 @@ links from the extension and /check name a key's ID to top up (``?mode=topup&key
 """
 
 import json
+import re
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -37,8 +38,12 @@ async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> N
     assert "Shop without the worry" in page
     assert 'href="/checkout?mode=code"' in page and 'href="/checkout"' in page and 'href="#have-key"' in page
     assert f'"/static/{asset_tag()}/site.css"' in page and '"/static/site.css"' not in page
-    # Nothing loaded from elsewhere: no script at all, and the only outside addresses are the footer's links.
-    assert "<script" not in page
+    # Nothing loaded from elsewhere: only our own scripts (the affiliate link's code, and handing it to the
+    # extension), and the only outside addresses are the footer's links.
+    assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
+        f"/static/{asset_tag()}/welcome.js",
+        f"/static/{asset_tag()}/ref.js",
+    ]
     sources = [
         f'href="https://{host}/kroshtan/{repo}"'
         for host in ("git.kroshtan.com", "github.com")
@@ -243,7 +248,10 @@ async def test_the_welcome_page_after_a_free_pass_leads_straight_to_a_check(clie
     assert 'href="/test-shop"' in page and "Check this page" in page
     main = page.split("<main", 1)[1].split("</main>", 1)[0]
     assert main.count('href="/checkout') == 1  # buying stays one quiet link away
-    assert "<script" not in page
+    assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
+        f"/static/{asset_tag()}/welcome.js",
+        f"/static/{asset_tag()}/ref.js",
+    ]
     nav = page.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
     assert '<a class="cta" href="/check">Check a link</a>' in nav
     for odd in ("0", "-1", "101", "five"):

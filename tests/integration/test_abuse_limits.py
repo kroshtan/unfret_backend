@@ -9,10 +9,10 @@ from unfret.config import settings
 
 
 async def test_code_redemptions_are_limited_per_visitor_network(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    # Fresh wallets are free to make: without a limit one visitor could guess intro codes, or drain one, at will.
+    # Fresh wallets are free to make: without a limit one visitor could guess gift codes at will.
     async def attempt() -> httpx.Response:
         wallet = bearer(str(Keypair().pubkey()))
-        return await client.post("/v1/invites/redeem", json={"code": "GUESS1"}, headers=wallet)
+        return await client.post("/v1/invites/redeem", json={"code": "ufi_" + "a" * 32}, headers=wallet)
 
     for _ in range(settings.redeem_per_ip_per_10min):
         assert (await attempt()).status_code == 404  # unknown code

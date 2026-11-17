@@ -11,11 +11,13 @@ Which key an order is for: our account id goes into the checkout's metadata, and
 account mapping ourselves (``fiat_checkouts``), since a provider may not echo checkout metadata on the order. The
 mapping wins when both are present.
 
-What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`;
-the amount is the order's amount before the provider's sales tax/VAT, in the order's currency: dollars or euros).
-The provider is the seller of record and handles the tax, so no VAT record is kept here. A paid pack also issues its
+What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`; the
+amount is the order's amount before the provider's sales tax/VAT, in the order's currency: dollars or euros). The
+provider is the seller of record and handles the tax, so no VAT record is kept here. A paid pack also issues its
 invites (:mod:`unfret.credits.invites`) in the crediting transaction, for the buyer's page to collect once with its
-claim token.
+claim token. The same transaction applies the checkout's code and the pass's affiliate
+(:mod:`unfret.credits.affiliates`): bonus checks (part of the order's credits, so a refund takes their share back), and
+the affiliate's commission on the order's net amount less the provider's fee.
 
 ``fiat_payments`` keeps one row per order: the account, the amount and its currency, the credits granted and how much
 was taken back. It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right
@@ -48,7 +50,7 @@ from urllib.parse import urlencode
 import asyncpg
 
 from unfret.config import Settings
-from unfret.credits import invites, keys, ledger
+from unfret.credits import affiliates, invites, keys, ledger
 from unfret.credits.packs import CARD_CURRENCIES, CardCurrency, Pack, card_credits, pack_for_card
 
 USD_MICROS_PER_CENT = 10_000
@@ -83,6 +85,7 @@ class FiatEvent:
     checkout_id: str | None = None
     account: str | None = None  # from the checkout metadata, when the provider echoes it
     site: str | None = None  # the site that made the checkout (checkout metadata), when the provider echoes it
+    fee_cents: int | None = None  # paid: the provider's fee in the order's currency (None: not reported)
 
 
 class FiatProvider(Protocol):
@@ -264,6 +267,7 @@ class FakeFiatProvider:
                 checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
                 account=str(metadata["account"]) if metadata.get("account") else None,
                 site=str(metadata["site"]) if metadata.get("site") else None,
+                fee_cents=int(data["platform_fee_amount"]) if data.get("platform_fee_amount") else None,
             )
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise FiatWebhookError("Unreadable event.") from exc
@@ -292,6 +296,7 @@ async def remember_checkout(
     *,
     checks: int | None = None,
     claim_hash: bytes | None = None,
+    code: str | None = None,
 ) -> None:
     """
     Keep which account a checkout is for, in case the order's webhook doesn't echo the metadata.
@@ -306,16 +311,18 @@ async def remember_checkout(
     :param checks: The pack size, for the buyer's status page.
     :param claim_hash: The hash of the buyer's claim token, which collects the order's invites
         (:mod:`unfret.credits.invites`).
+    :param code: The bonus or affiliate code the checkout was started with (:mod:`unfret.credits.affiliates`).
     """
     await db.execute(
-        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass) "
-        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3)) "
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass, code) "
+        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3), $6) "
         "ON CONFLICT DO NOTHING",
         provider,
         checkout.checkout_id,
         account,
         checks,
         claim_hash,
+        code,
     )
 
 
@@ -429,17 +436,27 @@ async def _account_for(conn: asyncpg.Connection, event: FiatEvent, site: str) ->
     return event.account if event.site == site else "other_site"
 
 
-async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) -> Outcome:
-    account = await _account_for(conn, event, settings.public_base_url)
-    if account == "other_site":
-        return "other_site"
-    if account is None or event.amount_cents <= 0:
-        return "unknown_account"
-    if event.currency not in CARD_CURRENCIES:
-        return "unknown_currency"
-    credits = card_credits(settings, event.amount_cents, event.currency)
-    if credits <= 0:
-        return "too_small"
+async def _checkout_code(conn: asyncpg.Connection, event: FiatEvent) -> str | None:
+    if not event.checkout_id:
+        return None
+    code = await conn.fetchval(
+        "SELECT code FROM fiat_checkouts WHERE provider = $1 AND checkout_id = $2", event.provider, event.checkout_id
+    )
+    return None if code is None else str(code)
+
+
+async def _credit_order(
+    conn: asyncpg.Connection,
+    event: FiatEvent,
+    settings: Settings,
+    account: str,
+    *,
+    code: str | None,
+    credits: int,
+) -> Outcome:
+    """Credit a paid order once: its pack, a code's or affiliate's bonus, the affiliate's commission, its invites."""
+    await conn.execute("SELECT 1 FROM wallets WHERE pubkey = $1 FOR UPDATE", account)
+    first_purchase = await affiliates.never_bought(conn, account)
     fresh = await conn.fetchval(
         "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros, currency) "
         "VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING TRUE",
@@ -452,12 +469,57 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
     )
     if not fresh:
         return "duplicate"
+    matched = pack_for_card(settings, event.amount_cents, event.currency)
+    bonus = await affiliates.on_purchase(
+        conn,
+        settings,
+        account,
+        code=code,
+        checks=matched.checks if matched else None,
+        first_purchase=first_purchase,
+    )
     await ledger.credit(conn, account, credits, purchase=True)
+    if bonus:
+        # Part of the order's credits: a refund takes the bonus's share back too.
+        await conn.execute(
+            "UPDATE fiat_payments SET credited_usd_micros = credited_usd_micros + $3, bonus_usd_micros = $3 "
+            "WHERE provider = $1 AND order_id = $2",
+            event.provider,
+            event.order_id,
+            bonus,
+        )
+        await ledger.credit(conn, account, bonus)
+    fee = event.fee_cents
+    await affiliates.earn(
+        conn,
+        settings,
+        account,
+        source="card",
+        ref=f"{event.provider}:{event.order_id}",
+        currency=event.currency,
+        net_minor=event.amount_cents
+        - (fee if fee is not None else affiliates.card_fee_estimate(settings, event.amount_cents)),
+        fee_estimated=fee is None,
+    )
     if event.checkout_id:  # marks the checkout paid; invites only for exactly a pack's card price
-        matched = pack_for_card(settings, event.amount_cents, event.currency)
         checks = matched.checks if matched else 0
-        await invites.issue_for_checkout(conn, settings, event.provider, event.checkout_id, checks)
+        await invites.issue_for_checkout(conn, settings, event.provider, event.checkout_id, checks, buyer=account)
     return "credited"
+
+
+async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) -> Outcome:
+    account = await _account_for(conn, event, settings.public_base_url)
+    if account == "other_site":
+        return "other_site"
+    if account is None or event.amount_cents <= 0:
+        return "unknown_account"
+    if event.currency not in CARD_CURRENCIES:
+        return "unknown_currency"
+    code = await _checkout_code(conn, event)
+    credits = card_credits(settings, event.amount_cents, event.currency)
+    if credits <= 0:
+        return "too_small"
+    return await _credit_order(conn, event, settings, account, code=code, credits=credits)
 
 
 async def _taken_back(conn: asyncpg.Connection, event: FiatEvent) -> Outcome:
@@ -481,6 +543,9 @@ async def _taken_back(conn: asyncpg.Connection, event: FiatEvent) -> Outcome:
         refunded,
         disputed,
         delta,
+    )
+    await affiliates.reverse(
+        conn, "card", f"{event.provider}:{event.order_id}", share=None if disputed else (refunded, amount)
     )
     if not delta:
         return "unchanged"

@@ -12,6 +12,7 @@ from unfret.config import settings
 from unfret.main import app
 from unfret.routes import extension
 from unfret.routes.extension import RELEASE_DIR, current_release
+from unfret.routes.pages import asset_tag
 
 # DigestInfo prefix for SHA-256 in EMSA-PKCS1-v1_5 (RFC 8017, section 9.2).
 _SHA256_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
@@ -199,7 +200,8 @@ async def test_install_page_points_to_both_stores(client: httpx.AsyncClient) -> 
     assert response.status_code == 200
     csp = response.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp
-    assert "<script" not in response.text
+    assert response.text.count("<script") == 1  # only the footer's: an affiliate link's code (ref.js)
+    assert f'<script type="module" src="/static/{asset_tag()}/ref.js"></script>' in response.text
     assert "{{" not in response.text
     assert f'href="{settings.chrome_store_url}"' in response.text
     assert f'href="{settings.firefox_store_url}"' in response.text

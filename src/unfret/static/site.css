@@ -1350,3 +1350,16 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
 .examples h2 { font-size: 1rem; margin: 0 0 0.25rem; }
 .example-links { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
 .example-links button.link { text-align: left; }
+
+/* Checkout: the bonus code under the packs, and the note an old intro-code link gets. */
+.bonus-code { margin-top: 1rem; }
+.bonus-code label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+.note { border-left: 4px solid var(--ok); background: var(--good-soft); padding: 0.9rem 1rem; border-radius: 8px; margin: 1rem 0; }
+.note p { margin: 0 0 0.6rem; }
+.note .buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+/* Affiliates: the program page and an affiliate's own stats. */
+.stats-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.stats-table th, .stats-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line, #ddd); text-align: right; }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; }
+.table-scroll { overflow-x: auto; }

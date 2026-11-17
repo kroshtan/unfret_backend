@@ -24,7 +24,8 @@ DROP_ALL = (
     "price_observations, shop_links, shops, api_keys, fiat_payments, fiat_checkouts, report_votes, "
     "report_quota, reports, labelled_pages, vat_quotes, crypto_sales, image_prints, listing_verdicts, "
     "showcase_cases, shared_results, invites, intro_codes, market_prices, review_fingerprints, ad_prints, "
-    "ad_contacts, x402_audit_cursor, x402_audit_flags, schema_migrations CASCADE"
+    "ad_contacts, x402_audit_cursor, x402_audit_flags, affiliates, bonus_codes, affiliate_passes, "
+    "affiliate_earnings, affiliate_reversals, affiliate_payouts, schema_migrations CASCADE"
 )
 
 

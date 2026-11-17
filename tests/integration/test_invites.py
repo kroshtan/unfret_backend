@@ -50,11 +50,11 @@ async def collect(client: httpx.AsyncClient, quote_id: str, claim: str | None) -
     return body
 
 
-async def an_invite(pool: asyncpg.Pool) -> str:
+async def an_invite(pool: asyncpg.Pool, buyer: str | None = None) -> str:
     """One issued invite code, as a buyer would hand it on."""
     async with pool.acquire() as conn, conn.transaction():
         quote, _ = await quote_with_claim(pool, 25)
-        assert await invites.issue_for_quote(conn, settings, quote.id, quote.net_usd_micros) == 1
+        assert await invites.issue_for_quote(conn, settings, quote.id, quote.net_usd_micros, buyer=buyer) == 1
         codes = await conn.fetchval("SELECT invite_codes FROM vat_quotes WHERE id = $1", quote.id)
     return str(codes[0])
 
@@ -244,33 +244,37 @@ async def test_a_fresh_wallet_redeems_an_invite_once(client: httpx.AsyncClient, 
 
     again = await redeem(client, code, bearer(str(Keypair().pubkey())))  # the same code for someone else
     assert (again.status_code, again.json()["error_code"]) == (409, "INVITE_USED")
-    second = await redeem(client, await an_invite(pool), bearer(address))  # a second invite for the same wallet
-    assert (second.status_code, second.json()["error_code"]) == (403, "INVITE_NOT_FOR_THIS_ACCOUNT")
-    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == INVITE
+    second = await redeem(client, await an_invite(pool), bearer(address))  # a friend's second code: fine
+    assert second.status_code == 200
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == 2 * INVITE
 
 
-async def test_accounts_that_had_checks_are_refused(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    code = await an_invite(pool)
-    buyer = str(Keypair().pubkey())
-    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, 5000000)", buyer)
-    spent = str(Keypair().pubkey())  # bought once, spent it all
-    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, 0)", spent)
-    funded = await keys.create(pool)
-    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, 200000)", funded.account)
+async def test_a_pass_in_use_redeems_a_friends_code(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    friend = await keys.create(pool)
+    await pool.execute(
+        "INSERT INTO wallets (pubkey, balance_usd_micros, purchased) VALUES ($1, 2000000, TRUE)", friend.account
+    )
+    code = await an_invite(pool, buyer="key:someoneelse")
 
-    for headers in (bearer(buyer), bearer(spent), {"Authorization": f"Bearer {funded.key}"}):
-        assert (await client.get("/v1/credits", headers=headers)).json()["invite_eligible"] is False
-        response = await redeem(client, code, headers)
-        assert (response.status_code, response.json()["error_code"]) == (403, "INVITE_NOT_FOR_THIS_ACCOUNT")
-    assert await pool.fetchval("SELECT redeemed_on FROM invites") is None  # the code is still good
+    response = await redeem(client, code, {"Authorization": f"Bearer {friend.key}"})
 
-    fresh = await keys.create(pool)
-    before = await client.get("/v1/credits", headers={"Authorization": f"Bearer {fresh.key}"})
-    assert (before.json()["checks_remaining"], before.json()["invite_eligible"]) == (0, True)
-    ok = await redeem(client, code, {"Authorization": f"Bearer {fresh.key}"})
-    assert ok.status_code == 200 and ok.json()["checks_remaining"] == 3
-    after = await client.get("/v1/credits", headers={"Authorization": f"Bearer {fresh.key}"})
-    assert (after.json()["checks_remaining"], after.json()["invite_eligible"]) == (3, False)
+    assert response.status_code == 200
+    assert response.json()["balance_usd_micros"] == 2_000_000 + INVITE
+    assert await pool.fetchval("SELECT redeemed_on FROM invites") is not None
+
+
+async def test_the_buyers_own_pass_is_refused_and_the_code_stays_good(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    buyer = await keys.create(pool)
+    code = await an_invite(pool, buyer=buyer.account)
+
+    own = await redeem(client, code, {"Authorization": f"Bearer {buyer.key}"})
+
+    assert (own.status_code, own.json()["error_code"]) == (403, "INVITE_OWN_PACK")
+    assert own.json()["detail"] == "This gift code came with your own pack: give it to a friend."
+    assert await pool.fetchval("SELECT redeemed_on FROM invites") is None  # still good for a friend
+    assert (await redeem(client, code, bearer(str(Keypair().pubkey())))).status_code == 200
 
 
 async def test_invalid_unknown_and_unauthenticated(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -300,26 +304,29 @@ async def test_invites_store_no_link_to_anyone(pool: asyncpg.Pool) -> None:
             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'invites'"
         )
     }
-    assert columns == {"code_hash": "bytea", "issued_on": "date", "redeemed_on": "date"}  # days, not times
+    # Days, not times; the buyer only as a keyed hash (so their own pass can't take it), never the redeemer.
+    assert columns == {"code_hash": "bytea", "issued_on": "date", "redeemed_on": "date", "buyer_hash": "bytea"}
     added = await pool.fetchval(
         "SELECT data_type FROM information_schema.columns "
         "WHERE table_name = 'wallets' AND column_name = 'invite_redeemed'"
     )
     assert added == "boolean"  # that it redeemed one, never which
-    code = await an_invite(pool)
-    assert code.encode() not in str([dict(r) for r in await pool.fetch("SELECT * FROM invites")]).encode()
+    code = await an_invite(pool, buyer="key:abcdefghij")
+    stored = str([dict(r) for r in await pool.fetch("SELECT * FROM invites")]).encode()
+    assert code.encode() not in stored
+    assert b"abcdefghij" not in stored
+    assert await pool.fetchval("SELECT buyer_hash FROM invites") != hashlib.sha256(b"key:abcdefghij").digest()
     assert base64.b32decode(code.removeprefix("ufi_").upper())  # 160 random bits
 
 
-async def test_migration_15_leaves_existing_accounts_ineligible(pool: asyncpg.Pool) -> None:
+async def test_accounts_from_before_invites_redeem_gift_codes_too(pool: asyncpg.Pool) -> None:
     await pool.execute(DROP_ALL)
     await migrate(pool, MIGRATIONS[:14])
     await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ('old', 0)")
     assert 15 in await migrate(pool)
     assert await pool.fetchval("SELECT invite_redeemed FROM wallets") is False
-    with pytest.raises(invites.InviteError) as refused:
-        await invites.redeem(pool, settings, "old", await an_invite(pool))
-    assert refused.value.kind == "not_eligible"
+    done = await invites.redeem(pool, settings, "old", await an_invite(pool))
+    assert done.balance_usd_micros == INVITE
 
 
 async def test_the_operator_sees_invites_outstanding(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:

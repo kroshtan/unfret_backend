@@ -40,7 +40,7 @@ import {
   setStatus,
   walletButton,
 } from "./wallet.js";
-import { handOffKey, topupKeyId } from "./handoff.js";
+import { awaitConfirmation, handOffKey, topupKeyId } from "./handoff.js";
 import { chooseButtons } from "./install-button.js";
 import { makePass } from "./new-pass.js";
 import { storedRef } from "./ref.js";
@@ -275,9 +275,33 @@ function handoffBox(issued, steps = null) {
       document.createTextNode("you're all set. On a product page, click its icon and choose “Check this page”."),
     );
   };
+  const kept = () =>
+    say("info", element("p", "Your extension keeps what it has. To use this pass there later, paste it when the extension asks.", "small"));
   const offer = async (replace) => {
     const status = await handOffKey(issued.key, { replace });
     if (status === "signed-in" || status === "already") return signedIn();
+    if (status === "needs-click") {
+      // The extension (0.12.0 on) takes a first pass only right after a click here: any site can open this page.
+      const send = button("Send it to the extension", () => {
+        send.disabled = true;
+        offer(false);
+      }, "primary");
+      const actions = element("div", "", "handoff-actions");
+      actions.append(send);
+      say("ask", element("p", "Use this pass in your Unfret extension?"), actions);
+      return;
+    }
+    if (status === "confirm") {
+      // The extension asks in a window of its own before it switches: a page can't answer for the user.
+      const id = KEY_RE.exec(issued.key)?.[1];
+      say(
+        "ask",
+        element("p", `Confirm in the Unfret window that just opened${id ? `: it names this pass ${showPassId(id)}` : ""}.`),
+      );
+      awaitConfirmation((answer) => (answer === "signed-in" ? signedIn() : kept()));
+      return;
+    }
+    if (status === "kept") return kept();
     if (status === "other-account" || status === "free-pass") {
       // The extension's own free pass: switching moves its free checks left to this pass, so nothing is lost.
       const free = status === "free-pass";
@@ -286,9 +310,7 @@ function handoffBox(issued, steps = null) {
         use.disabled = keep.disabled = true;
         offer(true);
       }, "primary");
-      const keep = button(free ? "Keep the free pass" : "Keep the current one", () =>
-        say("info", element("p", "Your extension keeps what it has. To use this pass there later, paste it when the extension asks.", "small")),
-      );
+      const keep = button(free ? "Keep the free pass" : "Keep the current one", kept);
       actions.append(use, keep);
       say(
         "ask",

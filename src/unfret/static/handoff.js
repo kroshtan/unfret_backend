@@ -5,16 +5,19 @@
 // {type: "unfret-key-received", status}: "signed-in", "already" (it uses this key), "other-account" (it is signed in
 // with another key or wallet and changes nothing until the page asks again with replace: true) or "invalid". From
 // 0.12.0, "other-account" comes with free_pass: true when what the extension has is the free pass it made itself:
-// on replace, it moves that pass's free checks to the new one (here: "free-pass"). The key only goes from this page
-// to the extension; the answer carries no key, account or balance. No answer within ACK_WAIT_MS: no (recent enough)
-// extension in this browser.
+// on replace, it moves that pass's free checks to the new one (here: "free-pass"). Also from 0.12.0: "needs-click"
+// (the extension has no pass yet and takes one only right after a click on this page, or in a tab it opened itself:
+// any site can open this page; nothing was kept, so the page offers a button and hands the key over again on its
+// click) and "confirm" (on replace, the extension asks in its own window; its answer follows as "signed-in" or "kept",
+// see awaitConfirmation). The key only goes from this page to the extension; the answer carries no key, account or
+// balance. No answer within ACK_WAIT_MS: no (recent enough) extension in this browser.
 //
 // Also here: the key ID a "Top up" link names (/checkout?mode=topup&key_id=<10 letters>), the public part of a key.
 
 export const KEY_MESSAGE = "unfret-key";
 export const KEY_RECEIVED = "unfret-key-received";
 export const ACK_WAIT_MS = 2000;
-const STATUSES = new Set(["signed-in", "already", "other-account", "invalid"]);
+const STATUSES = new Set(["signed-in", "already", "other-account", "invalid", "needs-click", "confirm", "kept"]);
 const KEY_RE = /^ufk_[a-z2-7]{10}_[a-z2-7]{52}$/;
 const KEY_ID_RE = /^[a-z2-7]{10}$/;
 
@@ -45,6 +48,27 @@ export function handOffKey(key, { replace = false, win = window, waitMs = ACK_WA
     win.addEventListener("message", listen);
     win.postMessage(replace ? { type: KEY_MESSAGE, key, replace: true } : { type: KEY_MESSAGE, key }, origin);
   });
+}
+
+/**
+ * After "confirm": wait for the user's answer in the extension's own window, "signed-in" or "kept" (closed unanswered
+ * counts as "kept"). Calls `then` once.
+ *
+ * @param {(status: string) => void} then - Called with the answer.
+ * @param {{win?: Window}} [options] - The page's window.
+ * @returns {() => void} Stops waiting.
+ */
+export function awaitConfirmation(then, { win = window } = {}) {
+  const origin = win.location.origin;
+  const listen = (event) => {
+    if (event.source !== win || event.origin !== origin) return;
+    const status = event.data?.type === KEY_RECEIVED ? event.data.status : null;
+    if (status !== "signed-in" && status !== "kept") return;
+    win.removeEventListener("message", listen);
+    then(status);
+  };
+  win.addEventListener("message", listen);
+  return () => win.removeEventListener("message", listen);
 }
 
 /**

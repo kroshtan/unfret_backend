@@ -66,7 +66,7 @@ async def test_checkout_names_the_store_listings_for_the_hand_off(client: httpx.
 
 def test_checkout_hands_every_new_key_to_the_extension() -> None:
     script = (STATIC_DIR / "checkout.js").read_text()
-    assert 'import { handOffKey, topupKeyId } from "./handoff.js";' in script
+    assert 'import { awaitConfirmation, handOffKey, topupKeyId } from "./handoff.js";' in script
     # The code, card, recovery results (showResult) and the crypto tab's "Make a new key".
     assert "nodes.push(handoffBox(issued, steps), keyCard(issued)" in script
     assert "keyReveal.replaceChildren(handoffBox(issued), keyCard(issued));" in script
@@ -97,13 +97,14 @@ def _run(tmp_path: Path, body: str) -> Any:
     Run ``body`` in node with ``handoff.js`` imported and a fake same-origin window; it prints JSON.
 
     :param tmp_path: Where to put the module.
-    :param body: An async function body using ``handOffKey``, ``topupKeyId`` and ``makeWindow``.
+    :param body: An async function body using ``handOffKey``, ``awaitConfirmation``, ``topupKeyId`` and
+        ``makeWindow``.
     :return: What it printed, parsed.
     """
     module = tmp_path / "handoff.mjs"
     module.write_text((STATIC_DIR / "handoff.js").read_text())
     script = f"""
-import {{ handOffKey, topupKeyId }} from {json.dumps(module.as_uri())};
+import {{ awaitConfirmation, handOffKey, topupKeyId }} from {json.dumps(module.as_uri())};
 // A window that delivers posted messages to its listeners, and lets a test play the extension's content script.
 function makeWindow(extension) {{
   const listeners = new Set();
@@ -238,6 +239,64 @@ def test_hand_off_says_when_the_extension_has_its_free_pass(tmp_path: Path) -> N
     assert out == {"first": "free-pass", "second": "signed-in"}
     script = (STATIC_DIR / "checkout.js").read_text()
     assert 'status === "free-pass"' in script and "Any free checks left on it come along" in script
+
+
+@pytest.mark.usefixtures("node")
+def test_hand_off_without_a_click_is_offered_again_on_one(tmp_path: Path) -> None:
+    # Extension 0.12.0 takes a first pass only right after a click on the page (any site can open /checkout).
+    out = _run(
+        tmp_path,
+        f"""
+        let clicked = false;
+        const win = makeWindow((data, w) => {{
+          if (data.type !== "unfret-key") return;
+          w.deliver({{ type: "unfret-key-received", status: clicked ? "signed-in" : "needs-click" }});
+        }});
+        const first = await handOffKey({json.dumps(KEY)}, {{ win, waitMs: 500 }});
+        clicked = true;
+        const second = await handOffKey({json.dumps(KEY)}, {{ win, waitMs: 500 }});
+        return {{ first, second }};
+        """,
+    )
+    assert out == {"first": "needs-click", "second": "signed-in"}
+    script = (STATIC_DIR / "checkout.js").read_text()
+    needs_click = script.split('if (status === "needs-click") {', 1)[1].split("\n    }\n", 1)[0]
+    assert 'button("Send it to the extension", () => {' in needs_click and "offer(false);" in needs_click
+
+
+@pytest.mark.usefixtures("node")
+def test_hand_off_waits_for_the_answer_in_the_extensions_own_window(tmp_path: Path) -> None:
+    # On replace, extension 0.12.0 asks in its own window ("confirm"); the answer follows: "signed-in" or "kept".
+    out = _run(
+        tmp_path,
+        f"""
+        const win = makeWindow((data, w) => {{
+          if (data.type !== "unfret-key") return;
+          w.deliver({{ type: "unfret-key-received", status: "confirm" }});
+        }});
+        const status = await handOffKey({json.dumps(KEY)}, {{ win, waitMs: 500, replace: true }});
+        const answers = [];
+        awaitConfirmation((answer) => answers.push(answer), {{ win }});
+        win.deliver({{ type: "unfret-key-received", status: "signed-in" }}, {{ origin: "https://evil.example" }});
+        win.deliver({{ type: "unfret-key-received", status: "confirm" }});
+        win.deliver({{ type: "unfret-key-received", status: "kept" }});
+        win.deliver({{ type: "unfret-key-received", status: "signed-in" }}); // only the first answer counts
+        return {{ status, answers }};
+        """,
+    )
+    assert out == {"status": "confirm", "answers": ["kept"]}
+    script = (STATIC_DIR / "checkout.js").read_text()
+    assert "Confirm in the Unfret window that just opened" in script
+    assert 'awaitConfirmation((answer) => (answer === "signed-in" ? signedIn() : kept()));' in script
+
+
+def test_connect_page_hands_the_session_over_again_on_a_click() -> None:
+    script = (STATIC_DIR / "connect.js").read_text()
+    assert 'if (event.data?.type === "unfret-session-status") return extensionStatus(event.data.status);' in script
+    needs_click = script.split('if (status === "needs-click" && signedIn) {', 1)[1].split("\n  }", 1)[0]
+    assert 'send.addEventListener("click", () => {' in needs_click and "postSession(signedIn);" in needs_click
+    assert "Confirm in the Unfret window that just opened" in script
+    assert 'id="handoff"' in (STATIC_DIR / "connect.html").read_text()
 
 
 async def test_the_welcome_page_after_a_free_pass_leads_straight_to_a_check(client: httpx.AsyncClient) -> None:

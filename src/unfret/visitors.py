@@ -80,11 +80,21 @@ class DailyLimit:
     _day: str = ""
     _day_count: int = 0
 
-    def allow(self, ip: str) -> bool:
+    def today(self) -> int:
+        """
+        How many were allowed so far this UTC day.
+
+        :return: The count.
+        """
+        current = datetime.fromtimestamp(self.clock(), UTC).strftime("%Y-%m-%d")
+        return self._day_count if current == self._day else 0
+
+    def allow(self, ip: str, *, daily_cap: bool = True) -> bool:
         """
         Decide whether ``ip`` may do it now, and count it if so.
 
         :param ip: The visitor's address.
+        :param daily_cap: Whether the daily cap refuses it (``False``: only counted, e.g. to scale a proof of work).
         :return: ``True`` if allowed (and counted).
         """
         now = self.clock()
@@ -95,7 +105,7 @@ class DailyLimit:
         hits = self._hits.setdefault(visitor_key(ip), deque())
         while hits and hits[0] <= now - _DAY:
             hits.popleft()
-        if self._day_count >= self.daily_cap or len(hits) >= self.per_ip_per_day:
+        if (daily_cap and self._day_count >= self.daily_cap) or len(hits) >= self.per_ip_per_day:
             return False
         hits.append(now)
         self._day_count += 1

@@ -734,6 +734,13 @@ valid 7 days. Nothing is stored when a check runs.
 - `/checkout` sells by card while crypto purchases are off (no hot wallet or scanner) and hides only the crypto tab;
   it says "not available" only when neither way is.
 
+## Changes (new keys past the daily number, backwards-compatible)
+
+- `GET /v1/keys/challenge`: `bits` may be higher than usual (at most 6 more) once many keys were made that day: past
+  `UNFRET_KEY_CREATE_DAILY_CAP` (500) each doubling adds a bit. `POST /v1/keys` no longer answers 429 for the day's
+  total, only after 5 new keys from one visitor network; recoveries and card pick-ups have only their per-network
+  limit (10 a day).
+
 ## Changes (plain words for shoppers: the pass, My checks; backwards-compatible)
 
 - **Words.** The pages call an API key an **Unfret pass** and its recovery code a **backup code**. A pass is shown by

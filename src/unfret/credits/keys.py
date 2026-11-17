@@ -252,6 +252,10 @@ def pow_ok(challenge: str, solution: str, bits: int) -> bool:
     return _leading_zero_bits(hashlib.sha256(f"{challenge}:{solution}".encode()).digest()) >= bits
 
 
+# Past the daily number of new keys, each doubling of it adds a bit of proof of work, up to this many bits.
+_MAX_EXTRA_BITS = 6
+
+
 @dataclass
 class KeyGuard:
     """
@@ -259,6 +263,8 @@ class KeyGuard:
 
     Challenges are stateless (expiry + random + difficulty + HMAC) and each is accepted once. The limits count key
     creations and recovery attempts per visitor network. In process memory only; visitor addresses are salted hashes.
+    The creations' daily cap is not a wall (anyone with enough addresses could reach it and stop new keys for
+    everyone): past it, every doubling of the day's count makes the proof of work twice as hard.
     """
 
     secret: str
@@ -282,8 +288,16 @@ class KeyGuard:
         :return: The challenge string, its difficulty in bits and its expiry.
         """
         expires = int(self._now() + self.ttl_s)
-        body = f"{expires}.{secrets.token_hex(8)}.{self.bits}"
-        return f"{body}.{self._mac(body)}", self.bits, float(expires)
+        bits = self.bits + self._extra_bits()
+        body = f"{expires}.{secrets.token_hex(8)}.{bits}"
+        return f"{body}.{self._mac(body)}", bits, float(expires)
+
+    def _extra_bits(self) -> int:
+        made, cap = self.creations.today(), max(self.creations.daily_cap, 1)
+        extra = 0
+        while made >= cap and extra < _MAX_EXTRA_BITS:
+            extra, cap = extra + 1, cap * 2
+        return extra
 
     def redeem(self, challenge: str, solution: str) -> bool:
         """

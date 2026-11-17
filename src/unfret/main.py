@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
+from starlette.routing import Route
 from starlette.types import Scope
 
 from unfret import (
@@ -23,6 +24,7 @@ from unfret import (
     image_store,
     log,
     market_prices,
+    mcp_remote,
     objections,
     price_store,
     reports,
@@ -129,7 +131,8 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
         tasks.append(asyncio.create_task(api.credits.run_forever()))
     tasks.append(asyncio.create_task(housekeeping(api.db_pool)))
     try:
-        yield
+        async with mcp_remote.running(api):  # the remote MCP server at /mcp
+            yield
     finally:
         for task in tasks:
             task.cancel()
@@ -170,9 +173,20 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["GET", "POST", "DELETE"],
     # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result; X-Unfret-Claim: collecting a
-    # purchase's invites (unfret.credits.invites)
-    allow_headers=["Content-Type", "Authorization", "PAYMENT-SIGNATURE", "X-Delete-Code", "X-Unfret-Claim"],
-    expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE"],
+    # purchase's invites (unfret.credits.invites); Mcp-*: the remote MCP server (/mcp) for browser-based MCP clients
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "PAYMENT-SIGNATURE",
+        "X-Delete-Code",
+        "X-Unfret-Claim",
+        "Mcp-Protocol-Version",
+        "Mcp-Session-Id",
+        "Mcp-Method",
+        "Mcp-Name",
+        "Last-Event-ID",
+    ],
+    expose_headers=["PAYMENT-REQUIRED", "PAYMENT-RESPONSE", "Mcp-Session-Id", "WWW-Authenticate"],
 )
 
 
@@ -226,6 +240,8 @@ class RevalidatedStaticFiles(StaticFiles):
 
 # Include API routes, and the scripts and styles of the /connect and /checkout pages
 app.include_router(router)
+# The remote MCP server (streamable HTTP, Unfret passes only): unfret.mcp_remote
+app.router.routes.append(Route(mcp_remote.PATH, mcp_remote.endpoint, methods=["GET", "POST", "DELETE"]))
 app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 
 # Add custom exception handlers

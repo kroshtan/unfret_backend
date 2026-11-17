@@ -3,6 +3,8 @@ MCP server exposing Unfret's pay-per-check store risk API as tools for AI shoppi
 
 Configuration (environment):
     UNFRET_API_URL                    default https://unfret.net
+    UNFRET_PASS                       an Unfret pass (ufk_...): checks are paid from it, and no wallet is needed or
+                                      used (quick checks free, deep checks one of the pass's checks)
     UNFRET_MCP_KEYPAIR                path to the agent's Solana CLI keypair JSON (or UNFRET_MCP_SECRET_KEY, base58)
     UNFRET_MCP_NETWORK                solana-mainnet (default) or solana-devnet (for https://dev.unfret.net)
     UNFRET_MCP_RPC_URL                defaults to the public RPC of that network
@@ -21,6 +23,7 @@ from typing import Annotated, Any, Literal
 
 import httpx
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 from pydantic import Field
 from solders.keypair import Keypair
 
@@ -36,13 +39,32 @@ _DEFAULT_RPC = {
 
 server = MCPServer(
     "unfret",
+    title="Unfret",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
         "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.20; get_pricing has the live "
-        "prices; wSOL at the current SOL price) within a dollar spend cap. "
+        "prices; wSOL at the current SOL price) within a dollar spend cap, or, when this server was set up with an "
+        "Unfret pass, from the pass (quick checks free, deep checks one of its checks). "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
     ),
 )
+# Explicit hints on every tool. check_store spends (a payment or one of the pass's checks) and reads a third-party
+# page; the other two only read.
+_CHECK = ToolAnnotations(
+    title="Check a store or listing",
+    read_only_hint=False,
+    destructive_hint=False,
+    idempotent_hint=False,
+    open_world_hint=True,
+)
+
+
+def _readonly(title: str) -> ToolAnnotations:
+    return ToolAnnotations(
+        title=title, read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+    )
+
+
 _payer: Payer | None = None
 
 
@@ -99,7 +121,7 @@ def _api_url() -> str:
     return (_env("API_URL") or "https://unfret.net").rstrip("/")
 
 
-@server.tool()
+@server.tool(title=_CHECK.title, annotations=_CHECK)
 async def check_store(
     url: Annotated[str, Field(description="The store or product page URL (https).")],
     tier: Annotated[
@@ -139,6 +161,8 @@ async def check_store(
     body: dict[str, Any] = {"url": url, "tier": tier, "policy": policy}
     if page_content:
         body["page_content"] = page_content
+    if unfret_pass := _env("PASS"):
+        return await _check_with_pass(body, unfret_pass)
     try:
         return await payer().check(body)
     except UnavailableError as exc:
@@ -160,7 +184,40 @@ async def check_store(
         return {"status": "not_paid", "ok": False, "error": str(exc), "next_step": "Nothing was paid."}
 
 
-@server.tool()
+async def _check_with_pass(body: dict[str, Any], unfret_pass: str) -> dict[str, Any]:
+    """
+    Check with an Unfret pass instead of a payment: no wallet involved.
+
+    :param body: The ``/v1/check`` request.
+    :param unfret_pass: The pass.
+    :return: Like a paid check's result: ``status``, ``ok``, ``verdict`` and the pass's ``charged`` and
+        ``free_checks_left``, or ``error`` and ``next_step``.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(100, connect=10)) as client:
+            response = await client.post(
+                f"{_api_url()}/v1/check", json=body, headers={"Authorization": f"Bearer {unfret_pass.strip()}"}
+            )
+        answer = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"status": "unavailable", "ok": False, "error": type(exc).__name__, "next_step": "Retry later."}
+    if response.status_code == 200:
+        extra = {k: answer.pop(k, None) for k in ("charged", "free_check", "free_checks_left", "balance_usd_micros")}
+        return {"status": "ok", "ok": True, "verdict": answer, **extra}
+    code = answer.get("error_code", str(response.status_code))
+    steps = {
+        "INSUFFICIENT_CREDITS": f'Nothing was charged. Use tier "quick" (free), or buy at {_api_url()}/checkout.',
+        "INVALID_API_KEY": "Nothing was charged. UNFRET_PASS isn't a valid Unfret pass.",
+        "FREE_CHECKS_PAUSED": 'Nothing was charged. Free deep checks are back at 00:00 UTC; tier "quick" works now.',
+    }
+    status = "unavailable" if response.status_code in {429, 503} else "not_paid"
+    step = steps.get(code) or (
+        "Nothing was charged; send page_content." if code.startswith("PAGE_") else "Nothing was charged."
+    )
+    return {"status": status, "ok": False, "error": answer.get("detail", code), "error_code": code, "next_step": step}
+
+
+@server.tool(title="Unfret prices", annotations=_readonly("Unfret prices"))
 async def get_pricing() -> dict[str, Any]:
     """
     Unfret's current prices (free, no payment): the check tiers in dollars, and the live USDC and SOL amounts.
@@ -178,7 +235,7 @@ async def get_pricing() -> dict[str, Any]:
     return {"status": "ok", "ok": True, "pricing": prices}
 
 
-@server.tool()
+@server.tool(title="Explain a flag", annotations=_readonly("Explain a flag"))
 def explain_flag(flag_type: Annotated[str, Field(description="A flag's `type` from a verdict.")]) -> str:
     """
     Explain what a flag in an Unfret verdict means, in one paragraph for the end user.

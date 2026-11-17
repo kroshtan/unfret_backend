@@ -15,6 +15,24 @@ caps are in dollars whatever the currency: the server values a wSOL charge with 
 (mainnet, fully verified, ≤2 min old, confidence ≤2%) rather than Unfret's word, and refuses SOL when it has no such
 price. Unfret pays the network fee, so the agent pays only the price. The server never holds anyone else's funds.
 
+**No wallet? Use an Unfret pass.** Set `UNFRET_PASS` to a pass (`ufk_…`) and checks are paid from it instead: quick
+checks are free, deep checks use one of the pass's checks, and no keypair is needed or read. A **developer pass** comes
+with 20 free deep checks: [unfret.net/developers](https://unfret.net/developers).
+
+**Hosted (remote) server.** For clients that can't run a local process, Unfret serves the same checks over streamable
+HTTP at `https://unfret.net/mcp`, authenticated with a pass (`Authorization: Bearer ufk_…`); it never pays from a
+wallet. Tools there: `check_store_quick` (free, read-only), `check_store_deep` (uses one of the pass's checks),
+`get_checks_left`, `get_pricing`.
+
+```json
+{"mcpServers": {"unfret": {"type": "http", "url": "https://unfret.net/mcp",
+  "headers": {"Authorization": "Bearer ufk_…"}}}}
+```
+
+Every tool, here and there, has a title and explicit hints: `check_store` (and the remote `check_store_deep`) is not
+read-only (it spends a payment or a check), not destructive, not idempotent and open-world (it reads a third-party
+page); the others are read-only.
+
 | Tool | Input | Output |
 | --- | --- | --- |
 | `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.20), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
@@ -35,7 +53,8 @@ fetches.
 
 | Variable | Default | |
 | --- | --- | --- |
-| `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58) |
+| `UNFRET_PASS` | — | An Unfret pass (`ufk_…`): pay checks from it instead of a wallet (the settings below are then unused) |
+| `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58); not needed with `UNFRET_PASS` |
 | `UNFRET_MCP_NETWORK` | `solana-mainnet` | `solana-devnet` to try it with test money against `https://dev.unfret.net` |
 | `UNFRET_MCP_RPC_URL` | the network's public RPC | The public RPCs are rate-limited; use your own for anything busy |
 | `UNFRET_MCP_PAY_WITH` | USDC when offered and held, else SOL | `SOL` to always pay in wSOL |
@@ -62,6 +81,12 @@ To try it without real money, use devnet (free test SOL from `solana airdrop`, t
 {"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],
   "env": {"UNFRET_MCP_KEYPAIR": "~/.config/solana/devnet-agent.json", "UNFRET_MCP_NETWORK": "solana-devnet",
           "UNFRET_API_URL": "https://dev.unfret.net"}}}}
+```
+
+With a pass instead of a wallet:
+
+```json
+{"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"], "env": {"UNFRET_PASS": "ufk_…"}}}}
 ```
 
 Deep checks are synchronous today, so there is no polling tool yet.

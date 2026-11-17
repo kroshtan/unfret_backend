@@ -1,3 +1,6 @@
+from typing import Any
+
+import httpx
 import pytest
 from solders.keypair import Keypair
 
@@ -39,3 +42,54 @@ def test_an_unknown_network_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server_module, "_payer", None)
     with pytest.raises(RuntimeError, match="UNFRET_MCP_NETWORK"):
         server_module.payer()
+
+
+async def test_every_tool_has_a_title_and_explicit_hints() -> None:
+    for tool in await server.list_tools():
+        assert tool.title and tool.annotations is not None and tool.annotations.title == tool.title
+        hints = tool.annotations.model_dump(by_alias=True)
+        for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
+            assert isinstance(hints[hint], bool), (tool.name, hint)
+    check = next(t for t in await server.list_tools() if t.name == "check_store")
+    assert check.annotations is not None and check.annotations.read_only_hint is False
+
+
+def _fake_api(monkeypatch: pytest.MonkeyPatch, status: int, answer: dict[str, Any]) -> list[httpx.Request]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(status, json=answer)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        server_module.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+    )
+    return seen
+
+
+async def test_with_a_pass_no_wallet_is_needed(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("UNFRET_MCP_KEYPAIR", "UNFRET_MCP_SECRET_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("UNFRET_PASS", "ufk_abc")
+    monkeypatch.setattr(server_module, "_payer", None)
+    verdict = {"action": "allow", "tier": "deep", "charged": True, "free_check": True, "free_checks_left": 19}
+    seen = _fake_api(monkeypatch, 200, verdict)
+
+    result = await server_module.check_store("https://shop.test/a", tier="deep")
+
+    assert result["status"] == "ok" and result["verdict"] == {"action": "allow", "tier": "deep"}
+    assert result["charged"] is True and result["free_checks_left"] == 19
+    assert seen[0].headers["Authorization"] == "Bearer ufk_abc"
+    assert "PAYMENT-SIGNATURE" not in seen[0].headers
+    assert server_module._payer is None  # the wallet was never set up
+
+
+async def test_an_empty_pass_says_what_to_do(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UNFRET_PASS", "ufk_abc")
+    _fake_api(monkeypatch, 402, {"detail": "Not enough credits.", "error_code": "INSUFFICIENT_CREDITS"})
+
+    result = await server_module.check_store("https://shop.test/a", tier="deep")
+
+    assert result["status"] == "not_paid" and result["error_code"] == "INSUFFICIENT_CREDITS"
+    assert "quick" in result["next_step"] and "/checkout" in result["next_step"]

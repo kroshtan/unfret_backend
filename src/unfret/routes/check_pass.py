@@ -9,6 +9,8 @@ follows ``POST /v1/analyze`` exactly (:mod:`unfret.routes.analyze`, whose helper
   spent: 429 ``FREE_CHECKS_PAUSED``. A page that can't be read (422), assessed (score -1) or analysed (500/504) is
   given back.
 - a **quick** check is free, within the per-minute limit quick checks have on ``/v1/analyze`` (shared per pass).
+- ``/v1/check``'s own per-minute limit counts per pass here, not per visitor network, so agents behind one host (a
+  hosted MCP client, the remote MCP server) don't share it; bad passes count per network.
 - a **cached** answer (the same input within the hour, or the listing's answer of the last day, the x402 fast path)
   costs a deep check like a fresh one, except for the pass that paid for that listing within the hour.
 
@@ -28,11 +30,15 @@ from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys
 from unfret.routes import analyze
-from unfret.routes.check import CheckRequest, _failure_site, _readable_page
+from unfret.routes.check import CheckRequest, _failure_site, _rate, _readable_page, rate_limited
 from unfret.schemas.errors import ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
+from unfret.visitors import RateLimit
 from unfret.x402.verdict import Verdict, action_for, to_verdict
 
 logger = structlog.get_logger("unfret")
+
+# Requests with a pass that didn't authenticate, per visitor network: past it, 429 without looking passes up.
+_bad_passes = RateLimit(settings.x402_check_per_minute)
 
 
 async def authenticate(request: Request, token: str) -> str:
@@ -114,7 +120,35 @@ async def _pay_for_hit(request: Request, body: CheckRequest, account: str, hit: 
     return await _answer(request, hit, charge, account=account, charged=charge.charged)
 
 
-async def pass_check(body: CheckRequest, request: Request, token: str) -> Response:  # noqa: C901
+async def _pass(request: Request, body: CheckRequest, token: str) -> str | Response:
+    """
+    The pass behind the request, within its limits.
+
+    :param request: The incoming request.
+    :param body: The request body (its tier).
+    :param token: The bearer token.
+    :return: The pass's account, or a 429.
+    :raises UnauthorizedError: For anything but a valid pass (counted per network).
+    :raises TooManyRequestsError: Over the per-pass quick-check limit.
+    """
+    ip = request.client.host if request.client else "unknown"
+    if (wait := _bad_passes.waiting(ip)) is not None:  # this network sent too many bad passes: no more lookups
+        return rate_limited(wait)
+    try:
+        account = await authenticate(request, token)
+    except UnauthorizedError:
+        _bad_passes.retry_after(ip)
+        raise
+    if (wait := _rate.retry_after(account)) is not None:  # /v1/check's limit, per pass
+        return rate_limited(wait)
+    if body.tier == "quick" and (wait := analyze._quick_rate.retry_after(account)) is not None:
+        raise TooManyRequestsError(
+            "Too many quick checks in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
+        )
+    return account
+
+
+async def pass_check(body: CheckRequest, request: Request, token: str) -> Response:
     """
     Run ``POST /v1/check`` for an Unfret pass.
 
@@ -122,15 +156,24 @@ async def pass_check(body: CheckRequest, request: Request, token: str) -> Respon
     :param request: The incoming request.
     :param token: The bearer token (the pass).
     :return: The verdict (with the pass's fields), or a free error response.
+    """
+    account = await _pass(request, body, token)
+    if isinstance(account, Response):
+        return account
+    return await _checked(body, request, account)
+
+
+async def _checked(body: CheckRequest, request: Request, account: str) -> Response:  # noqa: C901
+    """
+    Answer the check for a pass: from the cache, or a fresh analysis.
+
+    :param body: The request body.
+    :param request: The incoming request.
+    :param account: The pass's account.
+    :return: The verdict (with the pass's fields), or a free error response.
     :raises TooManyRequestsError: Over a per-pass limit, or ``FREE_CHECKS_PAUSED``.
     :raises asyncio.CancelledError: If the client hung up (after the refund).
     """
-    account = await authenticate(request, token)
-    if body.tier == "quick" and (wait := analyze._quick_rate.retry_after(account)) is not None:
-        raise TooManyRequestsError(
-            "Too many quick checks in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
-        )
-
     key = _cache_key(body)
     hit = _recall_cached(body, key)
     if hit is None and not body.page_content:

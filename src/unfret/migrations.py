@@ -555,6 +555,15 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         DROP TABLE IF EXISTS showcase_cases;
         """,
     ),
+    (
+        25,
+        "free checks on a pass",
+        """
+        -- The free deep checks left on a pass made with "free": true (unfret.credits.free); spent before its balance.
+        -- A count, nothing else: not who made the pass, nor where from.
+        ALTER TABLE api_keys ADD COLUMN free_checks INTEGER NOT NULL DEFAULT 0 CHECK (free_checks >= 0);
+        """,
+    ),
 ]
 
 

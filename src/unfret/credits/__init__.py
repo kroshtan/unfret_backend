@@ -57,6 +57,9 @@ class CreditsDoor:
             # Backup codes can't be guessed: per network only, so nobody can use up a global allowance for everyone.
             recoveries=DailyLimit(settings.key_recover_per_ip_per_day, _NO_DAILY_CAP),
         )
+        # New passes that come with free checks (unfret.credits.free), per visitor network only: a global cap would let
+        # one actor with many networks use them up for everyone; the day's budget for free deep checks bounds the cost.
+        self.free_passes = DailyLimit(settings.free_passes_per_ip_per_day, _NO_DAILY_CAP)
         self.scanner: CreditScanner | None = None
         self.usdc_scanner: CreditScanner | None = None
 

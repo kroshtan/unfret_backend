@@ -39,6 +39,7 @@ async def test_analysis_is_paid_from_the_balance(
         "balance_usd_micros": 2 * PRICE,
         "balance_lamports": 2 * PRICE,
         "charged": True,
+        "tier": "deep",
     }
     assert graph.calls == [PAGE]
     assert await balance(pool, address) == 2 * PRICE
@@ -354,6 +355,7 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
         "balance_usd_micros": 0,
         "balance_lamports": 0,
         "charged": True,
+        "tier": "deep",
     }
     assert await balance(pool, address) == 0
 
@@ -365,9 +367,9 @@ async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
     # and the steps carried every finding's evidence: read them, hang up, and the check was free.
     address, _ = await wallet(PRICE)
     request: Any = SimpleNamespace(app=SimpleNamespace(db_pool=pool))
-    left = await analyze._debit(request, address)
+    charge = await analyze._debit(request, address)
     body = AnalyzeRequest.model_validate(PAGE)
-    events = analyze._live_events(request, body, address, graph, {}, key="k", left=left)
+    events = analyze._live_events(request, body, charge, graph, {}, key="k")
 
     first = await anext(events)
     second = await anext(events)

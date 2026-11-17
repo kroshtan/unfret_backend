@@ -34,7 +34,16 @@
     <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
       your browser until you tap Check. The page keeps no history; only your Unfret pass (or a wallet's sign-in) stays
-      in your browser, until you remove it on My checks.</p>
+      in your browser, until you remove it on My checks, and a note that this browser has had its free pass.</p>
+
+    <p><strong>Free checks.</strong> When you install the extension, or tap Check on the link checker for the first
+      time, it asks our server for a new Unfret pass with a few free checks. That request carries nothing about you or
+      the pages you visit. To give free checks only once, the extension remembers in your browser's own extension
+      storage that it got them (your browser may sync that note between your devices, as it does settings), and the
+      link checker in this browser's storage; neither note says anything else. Our server counts new free passes per
+      internet connection for a day, in memory only and under a salted one-way hash of the address, gone at the next
+      restart: <strong>it never stores your IP address</strong>. Of the free checks it stores only how many a pass has
+      left, and how many were used in all today.</p>
 
     <p>Your <strong>Unfret pass</strong> is what holds your checks (developers know it as an API key). When the
       checkout page or My checks gives you a pass, it can hand it to the Unfret extension in the same browser, so you
@@ -49,8 +58,8 @@
     <ul>
       <li><strong>Your wallet and its balance</strong>: the Solana address you signed in with and how many checks you
         have left. No name, e-mail or password.</li>
-      <li><strong>Or your Unfret pass and its balance</strong>: the pass's public ID, its balance, and one-way hashes of
-        the pass and its backup code. We never store either in readable form, so keep the backup code: we can't
+      <li><strong>Or your Unfret pass and its balance</strong>: the pass's public ID, its balance, its free checks
+        left, and one-way hashes of the pass and its backup code. We never store either in readable form, so keep the backup code: we can't
         recover the pass for you.</li>
       <li><strong>Card payments</strong>: <a href="https://polar.sh" rel="noopener">Polar</a> sells the pack to you as
         merchant of record. It collects your payment details, e-mail and country, charges VAT and sends the receipt,

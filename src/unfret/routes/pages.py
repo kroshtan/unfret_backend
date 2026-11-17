@@ -263,12 +263,19 @@ def checkout() -> HTMLResponse:
 
 
 @router.get("/welcome", response_class=HTMLResponse)
-def welcome() -> HTMLResponse:
+def welcome(free: int = 0) -> HTMLResponse:
     """
-    The first page after installing the extension (it opens it once): a code, buying checks, or a key you have.
+    The first page after installing the extension (it opens it once).
 
+    With ``?free=<n>`` (the extension made itself a pass with that many free checks): "You have n free checks", and
+    how to check a page. Without (an older extension, a reinstall): a code, buying checks, or a pass you have.
+
+    :param free: The free checks the extension's new pass came with.
     :return: The page.
     """
+    if 0 < free <= 100:
+        page = with_store_links(template("welcome-free.html", cta=("/check", "Check a link")))
+        return HTMLResponse(versioned(page.replace("{{free_checks}}", str(free))), headers=PAGE_HEADERS)
     return _page("welcome.html", cta=("/checkout?mode=code", "I have a code"))
 
 
@@ -282,7 +289,12 @@ def check_page() -> HTMLResponse:
 
     :return: The page.
     """
-    return HTMLResponse(versioned(template("check.html", "/check")), headers=CHECK_PAGE_HEADERS)
+    examples = "\n        ".join(
+        f'<li><button type="button" class="link" data-example="{html.escape(link)}">{html.escape(label)}</button></li>'
+        for label, link in settings.check_examples
+    )
+    page = template("check.html", "/check").replace("{{examples}}", examples)
+    return HTMLResponse(versioned(page), headers=CHECK_PAGE_HEADERS)
 
 
 @router.get("/manifest.webmanifest")

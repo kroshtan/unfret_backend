@@ -104,9 +104,12 @@ async def test_the_scripts_are_served(client: httpx.AsyncClient, asset: str) -> 
 
 def test_the_page_keeps_only_the_sign_in() -> None:
     script = (STATIC_DIR / "check.js").read_text()
-    # One localStorage key, the account, and every access wrapped in try/catch (private modes throw).
-    assert script.count("localStorage.") == 2 + 1  # get, set, remove
+    # Three localStorage keys, every access wrapped in try/catch (private modes throw): the account (get, set,
+    # remove), that this browser had its free pass (get, set; no link to the pass or anything checked), and a pass
+    # made here with its backup code, as /checkout keeps one (get, set).
+    assert script.count("localStorage.") == 3 + 2 + 2
     assert script.count('"unfret-account"') == 1
+    assert script.count('"unfret-free-pass"') == 1 and script.count('"unfret-new-key"') == 1
     assert "sessionStorage" not in script and "indexedDB" not in script
     # The clipboard is read only from the "Paste link" button's handler.
     assert script.count("clipboard.readText()") == 1

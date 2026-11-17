@@ -4,12 +4,15 @@
 // such and never as a verdict.
 //
 // This page is also the phone app (installed from the browser). Its checks come from an Unfret pass (an API key) or,
-// for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. Without either, it offers to get
-// checks (/checkout) or to paste a pass; a pass also arrives by QR code from /my-checks in another browser
-// (/check#pass=ufk_…, read here and cleared from the address bar at once).
+// for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. A first visit gets a free pass at
+// the first tap of Check (new-pass.js: a few free deep checks, asked for once per browser); after that, or without a
+// pass, quick checks (rules only) are free and the page offers to get checks (/checkout) or to paste a pass; a pass
+// also arrives by QR code from /my-checks in another browser (/check#pass=ufk_…, read here and cleared from the
+// address bar at once). A deep check that only free checks could pay for, once they're used (402) or today's are all
+// used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
 //
-// What this page keeps, in localStorage: only the sign-in (the pass, or a wallet's session token) until it's removed
-// on /my-checks. No history: the link lives in the text field and in memory for the one check (and goes into a shared
+// What this page keeps, in localStorage: the sign-in (the pass, or a wallet's session token) until it's removed on
+// /my-checks, and that this browser got its free pass (FREE_GIVEN, so it gets one only once). No history: the link lives in the text field and in memory for the one check (and goes into a shared
 // result only when the shopper shares it, after a preview). A shared link (/check?url=… or, via the service worker,
 // /check#url=…) is read here and removed from the address bar at once.
 import {
@@ -25,9 +28,13 @@ import {
 } from "./check-core.js";
 import { el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
-import { INVITE_RE, NOT_A_CODE, redeemInvite } from "./wallet.js";
+import { makePass } from "./new-pass.js";
+import { INVITE_RE, NOT_A_CODE, api, redeemInvite } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
+const FREE_GIVEN = "unfret-free-pass"; // this browser asked for its free pass (once per browser)
+const NEW_KEY = "unfret-new-key"; // a pass made in this browser, with its backup code (as /checkout keeps one)
+const FREE_PER_PASS = 5; // until /v1/pricing says
 const UNREADABLE = {
   PAGE_BLOCKED: {
     heading: "This site turns automatic visits away",
@@ -52,6 +59,8 @@ const checkButton = $("check");
 let account = null; // { kind: "wallet" | "key", token, address, expires_at }
 let expired = false;
 let checks = null;
+let freeLeft = 0; // of `checks`, the free ones
+let freePaused = false; // today's free deep checks are all used
 let inviteEligible = false;
 let pricing = null;
 let running = null; // the AbortController of the check in progress
@@ -93,6 +102,32 @@ function forgetAccount() {
   }
 }
 
+function freeGiven() {
+  try {
+    return localStorage.getItem(FREE_GIVEN) !== null;
+  } catch {
+    return false; // no storage: each visit may ask, and the server's own limits decide
+  }
+}
+
+function markFreeGiven() {
+  try {
+    localStorage.setItem(FREE_GIVEN, "1");
+  } catch {
+    // not remembered
+  }
+}
+
+function keepNewPass(issued) {
+  try {
+    if (localStorage.getItem(NEW_KEY) !== null) return;
+    const kept = { key: issued.key, recovery_code: issued.recovery_code, key_id: issued.key_id, funded: false };
+    localStorage.setItem(NEW_KEY, JSON.stringify(kept));
+  } catch {
+    // not remembered
+  }
+}
+
 // ── Network ──────────────────────────────────────────────────────────────────────────────────────────────
 
 function headers(json) {
@@ -127,7 +162,17 @@ function shortAddress(address) {
 }
 
 function checksText(n) {
+  if (freeLeft > 0 && freeLeft === n) return n === 1 ? "1 free check left" : `${n} free checks left`;
   return n === 1 ? "1 check left" : `${n} checks left`;
+}
+
+function freePerPass() {
+  return pricing?.free?.checks_per_pass ?? FREE_PER_PASS;
+}
+
+// No pass yet and no free pass asked for in this browser: the first Check gets one.
+function freeAvailable() {
+  return !account && !freeGiven() && freePerPass() > 0;
 }
 
 // Signed in with a key: its top-up, the key's ID filled in (the ID only: never the key itself in an address).
@@ -151,9 +196,25 @@ function renderAccount() {
   $("invite").hidden = !(account && inviteEligible);
   $("sign-in-note").textContent = expired
     ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."
-    : "Checks come in packs, with no subscription and no account.";
+    : "Quick checks are free. Deep checks come in packs, with no subscription and no account.";
   // Out of checks: add checks to this pass (or to this wallet, in crypto).
   $("buy-card").href = account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
+  $("buy-card").textContent = account?.kind === "key" ? "Add checks to my pass" : "Buy checks";
+  $("no-checks-pass").hidden = Boolean(account);
+  // A first visit: the first check is on the house, no account and nothing to buy; a pass you have is one step away.
+  const fresh = freeAvailable();
+  $("have-pass-row").hidden = !fresh;
+  if (!running) {
+    $("hint").textContent = fresh
+      ? `Your first ${freePerPass()} checks are free: no account, nothing to buy. Nothing is sent until you tap Check.`
+      : account && checks === 0
+        ? "Quick checks are free. Nothing is sent until you tap Check."
+        : account && freePaused && freeLeft === checks
+          ? "Free deep checks are back tomorrow; quick checks still work. Nothing is sent until you tap Check."
+          : !account
+            ? "Quick checks are free. Nothing is sent until you tap Check."
+            : "One check per link. Nothing is sent until you tap Check.";
+  }
 }
 
 async function refreshChecks() {
@@ -161,6 +222,8 @@ async function refreshChecks() {
   try {
     const credits = await getJson("/v1/credits", true);
     checks = credits.checks_remaining;
+    freeLeft = credits.free_checks_remaining ?? 0;
+    freePaused = credits.free_checks_paused === true;
     inviteEligible = credits.invite_eligible === true;
   } catch (error) {
     if (error.status === 401) return signedOut(true);
@@ -172,6 +235,7 @@ function signedOut(wasExpired) {
   forgetAccount();
   account = null;
   checks = null;
+  freeLeft = 0;
   expired = wasExpired;
   renderAccount();
 }
@@ -179,6 +243,26 @@ function signedOut(wasExpired) {
 function showSignIn(visible) {
   $("sign-in").hidden = !visible;
   if (visible) renderAccount();
+}
+
+// ── The free pass (a first visit) ─────────────────────────────────────────────────────────────────────────────
+
+// Asked for once per browser: whatever the server gives (5 free checks, or none once this network had its share
+// today), this browser has had its turn. On a failure (offline, too many new passes from here) nothing is kept.
+async function getFreePass() {
+  $("progress-status").textContent = "Getting your free checks… this takes a few seconds.";
+  try {
+    const issued = await makePass(api, { free: true });
+    markFreeGiven();
+    keepNewPass(issued);
+    freeLeft = issued.free_checks ?? 0;
+    checks = freeLeft;
+    saveAccount({ kind: "key", token: issued.key, address: issued.account });
+    renderAccount();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function signedIn(value) {
@@ -335,7 +419,7 @@ function updateSteps(done) {
   });
 }
 
-function renderResult(result) {
+function renderResult(result, because = null) {
   const band = bandOf(result);
   const { nodes } = resultNodes(result, {
     band,
@@ -351,8 +435,16 @@ function renderResult(result) {
   nodes.push(
     el("p", "muted small source-note", "Unfret opened this page itself, so it may look a little different from what you see."),
   );
-  if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
+  if (result.tier === "quick") {
+    nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere. Free, and no check was used."));
+  } else if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
   else if (result.charged === false) nodes.push(el("p", "small", "Checked recently: no check was used."));
+  else if (result.free_check) nodes.push(el("p", "small", "One of your free checks."));
+  const reason = because ? QUICK_BECAUSE[because] : null;
+  if (reason) {
+    $("no-checks-heading").textContent = reason.heading;
+    $("no-checks-body").textContent = reason.body;
+  }
 
   $("result-body").replaceChildren(...nodes);
 
@@ -402,6 +494,8 @@ async function failed(error, link) {
   if (error.status === 402 || error.code === "INSUFFICIENT_CREDITS") {
     checks = 0;
     renderAccount();
+    $("no-checks-heading").textContent = "You have no checks left";
+    $("no-checks-body").textContent = "Add a pack and check on. Nothing was used for this link.";
     showOnly("no-checks");
     return;
   }
@@ -420,13 +514,23 @@ async function failed(error, link) {
   showError("The check failed.", true);
 }
 
+// Why a quick check ran instead of a deep one, in the words shown above its result.
+const QUICK_BECAUSE = {
+  used: {
+    heading: "You have no checks left",
+    body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks come in packs, with no subscription.",
+  },
+  paused: {
+    heading: "Free deep checks are back tomorrow",
+    body: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules. Bought checks work as always.",
+  },
+  none: {
+    heading: "A quick check",
+    body: "Without a pass, Unfret reads only this page, by its rules. A deep check also looks the shop up elsewhere: get checks, or use your pass.",
+  },
+};
+
 async function check(link) {
-  if (!account) {
-    showOnly();
-    showSignIn(true);
-    return;
-  }
-  const body = { url: link };
   const abort = new AbortController();
   running = abort;
   last = null;
@@ -434,6 +538,21 @@ async function check(link) {
   showOnly("progress");
   buildSteps();
   updateSteps(checklistDone([], false));
+  try {
+    if (freeAvailable()) await getFreePass();
+    if (!account) return await run(link, "quick", abort, "none");
+    const outcome = await run(link, "deep", abort);
+    if (outcome === "used" || outcome === "paused") await run(link, "quick", abort, outcome);
+  } finally {
+    running = null;
+    busy(false);
+  }
+}
+
+// One check of `link`; resolves "used" or "paused" when a deep check needs checks the account doesn't have (a quick
+// check follows), else when the outcome is on screen.
+async function run(link, tier, abort, because = null) {
+  const body = tier === "quick" ? { url: link, tier } : { url: link };
   $("progress-status").textContent = "Opening the shop's page…";
   const steps = [];
   try {
@@ -444,8 +563,18 @@ async function check(link) {
       signal: abort.signal,
       cache: "no-store",
     });
-    if (!response.ok) return await failed(await failure(response), link);
-    $("progress-status").textContent = "Checking… this usually takes 10–30 seconds.";
+    if (!response.ok) {
+      const error = await failure(response);
+      if (tier === "deep" && error.code === "FREE_CHECKS_PAUSED") return "paused";
+      if (tier === "deep" && (error.status === 402 || error.code === "INSUFFICIENT_CREDITS")) {
+        checks = 0;
+        renderAccount();
+        return "used";
+      }
+      return await failed(error, link);
+    }
+    $("progress-status").textContent =
+      tier === "quick" ? "A quick check… a few seconds." : "Checking… this usually takes 10–30 seconds.";
     const outcome = await readStream(response.body, (skill, pageType) => {
       // The classifier names the kind of page: a shop, a second-hand ad or a company; its own checklist follows.
       if (pageType && checklistFor(pageType) !== stepsKind) buildSteps(checklistFor(pageType));
@@ -455,9 +584,9 @@ async function check(link) {
     if (outcome.kind === "result") {
       updateSteps(checklistDone(steps, true, stepsKind));
       last = { body, result: outcome.result };
-      renderResult(outcome.result);
-      showOnly("result", "again-row");
-      if (typeof outcome.result.balance_usd_micros === "number") void refreshChecks();
+      renderResult(outcome.result, because);
+      showOnly("result", ...(because ? ["no-checks"] : []), "again-row");
+      if (account) void refreshChecks();
     } else if (outcome.kind === "error") {
       showError(outcome.detail || "The check failed.", true);
     } else {
@@ -466,10 +595,8 @@ async function check(link) {
   } catch (error) {
     if (abort.signal.aborted) showError("Cancelled. A check that hadn't finished costs nothing.", false);
     else showError("Couldn't reach Unfret. Check your connection.", false);
-  } finally {
-    running = null;
-    busy(false);
   }
+  return null;
 }
 
 async function readStream(stream, onStep) {
@@ -733,6 +860,23 @@ $("invite-redeem").addEventListener("click", async () => {
     $("invite-redeem").disabled = false;
   }
 });
+for (const example of document.querySelectorAll("[data-example]")) {
+  example.addEventListener("click", () => {
+    if (running) return;
+    field.value = new URL(example.dataset.example, window.location.origin).href;
+    linkError("");
+    renderPaste();
+    form.requestSubmit();
+  });
+}
+for (const id of ["have-pass", "no-checks-pass"]) {
+  $(id).addEventListener("click", (event) => {
+    event.preventDefault();
+    showSignIn(true);
+    $("choice-key").open = true;
+    $("key").focus();
+  });
+}
 $("key-use").addEventListener("click", () => void useKey());
 $("key").addEventListener("keydown", (event) => {
   if (event.key === "Enter") void useKey();
@@ -766,7 +910,7 @@ account = loadAccount();
 const shared = takeSharedLink();
 renderAccount();
 renderPaste();
-showSignIn(!account);
+showSignIn(!account && !freeAvailable());
 if (account) void refreshChecks();
 if (shared.link && account) checkButton.focus();
 if (shared.pass) void receivePass(shared.pass);

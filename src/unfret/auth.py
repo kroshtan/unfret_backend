@@ -94,3 +94,18 @@ async def require_account(request: Request) -> str:
         return await keys.authenticate(request.app.db_pool, token)
     except keys.ApiKeyError as exc:
         raise UnauthorizedError(str(exc), error_code="INVALID_API_KEY") from exc
+
+
+async def optional_account(request: Request) -> str | None:
+    """
+    FastAPI dependency: the account behind ``Authorization: Bearer``, or ``None`` for a request without one.
+
+    For the free tier, where a visitor without a pass may check too (:mod:`unfret.credits.free`). A header that is
+    there but doesn't authenticate is refused as by :func:`require_account`, so an expired sign-in is still noticed.
+
+    :param request: The incoming request.
+    :return: The account, or ``None`` without an ``Authorization`` header.
+    """
+    if not request.headers.get("authorization", "").strip():
+        return None
+    return await require_account(request)

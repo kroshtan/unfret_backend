@@ -126,7 +126,9 @@ def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
     How a pack is offered: the card price as *the* price, crypto as the lower price, and its invites.
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
-    discount for paying another way is fine. Invites are invites, never "free" or a "trial".
+    discount for paying another way is fine. "Free checks" is the free tier's name (the checks a new pass comes with,
+    and quick checks: :mod:`unfret.credits.free`), never a "trial". Invites and intro codes keep their own words: an
+    invite is a buyer's gift ("an invite of 3 checks to give away"), never a "free invite" or a "trial".
 
     :param pack: The pack.
     :param settings: The service settings (for the invites; without them, none are mentioned).

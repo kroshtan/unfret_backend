@@ -21,7 +21,7 @@ from solders.pubkey import Pubkey
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import fiat, invites, keys, ledger, local_methods, vat
+from unfret.credits import fiat, free, invites, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
@@ -57,12 +57,20 @@ class CreditsResponse(BaseModel):
 
     address: str = Field(description="The account: the wallet's address, or key:<id> for an API key.")
     balance_usd_micros: int = Field(description="The balance in micro-dollars (1 USD = 1,000,000).")
-    checks_remaining: int
+    checks_remaining: int = Field(description="Checks left: the balance in checks, plus the free checks left.")
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
     invite_eligible: bool = Field(
         description="Whether an invite can still be redeemed onto this account: only one that has never had credit."
+    )
+    free_checks_remaining: int = Field(
+        default=0, description="Free deep checks left on this pass (included in checks_remaining); 0 for a wallet."
+    )
+    free_checks_paused: bool = Field(
+        default=False,
+        description="Today's free deep checks are all used (by everyone): free checks wait until 00:00 UTC, while "
+        "bought checks and quick checks work.",
     )
 
 
@@ -184,6 +192,14 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     method = local_methods.local_method(settings, country)
     document["local_payment_method"] = _method_document(method) if method else None
     document["api_keys"] = door.sign_in_enabled
+    # The free tier: what a new pass comes with, and whether today's free deep checks are all used (quick checks are
+    # free either way).
+    document["free"] = {
+        "checks_per_pass": settings.free_checks_per_pass,
+        "quick_checks": True,
+        "paused": request.app.db_pool is None or await free.paused(request.app.db_pool, settings),
+        "back_at": "00:00 UTC",
+    }
     smallest = packs(settings)[0]
     document["fiat"] = {
         "available": get_fiat(request) is not None,
@@ -208,14 +224,18 @@ async def get_balance(request: Request, address: str = Depends(require_account))
     :param address: The account (injected by require_account).
     :return: The balance, how many analyses it covers, and whether an invite can still be redeemed onto it.
     """
-    row = await ledger.balance(request.app.db_pool, address)
+    pool = request.app.db_pool
+    row = await ledger.balance(pool, address)
     balance = row or 0
+    free_left = await free.left(pool, address.removeprefix(keys.ACCOUNT_PREFIX)) if keys.is_key_account(address) else 0
     return CreditsResponse(
         address=address,
         balance_usd_micros=balance,
-        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
+        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros + free_left,
         balance_lamports=balance,
         invite_eligible=row is None,  # the same test redeem makes: an account with a ledger row had credit
+        free_checks_remaining=free_left,
+        free_checks_paused=bool(free_left) and await free.paused(pool, settings),
     )
 
 

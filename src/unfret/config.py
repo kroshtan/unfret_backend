@@ -139,6 +139,18 @@ class Settings(BaseSettings):
     # default (each code already has its own max uses). Set, all codes together give at most this many checks a UTC
     # day, so a code shared too widely can't run up the LLM bill; 0 pauses every code.
     intro_daily_checks_cap: int | None = Field(default=None, ge=0)
+    # Free checks (unfret.credits.free). A new pass made with "free": true (the browser extension on install, the
+    # link checker on a first visit) comes with free_checks_per_pass deep checks, for at most
+    # free_passes_per_ip_per_day new passes per visitor network (in memory, salted hashes); past that the pass is
+    # made empty. Every free deep check counts towards one global budget a UTC day: free_daily_budget_eur of
+    # estimated cost, free_check_cost_eur per deep check (LLM and embedding tokens, retries included); then "back
+    # tomorrow" until 00:00 UTC. A budget of 0 turns free deep checks off. Quick checks (rules only, no LLM: the x402
+    # quick tier) cost nothing and are free for everyone, within quick_checks_per_minute per account or network.
+    free_checks_per_pass: int = Field(default=5, ge=0)
+    free_passes_per_ip_per_day: int = Field(default=2, ge=0)
+    free_daily_budget_eur: Decimal = Field(default=Decimal("5.00"), ge=0, decimal_places=2)
+    free_check_cost_eur: Decimal = Field(default=Decimal("0.005"), gt=0, decimal_places=6)
+    quick_checks_per_minute: int = Field(default=10, ge=1)
     # VAT on crypto purchases (unfret.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
     # cross-border sales, every EU buyer pays Dutch VAT and everyone else none; "per_country": each EU buyer pays
     # their own country's rate (vendored from the EU's TEDB). Card purchases: the Merchant of Record handles VAT.
@@ -211,6 +223,9 @@ class Settings(BaseSettings):
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
+    # Links the link checker (/check) offers to try, as [label, address] pairs (an address on this site may be a
+    # path). The test shop first; more are set per deployment.
+    check_examples: list[tuple[str, str]] = [("The Unfret test shop, with every trick Unfret catches", "/test-shop")]
     # Where the home page and /extension send people to install the extension.
     chrome_store_url: str = "https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo"
     firefox_store_url: str = "https://addons.mozilla.org/en-US/firefox/addon/unfret/"
@@ -466,6 +481,15 @@ class Settings(BaseSettings):
         :return: Micro-dollars.
         """
         return self.analysis_price_usd_micros
+
+    @property
+    def free_daily_checks_cap(self) -> int:
+        """
+        How many free deep checks fit in a UTC day's budget (from :attr:`free_daily_budget_eur`).
+
+        :return: The budget over the estimated cost of one deep check, rounded down.
+        """
+        return int(self.free_daily_budget_eur // self.free_check_cost_eur)
 
     @property
     def analysis_price_lamports(self) -> int:

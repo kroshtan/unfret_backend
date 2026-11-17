@@ -213,3 +213,64 @@ def test_checkout_sends_a_stored_pass_to_the_extension_only_on_a_click() -> None
     before_click, _, on_click = send.partition('button("Send it to the extension", () =>')
     assert "handoffBox(" not in before_click
     assert "handoffBox({ key: stored.token })" in on_click
+
+
+@pytest.mark.usefixtures("node")
+def test_hand_off_says_when_the_extension_has_its_free_pass(tmp_path: Path) -> None:
+    out = _run(
+        tmp_path,
+        f"""
+        const win = makeWindow((data, w) => {{
+          if (data.type !== "unfret-key") return;
+          const status = data.replace ? "signed-in" : "other-account";
+          w.deliver({{ type: "unfret-key-received", status, free_pass: true }});
+        }});
+        const first = await handOffKey({json.dumps(KEY)}, {{ win, waitMs: 500 }});
+        const second = await handOffKey({json.dumps(KEY)}, {{ win, waitMs: 500, replace: true }});
+        return {{ first, second }};
+        """,
+    )
+    assert out == {"first": "free-pass", "second": "signed-in"}
+    script = (STATIC_DIR / "checkout.js").read_text()
+    assert 'status === "free-pass"' in script and "Any free checks left on it come along" in script
+
+
+async def test_the_welcome_page_after_a_free_pass_leads_straight_to_a_check(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/welcome?free=5")).text
+
+    assert "You have 5 free checks" in page and "{{" not in page
+    assert "No code, no account, nothing to buy." in page
+    assert 'href="/test-shop"' in page and "Check this page" in page
+    main = page.split("<main", 1)[1].split("</main>", 1)[0]
+    assert main.count('href="/checkout') == 1  # buying stays one quiet link away
+    assert "<script" not in page
+    nav = page.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
+    assert '<a class="cta" href="/check">Check a link</a>' in nav
+    for odd in ("0", "-1", "101", "five"):
+        other = await client.get(f"/welcome?free={odd}")
+        assert other.status_code in {200, 422}
+        assert "free checks</h1>" not in other.text  # anything else: the page for a pass without free checks
+
+
+async def test_the_link_checker_offers_examples_starting_with_the_test_shop(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = (await client.get("/check")).text
+    examples = page.split('<ul class="example-links">', 1)[1].split("</ul>", 1)[0]
+    assert examples.count("<li>") == len(settings.check_examples)
+    assert examples.index('data-example="/test-shop"') >= 0
+    monkeypatch.setattr(settings, "check_examples", [("A <b>shop</b>", '/x?a="1"'), ("Two", "/y"), ("Three", "/z")])
+    page = (await client.get("/check")).text
+    examples = page.split('<ul class="example-links">', 1)[1].split("</ul>", 1)[0]
+    assert examples.count("<li>") == 3 and "A &lt;b&gt;shop&lt;/b&gt;" in examples and "&quot;1&quot;" in examples
+
+
+def test_the_link_checker_gets_a_free_pass_once_per_browser() -> None:
+    script = (STATIC_DIR / "check.js").read_text()
+    assert 'import { makePass } from "./new-pass.js";' in script
+    assert "makePass(api, { free: true })" in script and "markFreeGiven();" in script
+    # After that, or without a pass: a quick check, saying why, never a refusal.
+    assert 'run(link, "quick", abort, "none")' in script and 'await run(link, "quick", abort, outcome)' in script
+    assert 'error.code === "FREE_CHECKS_PAUSED"' in script
+    checkout = (STATIC_DIR / "checkout.js").read_text()
+    assert "const makeKey = () => makePass(api);" in checkout

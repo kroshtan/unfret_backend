@@ -1,4 +1,4 @@
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -37,6 +37,11 @@ class AnalyzeRequest(BaseModel):
         default=None,
         max_length=settings.max_page_bytes,
         description="HTML of the checkout page for this product, if available, to detect fees added at checkout.",
+    )
+    tier: Literal["deep", "quick"] = Field(
+        default="deep",
+        description="deep (the default): the full analysis, which uses a check. quick: rule-based checks of the page "
+        "itself only (no LLM, no lookups elsewhere; product pages), free for everyone and never charged.",
     )
 
     @model_validator(mode="after")

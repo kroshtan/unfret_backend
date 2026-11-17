@@ -54,9 +54,17 @@
       <p id="hint" class="muted small">One check per link. Nothing is sent until you tap Check.</p>
     </form>
 
+    <section id="examples" class="examples small" aria-labelledby="examples-heading">
+      <h2 id="examples-heading" class="small">Or try one of these</h2>
+      <ul class="example-links">
+        {{examples}}
+      </ul>
+    </section>
+    <p id="have-pass-row" class="small" hidden><a id="have-pass" href="#sign-in">I already have a pass</a></p>
+
     <section id="sign-in" class="panel get-started" aria-labelledby="sign-in-heading" hidden>
       <h2 id="sign-in-heading">Get checks to start</h2>
-      <p id="sign-in-note">Checks come in packs, with no subscription and no account.</p>
+      <p id="sign-in-note">Quick checks are free. Deep checks come in packs, with no subscription and no account.</p>
       <p class="buttons">
         <a class="button primary" href="/checkout">Buy checks</a>
         <a class="button" href="/checkout?mode=code">I have a code</a>
@@ -78,6 +86,15 @@
       <p id="progress-status" role="status" aria-live="polite"></p>
       <ul id="steps" class="steps"></ul>
       <button id="cancel" type="button" class="secondary">Cancel</button>
+    </section>
+
+    <section id="no-checks" class="panel notice" aria-labelledby="no-checks-heading" hidden>
+      <h2 id="no-checks-heading">You have no checks left</h2>
+      <p id="no-checks-body">Add a pack and check on. Nothing was used for this link.</p>
+      <p class="buttons">
+        <a id="buy-card" class="button primary" href="/checkout">Add checks</a>
+        <a id="no-checks-pass" class="button" href="#sign-in" hidden>I already have a pass</a>
+      </p>
     </section>
 
     <section id="result" aria-label="Result" hidden>
@@ -132,13 +149,6 @@
         reads the page as your browser shows it.</p>
     </section>
 
-    <section id="no-checks" class="panel notice" aria-labelledby="no-checks-heading" hidden>
-      <h2 id="no-checks-heading">You have no checks left</h2>
-      <p>Add a pack and check on. Nothing was used for this link.</p>
-      <p class="buttons">
-        <a id="buy-card" class="button primary" href="/checkout">Add checks</a>
-      </p>
-    </section>
 
     <section id="error" class="panel notice" role="alert" hidden>
       <p id="error-message"></p>

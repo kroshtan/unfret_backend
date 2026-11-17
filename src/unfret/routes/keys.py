@@ -1,8 +1,9 @@
 """
 API keys: create, recover, and put one on a phone.
 
-``GET /v1/keys/challenge``, ``POST /v1/keys`` (create), ``POST /v1/keys/recover`` (rotate) and ``GET
-/v1/keys/phone-qr`` (a QR code that puts the key on a phone).
+``GET /v1/keys/challenge``, ``POST /v1/keys`` (create, with free checks on request: :mod:`unfret.credits.free`),
+``POST /v1/keys/recover`` (rotate), ``POST /v1/keys/move-free-checks`` and ``GET /v1/keys/phone-qr`` (a QR code that
+puts the key on a phone).
 
 Shoppers know a key as their **Unfret pass** and its recovery code as their **backup code**; the API keeps the
 technical names.
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import CreditsDoor, keys
+from unfret.credits import CreditsDoor, free, keys
 from unfret.schemas.errors import BadRequestError, ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 
 logger = structlog.get_logger("unfret")
@@ -46,6 +47,11 @@ class CreateKeyRequest(BaseModel):
 
     challenge: str = Field(max_length=200)
     solution: str = Field(min_length=1, max_length=32)
+    free: bool = Field(
+        default=False,
+        description="Ask for the free checks a new pass comes with (the browser extension does on install). Given "
+        "only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
+    )
 
 
 class RecoverRequest(BaseModel):
@@ -62,6 +68,19 @@ class KeyResponse(BaseModel):
     recovery_code: str = Field(description="Gets a new key (and a new code) with the same balance if the key is lost.")
     account: str = Field(description="The ledger account, key:<id>.")
     balance_usd_micros: int
+    free_checks: int = Field(default=0, description="Free deep checks on this pass (spent before its balance).")
+
+
+class MoveFreeChecksRequest(BaseModel):
+    """Where to put this pass's free checks."""
+
+    to_key_id: str = Field(description="The id of the pass to move them to (or the whole pass).", max_length=100)
+
+
+class MoveFreeChecksResponse(BaseModel):
+    """What moved."""
+
+    moved: int = Field(description="Free checks moved (0 when there were none, or no such pass).")
 
 
 def _door(request: Request) -> CreditsDoor:
@@ -103,14 +122,19 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
         raise BadRequestError("Challenge invalid, expired or unsolved; get a new one.", error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
-    issued = await keys.create(request.app.db_pool)
-    logger.info("api_key_created")
+    # Free checks only within this network's share of free passes today; past it, the pass is simply made empty.
+    given = 0
+    if body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
+        given = settings.free_checks_per_pass
+    issued = await keys.create(request.app.db_pool, free_checks=given)
+    logger.info("api_key_created", free_checks=given)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,
         recovery_code=issued.recovery_code,
         account=issued.account,
         balance_usd_micros=0,
+        free_checks=given,
     )
 
 
@@ -139,7 +163,36 @@ async def recover_key(body: RecoverRequest, request: Request) -> KeyResponse:
         recovery_code=issued.recovery_code,
         account=issued.account,
         balance_usd_micros=await keys.balance(request.app.db_pool, issued.key_id),
+        free_checks=await free.left(request.app.db_pool, issued.key_id),
     )
+
+
+@router.post("/move-free-checks", response_model=MoveFreeChecksResponse)
+async def move_free_checks(
+    body: MoveFreeChecksRequest, request: Request, account: str = Depends(require_account)
+) -> MoveFreeChecksResponse:
+    """
+    Move this pass's free checks to another pass: the extension does it when it switches to a pass its user bought.
+
+    Only free checks move (a balance never does), and only from the pass that authenticates the request
+    (``Authorization: Bearer ufk_…``).
+
+    :param body: The other pass.
+    :param request: The incoming request.
+    :param account: The account (injected by require_account).
+    :return: How many moved.
+    :raises BadRequestError: For a wallet's session, or a malformed pass id.
+    """
+    if not keys.is_key_account(account):
+        raise BadRequestError("Only a pass has free checks to move.")
+    try:
+        to_id = keys.key_id_from(body.to_key_id)
+    except keys.ApiKeyError as exc:
+        raise BadRequestError("Not a pass id.") from exc
+    _door(request)
+    moved = await free.move(request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX), to_id)
+    logger.info("free_checks_moved", checks=moved)
+    return MoveFreeChecksResponse(moved=moved)
 
 
 @router.get(

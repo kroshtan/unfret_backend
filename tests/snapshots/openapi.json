@@ -3541,7 +3541,7 @@
   },
   "/v1/images/{print_id}/thumbnail.jpg": {
    "get": {
-    "description": "A small JPEG of a photo in the image index (the thumbnails in photo findings point here).\n\n:param print_id: The index row, from a finding's thumbnail URL.\n:return: The JPEG, cacheable for a day.\n:raises HTTPException: 404 for an unknown row or a photo that is gone.",
+    "description": "A small JPEG of a photo in the image index (the thumbnails in photo findings point here).\n\n:param request: The incoming request (its visitor network, for the limit).\n:param print_id: The index row, from a finding's thumbnail URL.\n:return: The JPEG, cacheable for a day.\n:raises HTTPException: 404 for an unknown row or a photo that is gone.\n:raises TooManyRequestsError: Over the thumbnails allowed from this visitor network in a minute.",
     "operationId": "thumbnail_v1_images__print_id__thumbnail_jpg_get",
     "parameters": [
      {

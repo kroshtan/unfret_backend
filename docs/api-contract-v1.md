@@ -767,6 +767,12 @@ valid 7 days. Nothing is stored when a check runs.
   but still opens the crypto panel directly (links from the extension keep working); without crypto purchases it
   falls back to `new`. In a browser whose link checker uses a pass, "Buy checks" tops that pass up.
 
+## Changes (photo thumbnails, backwards-compatible)
+
+- `GET /v1/images/{id}/thumbnail.jpg`: 429 `TOO_MANY_REQUESTS` after 120 thumbnails from one visitor network in a
+  minute; a photo that couldn't be fetched or read answers 404 for an hour without being fetched again; a photo over
+  20 megapixels gets no thumbnail (404).
+
 ## Changes (a page for developers and agents, backwards-compatible)
 
 - `GET /developers`: the MCP server, x402 on `/v1/check` and a prepaid pass as an API key, with the tiers' prices

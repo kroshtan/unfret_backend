@@ -278,6 +278,51 @@ async def test_thumbnails_are_proxied_and_only_for_indexed_photos(
     assert missing.status_code == 404
 
 
+async def test_a_thumbnail_that_failed_is_not_fetched_again_at_once(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Anyone may ask for any thumbnail: a photo that can't be read must not make every request fetch it again.
+    fetched = serve(monkeypatch, {})  # the shop's photo is gone: every fetch fails
+    await stub.upsert(listing_at("gone.shop", 1), fp(product_photo(13)), image_url="https://gone/1.jpg", day=TODAY,
+                      source="seen")  # fmt: skip
+    images_route._cache.clear()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.get("/v1/images/1/thumbnail.jpg")
+        second = await client.get("/v1/images/1/thumbnail.jpg")
+    assert (first.status_code, second.status_code) == (404, 404)
+    assert fetched == ["https://gone/1.jpg"]
+
+
+async def test_a_huge_photo_is_not_decoded_for_a_thumbnail(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    huge = encode(Image.new("RGB", (6000, 5000), (200, 30, 30)), "PNG")  # 30 MP, compresses to almost nothing
+    serve(monkeypatch, {"https://big/1.png": huge})
+    await stub.upsert(listing_at("big.shop", 1), fp(product_photo(14)), image_url="https://big/1.png", day=TODAY,
+                      source="seen")  # fmt: skip
+    images_route._cache.clear()
+    decoded: list[object] = []
+
+    def load(*args: object, **_: object) -> Image.Image:
+        decoded.append(args)
+        return Image.new("RGB", (10, 10))
+
+    monkeypatch.setattr(images_route, "load", load)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        refused = await client.get("/v1/images/1/thumbnail.jpg")
+    assert refused.status_code == 404 and decoded == []
+
+
+async def test_thumbnails_are_limited_per_visitor_network(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(images_route, "_requests", images_route.RateLimit(3))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        answers = [(await client.get(f"/v1/images/{n}/thumbnail.jpg")).status_code for n in range(1, 5)]
+    assert answers == [404, 404, 404, 429]
+
+
 def verdict(features: dict[str, float], brand_known: bool = False) -> shopper.Verdict:
     finding = Finding(
         skill="reverse_image",

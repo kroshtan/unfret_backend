@@ -75,6 +75,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "review_fingerprints",
         "ad_prints",
         "ad_contacts",
+        "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
+        "x402_audit_flags",
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites"):  # only a purchase fills them

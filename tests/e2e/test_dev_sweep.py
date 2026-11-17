@@ -149,6 +149,14 @@ async def quote_paid(api: httpx.AsyncClient, quote_id: str) -> dict[str, Any]:
 # ── The deployment ─────────────────────────────────────────────────────────────────────────────────────────────
 
 
+async def flagged(api: httpx.AsyncClient, config: E2EConfig) -> str:
+    """The transactions behind dev's x402 alerts with their reasons (public on chain), for a failed readiness check."""
+    if not config.admin_token:
+        return ""
+    alerts = await api.get("/v1/admin/x402/alerts", headers=bearer(config.admin_token))
+    return f": {alerts.json().get('flagged')}" if alerts.status_code == 200 else ""
+
+
 async def test_health_and_readiness_report_the_release(api: httpx.AsyncClient, config: E2EConfig) -> None:
     live = await api.get("/v1/health")
     assert live.status_code == 200
@@ -162,7 +170,9 @@ async def test_health_and_readiness_report_the_release(api: httpx.AsyncClient, c
     body = ready.json()
     assert body["status"] == "ready"
     assert body["commit"] == live.json()["commit"]
-    assert body["x402"] == "ok", f"x402 is {body['x402']} (alerts: {body['x402_alert_count']})"
+    assert body["x402"] == "ok", (
+        f"x402 is {body['x402']} (alerts: {body['x402_alert_count']}){await flagged(api, config)}"
+    )
     assert body["credits"] == "ok"
     assert body["fiat"] == config.expect_fiat
     assert body["hot_sol_lamports"] is None, "the hot wallet's balances are shown without the operator token"
@@ -668,6 +678,7 @@ async def test_the_showcase_lists_published_cases_only(api: httpx.AsyncClient) -
         ("GET", "/v1/admin/reports"),
         ("GET", "/v1/admin/showcase"),
         ("POST", "/v1/admin/x402/clear-alerts"),
+        ("GET", "/v1/admin/x402/alerts"),
     ],
 )
 async def test_operator_endpoints_need_the_operator_token(api: httpx.AsyncClient, method: str, path: str) -> None:

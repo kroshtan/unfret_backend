@@ -1,7 +1,9 @@
 """Build real x402 payment transactions with solders for the tests."""
 
 import base64
+import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from pydantic import SecretStr
@@ -18,7 +20,15 @@ from unfret.config import Settings
 from unfret.prices import PriceBook, PriceUnavailableError, PythSolUsd, SolUsd
 from unfret.x402.payment import encode_header, requirements
 from unfret.x402.service import X402
-from unfret.x402.solana import CAIP2, MEMO_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, SolanaRpc, associated_token_address
+from unfret.x402.solana import (
+    CAIP2,
+    MEMO_PROGRAM,
+    TOKEN_PROGRAM,
+    WSOL_MINT,
+    SolanaRpc,
+    associated_token_address,
+    usdc_mint,
+)
 
 NETWORK = CAIP2["solana-devnet"]
 BLOCKHASH = str(Hash.default())
@@ -252,3 +262,35 @@ class FakeRpc(SolanaRpc):
             raise self.fail_with
         self.sent.append(raw_tx)
         return str(VersionedTransaction.from_bytes(raw_tx).signatures[0])
+
+
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "x402"
+# Dev's hot wallet and its first cold address, from the real devnet transactions in tests/fixtures/x402.
+DEV_HOT = Pubkey.from_string("7gQLXKARDkzNRFJy51WLy8T65kmcKAMUUn6eKhhUtZht")
+DEV_FORMER_COLD = Pubkey.from_string("EE6XVrpkxrxDx6T9TRyFwrEB2D35kWJzHBgMn4jwzeJe")
+DEVNET_USDC = usdc_mint("solana-devnet")
+
+
+def devnet_tx(name: str, hot: Pubkey | None = None, replace: dict[str, str] | None = None) -> dict[str, Any]:
+    """
+    A real devnet transaction (``getTransaction``, ``jsonParsed``) of dev's hot wallet, from tests/fixtures/x402.
+
+    ``sol_sweep_to_former_cold``: unwrap, recreate the wSOL account, 0.1469 SOL to EE6X… (signature 51h53MNU…).
+    ``usdc_sweep_to_former_cold``: create EE6X's USDC account (idempotent), 5.01 USDC into it (3EPiHdDc…).
+    ``usdc_sweep_creating_former_cold_account``: the first USDC sweep, which really created that account (the hot
+    wallet paid its rent) (3Tq8E277…, 10 Nov). All from when EE6X… was dev's cold address. With ``hot``, dev's hot
+    wallet and its token accounts are swapped for that wallet's (the tests hold its key, not dev's); ``replace``
+    swaps any other address.
+    """
+    text = (FIXTURES / f"{name}.json").read_text()
+    swaps = dict(replace or {})
+    if hot is not None:
+        swaps |= {
+            str(DEV_HOT): str(hot),
+            str(associated_token_address(DEV_HOT)): str(associated_token_address(hot)),
+            str(associated_token_address(DEV_HOT, DEVNET_USDC)): str(associated_token_address(hot, DEVNET_USDC)),
+        }
+    for old, new in swaps.items():
+        text = text.replace(old, new)
+    tx: dict[str, Any] = json.loads(text)
+    return tx

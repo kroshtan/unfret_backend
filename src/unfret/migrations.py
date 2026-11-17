@@ -519,6 +519,32 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE fiat_checkouts ADD COLUMN new_pass BOOLEAN NOT NULL DEFAULT FALSE;
         """,
     ),
+    (
+        23,
+        "x402 outflow audit survives restarts",
+        """
+        -- The x402 outflow audit (unfret.x402.service) per hot wallet: the newest transaction audited, so a restart
+        -- continues there instead of reading the wallet's history again, and every outflow it flagged, so an alarm
+        -- stays raised across restarts until the operator clears it (cleared_at). Hot-wallet transactions only:
+        -- signatures and the reason (the destination), never a payer or what was checked.
+        CREATE TABLE IF NOT EXISTS x402_audit_cursor (
+            hot_wallet  TEXT PRIMARY KEY,
+            signature   TEXT NOT NULL,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS x402_audit_flags (
+            id          BIGSERIAL PRIMARY KEY,
+            hot_wallet  TEXT NOT NULL,
+            signature   TEXT NOT NULL,
+            reason      TEXT NOT NULL CHECK (length(reason) <= 500),
+            found_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            cleared_at  TIMESTAMPTZ,
+            UNIQUE (hot_wallet, signature, reason)
+        );
+        CREATE INDEX IF NOT EXISTS x402_audit_flags_raised_idx
+            ON x402_audit_flags (hot_wallet) WHERE cleared_at IS NULL;
+        """,
+    ),
 ]
 
 

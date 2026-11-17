@@ -17,6 +17,7 @@ sweeps and fee payments this module signs.
 """
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -316,7 +317,11 @@ class HotWallet:
 
 
 def unexpected_outflows(  # noqa: C901
-    tx: dict[str, Any], hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | None = None
+    tx: dict[str, Any],
+    hot: Pubkey,
+    cold: Pubkey,
+    usdc_mint: Pubkey | None = None,
+    former: Iterable[Pubkey] = (),
 ) -> list[str]:
     """
     Find outgoing transfers from the hot wallet to anywhere but cold (or its own token accounts) in a transaction.
@@ -330,23 +335,28 @@ def unexpected_outflows(  # noqa: C901
     A failed transaction moved nothing but its fee, and one the hot wallet didn't sign can't have moved its value
     (it is a key pair: it can only authorise as a header signer), so neither is an outflow.
 
+    ``former`` are earlier cold addresses, accepted exactly like cold (SOL to them, USDC into their USDC accounts).
+    The caller passes them only for transactions old enough to be the sweeps of the time they were cold.
+
     :param tx: A ``getTransaction`` result in ``jsonParsed`` encoding.
     :param hot: The hot wallet.
     :param cold: The cold address.
     :param usdc_mint: The USDC mint, if the hot wallet accepts USDC.
+    :param former: Earlier cold addresses to accept as well.
     :return: Human-readable descriptions of each unexpected outflow (empty if none).
     """
-    hot_s, allowed = str(hot), {str(cold), str(associated_token_address(hot))}
+    colds = [cold, *former]
+    hot_s, allowed = str(hot), {str(associated_token_address(hot)), *(str(c) for c in colds)}
     if (tx.get("meta") or {}).get("err") is not None:
         return []
     keys = tx.get("transaction", {}).get("message", {}).get("accountKeys") or []
     if not any(isinstance(k, dict) and k.get("pubkey") == hot_s and k.get("signer") for k in keys):
         return []
-    cold_usdc = ""
+    cold_usdc: set[str] = set()
     if usdc_mint is not None:
-        cold_usdc = str(associated_token_address(cold, usdc_mint))
+        cold_usdc = {str(associated_token_address(c, usdc_mint)) for c in colds}
         # The cold address's USDC account receives rent when a USDC sweep creates it; it belongs to cold.
-        allowed |= {str(associated_token_address(hot, usdc_mint)), cold_usdc}
+        allowed |= {str(associated_token_address(hot, usdc_mint)), *cold_usdc}
     instructions = list(tx.get("transaction", {}).get("message", {}).get("instructions", []))
     for inner in (tx.get("meta") or {}).get("innerInstructions") or []:
         instructions.extend(inner.get("instructions", []))
@@ -367,7 +377,7 @@ def unexpected_outflows(  # noqa: C901
                 kind == "transferChecked"
                 and usdc_mint is not None
                 and info.get("mint") == str(usdc_mint)
-                and info.get("destination") == cold_usdc
+                and info.get("destination") in cold_usdc
             )
             if kind.startswith("transfer") and authority == hot_s and not usdc_sweep:
                 found.append(f"token {kind} by the hot wallet to {info.get('destination', '')}")

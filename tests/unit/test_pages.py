@@ -521,7 +521,9 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
     for script in STATIC_DIR.glob("*.js"):
         keys |= set(re.findall(r'"(unfret-[a-z-]+)"', script.read_text()))
     # Message types between the page and the extension, not storage.
-    assert keys - {"unfret-key", "unfret-key-received", "unfret-ref-received", "unfret-session-status"} == {
+    messages = {"unfret-key", "unfret-key-received", "unfret-ref-received", "unfret-session-status"}
+    messages |= {"unfret-free-ask", "unfret-free-answer"}
+    assert keys - messages == {
         "unfret-account",
         "unfret-new-key",
         "unfret-invite-claims",

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from unfret import shares, shopper
+from unfret import result_cache, shares, shopper
 from unfret.routes.pages import STATIC_DIR
 from unfret.routes.shares import render_share_page
 
@@ -162,6 +162,47 @@ def test_the_address_loses_fragment_credentials_and_tracking() -> None:
     )
     with pytest.raises(shares.ShareError):
         shares.share_url("javascript:alert(1)")
+
+
+def test_the_address_loses_sessions_tokens_and_email_addresses() -> None:
+    # What the browser extension drops before sending a checked page's address (L8); an address pasted on /check or
+    # sent by an agent loses the same, so a share never publishes a reset token or a newsletter's e-mail address.
+    url = (
+        "https://shop.example/p?id=5&variant=7&token=abc&PHPSESSID=s1&sid=s2&email=a%40b.example"
+        "&u=me%40mail.example&gclid=1&ttclid=2&hsa_cam=3&linkCode=ll1#reviews"
+    )
+    assert shares.share_url(url) == "https://shop.example/p?id=5&variant=7"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "dropped"),
+    [
+        ("utm_source", "x", True),
+        ("UTM_Medium", "x", True),
+        ("hsa_cam", "1", True),
+        ("Fbclid", "x", True),
+        ("ref_", "x", True),
+        ("jsessionid", "x", True),
+        ("reset_token", "x", True),
+        ("u", "me@mail.example", True),
+        ("u", "me%40mail.example", True),
+        ("next", "ufk_abcdefghij", True),
+        ("id", "5", False),
+        ("variant", "123", False),
+        ("q", "lamp@home", False),
+        ("th", "1", False),
+        ("size", "m", False),
+    ],
+)
+def test_parameters_that_never_name_a_product(name: str, value: str, dropped: bool) -> None:
+    assert result_cache.is_tracking_param(name, value) is dropped
+
+
+def test_the_result_cache_keys_an_address_as_the_extension_sends_it() -> None:
+    full = "https://Shop.example/p/?id=5&utm_source=x&email=a%40b.example&sid=1#reviews"
+    keys = {result_cache.key_for(url=url, page_content="text") for url in (full, "https://shop.example/p?id=5")}
+    assert len(keys) == 1
+    assert result_cache.key_for(url="https://shop.example/p?id=6", page_content="text") not in keys
 
 
 def test_a_share_shows_no_score_and_none_of_the_pages_own_words() -> None:

@@ -341,3 +341,137 @@ def test_the_link_checker_gets_a_free_pass_once_per_browser() -> None:
     assert 'error.code === "FREE_CHECKS_PAUSED"' in script
     checkout = (STATIC_DIR / "checkout.js").read_text()
     assert "const makeKey = () => makePass(api);" in checkout
+
+
+async def test_the_welcome_page_waits_while_the_extension_makes_its_pass(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/welcome?setup=1")).text
+
+    assert "Getting your free checks ready" in page and "{{" not in page
+    assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
+        f"/static/{asset_tag()}/welcome.js",
+        f"/static/{asset_tag()}/ref.js",
+    ]
+    assert 'href="/welcome">Continue</a>' in page  # without scripts
+
+
+async def test_the_welcome_page_says_why_a_pass_came_without_free_checks(client: httpx.AsyncClient) -> None:
+    had = (await client.get("/welcome?note=had-free")).text
+    assert "This browser has had its free checks already" in had and "Shop without the worry" in had
+    none = (await client.get("/welcome?note=none-today")).text
+    assert "There were no free checks to give just now" in none
+    for path in ("/welcome", "/welcome?note=other", "/welcome?note=%3Cb%3E"):
+        page = (await client.get(path)).text
+        assert "{{" not in page and 'class="note"' not in page and 'role="status"' not in page
+
+
+def _run_welcome(tmp_path: Path, body: str) -> Any:
+    """
+    Run ``body`` in node with ``welcome.js`` (and the ``ref.js`` it imports) and a fake same-origin window.
+
+    :param tmp_path: Where to put the modules.
+    :param body: An async function body using ``askFreeChecks``, ``nextWelcome``, ``makeWindow`` and ``makeStorage``.
+    :return: What it printed, parsed.
+    """
+    for name in ("welcome.js", "ref.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    script = f"""
+import {{ askFreeChecks, nextWelcome }} from {json.dumps((tmp_path / "welcome.js").as_uri())};
+// A window that delivers posted messages to its listeners; `extension` plays the extension's content script.
+function makeWindow(extension) {{
+  const listeners = new Set();
+  const win = {{
+    location: {{ origin: "https://unfret.net", replaced: [], replace: (path) => win.location.replaced.push(path) }},
+    posted: [],
+    addEventListener: (type, fn) => listeners.add(fn),
+    deliver(data, {{ source = win, origin = "https://unfret.net" }} = {{}}) {{
+      for (const fn of [...listeners]) fn({{ data, source, origin }});
+    }},
+    postMessage(data, targetOrigin) {{
+      win.posted.push({{ data, targetOrigin }});
+      setTimeout(() => extension?.(data, win), 5);
+    }},
+  }};
+  return win;
+}}
+function makeStorage(items = {{}}) {{
+  return {{ items, getItem: (k) => items[k] ?? null, setItem: (k, v) => {{ items[k] = String(v); }} }};
+}}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const out = await (async () => {{ {body} }})();
+process.stdout.write(JSON.stringify(out));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True, timeout=30
+    )
+    return json.loads(result.stdout)
+
+
+@pytest.mark.usefixtures("node")
+def test_the_welcome_page_tells_the_extension_whether_this_browser_had_its_free_checks(tmp_path: Path) -> None:
+    out = _run_welcome(
+        tmp_path,
+        """
+        const fresh = makeStorage();
+        const first = makeWindow((data, w) => {
+          if (data.type === "unfret-free-ask") w.deliver({ type: "unfret-free-answer", status: "free", free: 5 });
+        });
+        askFreeChecks(first, fresh, { everyMs: 20, giveUpMs: 2000 });
+        await sleep(100);
+        const reinstalled = makeWindow((data, w) => {
+          if (data.type === "unfret-free-ask") w.deliver({ type: "unfret-free-answer", status: "had-free", free: 0 });
+        });
+        askFreeChecks(reinstalled, fresh, { everyMs: 20, giveUpMs: 2000 });
+        await sleep(100);
+        return {
+          first: first.posted, firstTo: first.location.replaced, note: fresh.items,
+          again: reinstalled.posted.map((p) => p.data), againTo: reinstalled.location.replaced,
+        };
+        """,
+    )
+    # A yes or no, to this page's own origin only; nothing else goes to the extension.
+    assert out["first"] == [
+        {"data": {"type": "unfret-free-ask", "had": False}, "targetOrigin": "https://unfret.net"},
+    ]
+    assert out["firstTo"] == ["/welcome?free=5"]
+    assert out["note"] == {"unfret-free-pass": "1"}  # the link checker won't give a second round either
+    assert out["again"] == [{"type": "unfret-free-ask", "had": True}]
+    assert out["againTo"] == ["/welcome?note=had-free"]
+
+
+@pytest.mark.usefixtures("node")
+def test_the_welcome_page_moves_on_without_an_answer_and_ignores_other_windows(tmp_path: Path) -> None:
+    out = _run_welcome(
+        tmp_path,
+        """
+        const storage = makeStorage();
+        const win = makeWindow((data, w) => {
+          w.deliver({ type: "unfret-free-answer", status: "free", free: 5 }, { source: {} }); // an iframe
+          w.deliver({ type: "unfret-free-answer", status: "free", free: 5 }, { origin: "https://evil.example" });
+        });
+        askFreeChecks(win, storage, { tries: 3, everyMs: 10, giveUpMs: 200 });
+        await sleep(400);
+        const failed = makeWindow((data, w) => w.deliver({ type: "unfret-free-answer", status: "error" }));
+        askFreeChecks(failed, storage, { everyMs: 20, giveUpMs: 200 });
+        await sleep(400);
+        const answers = [
+          { status: "free", free: 3 }, { status: "free", free: 0 }, { status: "free", free: "5x" },
+          { status: "none-today" }, { status: "has-pass" }, { status: "<b>" }, null,
+        ];
+        return {
+          asked: win.posted.length, to: win.location.replaced, failedTo: failed.location.replaced,
+          note: storage.items, next: answers.map(nextWelcome),
+        };
+        """,
+    )
+    assert out["asked"] == 3 and out["to"] == ["/welcome"]
+    assert out["failedTo"] == ["/welcome"]  # once, though the give-up timer fires later too
+    assert out["note"] == {}  # no pass made: this browser still has its turn
+    assert out["next"] == [
+        "/welcome?free=3",
+        "/welcome",
+        "/welcome",
+        "/welcome?note=none-today",
+        "/welcome",
+        "/welcome",
+        "/welcome",
+    ]

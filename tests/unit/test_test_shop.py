@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from unfret import llm, scoring
 from unfret.config import settings
+from unfret.facts import parse_page
 from unfret.graph import SKILLS, build_graph, nodes, triage
 from unfret.graph.skills import content, reviews
 from unfret.main import app
@@ -184,15 +185,26 @@ def local_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "fingerprints", False)
 
 
-async def _quick(monkeypatch: pytest.MonkeyPatch, page: str = "product.html", url: str = URL) -> dict[str, Any]:
+async def _quick(
+    monkeypatch: pytest.MonkeyPatch, page: str = "product.html", url: str | None = None, *, extension: bool = False
+) -> dict[str, Any]:
+    """
+    The quick check of one test shop page: fetched by the server (its HTML), or as the extension sends it.
+
+    The extension sends the facts its extractor reads (the same as the backend's, by the parity tests) and the
+    cleaned text, never the HTML.
+    """
     model = _LOAD_MODEL.__wrapped__(scoring.MODEL_QUICK_PATH)
     assert model is not None, "the quick model ships in the repo"
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: model)
     monkeypatch.setattr(llm, "get_llm", lambda: pytest.fail("the quick tier calls no LLM"))
     graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
-    result: dict[str, Any] = await graph.ainvoke(
-        {"page_content": render(page), "url": url, "flags": [], "explain": False}
-    )
+    url = url or (URL if page == "product.html" else f"{URL}/sister-shop")
+    state: dict[str, Any] = {"page_content": render(page), "url": url, "flags": [], "explain": False}
+    if extension:
+        facts, text = parse_page(state["page_content"], url)
+        state |= {"page_content": text, "page_facts": facts}
+    result: dict[str, Any] = await graph.ainvoke(state)
     return result
 
 
@@ -304,6 +316,25 @@ def test_the_invented_reviews_are_a_burst_of_repeats(deep: dict[str, Any]) -> No
 
 def test_the_quick_verdict(quick: dict[str, Any]) -> None:
     assert _verdict(quick, "quick") == QUICK_VERDICT
+
+
+@pytest.mark.usefixtures("local_only")
+@pytest.mark.parametrize("page", ["product.html", "sister.html"])
+async def test_the_quick_check_is_the_same_whether_fetched_or_sent_by_the_extension(
+    monkeypatch: pytest.MonkeyPatch, page: str
+) -> None:
+    # Regression: the extension never sends raw HTML, so the app traces in the markup (the review importer's widget,
+    # the dropshipping app's attribute, the pop-up, the supplier's image CDN) were missing from its quick check, and
+    # dev's quick model said "Worth a look" where the fetched page got "Serious concerns".
+    fetched = await _quick(monkeypatch, page)
+    sent = await _quick(monkeypatch, page, extension=True)
+
+    assert sent["features"] == fetched["features"]
+    assert _findings(sent) == _findings(fetched)
+    assert _verdict(sent, "quick") == _verdict(fetched, "quick")
+    if page == "product.html":
+        assert _verdict(sent, "quick") == QUICK_VERDICT
+        assert TRICKS["dropshipping-app markers"] | TRICKS["review-import app"] <= _findings(sent)
 
 
 def test_the_deep_verdict(deep: dict[str, Any]) -> None:

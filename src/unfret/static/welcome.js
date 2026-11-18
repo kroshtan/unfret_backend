@@ -8,7 +8,8 @@
 // when the browser doesn't sync, so the page tells it what the link checker's note says (FREE_GIVEN: a yes or no,
 // nothing else): {type: "unfret-free-ask", had}. The extension answers {type: "unfret-free-answer", status, free},
 // and the page moves on to the welcome that fits. A pass made with free checks, or without them because this browser
-// had them, sets the note here too, so the link checker doesn't give a second round either.
+// had them, sets the note here too, so the link checker doesn't give a second round either. With `renewed=1` (the
+// extension's old pass was retired: the 0.13.0 fresh start) the welcome it moves on to says so in one line.
 import { clearRef, storedRef } from "./ref.js";
 
 export const REF_MESSAGE = "unfret-ref";
@@ -56,12 +57,20 @@ function markFreeChecks(storage) {
   }
 }
 
-/** The welcome page for the extension's answer: with the free checks, why there were none, or the plain one. */
-export function nextWelcome(answer) {
+/**
+ * The welcome page for the extension's answer: with the free checks, why there were none, or the plain one. After a
+ * retired pass (`renewed`: the extension opened /welcome?setup=1&renewed=1), it keeps saying so, in one line.
+ */
+export function nextWelcome(answer, renewed = false) {
   const free = Number(answer?.free);
-  if (answer?.status === "free" && Number.isInteger(free) && free > 0) return `/welcome?free=${free}`;
-  if (answer?.status === "had-free" || answer?.status === "none-today") return `/welcome?note=${answer.status}`;
-  return "/welcome";
+  const path =
+    answer?.status === "free" && Number.isInteger(free) && free > 0
+      ? `/welcome?free=${free}`
+      : answer?.status === "had-free" || answer?.status === "none-today"
+        ? `/welcome?note=${answer.status}`
+        : "/welcome";
+  if (renewed !== true) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}renewed=1`;
 }
 
 /**
@@ -75,6 +84,7 @@ export function askFreeChecks(
   { tries = 20, everyMs = 500, giveUpMs = 60_000 } = {},
 ) {
   const had = hadFreeChecks(storage);
+  const renewed = new URLSearchParams(win.location.search).get("renewed") === "1";
   let done = false;
   const go = (path) => {
     if (done) return;
@@ -85,7 +95,7 @@ export function askFreeChecks(
     if (event.source !== win || event.origin !== win.location.origin) return;
     if (event.data?.type !== FREE_ANSWER) return;
     if (["free", "had-free", "none-today"].includes(event.data.status)) markFreeChecks(storage);
-    go(nextWelcome(event.data));
+    go(nextWelcome(event.data, renewed));
   });
   let left = tries;
   const ask = () => {
@@ -94,7 +104,7 @@ export function askFreeChecks(
     setTimeout(ask, everyMs);
   };
   ask();
-  setTimeout(() => go("/welcome"), giveUpMs);
+  setTimeout(() => go(nextWelcome(null, renewed)), giveUpMs);
   return had;
 }
 

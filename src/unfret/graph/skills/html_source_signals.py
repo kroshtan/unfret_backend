@@ -1,8 +1,10 @@
 """
 Known apps and supplier traces in the page source, by pattern: deterministic, fast, high precision.
 
-The page source is the raw HTML when the server has it, plus the script URLs and meta tags of the page facts, which
-is all the browser extension sends (it never uploads raw HTML). Matching lower-cases the source once and uses plain
+The page source is the raw HTML when the server has it, plus the page facts' script URLs, meta tags, markup names and
+references to other sites (:mod:`unfret.facts.markup`), which is what the browser extension sends instead (it never
+uploads raw HTML): the same traces either way, so a quick check gives the same answer for a page the server fetched
+and one the extension read. Matching lower-cases the source once and uses plain
 lower-case patterns, which is several times faster than case-insensitive regexes on a 2 MB page, and runs off the
 event loop.
 """
@@ -85,10 +87,18 @@ def page_source(html: str, facts: PageFacts) -> str:
     Everything the patterns are matched against, lower-cased once.
 
     :param html: The raw HTML (or the cleaned text an extension sent).
-    :param facts: The page facts; their script URLs and meta tags carry the app traces when there is no HTML.
+    :param facts: The page facts; their script URLs, meta tags, markup names and references to other sites carry the
+        app traces when there is no HTML.
     :return: The lower-cased source.
     """
-    extra = "\n".join([*facts.script_srcs, *(f"{k}={v}" for k, v in facts.meta.items())])
+    extra = "\n".join(
+        [
+            *facts.script_srcs,
+            *(f"{k}={v}" for k, v in facts.meta.items()),
+            *facts.markup_names,
+            *facts.external_refs,
+        ]
+    )
     return f"{html}\n{extra}".lower()
 
 

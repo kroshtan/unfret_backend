@@ -200,6 +200,18 @@ class PageFacts(BaseModel):
     json_ld: list[dict[str, Any]] = Field(default_factory=list, max_length=20, description="Product JSON-LD.")
     script_srcs: list[str] = Field(default_factory=list, max_length=300)
     meta: dict[str, str] = Field(default_factory=dict)
+    markup_names: list[str] = Field(
+        default_factory=list,
+        max_length=500,
+        description="Class names, ids and data-attribute names in the page's markup (names only, never values or "
+        "text): the traces of a shop's apps when there is no raw HTML (unfret.facts.markup).",
+    )
+    external_refs: list[str] = Field(
+        default_factory=list,
+        max_length=200,
+        description="The other sites the page's elements refer to: host and path for a link, the host alone for "
+        "anything else; never a query string (unfret.facts.markup).",
+    )
     hidden_text: list[str] = Field(default_factory=list, max_length=100)
     checkboxes: list[Checkbox] = Field(default_factory=list, max_length=100)
     timers: list[str] = Field(default_factory=list, max_length=50, description="Countdown elements or scripts.")

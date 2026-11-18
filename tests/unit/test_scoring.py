@@ -281,3 +281,15 @@ def test_a_configured_scorer_for_other_skills_stops_the_start(tmp_path: Path, mo
 
     _configure(monkeypatch)
     assert scoring.check_models(known)["model_version"] == json.loads(scoring.MODEL_PATH.read_text())["version"]
+
+
+def test_a_flag_takes_the_evidence_of_its_own_finding_type() -> None:
+    # Regression: html_source_signals.review_import_app took the DSers finding (both types end in "app").
+    findings = [
+        Finding(skill="html_source_signals", type="dropship_app", evidence="DSers (AliExpress order management)"),
+        Finding(
+            skill="html_source_signals", type="review_import_app", evidence="Loox (reviews with AliExpress import)"
+        ),
+    ]
+    assert scoring._evidence("html_source_signals.review_import_app", findings).startswith("Loox")
+    assert scoring._evidence("html_source_signals.dropship_app", findings).startswith("DSers")

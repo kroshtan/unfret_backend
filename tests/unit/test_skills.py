@@ -13,7 +13,7 @@ from PIL import Image
 
 from unfret import fact_cache
 from unfret.config import settings
-from unfret.facts import Checkbox, PageFacts, Review
+from unfret.facts import Checkbox, PageFacts, Review, parse_page
 from unfret.graph.skills import content, domain_age, reviews
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill, checkout_total
@@ -134,6 +134,22 @@ async def test_html_source_signals_read_the_extension_facts() -> None:
     out = await HtmlSourceSignalsSkill().run(state(facts, page_content="Cleaned visible text only."))
 
     assert out["features"]["html_source_signals.dropship_app"] == 2
+
+
+async def test_html_source_signals_read_the_markup_names_and_other_sites() -> None:
+    # The app traces in the markup (a widget's class, an app's data attribute, a supplier's image CDN) reach the
+    # extension's check as markup names and references to other sites (unfret.facts.markup).
+    html = (
+        '<form data-dsers-variant-sync="on"><input name="q"></form><div class="loox-reviews-widget"></div>'
+        '<img data-original="https://ae01.alicdn.com/kf/S1.jpg"><aside class="sales-pop"></aside>'
+    )
+    facts, text = parse_page(html, "https://shop.example/p")
+    fetched = await HtmlSourceSignalsSkill().run(state(PageFacts(), page_content=html))
+    supplied = await HtmlSourceSignalsSkill().run(state(facts, page_content=text))
+
+    assert supplied["features"] == fetched["features"]
+    for category in ("dropship_app", "review_import_app", "supplier_trace", "timer_app"):
+        assert supplied["features"][f"html_source_signals.{category}"] == 1, category
 
 
 async def test_dark_patterns() -> None:

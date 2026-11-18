@@ -1622,6 +1622,15 @@
       "title": "Emails",
       "type": "array"
      },
+     "external_refs": {
+      "description": "The other sites the page's elements refer to: host and path for a link, the host alone for anything else; never a query string (unfret.facts.markup).",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "External Refs",
+      "type": "array"
+     },
      "fee_mentions": {
       "items": {
        "type": "string"
@@ -1728,6 +1737,15 @@
         "type": "null"
        }
       ]
+     },
+     "markup_names": {
+      "description": "Class names, ids and data-attribute names in the page's markup (names only, never values or text): the traces of a shop's apps when there is no raw HTML (unfret.facts.markup).",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 500,
+      "title": "Markup Names",
+      "type": "array"
      },
      "meta": {
       "additionalProperties": {

@@ -3,8 +3,8 @@
 <!-- mcp-name: net.unfret/mcp -->
 
 An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents ask
-[Unfret](https://unfret.net) whether a store or product listing shows signs of scams, dropshipping of
-generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
+[Unfret](https://unfret.net) whether a store, a marketplace seller or a product listing shows signs of scams, fake
+sellers, dropshipping of generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
 Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in USDC or
 wSOL. Prices are in US dollars (quick $0.01, deep $0.20; `get_pricing` has the live prices): USDC pays them exactly,

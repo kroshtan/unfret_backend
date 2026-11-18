@@ -21,6 +21,7 @@ import re
 import time
 import traceback
 from collections.abc import Awaitable, Callable
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -145,7 +146,7 @@ def _resource(*, discovery: bool = False) -> dict[str, Any]:
     """
     resource: dict[str, Any] = {
         "url": f"{settings.public_base_url}/v1/check",
-        "description": "Scam, dropshipping and dark-pattern risk check of a store or product page",
+        "description": CHECK_DESCRIPTION,
         "mimeType": "application/json",
         "serviceName": "Unfret",
     }
@@ -340,6 +341,25 @@ async def _settle(
         )
 
 
+def _usd_amount(usd_micros: int) -> str:
+    return format(Decimal(usd_micros).scaleb(-6).normalize(), "f")
+
+
+def _payment_info() -> dict[str, Any]:
+    """
+    ``x-payment-info`` of ``POST /v1/check`` in the OpenAPI document: x402 directories (x402scan) look for it.
+
+    The price range is the tiers' (the same settings as ``/.well-known/x402``); the 402 itself has the exact amounts.
+
+    :return: The extension's value.
+    """
+    low, high = sorted((settings.x402_price_quick_usd_micros, settings.x402_price_deep_usd_micros))
+    return {
+        "price": {"mode": "dynamic", "currency": "USD", "min": _usd_amount(low), "max": _usd_amount(high)},
+        "protocols": [{"x402": {}}],
+    }
+
+
 @router.post(
     "/v1/check",
     response_model=Verdict,
@@ -347,6 +367,7 @@ async def _settle(
         401: {"description": "Not a valid Unfret pass (only with Authorization)"},
         402: {"description": "Payment required (x402), or the pass has no checks left"},
     },
+    openapi_extra={"x-payment-info": _payment_info()},
 )
 async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0911
     """
@@ -587,6 +608,12 @@ async def _analyse_before_settling(
     return result, answer, answer.model_dump(mode="json")
 
 
+# What /v1/check does, in the 402's resource (the Bazaar and x402scan show it): what it checks and when it's useful.
+CHECK_DESCRIPTION = (
+    "Risk check of a store, marketplace seller or product page before an agent buys: signs of scams, fake sellers, "
+    "dropshipping of generic goods, fake reviews and dark patterns, with the evidence and an allow, warn or block "
+    "action"
+)
 BAZAAR_TAGS = ("shopping", "scam-detection", "e-commerce", "risk", "agents")
 # What a verdict looks like, for the Bazaar's catalogue (a made-up page; validated against Verdict in the tests).
 VERDICT_EXAMPLE: dict[str, Any] = {

@@ -1106,3 +1106,12 @@ and clients show what is there.
   `report_token`) and the shop owner's objection (`/objection`). `/r/{id}` links "Wrong result? Check the page again"
   to `/check?url=…` and "Object to this result" to its own form.
 - x402 `POST /v1/check` and the MCP server are unchanged.
+
+## Changes (x402 directories can find `/v1/check`; backwards-compatible)
+
+- The OpenAPI document (snapshot updated) marks `POST /v1/check` as paid with `x-payment-info`:
+  `{"price": {"mode": "dynamic", "currency": "USD", "min": "0.01", "max": "0.2"}, "protocols": [{"x402": {}}]}`, the
+  tiers' price range from the same settings as `/.well-known/x402`. x402scan and other directories that follow the
+  agentcash discovery spec register paid calls from it; the 402 still has the exact amounts.
+- The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
+  before an agent buys). Clients don't parse it.

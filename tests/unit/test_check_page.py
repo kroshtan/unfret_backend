@@ -272,6 +272,10 @@ async def test_the_page_lists_the_shops_that_turn_the_server_away(client: httpx.
     assert 'data-hosts="bol.com"' in section
     assert "Unfret browser extension" in section and "Android app" in section
     assert "not a judgement" in section
+    # The note says why, in a sentence: the server is turned away, the extension and the app read it in the browser.
+    note = " ".join(section.split('<p class="muted">', 1)[1].split("</p>", 1)[0].split())
+    assert "these shops block or stall requests that come from a server" in note
+    assert "read the page in your own browser" in note
     assert "scam" not in section.lower()
     assert "{{" not in text
 

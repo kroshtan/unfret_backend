@@ -1,5 +1,6 @@
 """Discovery with Base on: the Bazaar extension, /.well-known/x402's networks, llms.txt and /developers."""
 
+import json
 import string
 from collections.abc import AsyncIterator
 
@@ -147,7 +148,14 @@ async def test_llms_txt_describes_base_while_it_is_on(on: httpx.AsyncClient) -> 
 
 
 async def test_llms_txt_without_base(off: httpx.AsyncClient) -> None:
-    assert "### On Base" not in (await off.get("/llms.txt")).text
+    text = (await off.get("/llms.txt")).text
+    assert "### On Base" not in text
+    assert "Base" not in text  # the errors table too: nothing an agent could take for a way to pay on Base
+    assert "Base" not in json.dumps((await off.get("/.well-known/x402")).json())
+
+
+async def test_llms_txt_errors_name_base_while_it_is_on(on: httpx.AsyncClient) -> None:
+    assert "Base never settled it" in (await on.get("/llms.txt")).text
 
 
 async def test_developers_names_both_networks_when_base_is_on(
@@ -156,7 +164,8 @@ async def test_developers_names_both_networks_when_base_is_on(
     page = (await on.get("/developers")).text
     assert "USDC and wSOL on Solana devnet, and USDC on Base Sepolia" in page
     assert "pay in USDC on Base, next to Solana" not in page  # no longer "coming next"
-    assert "base-off" not in page
+    assert "base-off" not in page and "base-on" not in page
+    assert "transferWithAuthorization" in page and "Solana only" not in page  # how to pay on Base, now it's on
     http = (await on.get("/developers/http")).text
     assert "USDC and wSOL on Solana devnet, and USDC on Base Sepolia" in http
     assert "USDC on Base comes next" not in http and "base-off" not in http
@@ -166,8 +175,14 @@ async def test_developers_says_base_is_coming_while_it_is_off(off: httpx.AsyncCl
     page = (await off.get("/developers")).text
     assert "USDC and wSOL on Solana devnet, scheme" in page
     assert "pay in USDC on Base, next to Solana" in page
-    http = (await off.get("/developers/http")).text
+    # Every mention of Base says it isn't here yet: no step for paying on it, and "Solana only" in the x402 steps.
+    steps = page.split('id="x402"', 1)[1].split("</section>", 1)[0]
+    assert "Today x402 here is Solana only; USDC on Base is coming next." in " ".join(steps.split())
+    assert "transferWithAuthorization" not in page and "base-on" not in page
+    assert "on Base, the facilitator" not in page
+    http = " ".join((await off.get("/developers/http")).text.split())
     assert "USDC and wSOL on Solana devnet, scheme" in http and "USDC on Base comes next" in http
+    assert "Today x402 here is Solana only: USDC on Base comes next." in http
 
 
 def _signer(proof: str, origin: str) -> str:

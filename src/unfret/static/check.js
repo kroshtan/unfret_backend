@@ -471,7 +471,7 @@ function renderResult(result, because = null) {
 
   if (band === null) {
     nodes.push(
-      el("p", "small", "Unfret checks product pages, second-hand ads and companies' websites. Try the link to the product, the ad or the company itself."),
+      el("p", "small", "Unfret checks products on marketplaces and web shops, second-hand ads, and the websites of tradespeople and local services. Try the link to the product, the ad or the business itself."),
     );
   }
   nodes.push(
@@ -988,8 +988,11 @@ $("invite-redeem").addEventListener("click", async () => {
     $("invite-redeem").disabled = false;
   }
 });
+// The examples are links to the made-up shops: a plain click checks one here; a click for a new tab opens the shop.
 for (const example of document.querySelectorAll("[data-example]")) {
-  example.addEventListener("click", () => {
+  example.addEventListener("click", (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
     if (running) return;
     field.value = new URL(example.dataset.example, window.location.origin).href;
     linkError("");

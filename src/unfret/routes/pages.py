@@ -250,6 +250,44 @@ def developer_fields() -> dict[str, str]:
 
 _BASE_NAMES = {"base-mainnet": "Base", "base-sepolia": "Base Sepolia"}
 _COMING_BASE = re.compile(r"\s*<!-- base-off -->.*?<!-- /base-off -->", re.DOTALL)
+# What a page says only while Base is on (how paying on Base works); off, it goes, and "Solana only" stays.
+_BASE_ON = re.compile(r"<!-- base-on -->(.*?)<!-- /base-on -->", re.DOTALL)
+
+
+def with_base(page: str, base_on: bool) -> str:
+    """
+    Keep a developer page's words about Base that are true right now.
+
+    :param page: The page's HTML, with ``<!-- base-off -->`` (Base is coming) and ``<!-- base-on -->`` (how to pay
+        on Base) blocks.
+    :param base_on: Whether ``/v1/check`` takes payments on Base.
+    :return: With Base on, the ``base-on`` blocks without their markers and no ``base-off`` block; with it off, the
+        ``base-off`` blocks and no ``base-on`` block.
+    """
+    if base_on:
+        return _BASE_ON.sub(r"\1", _COMING_BASE.sub("", page))
+    return _BASE_ON.sub("", page)
+
+
+def packs_line() -> str:
+    """
+    The packs on sale and their prices, by card (before tax) and with crypto (before VAT), for the developer pages.
+
+    :return: E.g. "25 for $6.00 and 100 for $20.00 by card, before tax (…); with crypto 25 for $5.00 and …".
+    """
+    on_sale = packs.packs(settings)
+    card = _listed([f"{p.checks} for {format_usd(p.card_usd_micros)}" for p in on_sale])
+    crypto = _listed([f"{p.checks} for {format_usd(p.value_usd_micros)}" for p in on_sale])
+    return (
+        f"{card} by card, before tax (checkout shows the card price with VAT for an EU country, and adds sales tax "
+        f"where it applies elsewhere); with crypto {crypto}, plus VAT where it applies"
+    )
+
+
+def _listed(items: list[str]) -> str:
+    return ", ".join(items[:-1]) + f" and {items[-1]}" if len(items) > 1 else "".join(items)
+
+
 # The sample response and the median latencies on /developers: measured on a running server (dev), never made up.
 # Re-measure with scripts/measure_developers.py, which rewrites this file.
 DEVELOPERS_MEASURED = STATIC_DIR / "developers-measured.json"
@@ -270,7 +308,7 @@ def _limits_and_measurements() -> dict[str, str]:
     deep, quick = measured["deep"], measured["quick"]
     return {
         "developer_checks": str(settings.developer_free_checks),
-        "packs_line": ", ".join(f"{p.checks} for {format_usd(p.card_usd_micros)}" for p in packs.packs(settings)),
+        "packs_line": packs_line(),
         "check_per_minute": str(settings.x402_check_per_minute),
         "quick_per_minute": str(settings.quick_checks_per_minute),
         "fetch_per_minute": str(settings.analyze_fetch_per_minute),
@@ -373,8 +411,7 @@ def developers(request: Request) -> HTMLResponse:
     options, base_on = _payment_options(request)
     fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
     page = template("developers.html", "/developers").replace("{{python_install}}", python_install_html())
-    if base_on:  # no longer "coming next"
-        page = _COMING_BASE.sub("", page)
+    page = with_base(page, base_on)  # Base on: no longer "coming next", and how to pay on it
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
@@ -409,9 +446,7 @@ def developers_http(request: Request) -> HTMLResponse:
         "balanced_warn": f"{warn:g}",
         "balanced_block": f"{block:g}",
     }
-    page = template("developers-http.html")
-    if base_on:  # Base is on: nothing to announce
-        page = _COMING_BASE.sub("", page)
+    page = with_base(template("developers-http.html"), base_on)  # Base is on: nothing to announce
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
@@ -686,12 +721,13 @@ def check_page() -> HTMLResponse:
     The link checker: paste or share a product link and check it, signed in with a wallet or an API key.
 
     The page is static: a shared link (``?url=``, ``?text=``, ``?title=``, or the same after ``#``) is read by its
-    script in the browser, never by the server, and the script removes it from the address bar.
+    script in the browser, never by the server, and the script removes it from the address bar. The examples are
+    links to the made-up shops; a click checks one here, and a new tab (or no script) opens the shop.
 
     :return: The page.
     """
     examples = "\n        ".join(
-        f'<li><button type="button" class="link" data-example="{html.escape(link)}">{html.escape(label)}</button></li>'
+        f'<li><a href="{html.escape(link)}" data-example="{html.escape(link)}">{html.escape(label)}</a></li>'
         for label, link in settings.check_examples
     )
     page = (

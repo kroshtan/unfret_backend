@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#1f8a70">
-  <meta name="description" content="Check a link before you buy or hire: a web shop, a second-hand ad or a tradesperson's website. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.">
+  <meta name="description" content="Check a link before you buy or hire: a product on a marketplace or web shop, a second-hand ad, or the website of a tradesperson or local service. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.">
   <title>Check a link · Unfret</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
@@ -46,7 +46,7 @@
       <label for="link">Link to check</label>
       <div class="field-row">
         <input id="link" name="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
-          spellcheck="false" enterkeyhint="go" placeholder="A product, an ad or a company's website">
+          spellcheck="false" enterkeyhint="go" placeholder="A product, an ad or a tradesperson's website">
         <button id="paste" type="button" class="secondary" hidden>Paste link</button>
       </div>
       <p id="link-error" class="error-text" role="alert" hidden></p>
@@ -63,8 +63,9 @@
       <ul class="shop-list">
           {{browser_only_shops}}
       </ul>
-      <p class="muted">A technical note about how these shops answer automatic visits, not a judgement of the
-        shops.</p>
+      <p class="muted">Why: these shops block or stall requests that come from a server, which is how this page
+        reads a link. The extension and the app read the page in your own browser instead. This is a technical
+        note about how the shops answer automatic visits, not a judgement of the shops.</p>
     </details>
 
     <section id="examples" class="examples small" aria-labelledby="examples-heading">

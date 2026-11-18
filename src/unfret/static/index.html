@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Check before you pay: paste a link and Unfret tells you, in plain words, who you'd be buying from and whether it all adds up. For Amazon sellers, web shops you've never heard of and second-hand ads, and pay-per-check over x402 for AI agents.">
+  <meta name="description" content="Check before you pay: paste a link and Unfret tells you, in plain words, who you'd be buying from and whether it all adds up. For products on Amazon and other marketplaces, web shops you've never heard of, second-hand ads and the websites of tradespeople and local services, and pay-per-check over x402 for AI agents.">
   <title>Unfret · check before you pay</title>
   {{hreflang}}
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
@@ -20,7 +20,7 @@
     <section class="hero hero-start">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Marketplace sellers, web shops, second-hand ads</p>
+          <p class="eyebrow">Marketplaces, web shops, second-hand ads, tradespeople</p>
           <h1>Check before <span class="soft">you pay.</span></h1>
           <p class="lead">On Amazon and other marketplaces, the seller is often someone other than the platform, and a
             web shop you've never heard of can be anyone. Paste the link: Unfret reads that one page and tells you in
@@ -35,7 +35,7 @@
             </div>
             <p class="error-text" data-error role="alert" hidden></p>
             <p class="start-hint" id="start-hint">Your first <span data-free-count>5</span> deep checks are free, then
-              quick checks stay free. No key, no account, nothing to install.
+              quick checks stay free. No key, no account, nothing to install to try it.
               <button type="button" class="link" data-example="/test-shop">Try the test shop</button></p>
           </form>
           <div class="buttons get-buttons">
@@ -131,7 +131,7 @@
             <p class="how">Unfret spots never-ending closing-down sales and other pressure in the page's words.</p>
           </li>
           <li class="pattern">
-            <div class="mock" aria-hidden="true"><span class="mock-price"><s>$89.99</s> <b>$19.99</b> <i>−78%</i></span></div>
+            <div class="mock" aria-hidden="true"><span class="mock-price"><s>$189.99</s> <b>$39.99</b> <i>−79%</i></span></div>
             <h3>A “was” price nobody paid</h3>
             <p>A big discount measured against a price the shop never charged, or a “recommended” price.</p>
             <p class="how">Unfret compares the “was” price with the prices it has seen for that product, and flags
@@ -180,13 +180,30 @@
         <div class="pricing">
           <div class="price-list">
           <ul class="prices" id="prices">
-            <li class="free"><a href="/check"><span class="n">Free</span><span class="unit"><span data-free-count>5</span> deep checks, then quick checks</span><span class="card-price">$0</span><span class="choose">Start</span></a></li>
-            <li data-checks="25"><a href="/checkout?checks=25"><span class="n">25</span><span class="unit">checks</span><span class="card-price">$6.00</span><span class="gift">with 1 gift code for a friend</span><span class="choose">Choose</span></a></li>
-            <li data-checks="100" class="featured"><a href="/checkout?checks=100"><span class="n">100</span><span class="unit">checks</span><span class="card-price">$20.00</span><span class="gift">with 4 gift codes for friends</span><span class="choose">Choose</span></a></li>
+            <li class="free"><a href="/check">
+              <span class="n">Free</span>
+              <span class="unit"><span data-free-count>5</span> deep checks, then quick checks</span>
+              <span class="card-price">$0</span>
+              <span class="choose">Start</span></a></li>
+            <li data-checks="25"><a href="/checkout?checks=25">
+              <span class="n">25</span>
+              <span class="unit">checks</span>
+              <span class="card-price">$6.00</span>
+              <span class="gift">with 1 gift code for a friend</span>
+              <span class="choose">Choose</span></a></li>
+            <li data-checks="100" class="featured"><a href="/checkout?checks=100">
+              <span class="n">100</span>
+              <span class="unit">checks</span>
+              <span class="card-price">$20.00</span>
+              <span class="gift">with 4 gift codes for friends</span>
+              <span class="choose">Choose</span></a></li>
           </ul>
-          <p class="small muted price-note" id="price-note" hidden></p>
-          <p class="small muted price-note">Pay by card, or with iDEAL | Wero in the Netherlands. Paying with crypto?
-            <a href="/checkout?mode=crypto">USDC and SOL</a> work too.</p>
+          <p class="small muted price-note" id="price-note">These card prices are before tax. In the EU, card
+            prices include VAT: this page adds it once it knows your country, and checkout always shows it.
+            Elsewhere, sales tax is added at checkout where it applies.</p>
+          <p class="small muted price-note">Pay by card, or in the Netherlands with iDEAL | Wero. Paying with crypto?
+            <a href="/checkout?mode=crypto">USDC and SOL</a> work too: the crypto price is plus VAT where it
+            applies.</p>
           </div>
           <div class="code-box">
             <h3>What's a quick check?</h3>
@@ -213,7 +230,8 @@
           </details>
           <details>
             <summary>Which sites does it work on?</summary>
-            <p>Product pages on marketplaces such as Amazon, web shops of any size, and second-hand ads. Some big
+            <p>Products on marketplaces such as Amazon and on web shops of any size, second-hand ads, and the
+              websites of tradespeople and local services. Some big
               shops turn automatic checks away; for those, use the <a href="/extension">browser extension</a> or the
               Android app, which read the page in your own browser.</p>
           </details>
@@ -231,8 +249,17 @@
           </details>
           <details>
             <summary>Do I need an account?</summary>
-            <p>No. Your checks are held by an Unfret pass, made for you on your first check: no email, no password.
-              Paying by card, our payment provider asks for your email for the receipt; with crypto, nobody does.</p>
+            <p>No. Your checks are held by an Unfret pass, made for you on your first check. Your pass is a code
+              saved in your browser. It holds your checks. No name, no email. “My checks” in the menu shows your
+              pass and what's left on it. Paying by card, our payment provider asks for your email for the receipt;
+              with crypto, nobody does.</p>
+          </details>
+          <details>
+            <summary>Do passes or checks expire?</summary>
+            <p>No. A pass and the checks on it don't expire, and Unfret doesn't delete a pass for not being used. A
+              pass ends when you replace it with its backup code (the old one stops working) or ask us to delete
+              it. Unfret can also retire old passes in a one-off clean-up, as at the fresh start when free checks
+              began; by default such a clean-up refuses to touch passes that bought checks.</p>
           </details>
           <details>
             <summary>How does Unfret make money?</summary>

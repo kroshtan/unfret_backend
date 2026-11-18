@@ -326,6 +326,12 @@ async def test_the_link_checker_offers_examples_starting_with_the_test_shop(
     examples = page.split('<ul class="example-links">', 1)[1].split("</ul>", 1)[0]
     assert examples.count("<li>") == len(settings.check_examples)
     assert examples.index('data-example="/test-shop"') >= 0
+    # Real links to the made-up shops (for a new tab, a screen reader or an agent); a plain click checks one here.
+    for _, link in settings.check_examples:
+        assert f'<a href="{link}" data-example="{link}">' in examples
+    assert "<button" not in examples
+    script = (STATIC_DIR / "check.js").read_text()
+    assert "event.ctrlKey || event.metaKey" in script and "event.preventDefault();" in script
     monkeypatch.setattr(settings, "check_examples", [("A <b>shop</b>", '/x?a="1"'), ("Two", "/y"), ("Three", "/z")])
     page = (await client.get("/check")).text
     examples = page.split('<ul class="example-links">', 1)[1].split("</ul>", 1)[0]

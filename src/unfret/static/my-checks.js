@@ -69,7 +69,7 @@ function checksWord(n) {
 
 async function balance(token) {
   const response = await fetch("/v1/credits", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
-  if (response.status === 401) return null;
+  if (response.status === 401) return null; // a pass the server no longer knows, or a wallet sign-in that expired
   if (!response.ok) throw new Error("unavailable");
   return (await response.json()).checks_remaining;
 }
@@ -95,12 +95,14 @@ async function render() {
   try {
     const left = await balance(account.token);
     if (left === null) {
-      // Replaced (a backup code, or a purchase picked up in another browser) or a wallet's sign-in that expired.
+      // A pass retired at Unfret's free start (or replaced: a backup code, a purchase picked up in another browser),
+      // or a wallet's sign-in that expired. A pass made here and kept with its backup code goes with it.
       write(ACCOUNT, null);
+      if (account.kind === "key" && read(NEW_KEY)?.key_id === account.address.slice("key:".length)) write(NEW_KEY, null);
       const restore = $("restore-status");
       restore.textContent =
         account.kind === "key"
-          ? "The pass that was on this device no longer works: it was replaced by a new one. Use your backup code, or paste the new pass."
+          ? "Unfret has a new free start: the pass that was on this device has ended. Check a link to start with a new one. If you replaced it yourself, paste the new pass below."
           : "Your wallet's sign-in expired; your checks are still there. Sign in again below.";
       return render();
     }

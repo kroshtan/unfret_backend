@@ -377,10 +377,12 @@ def _run_welcome(tmp_path: Path, body: str) -> Any:
     script = f"""
 import {{ askFreeChecks, nextWelcome }} from {json.dumps((tmp_path / "welcome.js").as_uri())};
 // A window that delivers posted messages to its listeners; `extension` plays the extension's content script.
-function makeWindow(extension) {{
+function makeWindow(extension, search = "") {{
   const listeners = new Set();
   const win = {{
-    location: {{ origin: "https://unfret.net", replaced: [], replace: (path) => win.location.replaced.push(path) }},
+    location: {{
+      origin: "https://unfret.net", search, replaced: [], replace: (path) => win.location.replaced.push(path),
+    }},
     posted: [],
     addEventListener: (type, fn) => listeners.add(fn),
     deliver(data, {{ source = win, origin = "https://unfret.net" }} = {{}}) {{
@@ -475,3 +477,40 @@ def test_the_welcome_page_moves_on_without_an_answer_and_ignores_other_windows(t
         "/welcome",
         "/welcome",
     ]
+
+
+async def test_the_welcome_page_says_once_that_an_old_pass_ended(client: httpx.AsyncClient) -> None:
+    line = "Unfret has a new free start: your old pass has ended."
+    for path in ("/welcome?setup=1&renewed=1", "/welcome?free=5&renewed=1", "/welcome?note=had-free&renewed=1"):
+        page = (await client.get(path)).text
+        assert page.count(line) == 1 and "{{" not in page, path
+    assert "You have 5 free checks" in (await client.get("/welcome?free=5&renewed=1")).text
+    for path in ("/welcome?setup=1", "/welcome?free=5", "/welcome", "/welcome?renewed=2"):
+        page = (await client.get(path)).text
+        assert "new free start" not in page and "{{" not in page, path
+
+
+@pytest.mark.usefixtures("node")
+def test_after_a_retired_pass_the_welcome_it_moves_on_to_says_so(tmp_path: Path) -> None:
+    out = _run_welcome(
+        tmp_path,
+        """
+        const answered = makeWindow((data, w) => {
+          if (data.type === "unfret-free-ask") w.deliver({ type: "unfret-free-answer", status: "free", free: 5 });
+        }, "?setup=1&renewed=1");
+        askFreeChecks(answered, makeStorage(), { everyMs: 20, giveUpMs: 2000 });
+        const silent = makeWindow(null, "?setup=1&renewed=1");
+        askFreeChecks(silent, makeStorage(), { tries: 1, everyMs: 10, giveUpMs: 100 });
+        await sleep(300);
+        return {
+          answered: answered.location.replaced, silent: silent.location.replaced,
+          had: nextWelcome({ status: "had-free" }, true), plain: nextWelcome({ status: "free", free: 5 }),
+        };
+        """,
+    )
+    assert out == {
+        "answered": ["/welcome?free=5&renewed=1"],
+        "silent": ["/welcome?renewed=1"],
+        "had": "/welcome?note=had-free&renewed=1",
+        "plain": "/welcome?free=5",
+    }

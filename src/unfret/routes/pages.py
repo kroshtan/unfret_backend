@@ -447,13 +447,11 @@ def press() -> HTMLResponse:
     return _page("press.html", "/press")
 
 
-# Shown at the top of /terms while UNFRET_TERMS_DRAFT is on (dev), until the terms are reviewed and approved.
+# Shown at the top of /terms while UNFRET_TERMS_DRAFT is on: for a new version of the terms that isn't approved yet.
 TERMS_DRAFT_NOTE = (
     '<aside class="panel notice draft-note" role="note" aria-label="Draft">\n'
-    "      <p><strong>Draft, not in force.</strong> These terms are a draft, to be reviewed with a lawyer\n"
-    "        before they apply. To review: the right of withdrawal for checks bought with crypto (EU consumers),\n"
-    "        the liability limit, what happens to unused checks if the service ever closes, and the affiliate\n"
-    "        terms.</p>\n"
+    "      <p><strong>Draft, not in force.</strong> These terms are a draft and don't apply until they are\n"
+    "        approved.</p>\n"
     "    </aside>"
 )
 
@@ -503,10 +501,12 @@ WELCOME_NOTES = {
     "none-today": "There were no free checks to give just now, so your new Unfret pass starts without them. Quick "
     "checks stay free; for deep checks, buy a pack or use a gift code from a friend.",
 }
+# Above it all when the extension's old pass was retired (``?renewed=1``, the 0.13.0 fresh start): calm, one line.
+RENEWED_NOTE = '<p class="note" role="status">Unfret has a new free start: your old pass has ended.</p>'
 
 
 @router.get("/welcome", response_class=HTMLResponse)
-def welcome(free: int = 0, setup: int = 0, note: str = "") -> HTMLResponse:
+def welcome(free: int = 0, setup: int = 0, note: str = "", renewed: int = 0) -> HTMLResponse:
     """
     The first page after installing the extension (it opens it once).
 
@@ -515,20 +515,25 @@ def welcome(free: int = 0, setup: int = 0, note: str = "") -> HTMLResponse:
     checker's note, a yes or no) and the extension makes its pass; the page then moves on to one of the others. With
     ``?free=<n>`` (the pass came with that many free checks): "You have n free checks", and how to check a page.
     Without: a code, buying checks, or a pass you have; with ``?note=had-free`` or ``?note=none-today`` saying why
-    the extension's new pass has no free checks.
+    the extension's new pass has no free checks. ``?renewed=1`` (with any of them) adds one line: the extension's old
+    pass ended (it was retired), and this is the new free start.
 
     :param free: The free checks the extension's new pass came with.
     :param setup: 1 while the extension makes its pass.
     :param note: Why the extension's new pass came without free checks.
+    :param renewed: 1 when the extension's old pass ended and it made a new one.
     :return: The page.
     """
+    ended = RENEWED_NOTE if renewed == 1 else ""
     if setup == 1:
-        return _page("welcome-setup.html", cta=("/check", "Check a link"))
+        page = with_store_links(template("welcome-setup.html", cta=("/check", "Check a link")))
+        return HTMLResponse(versioned(page.replace("{{renewed_note}}", ended)), headers=PAGE_HEADERS)
     if 0 < free <= 100:
         page = with_store_links(template("welcome-free.html", cta=("/check", "Check a link")))
-        return HTMLResponse(versioned(page.replace("{{free_checks}}", str(free))), headers=PAGE_HEADERS)
+        page = page.replace("{{free_checks}}", str(free)).replace("{{renewed_note}}", ended)
+        return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
     text = WELCOME_NOTES.get(note)
-    shown = f'<p class="note" role="status">{html.escape(text)}</p>' if text else ""
+    shown = ended + (f'<p class="note" role="status">{html.escape(text)}</p>' if text else "")
     page = with_store_links(template("welcome.html", cta=("/checkout", "Buy checks")))
     return HTMLResponse(versioned(page.replace("{{free_note}}", shown)), headers=PAGE_HEADERS)
 

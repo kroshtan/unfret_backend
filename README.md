@@ -241,7 +241,7 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs; a "since 1998" / "founded 20 years ago" claim about the shop itself on a domain younger than a year by both measures (claims vs facts) |
-| `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Local lookup, also in the quick tier; not in the scorer yet |
+| `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Another shop's identifiers seen only in client-supplied content count once corroborated (see "What free checks record"). Local lookup, also in the quick tier; not in the scorer yet |
 | `payment_methods` | Storefronts: only payments that can't be reversed (bank transfer, crypto, Western Union, MoneyGram; gift cards don't count alone) and no card, PayPal, iDEAL, Klarna or other protected method in the text, logo alt texts or a payment provider's script (Shopify shops never: their checkout takes cards); protected methods offered (a positive). Not in the scorer yet |
 | `claims` | Storefronts: claims against the facts: "a Dutch company", "family business in Amsterdam", "based in Germany" while every address the shop gives is in another country (told from the address text: country names, Dutch postcodes, US state and ZIP, UK postcodes; no geocoding); "visit our showroom" with no address, postcode or phone number anywhere. Not in the scorer yet |
 | `market_price` | Product pages with a barcode (GTIN/EAN): the price against each other shop's median price for the same barcode over 90 days, from Unfret's own anonymous observations (`unfret.market_prices`); far below means at most 40% of the median of at least three other shops in the same currency. Off in evaluation; not in the scorer yet |
@@ -288,7 +288,13 @@ the current UTC day, as keyed hashes under a salt that is replaced daily and nev
 count, not a link from a pass or network to a page. A different value that doesn't count never overwrites one that
 does. Each network records from at most `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` quick checks or
 client-supplied pages a day. Rows from before provenance was kept count as before. `GET /v1/admin/observations`
-shows the counts.
+shows the counts. The shop fingerprint store (`shop_links`), which every check feeds too, is guarded the same way
+(`src/unfret/shop_store.py`): each shop identifier (analytics/pixel ID, payment account, hashed contact or address)
+keeps its provenance and source count, and another shop's identifier links it, counts towards `MAX_SHARE` or counts
+as a shop giving the same address only once seen on a page Unfret fetched (or kept from before) or corroborated;
+so does a shop's own stored identifier when its links are looked up, so a forged page can't plant one on it. Only a
+page Unfret fetched changes a shop's platform, apps, template and digest. The identifiers on the page being checked
+count as before.
 
 ### Adding a skill
 
@@ -431,6 +437,33 @@ verdict headline never repeats its label, which every client shows right above i
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant an API key credit by
 hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at
 most $10 a grant, with the admin token.
+
+**Retiring passes** (`src/unfret/credits/retire.py`, an operator command rather than a migration, so dev, the tests
+and fixtures are never touched by it): `make retire-passes ARGS="--before <ISO time> [--keep <key_id>]...
+[--keep-from <file.json>]... [--confirm]"` (or `python -m unfret.admin_cli retire-passes …`, through
+`POST /v1/admin/passes/retire` with the admin token; `UNFRET_URL` and `UNFRET_ADMIN_TOKEN[_FILE]` as for `make codes`,
+production by default). Without `--confirm` it is a dry run that changes nothing; either way it prints **counts only**,
+never a key, a key id or a wallet: the passes it would retire (made on earlier days, and on the cut-off day), their
+balances in checks and free checks left, invites or intro codes they redeemed, affiliate attributions, card checkouts,
+crypto quotes, open reports and gift codes they bought; wallet (crypto) accounts and those with a non-zero balance;
+accounts that bought checks; what is kept. With `--confirm`, in one transaction, it **deletes** those passes and every
+row naming them (balance and flags, free checks, attribution, checkouts and quotes, open reports and the keyed hashes
+behind the report limits; the buyer hash on gift codes they bought is cleared, so the codes still work), every wallet
+account (a wallet keeps no date; a wallet sign-in is a signed token, not stored, so a retired wallet signs in again
+with nothing on it), and rows still naming passes that no longer exist. Only anonymous counts stay (`usage_counters`
+`passes_retired` / `wallets_retired`, a number a UTC day). A second run finds nothing to do. A retired pass then
+answers `401 INVALID_API_KEY` like any unknown key (no separate code: nothing is kept to tell it apart), and the
+extension, `/check`, `/my-checks` and the Android app drop it and start over with the free pass (the free deep checks
+too, if that browser never had them), saying so once: "Unfret has a new free start: your old pass has ended."
+
+A pass keeps only the UTC day it was made, so a `--before` with a time of day retires the passes of earlier days and
+the cut-off day's passes **without** free checks: free checks only come with passes from the free-pass flow (0.13.0),
+so the day's passes that still hold some were made after the deploy and are kept. A bare date retires the earlier days
+only; a moment in the future is refused. It refuses with `--confirm`, changing nothing, when a `--keep` id doesn't
+exist (a typo would retire the pass it meant to keep), when a wallet holds a non-zero balance (x402 refunds, crypto)
+unless `--include-wallet-balances`, and when an account bought checks (a card order on record, or crypto) unless
+`--include-purchases`. `--keep-from` reads the `key_id` field of a JSON file (the store reviewers' pass), never the rest.
+Open reports from retired passes are deleted with them: label them first (`make reports`) to keep them as training data.
 
 **Invites** (gift codes, `src/unfret/credits/invites.py`): every credited pack comes with gift codes to give away,
 one per 25 checks (25 → 1, 100 → 4), each worth 5 checks. Any account but the buyer's redeems one with its own sign-in
@@ -697,7 +730,7 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | --- | --- | --- | --- |
 | `PAYMENT_REQUIRED` | 402 | no | pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed) |
 | `INVALID_PAYMENT` | 400 | no | the PAYMENT-SIGNATURE header couldn't be decoded |
-| `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass: fix it, or pay with x402 |
+| `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass (unknown, replaced with its backup code, or retired): fix it, or pay with x402 |
 | `INSUFFICIENT_CREDITS` | 402 | no | the pass has no checks left: top it up, or pay with x402 |
 | `FREE_CHECKS_PAUSED` | 429 | no | the pass has only free checks and today's are used: after 00:00 UTC, or pay |
 | `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`); checked only with a payment or a pass |
@@ -948,7 +981,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
-| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
+| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint or a shop identifier seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
 | `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |
 | `UNFRET_QUICK_RECORD_QUEUE` | `16` | Quick checks whose photo, price and reviews are being recorded at once, after their answer; more are skipped (0: quick checks record nothing) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
@@ -992,7 +1025,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
-| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (on in dev until the terms are approved) |
+| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (for a new version of the terms that isn't approved yet) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 
@@ -1117,6 +1150,20 @@ Nothing is tagged or deployed when the sweep fails.
 
 It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
 rebuild. Deploys never run in parallel and are never cancelled half-way.
+
+**Retiring passes at a release** (0.13.0's fresh start; only with the owner's go, never part of the workflow): once
+unfret.net's `/v1/health` reports the new version, with `UNFRET_URL=https://unfret.net` and the production admin token
+(the default), dry-run first and read the counts, then confirm with the same arguments:
+
+```bash
+make retire-passes ARGS="--before <the deploy's time, e.g. 2026-11-20T09:30Z> --keep-from <reviewers' pass .json>"
+make retire-passes ARGS="--before <same> --keep-from <same> --confirm"
+make retire-passes ARGS="--before <same> --keep-from <same>"   # again: 0 passes to retire, the reviewers' pass kept
+```
+
+`kept: named with --keep` must say 1 (of 1 named; not found: 0), and the wallets with a balance and the accounts that
+bought checks 0 (else it refuses; see *Retiring passes* above). Run it soon after the deploy: a pass made on the
+cut-off day after the deploy is kept only while it still holds free checks.
 
 **Rolling back production:** run the workflow again with `ref` = the previous release tag (`v0.8.0` or later). The e2e
 gate runs against dev, so it refuses a release that dev no longer runs (an older tag once main has moved on); for such

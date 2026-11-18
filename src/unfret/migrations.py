@@ -736,6 +736,18 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             CHECK (source <> 'seen' OR label IS NULL OR length(label) <= 60);
         """,
     ),
+    (
+        32,
+        "shop identifier provenance",
+        """
+        -- Where each shop identifier was seen (unfret.shop_store, unfret.observations), as in migration 29: the same
+        -- provenance bits and a count of independent sources, nothing that names a pass, a network or a caller. Rows
+        -- already there are marked 16 (recorded before this was kept) and count as before.
+        ALTER TABLE shop_links ADD COLUMN provenance SMALLINT NOT NULL DEFAULT 16,
+            ADD COLUMN sources SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0);
+        ALTER TABLE shop_links ALTER COLUMN provenance SET DEFAULT 9;
+        """,
+    ),
 ]
 
 

@@ -117,6 +117,7 @@ async def test_the_terms_are_marked_as_a_draft_only_while_the_setting_is_on(
 
     assert "Draft, not in force." in draft and 'class="panel notice draft-note"' in draft
     assert draft.index("draft-note") < draft.index("<h1>")  # at the top
+    assert 'class="placeholder"' not in draft  # the company details are filled in; the note points at none
     assert "Draft, not in force." not in final and "draft-note" not in final
 
 
@@ -152,10 +153,10 @@ async def test_the_terms_spell_out_the_affiliate_program_from_the_settings(clien
     assert "<mark" not in section
 
 
-def test_dev_shows_the_terms_as_a_draft_and_production_doesnt() -> None:
+def test_the_approved_terms_show_no_draft_note_on_dev_or_production() -> None:
     dev = yaml.safe_load((CONFIG / "deploy.dev.yml").read_text())["env"]["clear"]
     production = yaml.safe_load((CONFIG / "deploy.production.yml").read_text())["env"]["clear"]
-    assert dev["UNFRET_TERMS_DRAFT"] == "true"
+    assert dev.get("UNFRET_TERMS_DRAFT", "false") == "false"
     assert production.get("UNFRET_TERMS_DRAFT", "false") == "false"
 
 
@@ -168,7 +169,11 @@ async def test_the_terms_cover_what_was_asked(client: httpx.AsyncClient) -> None
         "Crypto purchases are final and not refundable",
         "Unfret never calls a shop a scam",
         "not a statement of fact",
-        "competing service or dataset",
+        "use the Unfret service, its API or its results to build, train or fill a competing service or dataset",
+        "These rules are about the service at unfret.net and its results.",
+        "Unfret's source code is open source under the MIT licence",
+        "you may use it under that licence, including to run a service of your own.",
+        "If you break these rules, we may block your pass",
         "free checks you aren't meant to have",
         "Dutch law applies",
         "hello@unfret.net",

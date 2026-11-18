@@ -91,8 +91,8 @@ split:  ## Assign the fixed train/test split (rule-only labels never go to test)
 label:  ## Work through the review queue, one keypress per page
 	uv run python -m evals.label
 
-reports:  ## Label reported results from the live service into the corpus (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
-	uv run python -m evals.reports
+reports:  ## Label reported results into the corpus: confident proposals in bulk, then one by one (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE]; REPORTS_ARGS="--min-confidence 0.9 --no-bulk --order confidence --agreement reporter")
+	uv run python -m evals.reports $(REPORTS_ARGS)
 
 codes:  ## Intro codes: ARGS="list | create CODE --uses N [--checks 5] | off CODE | on CODE | add CODE N | link CODE"
 	uv run python -m unfret.credits.codes $(ARGS)

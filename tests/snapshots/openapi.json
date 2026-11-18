@@ -2465,7 +2465,7 @@
     "properties": {
      "consent": {
       "const": true,
-      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; once reviewed, it is kept without any link to my account.",
+      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; once reviewed, it is kept without any link to my account.",
       "title": "Consent",
       "type": "boolean"
      },
@@ -3762,6 +3762,9 @@
   }
  },
  "info": {
+  "contact": {
+   "email": "hello@unfret.net"
+  },
   "description": "Scam, dropshipping and dark-pattern signals for a web shop, a marketplace listing, a second-hand ad or a service provider's site. Start with the [developer guide](/developers): the MCP server, pay-per-check over x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as `Authorization: Bearer ufk_\u2026`, on `POST /v1/analyze`.",
   "title": "Unfret API",
   "version": "<version>"
@@ -4140,7 +4143,7 @@
   },
   "/v1/check": {
    "post": {
-    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an\nUnfret pass as ``Authorization: Bearer ufk_\u2026`` instead of paying: charged like ``POST /v1/analyze`` (a deep check\nuses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,\n``free_check``, ``balance_usd_micros`` and ``free_checks_left``.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header or pass, app state).\n:return: The verdict, or an x402 payment-required / error response.",
+    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an\nUnfret pass as ``Authorization: Bearer ufk_\u2026`` instead of paying: charged like ``POST /v1/analyze`` (a deep check\nuses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,\n``free_check``, ``balance_usd_micros`` and ``free_checks_left``. Without a payment or a pass the answer is the 402,\nwhatever the body; the body is validated (422) only with one.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header or pass, app state).\n:return: The verdict, or an x402 payment-required / error response.",
     "operationId": "check_v1_check_post",
     "requestBody": {
      "content": {
@@ -4983,7 +4986,7 @@
   },
   "/v1/reports": {
    "post": {
-    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+\npoints outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per\nmonth, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first\nreporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.\nLimits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a\nproposed label for the reviewer, never a label by itself).\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
     "operationId": "report_v1_reports_post",
     "requestBody": {
      "content": {
@@ -5284,5 +5287,8 @@
     ]
    }
   }
+ },
+ "x-agentcash-guidance": {
+  "llmsTxtUrl": "https://unfret.net/llms.txt"
  }
 }

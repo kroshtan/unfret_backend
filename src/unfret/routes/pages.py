@@ -448,14 +448,11 @@ def press() -> HTMLResponse:
     return _page("press.html", "/press")
 
 
-# Shown at the top of /terms while UNFRET_TERMS_DRAFT is on (dev), until the terms are reviewed and approved.
+# Shown at the top of /terms while UNFRET_TERMS_DRAFT is on: for a new version of the terms that isn't approved yet.
 TERMS_DRAFT_NOTE = (
     '<aside class="panel notice draft-note" role="note" aria-label="Draft">\n'
-    "      <p><strong>Draft, not in force.</strong> These terms are a draft, to be reviewed with a lawyer\n"
-    "        before they apply. To review: the right of withdrawal for checks bought with crypto (EU consumers),\n"
-    "        the liability limit, what happens to unused checks if the service ever closes, the affiliate terms,\n"
-    "        and the details marked\n"
-    '        <mark class="placeholder">[like this]</mark>.</p>\n'
+    "      <p><strong>Draft, not in force.</strong> These terms are a draft and don't apply until they are\n"
+    "        approved.</p>\n"
     "    </aside>"
 )
 

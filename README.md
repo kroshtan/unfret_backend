@@ -93,6 +93,17 @@ nothing but totals and the version (never the model, a page, a shop or the golde
 page leads with the numbers of the scorer the server runs, shows both side by side, and says so when the server
 runs a scorer whose numbers aren't published.
 
+**Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
+stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and
+shops the labelled data lacks, confirmations); a full queue (`UNFRET_REPORT_QUEUE_CAP`, 1000) gives up its least
+valuable item for a better one. Each queued report gets one second opinion from a stronger model than the
+analysis's own (`UNFRET_REPORT_SECOND_OPINION_MODEL`, at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY` calls a day): a
+proposed label, a confidence and a reason. `make reports` shows the queue with the proposals, confirms the
+confident ones in bulk after a preview and goes through the rest one by one; each decision is written to the corpus
+as a human label and only then pays the first reporter (5 checks when the score was 30+ points off, 1 when 10–29)
+and becomes a training sample. A proposal nobody confirmed is never a label. Reports of the test shop never enter
+the queue.
+
 ## Run your own
 
 You need Docker and an API key for an OpenAI-compatible LLM API
@@ -679,7 +690,8 @@ pass, `POST /v1/keys`) in place of a payment, charged like `/v1/analyze`: a deep
 per pass), and a cached answer costs a deep check like a fresh one, except for the pass that paid for that listing
 within the hour. A page that can't be read, assessed or analysed is given back. The verdict is the same, plus
 `charged`, `free_check`, `balance_usd_micros` and `free_checks_left`; no `PAYMENT-RESPONSE`. A request that carries
-`PAYMENT-SIGNATURE` is always an x402 payment, and one without either header still gets the `402` above. A
+`PAYMENT-SIGNATURE` is always an x402 payment, and one without either header gets the `402` above whatever its body
+(even none, as directories probe); the body is validated (`422`) only with a payment or a pass. A
 **developer pass** (`POST /v1/keys` with `"developer": true`) comes with `UNFRET_DEVELOPER_FREE_CHECKS` (20) free deep
 checks, one a day per visitor network.
 
@@ -692,7 +704,7 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass: fix it, or pay with x402 |
 | `INSUFFICIENT_CREDITS` | 402 | no | the pass has no checks left: top it up, or pay with x402 |
 | `FREE_CHECKS_PAUSED` | 429 | no | the pass has only free checks and today's are used: after 00:00 UTC, or pay |
-| `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`) |
+| `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`); checked only with a payment or a pass |
 | `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |
 | `PAGE_BLOCKED` | 422 | no | the page is a bot check: send the real page as page_content |
 | `RATE_LIMITED` | 429 | no | wait Retry-After seconds |
@@ -984,7 +996,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
-| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (on in dev until the terms are approved) |
+| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (for a new version of the terms that isn't approved yet) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 

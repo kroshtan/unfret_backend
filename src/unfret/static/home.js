@@ -26,6 +26,9 @@ async function prices() {
       gift.hidden = gifts === 0;
     }
   }
+  // The free tier in the same currency as the packs.
+  const freePrice = document.querySelector("#prices .free .card-price");
+  if (freePrice) freePrice.textContent = euros ? "€0" : "$0";
   // The free tier and the gift codes' size, as configured.
   const free = Number(body.free?.checks_per_pass) || 0;
   if (free > 0) for (const node of document.querySelectorAll("[data-free-count]")) node.textContent = String(free);

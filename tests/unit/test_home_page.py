@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from tests.unit.test_test_shop import DEEP_VERDICT, QUICK_VERDICT
+from unfret.card import REASON_SOURCES, source_label
 from unfret.config import settings
 from unfret.main import app
 from unfret.prices import format_usd
@@ -128,10 +129,14 @@ async def test_the_test_shop_result_is_the_real_one(client: httpx.AsyncClient) -
     assert f'<div class="verdict {band}">' in sample
     assert f'<p class="label">{CATALOGUE["labels"][band]}</p>' in sample
     cards = re.findall(
-        r'<li class="card high"><span class="title">(.*?)</span><p class="detail">(.*?)</p></li>', _flat(sample)
+        r'<li class="card high"><span class="title">(.*?)</span><p class="detail">(.*?)</p>'
+        r'<p class="source">Source: (.*?)</p></li>',
+        _flat(sample),
     )
-    assert [title for title, _ in cards] == [CATALOGUE["reasons"][r]["title"] for r in reasons]
-    for (_, detail), reason in zip(cards, reasons, strict=True):
+    assert [title for title, _, _ in cards] == [CATALOGUE["reasons"][r]["title"] for r in reasons]
+    # Where each finding comes from, as the result card says it (card.py).
+    assert [source for _, _, source in cards] == [source_label(REASON_SOURCES[r]) for r in reasons]
+    for (_, detail, _), reason in zip(cards, reasons, strict=True):
         # The catalogue's words, with the test shop's own details where the catalogue has a placeholder.
         pattern = re.escape(CATALOGUE["reasons"][reason]["detail"])
         pattern = re.sub(r"\\\{\w+\\\}", ".+", pattern)
@@ -158,7 +163,9 @@ async def test_the_home_page_keeps_what_it_had(client: httpx.AsyncClient) -> Non
     # The main button for the visitor's browser, and the link checker (first on a phone: install-button.js).
     assert page.count('data-get="main"') == 1 and page.count('data-get="link"') == 1
     assert f'href="{settings.chrome_store_url}"' in page and f'href="{settings.firefox_store_url}"' in page
-    assert "chooseButtons()" in (STATIC_DIR / "home.js").read_text()
+    home = (STATIC_DIR / "home.js").read_text()
+    assert "chooseButtons()" in home
+    assert 'euros ? "€0" : "$0"' in home  # the free tier in the packs' currency
     # The honest note about the big shops that only the extension and the app can read.
     assert "turn automatic checks away" in page and "Android" in page
     # The patterns Unfret catches (#159), the free tier first, and ads and tradespeople lower down.

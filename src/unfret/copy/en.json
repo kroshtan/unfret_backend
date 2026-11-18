@@ -863,5 +863,33 @@
       "amazon": "Amazon",
       "bol.com": "bol.com"
     }
+  },
+  "deep_check": {
+    "text": "A deep check also looks at {adds}.",
+    "adds": {
+      "shop_age": "how old this shop is",
+      "photo_elsewhere": "whether its product photo appears on other shops",
+      "reviews": "whether its reviews look genuine",
+      "brand": "whether the brand is known beyond this page",
+      "price_history": "whether its 'was' price was ever really charged",
+      "vat_register": "whether its VAT number is in the EU register",
+      "seller_profile": "the seller's profile and ratings",
+      "ad_photos": "whether its photos appear in other ads",
+      "ad_price": "how its price compares with similar ads",
+      "provider_profile": "the provider's track record on the platform",
+      "service_terms": "how the provider wants to be paid"
+    },
+    "cost": {
+      "free": "Uses 1 of your {count} free deep checks.",
+      "free_last": "Uses your last free deep check.",
+      "bought": "Uses 1 check (you have {count}).",
+      "paused": "Free deep checks are back at 00:00 UTC. Deep checks also come in packs, from {price} for {checks}.",
+      "packs": "Deep checks come in packs, from {price} for {checks}.",
+      "x402": "A deep check of this page costs {price}."
+    },
+    "actions": {
+      "run_deep": "Run a deep check",
+      "get_checks": "Get checks"
+    }
   }
 }

@@ -28,7 +28,7 @@ import {
   shopOf,
   unreadableKind,
 } from "./check-core.js";
-import { el, resultNodes } from "./check-render.js";
+import { deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { makePass } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
@@ -449,16 +449,21 @@ function renderResult(result, because = null) {
   nodes.push(
     el("p", "muted small source-note", "Unfret opened this page itself, so it may look a little different from what you see."),
   );
+  const hint = deepHintOf(result);
   if (result.tier === "quick") {
     nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere. Free, and no check was used."));
+    // Once, under the quick result: what a deep check would add here, what it costs, one button.
+    if (hint) nodes.push(deepHintNode(hint, { run: runDeep, checkoutHref: checkoutHref() }));
   } else if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
   else if (result.charged === false) nodes.push(el("p", "small", "You checked this page recently: no new check was used."));
   else if (result.free_check) nodes.push(el("p", "small", "One of your free checks."));
   const reason = because ? QUICK_BECAUSE[because] : null;
   if (reason) {
     $("no-checks-heading").textContent = reason.heading;
-    $("no-checks-body").textContent = reason.body;
+    // With the suggestion under the result, this says only why the check was quick: the offer is made once.
+    $("no-checks-body").textContent = hint ? reason.short : reason.body;
   }
+  $("buy-card").hidden = Boolean(hint);
 
   $("result-body").replaceChildren(...nodes);
 
@@ -523,6 +528,7 @@ async function failed(error, link) {
     renderAccount();
     $("no-checks-heading").textContent = "You have no checks left";
     $("no-checks-body").textContent = "Add a pack and check on. Nothing was used for this link.";
+    $("buy-card").hidden = false;
     showOnly("no-checks");
     return;
   }
@@ -546,16 +552,32 @@ const QUICK_BECAUSE = {
   used: {
     heading: "You have no checks left",
     body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks come in packs, with no subscription.",
+    short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
     heading: "Free deep checks are back tomorrow",
     body: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules. Bought checks work as always.",
+    short: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules.",
   },
   none: {
     heading: "A quick check",
     body: "Without a pass, Unfret reads only this page, by its rules. A deep check also looks the shop up elsewhere: get checks, or use your pass.",
+    short: "Without a pass, Unfret reads only this page, by its rules.",
   },
 };
+
+// Where "Get checks" goes: this pass's top-up, a wallet's crypto checkout, or the checkout.
+function checkoutHref() {
+  return account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
+}
+
+// "Run a deep check" under a quick result: a normal check of the same link (charged as any deep check).
+function runDeep() {
+  const link = last?.body?.url;
+  if (!link || running) return;
+  field.value = link;
+  void check(link);
+}
 
 async function check(link) {
   const abort = new AbortController();

@@ -253,6 +253,48 @@ class SameProduct(BaseModel):
     )
 
 
+DeepCheckReason = Literal["on_the_fence", "unknown_seller", "serious_concerns", "known_seller", "nothing_to_add"]
+
+
+class DeepCheckAdd(BaseModel):
+    """One thing a deep check would look at on this page that the quick check left out."""
+
+    key: str = Field(
+        description="shop_age, photo_elsewhere, reviews, brand, price_history, vat_register (shops and marketplace "
+        "listings); seller_profile, ad_photos, ad_price (ads); provider_profile, service_terms (service platforms)."
+    )
+    area: str = Field(description="The checklist area it belongs to (a CheckItem key).")
+    label: str = Field(description='In words, to follow "A deep check also looks at": "how old this shop is".')
+
+
+class DeepCheck(BaseModel):
+    """
+    On a quick result only: whether a deep check of the same page is worth suggesting, and what it would add.
+
+    Worked out from the quick result alone; it never changes the quick verdict.
+    """
+
+    suggested: bool
+    reason: DeepCheckReason = Field(
+        description="Why (not): on_the_fence (Worth a look, Think twice), unknown_seller (Looks fine, but the quick "
+        "check can't see who is behind the page); serious_concerns (the advice is already to buy elsewhere), "
+        "known_seller (a big marketplace's own or the brand's listing), nothing_to_add."
+    )
+    quiet: bool = Field(default=False, description="Show it quietly (Looks fine): as a note, not a call to action.")
+    adds: list[DeepCheckAdd] = Field(default_factory=list, max_length=3, description="What a deep check adds here.")
+    text: str = Field(default="", description='"A deep check also looks at …" (empty when not suggested).')
+    cost: str | None = Field(
+        default=None,
+        description='What a deep check would cost this caller, in words: "Uses 1 of your 3 free deep checks.", "Uses '
+        '1 check (you have 12).", "Deep checks come in packs, from $6.00 for 25."; on /v1/check paid with x402, the '
+        "deep tier's price.",
+    )
+    action: Literal["run_deep", "get_checks"] | None = Field(
+        default=None, description="run_deep: the caller can run it now (tier deep); get_checks: it needs checks first."
+    )
+    action_label: str | None = Field(default=None, description='"Run a deep check" or "Get checks".')
+
+
 class Verdict(BaseModel):
     """The shopper-facing result of an analysis."""
 
@@ -271,6 +313,10 @@ class Verdict(BaseModel):
     next_step: NextStep | None = Field(default=None, description="One suggested next step.")
     same_product: SameProduct | None = Field(
         default=None, description="A likely same product on another shop, shown first (with both photos)."
+    )
+    deep_check: DeepCheck | None = Field(
+        default=None,
+        description="Quick results only: whether a deep check of this page is worth it and what it would add.",
     )
 
 

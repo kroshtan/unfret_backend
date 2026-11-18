@@ -87,7 +87,8 @@ async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncp
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'price_observations'"
         )
     }
-    assert columns == {"product_key", "day", "price", "currency", "was_price"}  # no URL, caller or time
+    # No URL, caller or time; provenance and sources say where it was seen and how many, never who.
+    assert columns == {"product_key", "day", "price", "currency", "was_price", "provenance", "sources"}
 
 
 TODAY = date(2026, 11, 9)
@@ -240,7 +241,7 @@ async def test_image_index_holds_no_page_addresses_people_or_times(pool: asyncpg
     names = {c["column_name"] for c in columns}
     assert names == {
         "id", "source", "domain", "listing_key", "phash", "dhash", "embedding", "colour", "image_url", "label",
-        "first_seen", "last_seen",
+        "first_seen", "last_seen", "provenance", "sources",
     }  # fmt: skip
     assert not [c for c in columns if "time" in c["data_type"]]
 

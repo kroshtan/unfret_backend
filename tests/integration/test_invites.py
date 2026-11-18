@@ -16,7 +16,7 @@ from tests.integration.test_credits import HOT, SOL_BOOK, ChainRpc, transfer, wi
 from tests.integration.test_fiat import SECRET, send
 from tests.unit.x402_helpers import StaticOracle
 from unfret.config import settings
-from unfret.credits import CreditsDoor, fiat, invites, keys, vat
+from unfret.credits import CreditsDoor, fiat, invites, keys, ledger, vat
 from unfret.credits.fiat import FakeFiatProvider
 from unfret.credits.scanner import CreditScanner
 from unfret.main import app
@@ -346,6 +346,24 @@ async def test_invalid_unknown_and_unauthenticated(client: httpx.AsyncClient, po
     assert await pool.fetchval("SELECT COUNT(*) FROM wallets") == 0
 
 
+async def test_a_former_intro_code_is_like_any_unknown_code(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    # A database from before the purge, with an intro code and its day counter: migration 33 drops both.
+    await pool.execute(DROP_ALL)
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 33])
+    await pool.execute("INSERT INTO intro_codes (code, checks, max_uses) VALUES ('FRIENDS', 5, 40)")
+    await pool.execute("INSERT INTO usage_counters (name, period, count) VALUES ('intro_checks', '2026-11-01', 5)")
+    assert 33 in await migrate(pool)
+    assert await pool.fetchval("SELECT to_regclass('intro_codes')") is None
+    assert await pool.fetchval("SELECT COUNT(*) FROM usage_counters WHERE name = 'intro_checks'") == 0
+
+    headers = bearer(str(Keypair().pubkey()))
+    answers = [await redeem(client, code, headers) for code in ("FRIENDS", " friends ", "DEV", "NEVERACODE")]
+    assert {(a.status_code, a.json()["error_code"], a.json()["detail"]) for a in answers} == {
+        (400, "INVALID_INVITE", "That isn't a gift code.")
+    }
+    assert await pool.fetchval("SELECT COUNT(*) FROM wallets") == 0  # nothing redeemed, no account made
+
+
 async def test_two_new_accounts_racing_for_one_code(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     code = await an_invite(pool)
     replies = await asyncio.gather(*(redeem(client, code, bearer(str(Keypair().pubkey()))) for _ in range(4)))
@@ -400,4 +418,39 @@ async def test_the_operator_sees_invites_outstanding(client: httpx.AsyncClient, 
         "redeemed": 1,
         "outstanding": 1,
         "outstanding_usd_micros": INVITE,
+        "via_code": 1,
+        "via_code_bought": 0,
+        "organic_bought": 0,
     }
+
+
+async def test_the_operator_counts_buyers_by_how_they_came(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    came = str(Keypair().pubkey())
+    await invites.redeem(pool, settings, came, await an_invite(pool))
+    await ledger.credit(pool, came, 5_000_000, purchase=True)  # later bought a pack
+    await ledger.credit(pool, str(Keypair().pubkey()), 5_000_000, purchase=True)  # organic buyer
+    await ledger.credit(pool, str(Keypair().pubkey()), 200_000)  # a refund: not a purchase
+    summary = await invites.summary(pool, settings)
+    assert (summary["via_code"], summary["via_code_bought"], summary["organic_bought"]) == (1, 1, 1)
+
+
+async def test_a_refunded_card_purchase_is_no_buyer(pool: asyncpg.Pool) -> None:
+    async def card(account: str, order: str, *, refunded: int = 0, disputed: bool = False) -> None:
+        await ledger.credit(pool, account, 5_000_000, purchase=True)
+        await pool.execute(
+            "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros, "
+            "refunded_cents, disputed) VALUES ('polar', $1, $2, 500, 5000000, $3, $4)",
+            order,
+            account,
+            refunded,
+            disputed,
+        )
+
+    refunded, disputed, partly, kept = (str(Keypair().pubkey()) for _ in range(4))
+    await card(refunded, "o-1", refunded=500)  # the owner's own test purchase, refunded in full
+    await card(disputed, "o-2", disputed=True)
+    await card(partly, "o-3", refunded=200)  # partly refunded: still a buyer
+    await card(kept, "o-4", refunded=500)
+    await card(kept, "o-5")  # a second order it kept
+    await ledger.credit(pool, str(Keypair().pubkey()), 5_000_000, purchase=True)  # crypto: never refunded
+    assert (await invites.summary(pool, settings))["organic_bought"] == 3

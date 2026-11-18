@@ -454,13 +454,7 @@ def stats_digest(token: str) -> bytes | None:
 
 
 async def _code_taken(conn: Executor, code: str) -> bool:
-    return bool(
-        await conn.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM bonus_codes WHERE code = $1) "
-            "OR EXISTS (SELECT 1 FROM intro_codes WHERE code = $1)",
-            code,
-        )
-    )
+    return bool(await conn.fetchval("SELECT EXISTS (SELECT 1 FROM bonus_codes WHERE code = $1)", code))
 
 
 @dataclass(frozen=True)

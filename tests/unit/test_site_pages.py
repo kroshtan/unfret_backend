@@ -202,7 +202,7 @@ async def test_money_is_paid_checks_and_nothing_else(client: httpx.AsyncClient) 
     assert "paid for by the checks people buy" in text and "x402" in text
     # Promoters may earn a share of the sales they bring in (the affiliate program); shops never pay.
     assert 'href="/affiliates"' in text
-    # Packs come with gift codes for friends; the operator's intro codes are being retired.
+    # Packs come with gift codes for friends; intro codes are gone.
     assert "gift codes" in text and "intro code" not in text.lower()
 
 
@@ -409,3 +409,16 @@ async def test_every_page_in_the_sitemap_can_be_indexed(client: httpx.AsyncClien
     assert response.status_code == 200
     assert "noindex" not in response.headers.get("x-robots-tag", "")
     assert re.search(r'<meta name="robots" content="[^"]*noindex', response.text) is None
+
+
+@pytest.mark.parametrize("query", ["", "?code=FRIENDS", "?code=%3Cscript%3E"])
+async def test_an_old_key_link_opens_checkout_as_if_it_had_no_code(client: httpx.AsyncClient, query: str) -> None:
+    shared = await client.get(f"/key{query}")
+    assert (shared.status_code, shared.headers["location"]) == (302, "/checkout?for=key")
+
+
+async def test_checkout_has_no_note_for_old_intro_code_links(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/checkout?code=FRIENDS")).text
+    assert 'id="free-note"' not in page and "intro" not in page.lower()
+    script = (STATIC_DIR / "checkout.js").read_text()
+    assert "retiredCode" not in script and "intro" not in script.lower()

@@ -748,6 +748,27 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE shop_links ALTER COLUMN provenance SET DEFAULT 9;
         """,
     ),
+    (
+        33,
+        "drop intro codes",
+        """
+        -- Intro codes (migration 17) are gone: every new pass comes with free checks instead. Their table goes, and
+        -- with it the day counter of the checks they gave. Gift codes (invites), the purchased flag and the
+        -- invite_redeemed flag stay: gift codes still use them.
+        DROP TABLE IF EXISTS intro_codes;
+        DELETE FROM usage_counters WHERE name = 'intro_checks';
+        """,
+    ),
+    (
+        34,
+        "developer passes",
+        """
+        -- A pass made as a developer pass ("developer": true on POST /v1/keys, unfret.credits.free): its free checks
+        -- count on /v1/check only (the API, the MCP server, the clients), never on /v1/analyze. A flag, nothing about
+        -- who asked. Passes made before this are FALSE and keep working as they did.
+        ALTER TABLE api_keys ADD COLUMN developer BOOLEAN NOT NULL DEFAULT FALSE;
+        """,
+    ),
 ]
 
 

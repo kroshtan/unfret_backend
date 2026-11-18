@@ -127,9 +127,9 @@ def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
     discount for paying another way is fine. "Free checks" is the free tier's name (the checks a new pass comes with,
-    and quick checks: :mod:`unfret.credits.free`), never a "trial". Gift codes (invites) and intro codes keep their
-    own words: a gift code is a buyer's gift for a friend ("with 1 gift code for a friend (5 checks)"), never a "free
-    invite" or a "trial".
+    and quick checks: :mod:`unfret.credits.free`), never a "trial". Gift codes (invites) keep their own words: a gift
+    code is a buyer's gift for a friend ("with 1 gift code for a friend (5 checks)"), never a "free invite" or a
+    "trial".
 
     :param pack: The pack.
     :param settings: The service settings (for the gift codes; without them, none are mentioned).

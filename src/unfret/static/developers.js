@@ -63,7 +63,8 @@ make?.addEventListener("click", async () => {
     }
     make.hidden = true;
     status.textContent = issued.free_checks
-      ? `Your developer pass, with ${issued.free_checks} free deep checks. Save both now: they're shown only this once.`
+      ? `Your developer pass, with ${issued.free_checks} free deep checks for the API and the MCP server. ` +
+        "Save both now: they're shown only this once."
       : "Your pass is made, but without free checks: this network already had its developer pass today. " +
         "Save both now; buy checks for it, or use quick checks (free).";
     result.replaceChildren(

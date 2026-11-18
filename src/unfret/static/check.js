@@ -81,6 +81,7 @@ let ended = false; // the pass that was here was retired (the server no longer k
 let checks = null;
 let freeLeft = 0; // of `checks`, the free ones
 let freePaused = false; // today's free deep checks are all used
+let apiFree = 0; // a developer pass's free checks: for the API and the MCP server, not this page
 let inviteEligible = false;
 let pricing = null;
 let running = null; // the AbortController of the check in progress
@@ -219,7 +220,10 @@ function renderAccount() {
       account.kind === "key"
         ? `on pass ${showPassId(account.address.slice("key:".length))}`
         : `on wallet ${shortAddress(account.address)}`;
-    $("checks").textContent = checks === null ? "" : checksText(checks);
+    $("checks").textContent =
+      checks === null
+        ? ""
+        : checksText(checks) + (apiFree > 0 ? ` (a developer pass: its ${apiFree} free checks are for the API)` : "");
     $("buy-more").href = buyPath();
   }
   // The gift-code field: shown for any pass or wallet (a gift code works on any account but its buyer's).
@@ -256,6 +260,7 @@ async function refreshChecks() {
     checks = credits.checks_remaining;
     freeLeft = credits.free_checks_remaining ?? 0;
     freePaused = credits.free_checks_paused === true;
+    apiFree = credits.api_free_checks_remaining ?? 0;
     inviteEligible = credits.invite_eligible === true;
   } catch (error) {
     if (passEnded(error, account)) return passRetired();
@@ -278,6 +283,7 @@ function signedOut(wasExpired) {
   account = null;
   checks = null;
   freeLeft = 0;
+  apiFree = 0;
   expired = wasExpired;
   renderAccount();
 }

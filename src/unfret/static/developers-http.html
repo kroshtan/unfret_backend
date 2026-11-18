@@ -51,7 +51,8 @@
         <h2 id="pay-heading">Two ways to pay</h2>
         <p><b>An Unfret pass</b>, sent as <code>Authorization: Bearer ufk_…</code>. A deep check uses one of the
           pass's checks (its free ones first); a quick check is free, up to {{quick_per_minute}} a minute. Make a
-          <a href="#developer-pass">developer pass</a> with {{developer_checks}} free deep checks, or
+          <a href="#developer-pass">developer pass</a> with {{developer_checks}} free deep checks (for the API and
+          the MCP server), or
           <a href="/checkout">buy checks</a> for any pass: {{packs_line}}.</p>
         <p><b>x402</b>, with no pass and no account: the agent pays each check from its own wallet,
           {{quick_price}} for quick and {{deep_price}} for deep. Send the request without
@@ -74,7 +75,9 @@
     <section class="section" id="developer-pass" aria-labelledby="pass-heading">
       <div class="wrap narrow">
         <h2 id="pass-heading">Get a developer pass in code</h2>
-        <p>A pass with {{developer_checks}} free deep checks, for building and testing against Unfret. No account:
+        <p>A pass with {{developer_checks}} free deep checks, for building and testing against Unfret: they count on
+          <code>POST /v1/check</code> (the API, the MCP server, the clients), not in the extension, the phone app
+          or the website's link checker; checks bought for the pass work everywhere. No account:
           the server asks for a few seconds of proof of work instead. (Or press "Make a developer pass" on
           <a href="/developers#developer-pass">the developer page</a>.)</p>
         <ol class="howto">
@@ -90,8 +93,8 @@
           <li><b>Make the pass.</b> <code>POST /v1/keys</code> with
             <code>{"challenge": "…", "solution": "…", "developer": true}</code> answers <code>201</code> with
             <code>key</code> (the pass, <code>ufk_…</code>), <code>recovery_code</code> (its backup code),
-            <code>key_id</code>, <code>account</code>, <code>balance_usd_micros</code> and
-            <code>free_checks</code>. Both secrets are shown only this once and stored only as hashes: save them.</li>
+            <code>key_id</code>, <code>account</code>, <code>balance_usd_micros</code>, <code>free_checks</code>
+            and <code>developer</code> (<code>true</code>). Both secrets are shown only this once and stored only as hashes: save them.</li>
         </ol>
         <p><b>Limits.</b> {{developer_checks}} free deep checks per developer pass, and
           {{developer_passes_per_day}} with free checks a day per visitor network; past that, the
@@ -243,12 +246,15 @@ console.log(pass.key, pass.recovery_code, pass.free_checks); // save both: shown
         <h3 id="checks-left">Checks left</h3>
         <p>Every answer with a pass carries <code>free_checks_left</code> and <code>balance_usd_micros</code>. To ask
           without checking a page: <code>GET /v1/credits</code> with the pass answers with
-          <code>checks_remaining</code> (deep checks it can pay for, free ones included),
-          <code>free_checks_remaining</code>, <code>free_checks_paused</code> (true while today's free deep checks
-          are all used) and <code>balance_usd_micros</code>.</p>
+          <code>checks_remaining</code> (deep checks it can pay for anywhere, free ones included),
+          <code>free_checks_remaining</code>, <code>api_free_checks_remaining</code> (a developer pass's free
+          checks: they work on <code>POST /v1/check</code> only, so they aren't in the other two),
+          <code>free_checks_paused</code> (true while today's free deep checks are all used) and
+          <code>balance_usd_micros</code>.</p>
         <p class="small muted">For the card a shopper sees (a headline, reasons with where each one comes from, what
           looks good, what was checked), <code>POST /v1/analyze</code> takes the same <code>url</code>,
-          <code>tier</code> and pass and answers with a <code>verdict</code>; see the
+          <code>tier</code> and pass (a developer pass's free checks don't count there: only bought ones) and
+          answers with a <code>verdict</code>; see the
           <a href="/docs">API reference</a>.</p>
       </div>
     </section>

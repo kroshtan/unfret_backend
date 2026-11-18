@@ -1377,7 +1377,7 @@ table.fields td:first-child code { white-space: nowrap; }
   color: var(--ink-2);
 }
 
-/* Checkout: the bonus code under the packs, and the note an old intro-code link gets. */
+/* Checkout: the bonus code under the packs; notes. */
 .bonus-code { margin-top: 1rem; }
 .bonus-code label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
 .note { border-left: 4px solid var(--ok); background: var(--good-soft); padding: 0.9rem 1rem; border-radius: 8px; margin: 1rem 0; }

@@ -20,7 +20,7 @@ Bonus codes (``make bonus-codes ARGS="…"``)::
     create CODE --bonus PCT [--expires YYYY-MM-DD] [--uses N] [--affiliate CODE]
     off CODE / on CODE                         switch a code off or back on
 
-Environment as for ``make codes``: ``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKEN`` or
+Environment as for ``make reports``: ``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKEN`` or
 ``UNFRET_ADMIN_TOKEN_FILE``. Amounts are shown in the currency's units (USD and EUR apart: no conversion).
 """
 

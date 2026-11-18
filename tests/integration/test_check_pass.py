@@ -48,7 +48,7 @@ async def test_a_developer_pass_has_twenty_free_checks_once_a_day_per_network(
     second = await new_pass(client, developer=True)
 
     assert first["free_checks"] == settings.developer_free_checks == 20
-    assert await free.left(pool, first["key_id"]) == 20
+    assert await free.left(pool, first["key_id"], api=True) == 20
     assert second["free_checks"] == 0  # past the network's developer pass for today: made empty
     # A developer pass doesn't use up the network's ordinary free passes (each has its own allowance).
     assert (await new_pass(client, free=True))["free_checks"] == settings.free_checks_per_pass
@@ -69,7 +69,7 @@ async def test_a_deep_check_with_a_pass_uses_a_free_check(
     assert verdict["free_checks_left"] == 19 and verdict["balance_usd_micros"] == 0
     assert "PAYMENT-RESPONSE" not in response.headers
     assert len(graph.calls) == 1
-    assert await free.left(pool, issued["key_id"]) == 19
+    assert await free.left(pool, issued["key_id"], api=True) == 19
 
 
 async def test_bought_checks_pay_once_the_free_ones_are_gone(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -143,7 +143,7 @@ async def test_an_invalid_body_with_a_pass_is_a_422_and_costs_nothing(
     ):
         assert (response.status_code, response.json()["error_code"]) == (422, "VALIDATION_ERROR")
 
-    assert await free.left(pool, issued["key_id"]) == 20
+    assert await free.left(pool, issued["key_id"], api=True) == 20
     assert await balance(pool, issued["account"]) == PRICE
     assert graph.calls == []
 
@@ -210,7 +210,7 @@ async def test_a_failed_analysis_is_given_back(
     response = await client.post("/v1/check", json=CHECK, headers=bearer(issued["key"]))
 
     assert response.status_code == 500 and response.json()["error_code"] == "INTERNAL_ERROR"
-    assert await free.left(pool, issued["key_id"]) == 20
+    assert await free.left(pool, issued["key_id"], api=True) == 20
 
 
 async def test_a_page_that_cant_be_fetched_costs_nothing(
@@ -227,7 +227,7 @@ async def test_a_page_that_cant_be_fetched_costs_nothing(
     )
 
     assert response.status_code == 422 and response.json()["error_code"] == "PAGE_UNAVAILABLE"
-    assert await free.left(pool, issued["key_id"]) == 20
+    assert await free.left(pool, issued["key_id"], api=True) == 20
     assert graph.calls == []
 
 
@@ -251,3 +251,114 @@ async def test_discovery_and_llms_txt_name_the_pass(client: httpx.AsyncClient) -
     discovery = (await client.get("/.well-known/x402")).json()
     assert discovery["auth"]["developer_pass"]["free_deep_checks"] == 20
     assert "Authorization: Bearer ufk_" in (await client.get("/llms.txt")).text
+
+
+# ── A developer pass's free checks count on /v1/check only ─────────────────────────────────────────────────────
+
+
+async def test_a_developer_pass_is_flagged_and_nothing_else_is_kept(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    developer, shopper, empty = (
+        await new_pass(client, developer=True),
+        await new_pass(client, free=True),
+        await new_pass(client),
+    )
+    assert developer["developer"] is True and shopper["developer"] is False and empty["developer"] is False
+    flags = dict(await pool.fetch("SELECT id, developer FROM api_keys"))
+    assert flags == {developer["key_id"]: True, shopper["key_id"]: False, empty["key_id"]: False}
+
+
+async def test_a_developer_pass_spends_no_free_check_on_analyze(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+) -> None:
+    developer, empty = await new_pass(client, developer=True), await new_pass(client)
+
+    refused = await client.post("/v1/analyze", json=PAGE, headers=bearer(developer["key"]))
+    as_empty = await client.post("/v1/analyze", json=PAGE, headers=bearer(empty["key"]))
+    streamed = await client.post("/v1/analyze/stream", json=PAGE, headers=bearer(developer["key"]))
+    url_only = await client.post(
+        "/v1/analyze", json={"url": "https://shop.test/x", "tier": "deep"}, headers=bearer(developer["key"])
+    )
+
+    # Exactly what a pass with no checks left gets, before any work.
+    assert (refused.status_code, refused.json()) == (as_empty.status_code, as_empty.json())
+    assert refused.status_code == 402 and refused.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert streamed.status_code == 402 and streamed.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert url_only.status_code == 402 and url_only.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert graph.calls == []
+    assert await free.left(pool, developer["key_id"], api=True) == 20 and await free.used_today(pool) == 0
+    # ...while /v1/check spends them.
+    checked = await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))
+    assert checked.json()["free_check"] is True and checked.json()["free_checks_left"] == 19
+
+
+async def test_a_developer_pass_pays_from_its_balance_everywhere(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+) -> None:
+    developer = await new_pass(client, developer=True)
+    await pool.execute(
+        "INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", developer["account"], 2 * PRICE
+    )
+
+    analyzed = await client.post("/v1/analyze", json=PAGE, headers=bearer(developer["key"]))
+
+    assert analyzed.status_code == 200
+    assert analyzed.json()["charged"] is True and not analyzed.json().get("free_check")  # bought, not free
+    assert await balance(pool, developer["account"]) == PRICE
+    assert await free.left(pool, developer["key_id"], api=True) == 20
+
+    await pool.execute("UPDATE api_keys SET free_checks = 0 WHERE id = $1", developer["key_id"])
+    checked = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/2"}, headers=bearer(developer["key"])
+    )
+    assert checked.status_code == 200
+    assert checked.json()["charged"] is True and checked.json()["free_check"] is False
+    assert await balance(pool, developer["account"]) == 0
+
+
+async def test_credits_say_a_developer_pass_free_checks_are_for_the_api(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    developer, shopper = await new_pass(client, developer=True), await new_pass(client, free=True)
+    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", developer["account"], PRICE)
+
+    dev = (await client.get("/v1/credits", headers=bearer(developer["key"]))).json()
+    shop = (await client.get("/v1/credits", headers=bearer(shopper["key"]))).json()
+
+    # The website and the extension read checks_remaining and free_checks_remaining: only what works there.
+    assert (dev["checks_remaining"], dev["free_checks_remaining"], dev["api_free_checks_remaining"]) == (1, 0, 20)
+    assert (shop["checks_remaining"], shop["free_checks_remaining"], shop["api_free_checks_remaining"]) == (5, 5, 0)
+
+
+async def test_a_normal_free_pass_spends_free_checks_on_both(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    shopper = await new_pass(client, free=True)
+
+    analyzed = await client.post("/v1/analyze", json=PAGE, headers=bearer(shopper["key"]))
+    checked = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/2"}, headers=bearer(shopper["key"])
+    )
+
+    assert analyzed.json()["free_check"] is True and checked.json()["free_check"] is True
+    assert await free.left(pool, shopper["key_id"]) == await free.left(pool, shopper["key_id"], api=True) == 3
+
+
+async def test_a_developer_pass_free_checks_dont_move(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    developer, shopper = await new_pass(client, developer=True), await new_pass(client, free=True)
+
+    out = await client.post(
+        "/v1/keys/move-free-checks", json={"to_key_id": shopper["key_id"]}, headers=bearer(developer["key"])
+    )
+    into = await client.post(
+        "/v1/keys/move-free-checks", json={"to_key_id": developer["key_id"]}, headers=bearer(shopper["key"])
+    )
+
+    assert out.json() == into.json() == {"moved": 0}
+    assert await free.left(pool, developer["key_id"], api=True) == 20
+    assert await free.left(pool, shopper["key_id"]) == 5
+
+
+async def test_a_recovered_developer_pass_stays_one(client: httpx.AsyncClient) -> None:
+    developer = await new_pass(client, developer=True)
+    recovered = await client.post("/v1/keys/recover", json={"recovery_code": developer["recovery_code"]})
+    assert recovered.json()["developer"] is True and recovered.json()["free_checks"] == 20

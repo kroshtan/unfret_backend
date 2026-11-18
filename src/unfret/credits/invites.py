@@ -27,19 +27,12 @@ the buying account (``buyer_hash``: HMAC-SHA256 with the session secret, so the 
 is kept about who redeems it but the account's ``invite_redeemed`` flag and the month of its latest gift code
 (``gift_month``, never which code). Invites issued before the hash was kept can be redeemed by anyone. It is a
 gift, not a sale: no VAT record, no sales row, only the ``credits_granted`` log line with ``kind="invite"`` (amounts
-only). Gift codes aren't under the intro codes' daily cap: they were paid for.
+only).
 
 **One a month.** An account redeems at most :data:`REDEEM_PER_MONTH` gift code a calendar month (UTC). A second code
 in the same month is refused (``monthly``) and stays unused: it works on this account next month, or on someone
 else's now. The check and the credit are one transaction (the account's row is locked by the credit), so two codes
 at once can't both pass.
-
-**Intro codes** (retired with free checks: redeeming one answers ``ended`` unless ``intro_codes_enabled``). Named codes
-the operator made per channel (``FRIENDS``, ``DEV``, one per newsletter), redeemed at the same endpoint for new
-accounts only, one code per account, setting the same ``invite_redeemed`` flag (never which code). Each has its own
-number of checks and ``max_uses``; the table keeps only the running count. ``intro_daily_checks_cap`` is an emergency
-brake, off unless set: then all codes together give at most that many checks a UTC day (``usage_counters``, counted
-either way), so a code shared too widely can't run up the bill. ``kind="intro"`` in the log line.
 """
 
 import base64
@@ -63,8 +56,6 @@ type Executor = asyncpg.Pool | asyncpg.Connection
 
 PREFIX = "ufi_"
 _CODE_RE = re.compile(r"^ufi_[a-z2-7]{32}$")
-_INTRO_RE = re.compile(r"^[A-Z0-9]{3,24}$")
-_INTRO_COUNTER = "intro_checks"
 _CLAIM_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 # A payment must bring in at least this share of the pack's value for its invites (SOL moves a little between quote
 # and payment; a dust payment naming someone's quote must not).
@@ -72,7 +63,7 @@ MIN_PAID_PCT = 90
 # Uncollected codes of a card checkout are wiped after this many days.
 UNCLAIMED_DAYS = 7
 
-Failure = Literal["invalid", "unknown", "used", "not_eligible", "ended", "daily_cap", "own", "monthly"]
+Failure = Literal["invalid", "unknown", "used", "own", "monthly"]
 # Gift codes an account may redeem per calendar month (UTC): the month of its latest one is kept (wallets.gift_month).
 REDEEM_PER_MONTH = 1
 MONTHLY_MESSAGE = (
@@ -133,17 +124,6 @@ def normalise(value: str) -> str | None:
     """
     code = value.strip().lower()
     return code if _CODE_RE.fullmatch(code) else None
-
-
-def normalise_intro(value: str) -> str | None:
-    """
-    An intro code as typed (spaces, any case), or ``None`` if it isn't one.
-
-    :param value: What the caller sent.
-    :return: The code, upper case.
-    """
-    code = value.strip().upper()
-    return code if _INTRO_RE.fullmatch(code) else None
 
 
 def digest(value: str) -> bytes:
@@ -363,7 +343,7 @@ async def redeem(
     db: asyncpg.Pool, settings: Settings, account: str, value: str, *, today: date | None = None
 ) -> Redeemed:
     """
-    Redeem a gift code (an invite) for any account but the buyer's, once, one a month; or an intro code while on.
+    Redeem a gift code (an invite) for any account but the buyer's, once, one a month.
 
     :param db: The database pool.
     :param settings: The service settings.
@@ -371,13 +351,11 @@ async def redeem(
     :param value: The code, as typed.
     :param today: The day in UTC (injectable for tests).
     :return: The credit and the new balance.
-    :raises InviteError: For a malformed, unknown or used code, the buyer's own pass, a second gift code in a month,
-        or an intro code once they have ended.
+    :raises InviteError: For a malformed, unknown or used code, the buyer's own pass, or a second gift code in a
+        month.
     """
     code = normalise(value)
     if code is None:
-        if (intro := normalise_intro(value)) is not None:
-            return await _redeem_intro(db, settings, account, intro)
         raise InviteError("invalid", "That isn't a gift code.")
     amount = value_usd_micros(settings)
     async with db.acquire() as conn, conn.transaction():
@@ -410,133 +388,6 @@ async def redeem(
     return Redeemed(amount, balance)
 
 
-_NOT_ELIGIBLE = "Intro codes are for new accounts: this one has had checks before, or used a code."
-
-
-async def _redeem_intro(db: asyncpg.Pool, settings: Settings, account: str, code: str) -> Redeemed:
-    if not settings.intro_codes_enabled:
-        raise InviteError("ended", "Codes like this have ended: every new Unfret pass comes with free checks now.")
-    today = datetime.now(UTC).date().isoformat()
-    async with db.acquire() as conn, conn.transaction():
-        row = await conn.fetchrow(
-            "SELECT checks, max_uses, uses, active FROM intro_codes WHERE code = $1 FOR UPDATE", code
-        )
-        if row is None:
-            raise InviteError("unknown", "Unknown code.")
-        if not row["active"]:
-            raise InviteError("ended", "This code has ended.")
-        if row["uses"] >= row["max_uses"]:
-            raise InviteError("used", "This code has been used up.")
-        checks = int(row["checks"])
-        given = await conn.fetchval(
-            "INSERT INTO usage_counters (name, period, count) VALUES ($1, $2, 0) ON CONFLICT (name, period) "
-            "DO UPDATE SET count = usage_counters.count RETURNING count",
-            _INTRO_COUNTER,
-            today,
-        )
-        cap = settings.intro_daily_checks_cap
-        if cap is not None and int(given) + checks > cap:
-            raise InviteError("daily_cap", "Today's free checks from codes are gone: they're back tomorrow (UTC).")
-        amount = checks * settings.analysis_price_usd_micros
-        opened = await conn.fetchval(
-            "INSERT INTO wallets (pubkey, balance_usd_micros, invite_redeemed) VALUES ($1, $2, TRUE) "
-            "ON CONFLICT (pubkey) DO NOTHING RETURNING balance_usd_micros",
-            account,
-            amount,
-        )
-        if opened is None:
-            raise InviteError("not_eligible", _NOT_ELIGIBLE)
-        await conn.execute("UPDATE intro_codes SET uses = uses + 1 WHERE code = $1", code)
-        await conn.execute(
-            "UPDATE usage_counters SET count = count + $3 WHERE name = $1 AND period = $2",
-            _INTRO_COUNTER,
-            today,
-            checks,
-        )
-    logger.info("credits_granted", kind="intro", usd_micros=amount)
-    return Redeemed(amount, int(opened))
-
-
-@dataclass(frozen=True)
-class IntroCode:
-    """An intro code as the operator sees it."""
-
-    code: str
-    checks: int
-    max_uses: int
-    uses: int
-    active: bool
-    created_on: date
-
-
-async def create_intro(db: asyncpg.Pool, code: str, checks: int, max_uses: int) -> IntroCode:
-    """
-    Make an intro code.
-
-    :param db: The database pool.
-    :param code: The name, as typed (stored upper case).
-    :param checks: Checks per use.
-    :param max_uses: How many accounts may use it.
-    :return: The new code.
-    :raises InviteError: ``invalid`` for a malformed name, ``used`` if the name is taken.
-    """
-    name = normalise_intro(code)
-    if name is None:
-        raise InviteError("invalid", "A code is 3 to 24 letters or digits.")
-    row = await db.fetchrow(
-        "INSERT INTO intro_codes (code, checks, max_uses) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING *",
-        name,
-        checks,
-        max_uses,
-    )
-    if row is None:
-        raise InviteError("used", f"{name} exists already.")
-    return IntroCode(**dict(row))
-
-
-async def update_intro(
-    db: asyncpg.Pool, code: str, *, active: bool | None = None, add_uses: int = 0
-) -> IntroCode | None:
-    """
-    Switch an intro code on or off, or give it more uses.
-
-    :param db: The database pool.
-    :param code: The name.
-    :param active: On or off (``None``: unchanged).
-    :param add_uses: Uses to add to ``max_uses`` (may be negative, never below 0).
-    :return: The code, or ``None`` if there is none by that name.
-    """
-    row = await db.fetchrow(
-        "UPDATE intro_codes SET active = COALESCE($2, active), max_uses = GREATEST(0, max_uses + $3) "
-        "WHERE code = $1 RETURNING *",
-        normalise_intro(code) or code,
-        active,
-        add_uses,
-    )
-    return None if row is None else IntroCode(**dict(row))
-
-
-async def list_intros(db: asyncpg.Pool, settings: Settings) -> dict[str, object]:
-    """
-    Every intro code with its uses, today's checks given (and the daily cap, if set), and buyers by how they came.
-
-    :param db: The database pool.
-    :param settings: The service settings.
-    :return: ``{"codes": [...], "today": {...}, "accounts": {...}}``; ``today.cap`` is ``None`` without a daily cap.
-    """
-    rows = await db.fetch("SELECT * FROM intro_codes ORDER BY created_on, code")
-    given = await db.fetchval(
-        "SELECT count FROM usage_counters WHERE name = $1 AND period = $2",
-        _INTRO_COUNTER,
-        datetime.now(UTC).date().isoformat(),
-    )
-    return {
-        "codes": [IntroCode(**dict(row)).__dict__ for row in rows],
-        "today": {"checks_given": int(given or 0), "cap": settings.intro_daily_checks_cap},
-        "accounts": await _accounts(db),
-    }
-
-
 async def _accounts(db: asyncpg.Pool) -> dict[str, int]:
     # A buyer is an account that bought and kept it: ``purchased``, unless every card order it has was refunded in full
     # or disputed (the money went back). A crypto purchase can't be refunded, so it always counts; crypto sales aren't
@@ -563,11 +414,12 @@ async def _accounts(db: asyncpg.Pool) -> dict[str, int]:
 
 async def summary(db: asyncpg.Pool, settings: Settings) -> dict[str, int]:
     """
-    Invites issued, redeemed and outstanding, for the operator (a gift's cost, not revenue).
+    Invites issued, redeemed and outstanding (a gift's cost, not revenue), and buyers by how they came.
 
     :param db: The database pool.
     :param settings: The service settings.
-    :return: Counts, and what the outstanding ones would credit at today's price.
+    :return: Counts, what the outstanding ones would credit at today's price, and ``via_code`` (accounts that redeemed
+        a code), ``via_code_bought`` (of those, buyers) and ``organic_bought`` (buyers that never redeemed one).
     """
     row = await db.fetchrow("SELECT count(*) AS issued, count(redeemed_on) AS redeemed FROM invites")
     issued, redeemed = int(row["issued"]), int(row["redeemed"])
@@ -576,4 +428,5 @@ async def summary(db: asyncpg.Pool, settings: Settings) -> dict[str, int]:
         "redeemed": redeemed,
         "outstanding": issued - redeemed,
         "outstanding_usd_micros": (issued - redeemed) * value_usd_micros(settings),
+        **await _accounts(db),
     }

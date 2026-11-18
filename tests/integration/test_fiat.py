@@ -766,7 +766,7 @@ async def test_a_top_up_of_a_pass_in_use_is_never_reissued(
 async def test_a_new_pass_that_got_checks_another_way_before_payment_is_not_reissued(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, since: str
 ) -> None:
-    # A pass made for a checkout that was left open, then used with an intro code or paid by another checkout: by
+    # A pass made for a checkout that was left open, then used with a gift code or paid by another checkout: by
     # the time this one is paid, the pass is in use.
     issued, _, checkout_id = await paid_checkout(client, provider, pool, pay=False)
     if since == "code":

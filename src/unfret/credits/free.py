@@ -13,7 +13,11 @@ pass of the same holder (:func:`move`) but are never turned into balance.
 **Developer passes.** ``"developer": true`` instead makes a pass with ``developer_free_checks`` (20) free deep
 checks, for building an agent against ``/v1/check`` (which takes a pass like ``/v1/analyze`` does), the MCP server or
 the clients; at most ``developer_passes_per_ip_per_day`` per visitor network, under the same proof of work. The
-``/developers`` page asks for one once per browser. They are the same free checks, from the same daily budget.
+``/developers`` page asks for one once per browser. They are the same free checks, from the same daily budget, but
+they count **only on** ``/v1/check`` (``api=True`` below): the pass keeps a flag (``api_keys.developer``, nothing
+about who asked), and on ``/v1/analyze`` (the website, the extension, the phone app) a developer pass is a pass
+without free checks: its bought checks work there as anywhere, and without them it answers as an empty pass does.
+Its free checks never move to another pass, and none move onto it. Passes made before the flag have none set.
 
 **One budget.** Every free deep check counts towards one global counter a UTC day (``usage_counters``, name
 ``free_checks``: a number per day, nothing about anyone), capped at
@@ -24,7 +28,7 @@ on. A free check whose analysis fails or can't be done is given back, to the pas
 **Quick checks** (rules only, no LLM: the x402 quick tier) cost nothing to run and are free for everyone, with or
 without a pass, within a per-minute rate limit (:mod:`unfret.routes.analyze`).
 
-Wording: this tier is "free checks" ("5 free checks"); invites and intro codes keep their own words
+Wording: this tier is "free checks" ("5 free checks"); gift codes keep their own words
 (:func:`unfret.credits.pricing.pack_labels`).
 """
 
@@ -110,20 +114,23 @@ async def _take_budget(conn: Executor, settings: Settings, period: str) -> bool:
     return taken is not None
 
 
-async def take_for_key(pool: asyncpg.Pool, settings: Settings, key_id: str) -> tuple[Taken, Spent | None]:
+async def take_for_key(
+    pool: asyncpg.Pool, settings: Settings, key_id: str, *, api: bool = False
+) -> tuple[Taken, Spent | None]:
     """
     Take one of a pass's free deep checks, and one from the day's budget, together.
 
     :param pool: The pool.
     :param settings: The service settings.
     :param key_id: The pass's id.
-    :return: ``("taken", spent)``; ``("none", None)`` without free checks left; ``("paused", None)`` when the pass
-        has some but today's budget is spent (nothing is taken then).
+    :param api: The check is on ``/v1/check``, where a developer pass's free checks count too.
+    :return: ``("taken", spent)``; ``("none", None)`` without free checks left (or a developer pass off the API);
+        ``("paused", None)`` when the pass has some but today's budget is spent (nothing is taken then).
     """
     period = today()
     async with pool.acquire() as conn, conn.transaction():
-        left = await conn.fetchval("SELECT free_checks FROM api_keys WHERE id = $1 FOR UPDATE", key_id)
-        if not left:
+        row = await conn.fetchrow("SELECT free_checks, developer FROM api_keys WHERE id = $1 FOR UPDATE", key_id)
+        if row is None or not row["free_checks"] or (row["developer"] and not api):
             return "none", None
         if not await _take_budget(conn, settings, period):
             return "paused", None
@@ -146,15 +153,45 @@ async def give_back(db: Executor, spent: Spent) -> None:
     await db.execute("UPDATE api_keys SET free_checks = free_checks + 1 WHERE id = $1", spent.key_id)
 
 
-async def left(db: Executor, key_id: str) -> int:
+@dataclass(frozen=True)
+class Held:
+    """A pass's free deep checks left, and whether they are a developer pass's (they count on ``/v1/check`` only)."""
+
+    checks: int
+    developer: bool
+
+    def usable(self, *, api: bool) -> int:
+        """
+        The free checks that count where the check is made.
+
+        :param api: On ``/v1/check`` (``True``) or ``/v1/analyze`` (``False``).
+        :return: The count: a developer pass's only on the API.
+        """
+        return self.checks if api or not self.developer else 0
+
+
+async def held(db: Executor, key_id: str) -> Held:
     """
-    A pass's free deep checks left.
+    A pass's free deep checks left, whichever endpoint they count on.
 
     :param db: A pool or connection.
     :param key_id: The pass's id.
+    :return: The count and the developer flag (0 and ``False`` for an unknown id).
+    """
+    row = await db.fetchrow("SELECT free_checks, developer FROM api_keys WHERE id = $1", key_id)
+    return Held(0, False) if row is None else Held(int(row["free_checks"]), bool(row["developer"]))
+
+
+async def left(db: Executor, key_id: str, *, api: bool = False) -> int:
+    """
+    A pass's free deep checks left that count where the check is made.
+
+    :param db: A pool or connection.
+    :param key_id: The pass's id.
+    :param api: On ``/v1/check``; otherwise ``/v1/analyze``, where a developer pass has none.
     :return: The count (0 for an unknown id).
     """
-    return int(await db.fetchval("SELECT free_checks FROM api_keys WHERE id = $1", key_id) or 0)
+    return (await held(db, key_id)).usable(api=api)
 
 
 async def move(pool: asyncpg.Pool, from_id: str, to_id: str) -> int:
@@ -164,7 +201,8 @@ async def move(pool: asyncpg.Pool, from_id: str, to_id: str) -> int:
     :param pool: The pool.
     :param from_id: The pass they are on (the caller holds it).
     :param to_id: The pass to put them on.
-    :return: How many moved (0 if the other pass doesn't exist, or there were none).
+    :return: How many moved (0 if the other pass doesn't exist, there were none, or either is a developer pass: its
+        free checks are for the API, and a shopper's don't become that).
     """
     if from_id == to_id:
         return 0
@@ -174,6 +212,8 @@ async def move(pool: asyncpg.Pool, from_id: str, to_id: str) -> int:
             "SELECT 1 FROM api_keys WHERE id = ANY($1::text[]) ORDER BY id FOR UPDATE", [from_id, to_id]
         )
         if not await conn.fetchval("SELECT TRUE FROM api_keys WHERE id = $1", to_id):
+            return 0
+        if await conn.fetchval("SELECT bool_or(developer) FROM api_keys WHERE id = ANY($1::text[])", [from_id, to_id]):
             return 0
         moved = int(await conn.fetchval("SELECT free_checks FROM api_keys WHERE id = $1", from_id) or 0)
         if moved:

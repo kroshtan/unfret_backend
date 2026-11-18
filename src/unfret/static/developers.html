@@ -24,7 +24,7 @@
             or pressure tricks? The answer is an action, <code>allow</code>, <code>warn</code> or
             <code>block</code>, with the evidence behind it. No account:
             pay per call over x402, or use an Unfret pass. A developer pass comes with
-            {{developer_checks}} free deep checks.</p>
+            {{developer_checks}} free deep checks, for the API and the MCP server.</p>
           <div class="buttons">
             <a class="button primary large" href="#start">Try it in three lines</a>
             <a class="button large" href="#mcp">Set up the MCP server</a>
@@ -95,6 +95,9 @@
           <h3>Get a developer pass</h3>
           <p>{{developer_checks}} free deep checks, to build and test your agent with: a few seconds of work in this
             browser, no account. One per browser, and one a day per network. Quick checks are always free.</p>
+          <p class="small">The free checks are for the API and the MCP server (<code>POST /v1/check</code>): they
+            don't count in the Unfret extension, the phone app or the link checker on this site. Checks you buy
+            for the pass work everywhere.</p>
           <p class="buttons"><button type="button" id="dev-pass-make" class="primary">Make a developer pass</button></p>
           <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>
           <div id="dev-pass-result" hidden></div>
@@ -162,7 +165,8 @@
             <tr><td><code>page_content</code></td><td>up to {{max_page_mb}} MB</td></tr>
             <tr><td>A deep check</td><td>answers within {{x402_timeout}} s with x402 and {{analysis_timeout}} s with a
               pass, or is free</td></tr>
-            <tr><td>Developer pass</td><td>{{developer_checks}} free deep checks; one a day per network</td></tr>
+            <tr><td>Developer pass</td><td>{{developer_checks}} free deep checks, for the API and the MCP server
+              (<code>POST /v1/check</code>); one a day per network</td></tr>
             <tr><td>Free deep checks, everyone together</td><td>a daily budget; once it's used: <code>429
               FREE_CHECKS_PAUSED</code> until 00:00 UTC (bought and quick checks go on)</td></tr>
           </tbody>

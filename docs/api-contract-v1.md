@@ -464,15 +464,6 @@ valid 7 days. Nothing is stored when a check runs.
   each code works once. Errors: 400 `INVALID_INVITE`, 404 `UNKNOWN_INVITE`, 409 `INVITE_USED`, 403
   `INVITE_NOT_FOR_THIS_ACCOUNT`, 401 without a valid sign-in. Codes are case-insensitive; surrounding spaces are
   ignored.
-- The same endpoint takes **intro codes**: named codes the operator makes per channel (`FRIENDS`, `DEV`, a
-  newsletter; 3 to 24 letters or digits, case-insensitive), each worth its own number of checks (5 by default) and
-  usable `max_uses` times, under the same rule (new accounts only; one invite or code per account; the same
-  `invite_redeemed` flag, never which code). `UNFRET_INTRO_DAILY_CHECKS_CAP` is an emergency brake, off by default:
-  when set, all codes together give at most that many checks a UTC day. Extra errors: 409 `INVITE_USED` (the code's uses are gone), 410 `INVITE_ENDED` (switched
-  off), 429 `INTRO_DAILY_CAP` (only with the daily cap set; back the next UTC day). Storage: `intro_codes (code, checks, max_uses, uses, active,
-  created_on)`, a daily counter in `usage_counters`, and `wallets.purchased` (an account ever bought checks; for
-  counting buyers who came through an invite or code against organic ones; the operator's list counts an account as a buyer only when it kept a purchase: crypto, or a card order not refunded in full or disputed). `/key?code=CODE` redirects to
-  `/checkout?for=key&code=CODE`, which fills the code in.
 - No issue for a transfer without a quote, a quote made without a claim (older clients), a payment worth less than
   90% of the pack, a quote's second payment, or a card order whose amount isn't exactly a pack's card price.
 - CORS allows the `X-Unfret-Claim` request header.
@@ -713,9 +704,9 @@ valid 7 days. Nothing is stored when a check runs.
 ## Changes (onboarding: key hand-off to the extension, `/welcome`; backwards-compatible)
 
 - `GET /welcome` — the page the extension opens once after a new install (Unfret Dev: `https://dev.unfret.net/welcome`):
-  an intro code (`/checkout?mode=code`), buying checks (`/checkout`), or signing in with a key you have. Static, no
+  a gift code (`/checkout?mode=code`), buying checks (`/checkout`), or signing in with a key you have. Static, no
   script.
-- `/checkout` hands every new API key it shows (an intro code, a card payment's return, a recovery, the crypto tab's
+- `/checkout` hands every new API key it shows (a gift code, a card payment's return, a recovery, the crypto tab's
   "Make a new key") to the extension: `window.postMessage({"type": "unfret-key", "key": "ufk_…"}, location.origin)`,
   and once the user agreed to switch accounts, the same with `"replace": true`. The extension's content script, injected
   only on `<site>/checkout*`, accepts it only from that window on the configured origin, and answers
@@ -853,7 +844,7 @@ client and `/v1/check` are unchanged).
   `localStorage`), so a reinstall gets a pass without free checks.
 - Free checks are spent before the balance. `GET /v1/credits` adds `free_checks_remaining` (included in
   `checks_remaining`) and `free_checks_paused`. They are not credit: a pass with only free checks keeps
-  `invite_eligible: true` (an intro code or invite still works on it).
+  `invite_eligible: true` (a gift code still works on it).
 - **One budget a day for free deep checks**: every free deep check counts towards a global counter per UTC day
   (`usage_counters`, `free_checks`), capped at `free_daily_budget_eur` (default 5.00) over `free_check_cost_eur`
   (default 0.005, an estimate of one deep check's LLM and embedding cost): 1,000 a day by default. Once it is reached,
@@ -882,7 +873,7 @@ client and `/v1/check` are unchanged).
   quick check instead and says why. Example links to try (`UNFRET_CHECK_EXAMPLES`, label and address pairs; by default the test
   shop, its sister shop and the clean shop).
 
-## Changes (affiliates and bonus codes; gift codes for any pass; intro codes retired; backwards-compatible; migration 26)
+## Changes (affiliates and bonus codes; gift codes for any pass; backwards-compatible; migration 26)
 
 Additive: every new request field is optional, and every new response field is new. Extension 0.11.0 and the MCP
 client are unchanged.
@@ -924,10 +915,6 @@ client are unchanged.
   a friend."). Each code still works once (409 `INVITE_USED`), and an account may redeem several friends' codes.
   Codes issued before migration 26 don't know their buyer and work for anyone. `GET /v1/credits`'s
   `invite_eligible` is now always `true`.
-- **Intro codes are retired** (`UNFRET_INTRO_CODES_ENABLED`, default false): redeeming one answers **410
-  `INVITE_ENDED`**. The codes and `make codes` stay. `/checkout?code=<anything but a gift code>` (and `?mode=code` with
-  it) takes the code out of the address bar, redeems nothing, and shows "You get 5 free checks when you install
-  Unfret" with the install button for the visitor's browser.
 - Pages: `/affiliates` (the program and its disclosure rules) and `/affiliates/stats` (an affiliate's own numbers).
   The site's footer loads `static/ref.js` on every page.
 
@@ -1304,3 +1291,29 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   about what doesn't work; the install steps and the certificate check are the same. The flag must match the version
   (a beta that doesn't say so, or a plain version marked as one, is not offered); a `release.json` without it is a
   stable release.
+
+## Changes (developer passes' free checks are for the API; old named codes gone; migrations 33 and 34)
+
+- **Developer passes**: `POST /v1/keys` with `"developer": true` stores a flag on the pass (`api_keys.developer`,
+  migration 34; nothing about who asked). Its free deep checks count on **`POST /v1/check` only** (the API, the MCP
+  servers, the clients). On `POST /v1/analyze` and `/v1/analyze/stream` (the website, the browser extension, the
+  Android app) a developer pass is a pass without free checks: a deep check is paid from its bought balance, and
+  without one it gets exactly the `402 INSUFFICIENT_CREDITS` an empty pass gets. Bought checks on it work everywhere.
+  Its free checks don't move to another pass with `POST /v1/keys/move-free-checks`, and none move onto it
+  (`{"moved": 0}`). Passes made before migration 34 have the flag off and work as before.
+- `POST /v1/keys` and `POST /v1/keys/recover` add `developer` (bool).
+- `GET /v1/credits` adds `api_free_checks_remaining` (int): a developer pass's free checks, which are **not** in
+  `checks_remaining` or `free_checks_remaining` (those count what works everywhere, so the website and the extension
+  never offer checks they can't spend); 0 for any other pass and for a wallet. `free_checks_paused` covers them too.
+  The remote MCP server's `get_checks_left` counts them in, as `/v1/check` does.
+- `/.well-known/x402` adds `auth.developer_pass.free_checks_count_on`; `/llms.txt`, `/developers` and
+  `/developers/http` say where a developer pass's free checks work.
+- **Named codes** (`FRIENDS` and the like, retired in 0.13.0) are gone: `POST /v1/invites/redeem` answers any code that
+  isn't a gift code (`ufi_…`) with `400 INVALID_INVITE` ("That isn't a gift code."), whatever it once was;
+  `INVITE_ENDED`, `INTRO_DAILY_CAP` and `INVITE_NOT_FOR_THIS_ACCOUNT` are no longer sent. Migration 33 drops their
+  table and day counter. `/key` (with or without `?code=`) redirects to `/checkout?for=key`; `/checkout?code=` with
+  anything but a gift code drops it from the address bar and opens as if the link had none. The operator endpoints
+  `/v1/admin/codes` and `make codes` are removed, and `UNFRET_INTRO_CODES_ENABLED` and
+  `UNFRET_INTRO_DAILY_CHECKS_CAP` are no longer read. `GET /v1/admin/invites` adds `via_code`, `via_code_bought` and
+  `organic_bought` (the buyer counts the codes list had). Gift codes, their monthly limit, the buyer's own pack refusal
+  and the claim token are unchanged, as are affiliates and bonus codes.

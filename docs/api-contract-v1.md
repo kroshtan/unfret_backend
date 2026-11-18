@@ -276,10 +276,10 @@ valid 7 days. Nothing is stored when a check runs.
 - Before the queue: a page (domain + ASIN / bol.com id / GTIN, else the clean URL) already queued is
   `already_reported` and counts as confirmation; a page labelled in the last 90 days is `already_known`.
 - Errors: 400 `BAD_REPORT_TOKEN` (someone else's check, changed data, or older than 7 days), 409
-  `ALREADY_REPORTED_BY_YOU`, 429 `REPORT_LIMIT` (5 per account per month, `metadata: {"used", "limit"}`), 503
-  `QUEUE_FULL` (about 200 open reports).
+  `ALREADY_REPORTED_BY_YOU`, 429 `REPORT_LIMIT` (5 per account per month, `metadata: {"used", "limit"}`; 15 since
+  the reports change below), 503 `QUEUE_FULL` (about 200 open reports; see below for the queue by value).
 - Reward: when the human label shows the score was at least 30 points outside the label's zone (legit ≥ 70, junk and
-  scam ≤ 40), the reporter gets 3 checks. The report is then deleted (its only link to the account); the scrubbed page
+  scam ≤ 40), the reporter gets 3 checks (5, and 1 for 10–29 points, since the reports change below). The report is then deleted (its only link to the account); the scrubbed page
   and its label stay as training data. Reports nobody handled are deleted after 30 days.
 - Operator: `GET /v1/admin/reports` (the queue, without accounts) and `POST /v1/admin/reports/{id}/label`
   `{"label": "legit"|"junk"|"scam"|"reject"}`, used by `make reports`.
@@ -1190,6 +1190,39 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - Clients show it once, under the quick result, with one button (`action_label`): `run_deep` runs a deep check of the
   same page, `get_checks` opens the checkout. Quietly when `quiet`. No timers, no colour of its own.
 - OpenAPI snapshot updated (`DeepCheck`, `DeepCheckAdd`).
+
+## Changes (reports: rewards in two steps, 15 a month, a second opinion, a queue by value; backwards-compatible; migration 30)
+
+- Limit: `reports_per_month` is **15** per account (pass, wallet or API key), up from 5; still one report per page per
+  account. `POST /v1/reports` answers as before (`reports_per_month: 15`; 429 `REPORT_LIMIT` past it).
+- Rewards, to the first reporter only and only after a person labelled the page: **5 checks** when the score was at
+  least 30 points outside the label's zone (legit ≥ 70, junk and scam ≤ 40), **1 check** when it was 10–29 points
+  outside it, nothing for a correct result. `GET /v1/pricing` → `"reports"` adds `"reward_gap": 30`,
+  `"small_reward_checks": 1` and `"small_reward_gap": 10` next to `"per_month"` and `"reward_checks"` (now 5).
+  Settings: `UNFRET_REPORT_REWARD_CHECKS`, `UNFRET_REPORT_REWARD_GAP`, `UNFRET_REPORT_SMALL_REWARD_CHECKS`,
+  `UNFRET_REPORT_TRAINING_GAP` (the small reward's gap, also what counts as a training sample).
+- A full queue: `report_queue_cap` is 1000 (was 200). Each open report has a value (how far the reporter says the
+  score is off, +15 for a page and +15 for a shop the labelled data doesn't have yet, +10 per confirmation by another
+  account, up to three). With the queue full, a new report takes the place of the open report worth least if it is
+  worth more (that one is deleted, as if expired); otherwise it is refused with 503 `QUEUE_FULL` as before.
+- A second opinion: each queued report is read once by a language model (`UNFRET_REPORT_SECOND_OPINION_MODEL`,
+  default `qwen3.5-397b-a17b` on the same EU provider; empty: off), at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY`
+  (200) calls per UTC day, in the background. It proposes `label` (`legit`|`junk`|`scam`|`unsure`), `confidence`
+  (0–1) and a one-line `reason` (the corpus labeller's field names). It sees only the stored, scrubbed report (facts,
+  text, score, explanation and verdict, the reporter's reason), with everything from the page as delimited data. A
+  proposal is never a label: it trains nothing and pays nothing until the operator confirms it. A failed call leaves
+  the report for a person; one over the daily cap waits for a later day.
+- Operator: `GET /v1/admin/reports` takes `order` (`value`, the default, or `confidence`), `agreement` (`reporter`,
+  `score`, `neither`, `unsure`, `none`), `min_confidence` and `limit` (up to 1000), and returns `cap`,
+  `second_opinions` (count per state) and per item `value` and `second_opinion: {"state", "label", "confidence",
+  "reason", "model", "agreement", "gap", "reward_checks"}` (what confirming the proposal would mean). New
+  `POST /v1/admin/reports/confirm` `{"min_confidence", "items": [{"id", "label"}]}` labels the previewed items that
+  still carry exactly that proposal (per item `labelled`, `changed` or `gone`, with `gap`, `reward_checks`,
+  `reward_usd_micros`, `training`); the label endpoint's answer adds `reward_checks`. `make reports` uses both: a
+  preview of the confident proposals to confirm at once, then the rest one by one.
+- Clients: the report consent says an AI model may suggest a label and a person decides; the website's dialog shows
+  both rewards from `/v1/pricing`. The extension's own copy says "3 free checks": it should read the numbers from
+  `/v1/pricing` (`reports.reward_checks`, `reports.small_reward_checks`).
 
 ## Changes (`/v1/check`: the 402 before body validation; backwards-compatible)
 

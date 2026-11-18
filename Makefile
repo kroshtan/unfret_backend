@@ -118,7 +118,7 @@ golden-set:  ## Collect the golden set: product pages of well-known sellers from
 golden:  ## False alarms on the golden set, both tiers: no Serious concerns, under 5% Worth a look or worse (GOLDEN_ARGS="--replay --split test")
 	uv run python -m evals.golden $(GOLDEN_ARGS)
 
-accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP")
+accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP" | "--publish VERSION")
 	uv run python -m evals.accuracy $(ACCURACY_ARGS)
 
 db-up:  ## Start the test Postgres container (port 55432)

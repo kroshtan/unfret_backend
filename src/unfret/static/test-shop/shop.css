@@ -107,6 +107,9 @@ a { color: inherit; }
 .price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin: 12px 0; }
 .price-now { font-size: 30px; font-weight: 800; color: var(--sale); }
 .price-was { color: var(--muted); }
+.price-plain { color: var(--ink); }
+.stock-note { margin: 8px 0 12px; font-size: 14px; color: var(--muted); }
+.policies p { font-size: 15px; line-height: 1.5; }
 .price-save { background: var(--sale); color: #fff; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 99px; }
 
 .countdown-timer {

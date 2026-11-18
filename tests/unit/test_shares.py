@@ -263,7 +263,7 @@ def view(**row: Any) -> dict[str, Any]:
 def test_the_page_says_who_checked_it_only_as_an_unfret_user_and_isnt_indexed() -> None:
     page = render_share_page(view())
 
-    assert "Checked by an Unfret user on 9 November 2026; the page may have changed." in page
+    assert "Checked by an Unfret user on November 9, 2026; the page may have changed." in page
     assert '<meta name="robots" content="noindex, nofollow">' in page
     assert 'href="https://shop.example/p?id=1&amp;x=2" rel="nofollow noopener noreferrer"' in page
     assert '<p class="label">Serious concerns</p>' in page  # the verdict's name, as on every other page

@@ -14,6 +14,8 @@ from unfret.config import settings
 from unfret.net import hostname
 
 PATH = "/test-shop"
+# A made-up shop with none of the tricks, to compare: what a calm product page looks like next to the test shop's.
+CLEAN_PATH = f"{PATH}/clean-shop"
 _OWN_DOMAIN = "unfret.net"
 
 

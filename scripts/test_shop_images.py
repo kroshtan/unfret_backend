@@ -1,7 +1,8 @@
 """
-Draw the test shop's product photos (``src/unfret/static/test-shop/*.jpg``): a made-up star projector, no real product.
+Draw the test shop's product photos (``src/unfret/static/test-shop/*.jpg``): made-up products, no real one.
 
-Run once and commit the output: ``uv run scripts/test_shop_images.py``. The drawings are deterministic (fixed seed).
+A star projector (the test shop and its sister shop) and an oak lamp (the clean shop). Run once and commit the
+output: ``uv run scripts/test_shop_images.py``. The drawings are deterministic (fixed seed).
 """
 
 import random
@@ -62,8 +63,25 @@ def projector(image: Image.Image, rng: random.Random, cx: int, base_y: int, scal
         )
 
 
+def lamp(image: Image.Image, cx: int, base_y: int) -> None:
+    """The clean shop's bedside lamp: a turned oak base and a frosted glass globe, switched on."""
+    glow = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse([cx - 260, base_y - 520, cx + 260, base_y - 40], fill=(255, 214, 150, 110))
+    blurred = glow.filter(ImageFilter.GaussianBlur(70))
+    image.paste(blurred, (0, 0), blurred)
+    draw = ImageDraw.Draw(image)
+    draw.ellipse([cx - 210, base_y - 14, cx + 210, base_y + 22], fill=(196, 186, 172))  # its shadow on the table
+    draw.rounded_rectangle([cx - 110, base_y - 90, cx + 110, base_y], 22, fill=(168, 122, 76))
+    for i, y in enumerate(range(base_y - 80, base_y - 6, 14)):  # the oak's grain
+        draw.arc([cx - 100, y - 6, cx + 100, y + 8], 0, 180, fill=(150, 106, 64) if i % 2 else (184, 138, 90), width=2)
+    draw.rectangle([cx - 30, base_y - 118, cx + 30, base_y - 88], fill=(140, 100, 62))
+    draw.ellipse([cx - 150, base_y - 410, cx + 150, base_y - 110], fill=(255, 244, 222))
+    draw.ellipse([cx - 120, base_y - 380, cx + 60, base_y - 220], fill=(255, 250, 238))
+    draw.line([(cx + 110, base_y - 30), (cx + 320, base_y + 70)], fill=(70, 66, 62), width=6)  # the cord
+
+
 def main() -> None:
-    """Write the four photos."""
+    """Write the five photos."""
     rng = random.Random(7)  # noqa: S311 - a fixed drawing, not a secret
 
     hero = gradient((18, 14, 48), (62, 30, 96))
@@ -99,6 +117,11 @@ def main() -> None:
             x, y = 578 + col * 34, 450 + row * 44
             draw.ellipse([x, y, x + 20, y + 20], fill=(150, 152, 170) if (row, col) != (0, 0) else (240, 90, 120))
     studio.save(OUT / "projector-remote.jpg", quality=82, optimize=True)
+
+    room = gradient((236, 230, 220), (214, 204, 190))
+    ImageDraw.Draw(room).rectangle([0, 620, SIZE, SIZE], fill=(201, 188, 170))  # the nightstand's top
+    lamp(room, 400, 640)
+    room.save(OUT / "lamp-hero.jpg", quality=82, optimize=True)
 
 
 if __name__ == "__main__":

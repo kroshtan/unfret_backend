@@ -873,8 +873,8 @@ client and `/v1/check` are unchanged).
   made its free pass; without it (or 0), the page for a pass without free checks, as before.
 - `/check`: a first visit's first Check makes a free pass (`static/new-pass.js`, shared with `/checkout`); without a
   pass, or when a deep check needs checks the pass doesn't have (402, or 429 `FREE_CHECKS_PAUSED`), the page runs a
-  quick check instead and says why. Example links to try (`UNFRET_CHECK_EXAMPLES`, label and address pairs; the test
-  shop by default).
+  quick check instead and says why. Example links to try (`UNFRET_CHECK_EXAMPLES`, label and address pairs; by default the test
+  shop, its sister shop and the clean shop).
 
 ## Changes (affiliates and bonus codes; gift codes for any pass; intro codes retired; backwards-compatible; migration 26)
 

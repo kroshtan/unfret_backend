@@ -145,7 +145,7 @@ def test_serious_concerns_suggest_another_shop_unless_safety_comes_first() -> No
 
 SAME = {
     "title": "Looks like the same product, sold elsewhere for $12.99",
-    "detail": "The main photo is the same photo as on cheap.shop. Unfret saw it there for $12.99 on 7 November 2026.",
+    "detail": "The main photo is the same photo as on cheap.shop. Unfret saw it there for $12.99 on November 7, 2026.",
     "where": "cheap.shop",
     "domain": "cheap.shop",
     "others": 0,

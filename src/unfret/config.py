@@ -302,8 +302,12 @@ class Settings(BaseSettings):
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
     # Links the link checker (/check) offers to try, as [label, address] pairs (an address on this site may be a
-    # path). The test shop first; more are set per deployment.
-    check_examples: list[tuple[str, str]] = [("The Unfret test shop, with every trick Unfret catches", "/test-shop")]
+    # path). The test shop first, then its sister shop and the clean shop: three verdicts, no real shop.
+    check_examples: list[tuple[str, str]] = [
+        ("The Unfret test shop, with every trick Unfret catches", "/test-shop"),
+        ("Its sister shop: the same product under another brand, for less", "/test-shop/sister-shop"),
+        ("A made-up shop with none of the tricks, to compare", "/test-shop/clean-shop"),
+    ]
     # Where the home page and /extension send people to install the extension.
     chrome_store_url: str = "https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo"
     firefox_store_url: str = "https://addons.mozilla.org/en-US/firefox/addon/unfret/"

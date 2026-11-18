@@ -2,6 +2,8 @@
 
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -10,14 +12,17 @@ import pytest
 from evals.accuracy import (
     DEFAULT_OUT,
     LABEL_ORIGINS,
+    SERVICE_OUT,
     TOLERATED_MISSING,
     band_summary,
     check_aggregates_only,
+    check_publishable,
     complete,
     coverage,
     kind,
     label_origin,
     missing_skills,
+    publish,
 )
 from evals.corpus import LabelRecord
 from evals.metrics import Outcome
@@ -176,7 +181,7 @@ def test_every_placeholder_is_filled_and_every_headline_number_measured() -> Non
 
 
 def test_dates_are_written_out() -> None:
-    assert accuracy.render("{{date:generated}}", {"generated": "2026-11-07"}) == "7 November 2026"
+    assert accuracy.render("{{date:generated}}", {"generated": "2026-11-07"}) == "November 7, 2026"
     assert accuracy.long_date(None) == "not measured"
 
 
@@ -244,3 +249,106 @@ async def test_the_numbers_are_served_as_json(client: httpx.AsyncClient) -> None
 
     assert response.status_code == 200
     assert response.json() == _summary()
+
+
+# ── The retrained scorer unfret.net runs, next to the open baseline ─────────────────────────────────────────────
+
+
+def _service() -> dict[str, Any]:
+    data = accuracy.service_summary()
+    assert data is not None, "the numbers of the scorer unfret.net runs are published"
+    return data
+
+
+@pytest.fixture
+def running(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Pretend this server runs a given scorer version."""
+
+    def run(version: str | None) -> None:
+        monkeypatch.setattr(accuracy, "load_model", lambda: SimpleNamespace(version=version) if version else None)
+
+    return run
+
+
+def test_the_service_numbers_are_aggregates_only_and_for_a_retrained_scorer() -> None:
+    service = _service()
+    assert SERVICE_OUT == accuracy.SERVICE_PATH
+    check_publishable(service, service["scorer_version"])
+    assert service["scorer_version"] != _summary()["scorer_version"]
+    # Measured on the same replay as the baseline, so the side-by-side table compares like with like.
+    assert service["corpus"] == _summary()["corpus"]
+    assert service["scorer_version"] in (STATIC_DIR / "accuracy.html").read_text(encoding="utf-8")  # the changelog
+
+
+@pytest.mark.parametrize(
+    ("version", "lead", "name", "note"),
+    [
+        ("service", "service", "the retrained scorer unfret.net runs", "It is the scorer this server runs."),
+        ("baseline", "baseline", "the open baseline", "It is the scorer this server runs."),
+        ("v9-own", "baseline", "the open baseline", "aren't published here yet"),
+    ],
+)
+def test_the_page_leads_with_the_numbers_of_the_scorer_this_server_runs(
+    running: Any, version: str, lead: str, name: str, note: str
+) -> None:
+    versions = {"service": _service()["scorer_version"], "baseline": _summary()["scorer_version"]}
+    running(versions.get(version, version))
+    assert accuracy.page_summary()["scorer_version"] == versions[lead]
+    page = " ".join(accuracy.render(template("accuracy.html")).split())
+    assert f"with scorer <code>{versions[lead]}</code>, {name}" in page
+    assert note in page
+    if version == "v9-own":
+        assert "This server runs scorer <code>v9-own</code>" in page
+    # Both scorers' numbers are on the page either way, each named.
+    table = page.split('id="scorers"', 1)[1].split("</table>", 1)[0]
+    assert versions["service"] in table and versions["baseline"] in table
+    assert "Retrained, runs on unfret.net" in table and "Open baseline, self-hosted" in table
+    assert table.count("(this server)") == (0 if version == "v9-own" else 1)
+    assert accuracy.pct(_service()["groups"]["products"]["caught"]) in table
+
+
+def test_without_published_service_numbers_the_baseline_leads_alone(
+    running: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(accuracy, "service_summary", lambda: None)
+    running("v1-whatever")
+    assert accuracy.page_summary() == _summary()
+    table = accuracy.scorers_table()
+    assert "Open baseline" in table and "Retrained" not in table
+
+
+def _store(tmp_path: Path, version: str, summary: dict[str, Any]) -> Path:
+    (tmp_path / version).mkdir()
+    (tmp_path / version / "accuracy.json").write_text(json.dumps(summary))
+    return tmp_path
+
+
+def test_publishing_copies_a_retrained_scorers_summary_after_checking_it(tmp_path: Path) -> None:
+    summary = {**_summary(), "scorer_version": "v2-test-C"}
+    out = publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=tmp_path / "page.json")
+    assert json.loads(out.read_text()) == summary
+    with pytest.raises(FileNotFoundError, match="make accuracy"):
+        publish("v3-missing-C", root=tmp_path, out=tmp_path / "page.json")
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"scorer_version": "v2-other-C"},  # another version's numbers
+        {"note": "a shop's own words"},  # any text beyond the fixed fields
+        {"groups": {"Some Shop": {"pages": 1}}},  # a name as a key
+        {"llm_model": "see www.example"},
+    ],
+)
+def test_publishing_refuses_anything_but_aggregates_for_that_version(tmp_path: Path, change: dict[str, Any]) -> None:
+    summary = {**_summary(), "scorer_version": "v2-test-C", **change}
+    with pytest.raises(ValueError, match="aggregates only|not 'v2-test-C'"):
+        publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=tmp_path / "page.json")
+    assert not (tmp_path / "page.json").exists()
+
+
+async def test_the_service_numbers_are_served_as_json(client: httpx.AsyncClient) -> None:
+    response = await client.get("/static/accuracy-service.json")
+
+    assert response.status_code == 200
+    assert response.json() == _service()

@@ -252,12 +252,12 @@ def shown_title(title: str, host: str) -> str:
 
 def day_in_words(day: date) -> str:
     """
-    A day as the site writes it.
+    A day as the site writes it (US English).
 
     :param day: The day.
-    :return: E.g. ``9 November 2026``.
+    :return: E.g. ``November 9, 2026``.
     """
-    return f"{day.day} {day:%B %Y}"
+    return f"{day:%B} {day.day}, {day.year}"
 
 
 def preview(claim: Claim, response: dict[str, Any]) -> dict[str, Any]:

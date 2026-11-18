@@ -4,6 +4,7 @@ The numbers on the public ``/accuracy`` page: how often each verdict is right, f
 Usage::
 
     uv run python -m evals.accuracy [--reuse STAMP] [--out src/unfret/static/accuracy.json] [--concurrency 8]
+    uv run python -m evals.accuracy --publish VERSION
 
 Replays every labelled page (train and test, ``--with-url``, recorded LLM responses only, as ``evals.run --replay
 --split all --with-url``) twice: every page class with the ads and tradespeople checks on, and the product pages
@@ -19,6 +20,10 @@ page can say what couldn't be measured rather than hide it.
 It measures the scorer the server would run: with ``UNFRET_MODEL_PATH`` set to a retrained (private) scorer, the
 summary goes next to it by default (``<store>/<version>/accuracy.json``, see :mod:`evals.release`) and its
 ``RELEASE.md`` is updated with the numbers; the page's ``static/accuracy.json`` stays the open baseline's.
+
+``--publish VERSION`` then puts that retrained scorer's summary on the page, as the numbers of the scorer unfret.net
+runs: it copies ``<store>/<version>/accuracy.json`` to ``static/accuracy-service.json`` after checking it again
+(:func:`check_publishable`). Only that summary leaves the model store, never the model or anything of the corpus.
 """
 
 import argparse
@@ -47,6 +52,7 @@ from unfret.scoring import MODEL_PATH, configured_path, load_model
 logger = structlog.get_logger("unfret.evals")
 
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "src" / "unfret" / "static" / "accuracy.json"
+SERVICE_OUT = DEFAULT_OUT.with_name("accuracy-service.json")
 
 # Where each dataset's labels come from, in the general terms the page uses. A new dataset must be placed here
 # before the page can count it (the script refuses unknown ones rather than mislabel them).
@@ -375,6 +381,58 @@ def check_aggregates_only(summary: object) -> None:
         raise ValueError(f"the accuracy summary must hold aggregates only; found {match.group(0)!r}")
 
 
+_KEY_RE = re.compile(r"[a-z0-9_]+")  # the fixed field names this module writes
+
+
+def _strings(value: object) -> list[str]:
+    if isinstance(value, dict):
+        return [k for k in value if not _KEY_RE.fullmatch(str(k))] + [s for v in value.values() for s in _strings(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return [value] if isinstance(value, str) else []
+
+
+def check_publishable(summary: dict[str, Any], version: str) -> None:
+    """
+    Refuse a retrained scorer's summary for the public page unless it is aggregates only, for that version.
+
+    Beyond :func:`check_aggregates_only`: the only strings in it are the date, the scorer's version, the language
+    model's name and the replayed split, its keys are field names (no names, records or text), and its version is
+    the one asked for.
+
+    :param summary: The summary :func:`summarise` wrote next to the scorer.
+    :param version: The scorer's version.
+    :raises ValueError: On anything else.
+    """
+    check_aggregates_only(summary)
+    if summary.get("scorer_version") != version:
+        raise ValueError(f"the summary is for scorer {summary.get('scorer_version')!r}, not {version!r}")
+    allowed = {summary.get("generated"), version, summary.get("llm_model"), "all"}
+    if extra := [s for s in _strings(summary) if s not in allowed]:
+        raise ValueError(f"the accuracy summary must hold aggregates only; found {extra[0]!r}")
+
+
+def publish(version: str, root: Path | None = None, out: Path = SERVICE_OUT) -> Path:
+    """
+    Put a retrained scorer's replay numbers on the page, as those of the scorer unfret.net runs.
+
+    :param version: The scorer's version, in the model store.
+    :param root: The model store; :func:`evals.release.store` by default.
+    :param out: Where the page reads them.
+    :return: ``out``.
+    :raises FileNotFoundError: When the version has no replay summary yet (run ``make accuracy`` with it first).
+    """
+    source = (root or release.store()) / version / release.ACCURACY
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"{source}: replay the corpus with this scorer first (UNFRET_MODEL_PATH=… make accuracy)"
+        )
+    summary = json.loads(source.read_text(encoding="utf-8"))
+    check_publishable(summary, version)
+    out.write_text(json.dumps(summary, indent=2) + "\n")
+    return out
+
+
 def summarise(
     on: Sequence[Outcome],
     off: Sequence[Outcome],
@@ -444,7 +502,15 @@ def main() -> None:
     default_out = configured.parent / release.ACCURACY if configured != MODEL_PATH else DEFAULT_OUT
     parser.add_argument("--out", type=Path, default=default_out)
     parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument(
+        "--publish",
+        metavar="VERSION",
+        help="put a retrained scorer's replay numbers on the page (accuracy-service.json)",
+    )
     args = parser.parse_args()
+    if args.publish:
+        print(publish(args.publish).read_text())  # noqa: T201 - command-line report
+        return
 
     corpus = Corpus()
     all_records = corpus.labels()

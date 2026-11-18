@@ -35,7 +35,7 @@ async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> N
     csp = response.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
     page = response.text
-    assert "Shop without the worry" in page
+    assert "<h1>Check before you pay</h1>" in page
     assert 'href="/checkout?mode=code"' in page and 'href="/checkout"' in page and 'href="#have-key"' in page
     assert f'"/static/{asset_tag()}/site.css"' in page and '"/static/site.css"' not in page
     # Nothing loaded from elsewhere: only our own scripts (the affiliate link's code, and handing it to the
@@ -356,7 +356,7 @@ async def test_the_welcome_page_waits_while_the_extension_makes_its_pass(client:
 
 async def test_the_welcome_page_says_why_a_pass_came_without_free_checks(client: httpx.AsyncClient) -> None:
     had = (await client.get("/welcome?note=had-free")).text
-    assert "This browser has had its free checks already" in had and "Shop without the worry" in had
+    assert "This browser has had its free checks already" in had and "<h1>Check before you pay</h1>" in had
     none = (await client.get("/welcome?note=none-today")).text
     assert "There were no free checks to give just now" in none
     for path in ("/welcome", "/welcome?note=other", "/welcome?note=%3Cb%3E"):

@@ -1,8 +1,8 @@
 """
 The install page ("Get Unfret") and the browser extension's self-hosted update channels.
 
-``/extension`` points to the Chrome Web Store and Firefox Add-ons listings, and to the phone app (the link checker,
-``/check``, which installs from the phone's browser) with a QR code for a visitor on a computer.
+``/extension`` points to the Chrome Web Store and Firefox Add-ons listings, and, for a phone, to the link checker
+(``/check`` in the phone's browser) with a QR code for a visitor on a computer.
 ``/extension/updates.xml`` is the update manifest that copies installed by browser policy before the store listing
 (the self-hosted production channel, no longer offered) still poll, ``/extension/<file>`` the release files
 themselves. ``/extension/updates-dev.xml`` is the manifest of "Unfret Dev", a
@@ -104,7 +104,7 @@ def current_release(release_dir: Path | None = None, manifest: str = "updates.xm
 @router.get("/extension", response_class=HTMLResponse)
 def install_page() -> HTMLResponse:
     """
-    Where to get Unfret: the extension's Chrome Web Store and Firefox Add-ons listings, and the phone app.
+    Where to get Unfret: the extension's Chrome Web Store and Firefox Add-ons listings, and ``/check`` for a phone.
 
     :return: The page.
     """
@@ -121,7 +121,7 @@ def phone_qr(link: str) -> str:
     """
     A QR code that opens ``link`` on a phone, as an image the page's policy allows (a ``data:`` URL).
 
-    :param link: The address, this site's link checker (``/check``), which installs as an app.
+    :param link: The address, this site's link checker (``/check``).
     :return: ``data:image/svg+xml;base64,…``.
     """
     buffer = io.BytesIO()

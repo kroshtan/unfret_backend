@@ -1162,20 +1162,10 @@ label.field .small { font-weight: 400; }
 .tax-note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 .pay-note { margin: 0.5rem 0 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 
-/* ── Installed on a phone (the web app, display-mode standalone) ─────────────────────────────────────────────────
-   It opens at /check. The site's menu, its "Get Unfret" button and the footer (source code, API reference) are the
-   website's, not the app's: only what a shopper needs stays. */
-@media (display-mode: standalone) {
-  .site-footer { display: none; }
-  .site-nav .cta, .site-nav .optional { display: none; }
-  .site-header { padding-top: env(safe-area-inset-top); }
-  .install-app { display: none !important; }
-}
-
 /* Under the main button: the other ways to get Unfret, in one quiet line. */
 .also { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.95rem; }
 
-/* /extension: the phone app, with a code to scan on a computer and a button on a phone. */
+/* /extension: on a phone, Unfret is /check in the browser; a code to scan on a computer, a button on a phone. */
 .phone-get { display: grid; grid-template-columns: 1fr auto; gap: 1.5rem; align-items: start; }
 .phone-get .qr { padding: 0.5rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; }
 /* Grid columns may shrink below their longest word (a heading, the link to /check), or a phone scrolls sideways. */
@@ -1189,12 +1179,6 @@ label.field .small { font-weight: 400; }
   .phone-get { grid-template-columns: 1fr; }
 }
 .install h2 { margin-top: 2.25rem; }
-
-/* /check in a phone's browser: install it as an app. */
-.install-app { margin-top: 2rem; border-color: var(--brand); background: linear-gradient(160deg, var(--brand-soft), var(--surface) 70%); }
-.install-app h2 { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.4rem; font-size: 1.1rem; }
-.install-app h2 .i { color: var(--brand-ink); }
-.install-app p { margin: 0 0 0.6rem; }
 
 /* /check without checks yet: get some, or use a pass you have. */
 .get-started .buttons { margin: 0.25rem 0 0.5rem; }

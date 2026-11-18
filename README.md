@@ -440,8 +440,9 @@ taken atomically before it runs and refunded when the page can't be analysed (sc
 [`/check`](https://unfret.net/check) is the link checker for phones and browsers without the extension: it
 sends only the link (`POST /v1/analyze/stream` with `{"url"}`), the server fetches the page itself before charging,
 and a page it can't read (an error, a shop that refuses automatic visitors, a bot check, an empty shell that needs a
-browser) is a free `422` that the page shows as such, never as a verdict. It installs as a web app with an Android
-share target (**the phone app**); the sign-in is kept in the browser until it's removed, and there is no history.
+browser) is a free `422` that the page shows as such, never as a verdict. On a phone it is simply a web page in the
+browser (no web app manifest, nothing to install; `/check-sw.js` only removes the service worker of the web app it
+used to be); the sign-in is kept in the browser until it's removed, and there is no history.
 
 **Words for shoppers.** The pages call an API key an **Unfret pass** (its ID shown as `ABCDE-FGHIJ`) and its recovery
 code a **backup code**; "API key", `ufk_`/`ufr_` and wallets appear only where crypto buyers and developers look. A

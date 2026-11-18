@@ -1,4 +1,4 @@
-"""The link checker (/check): its page, the web app manifest and share target, the service worker and the fetch."""
+"""The link checker (/check): its page (a web page, not an installable app), the old app's worker and the fetch."""
 
 import json
 import logging
@@ -29,10 +29,11 @@ async def test_the_page_is_served_with_a_strict_policy(client: httpx.AsyncClient
     assert response.headers["content-type"].startswith("text/html")
     csp = response.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "connect-src 'self'" in csp
-    assert "manifest-src 'self'" in csp and "worker-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    # Not an installable web app: no manifest or service worker allowed.
+    assert "manifest-src" not in csp and "worker-src" not in csp
     assert response.headers["referrer-policy"] == "no-referrer"
     assert f'<script type="module" src="/static/{asset_tag()}/check.js">' in response.text
-    assert '<link rel="manifest" href="/manifest.webmanifest">' in response.text
     # Nothing from elsewhere: the only outside addresses are the shared footer's links (the source code, the maker).
     page = response.text.replace("https://shop.example", "")
     sources = [
@@ -62,37 +63,50 @@ async def test_a_shared_link_is_never_put_into_the_page_by_the_server(client: ht
     assert "secret-shop" not in shared.text
 
 
-async def test_the_manifest_makes_an_installable_share_target(client: httpx.AsyncClient) -> None:
-    response = await client.get("/manifest.webmanifest")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/manifest+json"
-    manifest = response.json()
-    assert manifest["name"] == "Unfret" and manifest["start_url"] == "/check"
-    assert manifest["display"] == "standalone"
-    assert manifest["share_target"] == {
-        "action": "/check",
-        "method": "GET",
-        "params": {"title": "title", "text": "text", "url": "url"},
-    }
-    sizes = {icon["sizes"] for icon in manifest["icons"]}
-    assert {"192x192", "512x512"} <= sizes
-    assert any(icon.get("purpose") == "maskable" for icon in manifest["icons"])
-    for icon in manifest["icons"]:
-        served = await client.get(icon["src"])
-        assert served.status_code == 200, icon["src"]
-        assert served.headers["content-type"] == icon["type"]
+# Pages a visitor sees, none of which may offer /check (or anything) as an app to install.
+SITE_PAGES = ("/", "/nl", "/check", "/extension", "/my-checks", "/checkout", "/welcome", "/about", "/privacy")
 
 
-async def test_the_service_worker_caches_nothing(client: httpx.AsyncClient) -> None:
+@pytest.mark.parametrize("path", SITE_PAGES)
+async def test_no_page_is_an_installable_app(client: httpx.AsyncClient, path: str) -> None:
+    page = (await client.get(path)).text
+
+    assert 'rel="manifest"' not in page and "webmanifest" not in page
+    assert "apple-mobile-web-app" not in page and "apple-touch-icon" not in page
+    assert "Add to Home Screen" not in page and "Add to Home screen" not in page and "home screen" not in page
+    assert 'id="install-app"' not in page and "Install Unfret" not in page
+
+
+async def test_there_is_no_manifest(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/manifest.webmanifest")).status_code == 404
+    assert not (STATIC_DIR / "manifest.webmanifest").exists()
+
+
+def test_the_page_offers_no_install_and_registers_no_worker() -> None:
+    script = (STATIC_DIR / "check.js").read_text()
+
+    assert "beforeinstallprompt" not in script and "appinstalled" not in script and ".prompt()" not in script
+    assert "display-mode" not in script and "navigator.standalone" not in script
+    assert "serviceWorker.register" not in script
+    # A browser that still has the old app's worker drops it.
+    assert "serviceWorker" in script and "getRegistrations()" in script and "registration.unregister()" in script
+    assert "display-mode" not in (STATIC_DIR / "site.css").read_text()
+
+
+async def test_the_old_apps_worker_removes_itself(client: httpx.AsyncClient) -> None:
+    # Installed copies keep their worker and ask this address for a new version: it must still answer, with a worker
+    # that takes over at once, clears any caches, unregisters itself and handles no request.
     response = await client.get("/check-sw.js")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/javascript")
+    assert response.headers["cache-control"] == "no-cache"
     script = response.text
-    assert "caches." not in script and "indexedDB" not in script and "localStorage" not in script
-    # It only turns a shared link in the query into a fragment, which the browser never sends.
-    assert 'url.pathname !== "/check"' in script and "/check#" in script
+    assert "self.skipWaiting()" in script
+    assert "caches.keys()" in script and "caches.delete(" in script
+    assert "self.registration.unregister()" in script
+    assert '"fetch"' not in script and "respondWith" not in script
+    assert "indexedDB" not in script and "localStorage" not in script
 
 
 @pytest.mark.parametrize("asset", ["check.js", "check-core.js"])

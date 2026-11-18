@@ -1,15 +1,15 @@
-// The link checker's service worker. It caches nothing and touches no other request: it exists so the app can be
-// installed (and so appears in Android's share sheet), and to keep a shared link out of the request. A share opens
-// /check?title=…&text=…&url=…; this worker answers that navigation itself with a redirect to /check#…, so the link
-// stays in the browser (a fragment is never sent) and never reaches the server, a proxy or their logs.
+// The link checker's old service worker, replaced by one that removes itself. /check used to install as a web app,
+// and a browser keeps a service worker it installed until a new version of it says otherwise; this is that version.
+// It takes over at once, deletes any caches this site made (the old worker made none), unregisters itself and handles
+// no requests, so a phone that had the app gets the plain /check page from the server from then on.
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-  if (request.mode !== "navigate" || request.method !== "GET") return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin || url.pathname !== "/check" || !url.search) return;
-  event.respondWith(Response.redirect(`${url.origin}/check#${url.search.slice(1)}`, 303));
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      for (const name of await caches.keys()) await caches.delete(name);
+      await self.registration.unregister();
+    })(),
+  );
 });

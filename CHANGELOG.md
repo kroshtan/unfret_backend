@@ -7,6 +7,17 @@
 * **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
   explain how to install it from the source.
 
+### Changes
+
+* **`/check` is a web page again, not an app to install.** On a phone, Unfret is `/check` in the browser: "Check a
+  link on your phone: open unfret.net/check". The web app manifest (`/manifest.webmanifest`, with its Android share
+  target), the "Keep Unfret on your home screen" box with its Install button, the home-screen icon link and the
+  installed app's own look are gone, and `/check` no longer registers a service worker. `/extension`'s phone section
+  says to open `/check` in the phone's browser (its QR code opens it there) instead of how to install it, and My
+  checks' "Use on your phone" no longer says to add Unfret to the home screen. Phones that installed the old web app
+  drop its service worker: `/check-sw.js` is now a worker that clears any caches and unregisters itself, and `/check`
+  unregisters it too. The privacy statement no longer describes the worker.
+
 ### Fixes
 
 * **`/accuracy` says what its numbers count**: the product section names its pages as the shops' and marketplaces'

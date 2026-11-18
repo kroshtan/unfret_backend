@@ -7,9 +7,7 @@
   <meta name="theme-color" content="#1f8a70">
   <meta name="description" content="Check a link before you buy or hire: a product on a marketplace or web shop, a second-hand ad, or the website of a tradesperson or local service. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.">
   <title>Check a link · Unfret</title>
-  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/check.js"></script>
 </head>
@@ -57,9 +55,8 @@
     <details id="browser-only" class="browser-only small">
       <summary>Shops that only work with the extension or the app</summary>
       <p>These big shops turn automatic checks away, so a link from them can't be checked on this page. Use the
-        <a href="/extension">Unfret browser extension</a> or the
-        <a href="/extension#phone">Android app</a> for these: they
-        read the page in your own browser, as you see it.</p>
+        <a href="/extension">Unfret browser extension</a> or the Android app for these: they read the page in
+        your own browser, as you see it.</p>
       <ul class="shop-list">
           {{browser_only_shops}}
       </ul>
@@ -162,8 +159,7 @@
       <p id="unreadable-shop" class="small"></p>
       <p><strong>No check was used.</strong></p>
       <p>For a full check, open the page with the <a href="/extension">Unfret browser extension</a> on a computer, or
-        in the <a href="/extension#phone">Unfret Android app</a>: both
-        read the page in your own browser, as you see it.</p>
+        in the Unfret Android app: both read the page in your own browser, as you see it.</p>
     </section>
 
 
@@ -173,15 +169,6 @@
     </section>
 
     <p id="again-row" hidden><button id="again" type="button" class="primary">Check another link</button></p>
-
-    <section id="install-app" class="install-app panel" aria-labelledby="install-heading" hidden>
-      <h2 id="install-heading"><span class="i i-phone" aria-hidden="true"></span> Keep Unfret on your home screen</h2>
-      <p>Then share any product link to Unfret, straight from your browser or a shopping app.</p>
-      <p id="install-ios" class="small" hidden>In Safari, tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
-      <p id="install-android" class="small" hidden>In your browser's menu, tap <b>Add to Home screen</b> or
-        <b>Install app</b>.</p>
-      <button id="install-button" type="button" class="primary" hidden>Install Unfret</button>
-    </section>
 
     <p class="muted small">No history: this page keeps no list of the links you check, and Unfret's server
       doesn't store them or link them to you.</p>

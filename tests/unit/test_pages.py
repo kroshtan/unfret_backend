@@ -278,11 +278,15 @@ def test_icons_are_drawn_not_typed() -> None:
     assert "::-webkit-details-marker { display: none; }" in css  # fold-outs get a chevron, not the browser's triangle
 
 
-async def test_the_install_page_offers_the_phone_app(client: httpx.AsyncClient) -> None:
+async def test_the_install_page_offers_check_on_a_phone(client: httpx.AsyncClient) -> None:
     page = (await client.get("/extension")).text
     assert 'id="phone"' in page and 'href="/check"' in page
     assert 'src="data:image/svg+xml;base64,' in page  # the QR code, an image the policy allows
-    assert f">{settings.public_base_url.split('://')[-1]}/check</a>" in page
+    host = settings.public_base_url.split("://")[-1]
+    assert f'Check a link on your phone: open <a href="/check">{host}/check</a>' in " ".join(page.split())
+    # On a phone Unfret is /check in the browser, not an app to install from it.
+    assert "Nothing to install." in page and "as an app" not in page and "Add to Home" not in page
+    assert 'href="/android"' not in page  # /android stays unlisted for now
 
 
 # ── Plain words for shoppers: a pass, a backup code, My checks ───────────────────────────────────────────────

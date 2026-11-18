@@ -64,6 +64,7 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "reports",
         "report_votes",
         "report_quota",
+        "report_opinion_days",  # second-opinion calls per day: a count, nothing about a page
         "labelled_pages",
         "vat_quotes",
         "crypto_sales",
@@ -91,7 +92,7 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM intro_codes") == 0  # only the operator makes codes
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one
-    for table in ("reports", "report_votes", "report_quota", "labelled_pages"):  # only a consented report fills them
+    for table in ("reports", "report_votes", "report_quota", "labelled_pages", "report_opinion_days"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
     # Price observations are keyed by a product hash and hold no URL; this page has no public product ID anyway.

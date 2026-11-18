@@ -2465,7 +2465,7 @@
     "properties": {
      "consent": {
       "const": true,
-      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; once reviewed, it is kept without any link to my account.",
+      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; once reviewed, it is kept without any link to my account.",
       "title": "Consent",
       "type": "boolean"
      },
@@ -4992,7 +4992,7 @@
   },
   "/v1/reports": {
    "post": {
-    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+\npoints outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per\nmonth, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first\nreporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.\nLimits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a\nproposed label for the reviewer, never a label by itself).\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
     "operationId": "report_v1_reports_post",
     "requestBody": {
      "content": {

@@ -42,6 +42,7 @@ from unfret.db import PostgresFactStore, create_pool, init_db
 from unfret.graph import SKILLS, build_graph
 from unfret.graph.skills import reverse_image
 from unfret.middleware import RequestGuardMiddleware
+from unfret.reports import second_opinion
 from unfret.routes import router
 from unfret.routes.pages import STATIC_DIR
 from unfret.schemas.errors import CustomAPIError, handle_http_error, handle_validation_error
@@ -65,6 +66,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     while True:
         for name, job in (
             ("reports", reports.expire(pool, settings)),
+            ("second_opinions", second_opinion.catch_up(pool, settings)),
             ("fiat", fiat.purge(pool, settings.fiat_retention_days)),
             ("vat", vat.purge(pool, settings)),
             ("affiliates", affiliates.purge(pool, settings)),
@@ -146,6 +148,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
                 await shop_store.drain()
                 await reverse_image.drain()
                 await recording.drain()
+        await second_opinion.stop()  # an unfinished one leaves its item to a person
         await api.db_pool.close()
         await api.x402.rpc.aclose()
         await api.x402_base.aclose()

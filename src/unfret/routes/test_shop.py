@@ -1,9 +1,11 @@
 """
 The Unfret test shop (:mod:`unfret.test_shop`): a made-up store at ``/test-shop`` with every trick Unfret catches.
 
-Two static pages from ``static/test-shop``: the product page and its checkout. Served under the site's Content
-Security Policy (no inline scripts, nothing loaded from elsewhere) and kept out of search engines. The reviews are
-dated relative to the day the page is served, as review widgets show them, so the review burst stays a burst.
+Three static pages from ``static/test-shop``: the product page, its checkout and the sister shop's product page (the
+same made-up photo under another made-up brand, for the photo match: :mod:`unfret.test_shop_photos`). Served under
+the site's Content Security Policy (no inline scripts, nothing loaded from elsewhere) and kept out of search engines.
+The reviews are dated relative to the day the page is served, as review widgets show them, so the review burst stays a
+burst.
 """
 
 import re
@@ -14,6 +16,7 @@ from fastapi.responses import HTMLResponse
 
 from unfret.routes.pages import PAGE_HEADERS, STATIC_DIR, versioned
 from unfret.test_shop import PATH
+from unfret.test_shop_photos import SISTER_PATH
 
 SHOP_DIR = STATIC_DIR / "test-shop"
 HEADERS = {**PAGE_HEADERS, "X-Robots-Tag": "noindex, nofollow"}
@@ -58,3 +61,13 @@ def checkout() -> HTMLResponse:
     :return: The page.
     """
     return HTMLResponse(render("checkout.html"), headers=HEADERS)
+
+
+@router.get(SISTER_PATH, response_class=HTMLResponse)
+def sister_shop() -> HTMLResponse:
+    """
+    The sister shop's product page: the same made-up projector and photo, cheaper, under another made-up brand.
+
+    :return: The page.
+    """
+    return HTMLResponse(render("sister.html"), headers=HEADERS)

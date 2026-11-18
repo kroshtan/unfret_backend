@@ -914,7 +914,14 @@ ERRORS: dict[str, tuple[int, str, str]] = {
         "pay one of `accepts` and retry with PAYMENT-SIGNATURE; `error` says why (`reason`: why a simulation failed)",
     ),
     "INVALID_PAYMENT": (400, "no", "the PAYMENT-SIGNATURE header couldn't be decoded"),
-    "INVALID_API_KEY": (401, "no", "the Authorization header isn't a valid Unfret pass: fix it, or pay with x402"),
+    "INVALID_API_KEY": (
+        401,
+        "no",
+        (
+            "the Authorization header isn't a valid Unfret pass (unknown, replaced with its backup code, or retired): "
+            "fix it, or pay with x402"
+        ),
+    ),
     "INSUFFICIENT_CREDITS": (402, "no", "the pass has no checks left: top it up, or pay with x402"),
     "FREE_CHECKS_PAUSED": (429, "no", "the pass has only free checks and today's are used: after 00:00 UTC, or pay"),
     "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`); checked only with a payment or a pass"),

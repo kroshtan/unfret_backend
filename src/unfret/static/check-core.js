@@ -97,6 +97,21 @@ export function unreadableKind(code, link, shops) {
 }
 
 // The same words and symbols as the extension, so a verdict never relies on colour alone.
+// A pass the server no longer knows: 401 INVALID_API_KEY on a pass (retired at Unfret's free start, or replaced in
+// another browser). The page drops it and starts over with the free pass; a wallet's 401 is an expired sign-in.
+export function passEnded(error, account) {
+  return error?.status === 401 && error?.code === "INVALID_API_KEY" && account?.kind === "key";
+}
+
+// What the page says once after that: calm, one line, and the next step (the free deep checks if this browser never
+// had them).
+export function passEndedHint(freeChecks) {
+  const start = "Unfret has a new free start: your old pass has ended.";
+  return freeChecks > 0
+    ? `${start} Your first ${freeChecks} deep checks are free: tap Check.`
+    : `${start} Quick checks stay free; deep checks come in packs.`;
+}
+
 export const BAND_WORD = {
   reliable: "Looks fine",
   concerns: "Worth a look",

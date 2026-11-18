@@ -30,6 +30,10 @@
   the TypeScript client is a reference to copy, not on npm, with its link. On `/check` the three example shops are
   links (a click still checks one), and the note under the shops that need the extension says why.
 
+### Internal
+
+* The private model store is read from the corpus's `main` branch (was `master`; `MODEL_STORE_REF` still overrides it).
+
 ## [0.13.0](https://github.com/kroshtan/unfret_backend/compare/0.12.0...0.13.0) (2026-11-18)
 
 ### Free checks and the Unfret pass

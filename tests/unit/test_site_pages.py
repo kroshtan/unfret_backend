@@ -363,6 +363,45 @@ async def test_the_sitemap_lists_the_public_pages_at_this_servers_address(
         assert path not in SITEMAP_PATHS, path
 
 
+# ── /robots.txt ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+async def test_production_robots_txt_welcomes_every_crawler_and_points_at_the_sitemap(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "solana_network", "solana-mainnet")
+    monkeypatch.setattr(settings, "public_base_url", "https://unfret.example/")
+    response = await client.get("/robots.txt")
+
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/plain")
+    lines = response.text.splitlines()
+    assert "User-agent: *" in lines and "Allow: /" in lines
+    assert not [line for line in lines if line.lower().startswith("disallow")]
+    assert "Content-Signal: search=yes, ai-input=yes, ai-train=yes" in lines
+    assert "Sitemap: https://unfret.example/sitemap.xml" in lines
+    for path in ("/llms.txt", "/.well-known/x402", "/openapi.json"):
+        assert f"https://unfret.example{path}" in response.text, path
+
+
+async def test_dev_robots_txt_keeps_every_crawler_out(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "solana_network", "solana-devnet")
+    response = await client.get("/robots.txt")
+
+    assert response.status_code == 200 and response.headers["content-type"].startswith("text/plain")
+    lines = response.text.splitlines()
+    assert "User-agent: *" in lines and "Disallow: /" in lines
+    assert not [line for line in lines if line.startswith(("Allow", "Sitemap", "Content-Signal"))]
+
+
+def test_dev_and_production_tell_robots_txt_apart() -> None:
+    dev = yaml.safe_load((CONFIG / "deploy.dev.yml").read_text())["env"]["clear"]
+    production = yaml.safe_load((CONFIG / "deploy.production.yml").read_text())["env"]["clear"]
+    assert dev["UNFRET_SOLANA_NETWORK"] == "solana-devnet"
+    assert production["UNFRET_SOLANA_NETWORK"] == "solana-mainnet"
+
+
 @pytest.mark.parametrize("path", SITEMAP_PATHS)
 async def test_every_page_in_the_sitemap_can_be_indexed(client: httpx.AsyncClient, path: str) -> None:
     response = await client.get(path)

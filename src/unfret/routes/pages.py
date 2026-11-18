@@ -744,6 +744,41 @@ def sitemap() -> Response:
     )
 
 
+@router.get("/robots.txt")
+def robots_txt() -> Response:
+    """
+    The robots file: on production every crawler, search engine and AI agent is welcome; dev asks them all to stay out.
+
+    Production (the server on Solana mainnet) allows everything, says so in Cloudflare's Content Signals syntax and
+    points at the sitemap and at what agents read. Nothing public is disallowed: the private pages (shared results,
+    /checkout, /my-checks, /welcome, /android) carry noindex, which a crawler only sees if it may fetch them. Dev (on
+    devnet) mirrors production, so it disallows everything to keep a duplicate site out of search results; agents
+    calling its API don't read this file.
+
+    :return: The robots file (plain text).
+    """
+    base = settings.public_base_url.rstrip("/")
+    if settings.solana_network == "solana-mainnet":
+        body = (
+            "# Unfret checks the seller before you pay. All public pages may be crawled, indexed and used by AI.\n"
+            f"# For agents: {base}/llms.txt (how to use Unfret), {base}/.well-known/x402 (pay per check, no account)\n"
+            f"# and {base}/openapi.json (the API).\n"
+            "\n"
+            "User-agent: *\n"
+            "Content-Signal: search=yes, ai-input=yes, ai-train=yes\n"
+            "Allow: /\n"
+            "\n"
+            f"Sitemap: {base}/sitemap.xml\n"
+        )
+    else:
+        body = "# A test copy of Unfret: not for search results.\n\nUser-agent: *\nDisallow: /\n"
+    return Response(
+        body,
+        media_type="text/plain",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
+    )
+
+
 @router.get("/manifest.webmanifest")
 def manifest() -> Response:
     """

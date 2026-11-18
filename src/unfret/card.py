@@ -212,8 +212,6 @@ AREAS: dict[str, dict[str, tuple[str, ...]]] = {
 REASON_AREAS: dict[str, str] = {
     **dict.fromkeys(
         (
-            "no_withdrawal",
-            "no_return_policy",
             "no_imprint",
             "missing_trust_info",
             "invalid_vat",
@@ -269,6 +267,8 @@ REASON_AREAS: dict[str, str] = {
             "permanent_sale",
             "far_below_market",
             "long_delivery",
+            "no_withdrawal",
+            "no_return_policy",
             "returns_abroad",
             "return_address_withheld",
             "restocking_fee",

@@ -1285,3 +1285,16 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   on PyPI) and `/developers/http` for every other language.
 - The TypeScript client (`clients/typescript`) is a reference to copy, not an npm package (`"private": true`); the
   "Publish clients" workflow publishes only the Python client. No API change; the OpenAPI document is unchanged.
+
+## Changes (the Android app's download page; backwards-compatible)
+
+- Page: `GET /android` ("Unfret for Android"): what the app does, the signed release APK's download, its version,
+  size, SHA-256 and the signing certificate's SHA-256 fingerprint, install steps (and turning "Install unknown apps"
+  off again), updates, the app's permissions and privacy. Not linked from the home page, menu or footer yet, and
+  `noindex` (`X-Robots-Tag` and a meta tag); the usual page policy otherwise.
+- The download links to the release asset on git.kroshtan.com
+  (`/kroshtan/unfret_android/releases/download/v<version>/unfret-<version>.apk`), an address built from the version.
+  The facts come from `static/android-release.json`, which `make android-release TAG=v<version>` writes from the
+  release's `release.json` after checking the APK's size and SHA-256; a release is offered only when they are complete
+  and its certificate is Unfret's release key's (`unfret.android_release.SIGNING_CERT_SHA256`). Without that file the
+  page says the download is coming soon and offers no file.

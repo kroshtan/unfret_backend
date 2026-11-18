@@ -1486,3 +1486,13 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .checked-list .why { display: block; font-size: 0.88rem; color: var(--muted); }
 .result-links button.link { font-size: inherit; }
 #report-area { margin-top: 1rem; }
+
+/* ── Unfret for Android (/android) ───────────────────────────────────────────────────────────────────────────── */
+.android .apk-download { margin: 1.5rem 0 0.5rem; }
+.android .apk-download .buttons { margin: 0.25rem 0 1rem; }
+.android .apk-download .button { max-width: 100%; white-space: normal; text-align: center; }
+.android .apk-download .facts { margin-bottom: 0; }
+.android .hashes { grid-template-columns: minmax(7rem, 14rem) 1fr; }
+.android code { overflow-wrap: anywhere; }
+.android code.hash { word-break: break-all; font-size: 0.85em; line-height: 1.5; }
+@media (max-width: 34rem) { .android .hashes { grid-template-columns: 1fr; } }

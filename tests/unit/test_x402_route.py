@@ -369,6 +369,21 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     assert "`reason`" in text
 
 
+def test_the_openapi_document_marks_check_as_paid() -> None:
+    # x402scan (the agentcash discovery spec) registers the paid calls an origin's openapi.json marks this way.
+    operation = app.openapi()["paths"]["/v1/check"]["post"]
+    assert operation["x-payment-info"] == {
+        "price": {"mode": "dynamic", "currency": "USD", "min": "0.01", "max": "0.2"},
+        "protocols": [{"x402": {}}],
+    }
+    assert {"200", "402"} <= set(operation["responses"])
+
+
+async def test_the_402_says_what_the_check_is_for(client: httpx.AsyncClient) -> None:
+    resource = decode_header((await client.post("/v1/check", json=BODY)).headers["PAYMENT-REQUIRED"])["resource"]
+    assert "marketplace seller" in resource["description"] and len(resource["description"]) <= 500
+
+
 async def test_every_error_has_an_error_code(client: httpx.AsyncClient) -> None:
     invalid = await client.post("/v1/check", json={"tier": "quick"})  # no url
     assert invalid.status_code == 422

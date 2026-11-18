@@ -4023,7 +4023,20 @@
     "summary": "Check",
     "tags": [
      "x402"
-    ]
+    ],
+    "x-payment-info": {
+     "price": {
+      "currency": "USD",
+      "max": "0.2",
+      "min": "0.01",
+      "mode": "dynamic"
+     },
+     "protocols": [
+      {
+       "x402": {}
+      }
+     ]
+    }
    }
   },
   "/v1/credits": {

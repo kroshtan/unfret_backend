@@ -390,7 +390,8 @@ def test_the_result_card_on_the_test_shop(quick: dict[str, Any], deep: dict[str,
         verdict = result["verdict"]
         assert all(r["source"] for r in verdict["reasons"])  # every finding says where its evidence comes from
         assert [i["label"] for i in verdict["checklist"]] == [
-            "Who's behind the shop", "The product and the brand", "Reviews", "Prices and discounts", "Hidden tricks",
+            "Who's behind the shop", "The product and the brand", "Reviews", "Prices, delivery and returns",
+            "Hidden tricks",
         ]  # fmt: skip
         assert verdict["next_step"]["text"] == "Better to buy this from a shop you know."
         assert verdict["same_product"] is None  # no photo model here (the sister shop's match: test_image_index)

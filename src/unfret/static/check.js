@@ -222,7 +222,7 @@ function renderAccount() {
     $("checks").textContent = checks === null ? "" : checksText(checks);
     $("buy-more").href = buyPath();
   }
-  // An invite or intro code works only on a pass (or wallet) that never had checks.
+  // The gift-code field: shown for any pass or wallet (a gift code works on any account but its buyer's).
   $("invite").hidden = !(account && inviteEligible);
   $("sign-in-note").textContent = expired
     ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."

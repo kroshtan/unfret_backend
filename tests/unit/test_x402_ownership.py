@@ -173,6 +173,18 @@ async def test_the_openapi_document_carries_the_proof_x402scan_reads(client: htt
     assert verifies(proof, origin, pay_to.pop())
 
 
+async def test_the_proofs_sit_beside_the_other_openapi_extensions(client: httpx.AsyncClient) -> None:
+    document = (await client.get("/openapi.json")).json()
+    assert all(key in document for key in FIXTURE["openapi_keys"])
+    assert document["x-agentcash-guidance"] == {"llmsTxtUrl": f"{settings.public_base_url}/llms.txt"}
+    assert document["info"]["contact"] == {"email": "hello@unfret.net"}
+    # A directory's bodyless probe gets the 402 a valid request gets, so the proof's payTo is in it too.
+    bodyless, valid = await client.post("/v1/check"), await client.post("/v1/check", json=BODY)
+    assert bodyless.status_code == valid.status_code == 402
+    assert bodyless.headers["PAYMENT-REQUIRED"] == valid.headers["PAYMENT-REQUIRED"]
+    assert bodyless.content == valid.content
+
+
 async def test_well_known_carries_the_proof_and_keeps_its_fields(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

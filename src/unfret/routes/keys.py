@@ -222,7 +222,7 @@ async def phone_qr(request: Request, account: str = Depends(require_account)) ->
     """
     A QR code that puts this key on a phone: it opens the link checker (``/check``) signed in with it.
 
-    For a shopper who bought checks in one browser and wants them in the phone app. The code holds
+    For a shopper who bought checks in one browser and wants them on their phone. The code holds
     ``<site>/check#pass=<key>``: the key is in the fragment, which a browser never sends anywhere; ``/check`` reads it,
     keeps it like a pasted key and clears the address bar. Only for an API key (send it as ``Authorization: Bearer``);
     anyone who scans the code can use the key's checks, so pages show it only on request.

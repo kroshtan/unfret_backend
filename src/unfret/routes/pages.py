@@ -5,8 +5,8 @@ The site's pages: home, sign-in, checkout, the link checker, accuracy, and the p
 ``/connect`` signs in and hands the session to the extension, then ``/checkout`` (which hands a new API key to the
 extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``,
 ``/why``, ``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer.
-``/check`` checks a link from any browser, phones first; with its web app manifest and service worker it can be
-installed and shows up in Android's share sheet.
+``/check`` checks a link from any browser, phones first. It is a web page, not an installable app: on a phone,
+Unfret's website is ``/check`` in the browser.
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -45,12 +45,6 @@ PAGE_HEADERS = {
     # A site that opens one of these pages gets no handle on it (it can't navigate it on, say from /check#pass=… to
     # /checkout?send=pass); popups the page opens itself (a wallet's) keep theirs.
     "Cross-Origin-Opener-Policy": "same-origin-allow-popups",
-}
-
-# The link checker is also an installable web app: it may load its manifest and register its service worker.
-CHECK_PAGE_HEADERS = {
-    **PAGE_HEADERS,
-    "Content-Security-Policy": PAGE_HEADERS["Content-Security-Policy"] + "; manifest-src 'self'; worker-src 'self'",
 }
 
 # Every page names its scripts, styles and images under a folder for the running build (/static/v-<commit>/…), which
@@ -735,7 +729,7 @@ def check_page() -> HTMLResponse:
         .replace("{{examples}}", examples)
         .replace("{{browser_only_shops}}", browser_only_list())
     )
-    return HTMLResponse(versioned(page), headers=CHECK_PAGE_HEADERS)
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 # The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /affiliates/stats, shared results,
@@ -815,27 +809,14 @@ def robots_txt() -> Response:
     )
 
 
-@router.get("/manifest.webmanifest")
-def manifest() -> Response:
-    """
-    The web app manifest: "Unfret", opening at ``/check``, and a share target so shared links land there.
-
-    :return: The manifest.
-    """
-    return Response(
-        (STATIC_DIR / "manifest.webmanifest").read_bytes(),
-        media_type="application/manifest+json",
-        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
-    )
-
-
 @router.get("/check-sw.js")
 def service_worker() -> Response:
     """
-    The link checker's service worker: makes the app installable and moves a shared link out of the request.
+    The link checker's old service worker, replaced by one that removes itself.
 
-    It caches nothing. A share opens ``/check?url=…``; the worker answers that navigation itself with a redirect to
-    ``/check#url=…``, so the shared link never reaches the network or any server log.
+    ``/check`` was once an installable web app with a service worker. Browsers keep a worker they installed and look
+    for a new version of it at this address, so it stays served: the new version clears any caches and unregisters
+    itself, and the phones that had it go back to the plain web page. Nothing registers it any more.
 
     :return: The script.
     """

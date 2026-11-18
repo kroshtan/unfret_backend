@@ -3,21 +3,21 @@
 // (the shop blocks automatic visitors, a bot check, a page that needs a browser) comes back as a free 422, shown as
 // such and never as a verdict.
 //
-// This page is also the phone app (installed from the browser). Its checks come from an Unfret pass (an API key) or,
-// for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. A first visit gets a free pass at
-// the first tap of Check (new-pass.js: a few free deep checks, asked for once per browser); after that, or without a
-// pass, quick checks (rules only) are free and the page offers to get checks (/checkout) or to paste a pass; a pass
-// also arrives by QR code from /my-checks in another browser (/check#pass=ufk_…, read here and cleared from the
-// address bar at once). A deep check that only free checks could pay for, once they're used (402) or today's are all
-// used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
+// On a phone, this page in the browser is Unfret (it doesn't install as an app). Its checks come from an Unfret pass
+// (an API key) or, for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. A first visit gets
+// a free pass at the first tap of Check (new-pass.js: a few free deep checks, asked for once per browser); after that,
+// or without a pass, quick checks (rules only) are free and the page offers to get checks (/checkout) or to paste a
+// pass; a pass also arrives by QR code from /my-checks in another browser (/check#pass=ufk_…, read here and cleared
+// from the address bar at once). A deep check that only free checks could pay for, once they're used (402) or today's
+// are all used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
 //
 // A pass the server no longer knows (401 INVALID_API_KEY: retired at Unfret's free start, or replaced elsewhere) is
 // dropped and this browser starts over with the free pass, the page saying so once (passRetired).
 //
 // What this page keeps, in localStorage: the sign-in (the pass, or a wallet's session token) until it's removed on
 // /my-checks, and that this browser got its free pass (FREE_GIVEN, so it gets one only once). No history: the link lives in the text field and in memory for the one check (and goes into a shared
-// result only when the shopper shares it, after a preview). A shared link (/check?url=… or, via the service worker,
-// /check#url=…) is read here and removed from the address bar at once.
+// result only when the shopper shares it, after a preview). A shared link (/check?url=… or /check#url=…) is read here and removed
+// from the address bar at once.
 import {
   BAND_SYMBOL,
   BAND_WORD,
@@ -411,8 +411,7 @@ async function paste() {
   renderPaste();
 }
 
-// A shared link arrives as ?url=… (or #url=… through the service worker), a pass as #pass=…; take them and clear
-// the address bar.
+// A shared link arrives as ?url=… or #url=…, a pass as #pass=…; take them and clear the address bar.
 function takeSharedLink() {
   const params = new URLSearchParams(window.location.search);
   const fragment = new URLSearchParams(window.location.hash.slice(1));
@@ -1060,41 +1059,11 @@ getJson("/v1/pricing")
     renderAccount();
   })
   .catch(() => {});
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("/check-sw.js", { scope: "/check" }).catch(() => {});
-
-// ── The app itself ───────────────────────────────────────────────────────────────────────────────────────
-// This page is the phone app. Installed (opened from the home screen), the logo leads back here rather than to the
-// website. In a phone's browser, a box at the bottom offers to install it: the browser's own prompt behind a button
-// where there is one (Android), otherwise how to do it from the browser's menu (an iPhone's Share menu).
-
-const installed =
-  window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
-if (installed) for (const logo of document.querySelectorAll(".site-header .wordmark")) logo.href = "/check";
-
-let installPrompt = null;
-function offerInstall() {
-  const phone = window.matchMedia?.("(pointer: coarse)").matches && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (installed || !phone) return;
-  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  $("install-ios").hidden = !ios;
-  $("install-button").hidden = !installPrompt;
-  $("install-android").hidden = ios || Boolean(installPrompt);
-  $("install-app").hidden = false;
-}
-window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
-  installPrompt = event;
-  offerInstall();
-});
-window.addEventListener("appinstalled", () => {
-  $("install-app").hidden = true;
-});
-$("install-button").addEventListener("click", async () => {
-  if (!installPrompt) return;
-  installPrompt.prompt();
-  const { outcome } = await installPrompt.userChoice.catch(() => ({ outcome: "dismissed" }));
-  installPrompt = null;
-  if (outcome === "accepted") $("install-app").hidden = true;
-  else offerInstall();
-});
-offerInstall();
+// This page used to install as a web app, with a service worker. A browser that still has that worker drops it here
+// (the worker's last version, /check-sw.js, removes itself too, the next time the browser looks for an update).
+navigator.serviceWorker
+  ?.getRegistrations()
+  .then((registrations) => {
+    for (const registration of registrations) registration.unregister();
+  })
+  .catch(() => {});

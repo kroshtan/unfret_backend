@@ -15,7 +15,7 @@
       <div>
         <p class="eyebrow">Free to install</p>
         <h1>Get Unfret</h1>
-        <p class="lead">In your browser on a computer, or as an app on your phone. Either way Unfret reads a product
+        <p class="lead">In your browser on a computer, or in your phone's browser. Either way Unfret reads a product
           page, an ad or a company's site when you ask, and tells you in plain words whether it adds up.</p>
 
         <h2 id="browser">In your browser</h2>
@@ -36,18 +36,16 @@
         <h2 id="phone">On your phone</h2>
         <div class="phone-get">
           <div>
-            <p>Unfret installs as an app from your phone's browser: no app store needed. Once it's on your home screen,
-              share any product link to Unfret, from your browser or a shopping app, and it checks it for you.</p>
+            <p>Check a link on your phone: open <a href="/check">{{check_link}}</a> in your phone's
+              browser<span class="on-computer">, or scan the code</span>. Nothing to install.</p>
             <ol class="howto">
-              <li><b>Open <a href="/check">{{check_link}}</a></b> on your phone<span class="on-computer">, or scan
-                the code</span>.</li>
-              <li><b>Android:</b> tap <b>Install</b> on the page, or <b>Add to Home screen</b> in the browser's menu.
-                <b>iPhone:</b> tap <b>Share</b>, then <b>Add to Home Screen</b>.</li>
+              <li><b>Copy the link</b> of a product, an ad or a company's site, in your browser or a shopping app.</li>
+              <li><b>Paste it on {{check_link}}</b> and tap <b>Check</b>.</li>
             </ol>
-            <p class="buttons on-phone"><a class="button primary large" href="/check">Open Unfret</a></p>
+            <p class="buttons on-phone"><a class="button primary large" href="/check">Check a link</a></p>
           </div>
           <img class="qr on-computer" src="{{phone_qr}}" width="156" height="156"
-            alt="QR code that opens Unfret's link checker on your phone">
+            alt="QR code that opens {{check_link}} on your phone">
         </div>
         <p class="muted small">Some shops refuse automatic visits, so a few can only be checked from the browser
           extension, which reads the page as your browser shows it.</p>

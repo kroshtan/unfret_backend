@@ -12,6 +12,17 @@
   sentence: an early version, things may still change, and tell us what doesn't work at hello@unfret.net. The
   install steps and the certificate check are unchanged; with no release the page still says "coming soon".
 
+### Changes
+
+* **`/check` is a web page again, not an app to install.** On a phone, Unfret is `/check` in the browser: "Check a
+  link on your phone: open unfret.net/check". The web app manifest (`/manifest.webmanifest`, with its Android share
+  target), the "Keep Unfret on your home screen" box with its Install button, the home-screen icon link and the
+  installed app's own look are gone, and `/check` no longer registers a service worker. `/extension`'s phone section
+  says to open `/check` in the phone's browser (its QR code opens it there) instead of how to install it, and My
+  checks' "Use on your phone" no longer says to add Unfret to the home screen. Phones that installed the old web app
+  drop its service worker: `/check-sw.js` is now a worker that clears any caches and unregisters itself, and `/check`
+  unregisters it too. The privacy statement no longer describes the worker.
+
 ### Fixes
 
 * **A runaway content read no longer degrades the check**: now and then (about 1 in 20 reads of the test shop)

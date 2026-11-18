@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, business, p2p, service_platforms, testimonials, walmart
+from unfret.facts import amazon, bolcom, business, markup, p2p, service_platforms, testimonials, walmart
 from unfret.facts._parse import parse_date, parse_number, parse_rating
 from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
@@ -160,6 +160,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)
     _services(soup, facts)
+    markup.extract(soup, url, facts)
     return facts
 
 

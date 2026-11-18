@@ -64,11 +64,15 @@ def test_checksums_match_eth_account() -> None:
 
 
 def test_a_checksum_typo_is_refused() -> None:
-    address = Account.create().address
-    flipped = next(i for i, c in enumerate(address) if c.isalpha() and i > 1)
-    typo = address[:flipped] + address[flipped].swapcase() + address[flipped + 1 :]
-    with pytest.raises(ValueError, match="checksum"):
-        parse_address(typo)
+    # EIP-55's own example, fixed: a random address with few letters could turn all one case when a letter is
+    # flipped, and an all-lower or all-upper address carries no checksum to check.
+    address = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+    assert parse_address(address) == address
+    for flipped in (3, 4, 11):  # "a" -> "A", "A" -> "a", "F" -> "f": still mixed case, now a wrong checksum
+        typo = address[:flipped] + address[flipped].swapcase() + address[flipped + 1 :]
+        assert typo[2:] not in {typo[2:].lower(), typo[2:].upper()}
+        with pytest.raises(ValueError, match="checksum"):
+            parse_address(typo)
 
 
 def test_topics_round_trip() -> None:

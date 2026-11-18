@@ -25,12 +25,12 @@ import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from unfret import card, result_cache, verdict_store
+from unfret import card, observations, result_cache, verdict_store
 from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys
 from unfret.routes import analyze
-from unfret.routes.check import CheckRequest, _failure_site, _rate, _readable_page, rate_limited
+from unfret.routes.check import CheckRequest, _failure_site, _provenance, _rate, _readable_page, rate_limited
 from unfret.schemas.errors import ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 from unfret.visitors import RateLimit
 from unfret.x402.verdict import Verdict, action_for, to_verdict
@@ -204,7 +204,8 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
     await affiliates.first_check(request.app.db_pool, account)
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body, account)):
+                result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
     except asyncio.CancelledError:
         analyze._count_free_outcome(charge)
         await analyze._refund(request, charge)  # the client went away before the result

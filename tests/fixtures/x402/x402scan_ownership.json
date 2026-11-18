@@ -34,6 +34,19 @@
   ]
  },
  "evm": {
-  "scheme": "EIP-191 personal_sign of the origin (viem recoverMessageAddress), 0x-prefixed hex; the recovered address must equal payTo"
+  "scheme": "EIP-191 personal_sign of the origin (viem recoverMessageAddress), 0x-prefixed hex; the recovered address must equal payTo",
+  "note": "Signed by unfret.x402.evm_wallet.BaseHotWallet.ownership_proof with a test key of 32 bytes of 0x11 (never funded, never used); checked against EIP-191 itself (keccak-256 of \"\\x19Ethereum Signed Message:\\n\" + the origin's length + the origin, then ECDSA recovery), which is what viem's recoverMessageAddress computes. Not run through x402scan's own code.",
+  "key_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "pay_to": "0x19E7E376E7C213B7E7e7e46cc70A5dD086DAff2A",
+  "vectors": [
+   {
+    "origin": "https://unfret.net",
+    "proof": "0xb757e0f8622b2b9ed6e49a039ecfd926967b370c40491ea6da53d68baff8b28148c4f086445569baeea9a0f31d53b5d65cd1e343a68e671cd3908372759fc38b1b"
+   },
+   {
+    "origin": "https://dev.unfret.net",
+    "proof": "0x5c7d8ba6d11c0455bb07caf9f2e04ff31cfc65a84aa2f608092f81d9f4ddb77c0a8b87ffd2b2813d6b19c1beaaa4ae47647fff85018535ffb1a021908913fe771b"
+   }
+  ]
  }
 }

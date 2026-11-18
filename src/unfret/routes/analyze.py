@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from unfret import card, page_fetch, reports, result_cache, shares
+from unfret import card, observations, page_fetch, reports, result_cache, shares
 from unfret.auth import optional_account, require_account
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys, ledger
@@ -116,7 +116,20 @@ def _paused() -> dict[str, Any]:
 
 
 def _ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    client = getattr(request, "client", None)  # a request built by hand (in-process callers) may have none
+    return client.host if client else "unknown"
+
+
+def provenance(request: Request, body: AnalyzeRequest, account: str | None) -> observations.Provenance:
+    """
+    Where the analysed page came from, for what the analysis records (:mod:`unfret.observations`).
+
+    :param request: The FastAPI request (its client's network, hashed with today's salt, never stored).
+    :param body: The request body: a URL-only request is a page Unfret fetched itself; anything else was supplied.
+    :param account: The account, if any.
+    :return: The provenance.
+    """
+    return observations.for_request(_ip(request), account, fetched=body.url_only, tier=body.tier)
 
 
 def _key_id(account: str | None) -> str | None:
@@ -316,9 +329,10 @@ def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
 
 
 def _report_token(body: AnalyzeRequest, account: str | None, result: dict[str, Any]) -> str | None:
-    # Lets this account report the result later (POST /v1/reports) without anything being stored now. Not for a
-    # quick check (rules only: the deep check is the one to report), nor without an account (reports are per account).
-    if account is None or body.tier == "quick":
+    # Lets this account report the result later (POST /v1/reports) without anything being stored now, for a quick
+    # check as for a deep one (the token binds the tier). Not without an account: reports are per account (the
+    # monthly limit, the reward), so an anonymous quick check gets none.
+    if account is None:
         return None
     return reports.issue_token(
         settings.session_secret.get_secret_value(),
@@ -527,7 +541,8 @@ async def analyze_page(
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke(state, config={"callbacks": [usage]})
+            with observations.observed_as(provenance(request, body, account)):
+                result = await graph.ainvoke(state, config={"callbacks": [usage]})
     except TimeoutError as exc:
         logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
         await _refund(request, charge)
@@ -654,7 +669,10 @@ async def _live_events(
         try:
             async with asyncio.timeout(settings.analysis_timeout_s):
                 # subgraphs=True: each page class runs in its own subgraph, whose skill steps stream as they finish.
-                stream = graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates", subgraphs=True)
+                stream = observations.stream_as(
+                    provenance(request, body, charge.account),
+                    graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates", subgraphs=True),
+                )
                 async for _namespace, update in stream:
                     for event in _update_events(update, final):
                         yield event

@@ -13,7 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import RetryPolicy, Send
 
-from unfret import scoring, shop_store
+from unfret import recording, scoring, shop_store
 from unfret.config import settings
 from unfret.graph import p2p, services, triage
 from unfret.graph.nodes import (
@@ -246,18 +246,22 @@ def _service_triage_node(skills: list[Skill]) -> Callable[..., Awaitable[dict[st
 
 
 def _recording(
-    judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]],
+    judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]], *, page: bool = False
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
     """
     Wrap the judge so that, once it has answered, the shop is recorded in the fingerprint store in the background.
 
     :param judge: The judge node.
+    :param page: Also record the page's photo, price and reviews in the background (:mod:`unfret.recording`): the
+        quick tier, whose skills don't.
     :return: The wrapped node.
     """
 
     async def node(state: AnalysisState) -> dict[str, Any]:
         update = await judge(state)
         shop_store.observe_later(dict(state))
+        if page:
+            recording.record_later(dict(state))
         return update
 
     return node
@@ -368,7 +372,7 @@ def _subgraph_node(subgraph: CompiledStateGraph) -> Callable[..., Awaitable[dict
 
 
 def build_graph(
-    skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH, *, llm: bool = True
+    skills: list[Skill] = SKILLS, model_path: Path = scoring.MODEL_PATH, *, llm: bool = True, record_page: bool = False
 ) -> CompiledStateGraph:
     """
     Compile the analysis graph.
@@ -404,11 +408,16 @@ def build_graph(
     :param model_path: The scorer artifact the judge uses (the quick tier has its own).
     :param llm: Whether the graph's own nodes may call the LLM (classification, headline); the quick tier's may not.
         Which skills run is the caller's choice.
+    :param record_page: Whether a product page's photo, price and reviews are recorded in the background once the
+        judge has answered (:mod:`unfret.recording`): the quick tier, whose skills look nothing up and record nothing.
+        The answer never waits for it.
     :return: A compiled LangGraph ``StateGraph``.
     """
     products = [s for s in skills if s.page_types & PRODUCT_TYPES]
     product = _class_graph(
-        products, _triage_node(skills), _recording(_carded(make_judge_node(model_path, llm=llm), products))
+        products,
+        _triage_node(skills),
+        _recording(_carded(make_judge_node(model_path, llm=llm), products), page=record_page),
     )
     judges = {"product": product}
     ads = [s for s in skills if s.page_types & PAGE_CLASSES["p2p"]]

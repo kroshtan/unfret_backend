@@ -9,6 +9,10 @@ What is stored, and nothing else: a SHA-256 of the barcode, a SHA-256 of the sho
 as one shop each), the day, the price and its currency. One row per product per shop per day. No URL, caller,
 wallet, IP address or time of day. Rows older than 90 days are deleted. Pages without a valid barcode aren't
 recorded. Off in evaluation runs (archived pages aren't today's prices), with the price store.
+
+Each row also keeps where it was seen and how many independent sources reported that price
+(:mod:`unfret.observations`). Only rows seen on a page Unfret fetched itself, or corroborated, make the market: a
+forged page (any shop's address, any price) can't make another shop look far below it.
 """
 
 import hashlib
@@ -21,7 +25,9 @@ from urllib.parse import urlsplit
 import asyncpg
 import structlog
 
+from unfret import observations
 from unfret.facts import PageFacts
+from unfret.observations import Kept
 from unfret.price_store import gtins, registrable_domain, valid_gtin
 from unfret.test_shop import is_test_shop
 
@@ -84,15 +90,27 @@ class Market:
 class MarketStore(Protocol):
     """Where observations live: Postgres in production, memory in tests."""
 
-    async def record(self, product: bytes, shop: bytes, day: date, price: float, currency: str) -> None:
+    async def record(
+        self,
+        product: bytes,
+        shop: bytes,
+        day: date,
+        price: float,
+        currency: str,
+        *,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> None:
         """
-        Keep a shop's first price of a product that day.
+        Keep a shop's first price of a product that day, merged by :func:`unfret.observations.merge`.
 
         :param product: From :func:`product_key`.
         :param shop: From :func:`shop_key`.
         :param day: The day.
         :param price: The price.
         :param currency: Its currency.
+        :param bits: Its provenance bits (:mod:`unfret.observations`).
+        :param vouch: 1 when a new source reports it.
         """
 
     async def others(self, product: bytes, shop: bytes, since: date, currency: str) -> list[float]:
@@ -103,7 +121,7 @@ class MarketStore(Protocol):
         :param shop: This shop (left out).
         :param since: The first day that counts.
         :param currency: Only prices in this currency.
-        :return: One price per other shop.
+        :return: One price per other shop (rows that count only, :func:`unfret.observations.counts`).
         """
 
     async def purge(self, before: date) -> None:
@@ -120,18 +138,41 @@ class MemoryMarketStore:
     def __init__(self) -> None:
         """Start empty."""
         self.rows: dict[tuple[bytes, bytes, date], tuple[float, str]] = {}
+        self.kept: dict[tuple[bytes, bytes, date], Kept] = {}  # each row's provenance (rows without one count)
 
-    async def record(self, product: bytes, shop: bytes, day: date, price: float, currency: str) -> None:
+    async def record(
+        self,
+        product: bytes,
+        shop: bytes,
+        day: date,
+        price: float,
+        currency: str,
+        *,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> None:
         """
-        Keep the day's first price.
+        Keep the day's first price, merged as the Postgres store does.
 
         :param product: The product key.
         :param shop: The shop key.
         :param day: The day.
         :param price: The price.
         :param currency: The currency.
+        :param bits: Its provenance bits.
+        :param vouch: 1 for a new source.
         """
-        self.rows.setdefault((product, shop, day), (price, currency))
+        row = (product, shop, day)
+        old = self.rows.get(row)
+        before = (self.kept.get(row) or Kept(observations.LEGACY, 0)) if old is not None else None
+        action, kept = observations.merge(before, bits, vouch, same=old == (price, currency), newer_wins=False)
+        if action in {"insert", "replace"}:
+            self.rows[row] = (price, currency)
+        self.kept[row] = kept
+
+    def _counts(self, row: tuple[bytes, bytes, date]) -> bool:
+        kept = self.kept.get(row)
+        return kept is None or observations.counts(kept.bits, kept.sources)
 
     async def others(self, product: bytes, shop: bytes, since: date, currency: str) -> list[float]:
         """
@@ -145,7 +186,7 @@ class MemoryMarketStore:
         """
         per_shop: dict[bytes, list[float]] = {}
         for (p, s, day), (price, cur) in self.rows.items():
-            if p == product and s != shop and day >= since and cur == currency:
+            if p == product and s != shop and day >= since and cur == currency and self._counts((p, s, day)):
                 per_shop.setdefault(s, []).append(price)
         return [statistics.median(prices) for prices in per_shop.values()]
 
@@ -156,6 +197,7 @@ class MemoryMarketStore:
         :param before: The first day to keep.
         """
         self.rows = {k: v for k, v in self.rows.items() if k[2] >= before}
+        self.kept = {k: v for k, v in self.kept.items() if k in self.rows}
 
 
 class PostgresMarketStore:
@@ -169,25 +211,67 @@ class PostgresMarketStore:
         """
         self.pool = pool
 
-    async def record(self, product: bytes, shop: bytes, day: date, price: float, currency: str) -> None:
+    async def record(
+        self,
+        product: bytes,
+        shop: bytes,
+        day: date,
+        price: float,
+        currency: str,
+        *,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> None:
         """
-        Insert the day's first price; later ones that day are dropped.
+        Insert the day's first price; a later one that day is merged (:func:`unfret.observations.merge`).
 
         :param product: The product key.
         :param shop: The shop key.
         :param day: The day.
         :param price: The price.
         :param currency: The currency.
+        :param bits: Its provenance bits.
+        :param vouch: 1 for a new source.
         """
-        await self.pool.execute(
-            "INSERT INTO market_prices (product_key, shop_key, day, price, currency) VALUES ($1, $2, $3, $4, $5) "
-            "ON CONFLICT (product_key, shop_key, day) DO NOTHING",
-            product,
-            shop,
-            day,
-            price,
-            currency,
-        )
+        async with self.pool.acquire() as conn, conn.transaction():
+            inserted = await conn.fetchval(
+                "INSERT INTO market_prices (product_key, shop_key, day, price, currency, provenance, sources) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (product_key, shop_key, day) DO NOTHING "
+                "RETURNING TRUE",
+                product,
+                shop,
+                day,
+                price,
+                currency,
+                bits,
+                vouch,
+            )
+            if inserted:
+                return
+            row: Any = await conn.fetchrow(
+                "SELECT price, currency, provenance, sources FROM market_prices "
+                "WHERE product_key = $1 AND shop_key = $2 AND day = $3 FOR UPDATE",
+                product,
+                shop,
+                day,
+            )
+            same = (float(row["price"]), row["currency"]) == (price, currency)
+            action, kept = observations.merge(
+                Kept(row["provenance"], row["sources"]), bits, vouch, same=same, newer_wins=False
+            )
+            await conn.execute(
+                "UPDATE market_prices SET provenance = $4, sources = $5,"
+                " price = CASE WHEN $6 THEN $7 ELSE price END, currency = CASE WHEN $6 THEN $8 ELSE currency END"
+                " WHERE product_key = $1 AND shop_key = $2 AND day = $3",
+                product,
+                shop,
+                day,
+                kept.bits,
+                kept.sources,
+                action == "replace",
+                price,
+                currency,
+            )
 
     async def others(self, product: bytes, shop: bytes, since: date, currency: str) -> list[float]:
         """
@@ -201,11 +285,13 @@ class PostgresMarketStore:
         """
         rows: list[Any] = await self.pool.fetch(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY price) AS price FROM market_prices "
-            "WHERE product_key = $1 AND shop_key <> $2 AND day >= $3 AND currency = $4 GROUP BY shop_key",
+            "WHERE product_key = $1 AND shop_key <> $2 AND day >= $3 AND currency = $4"
+            " AND (provenance & $5 <> 0 OR sources >= $6) GROUP BY shop_key",
             product,
             shop,
             since,
             currency,
+            *observations.trusted_params(),
         )
         return [float(r["price"]) for r in rows]
 
@@ -266,25 +352,54 @@ def today() -> date:
 
 async def observe(url: str, facts: PageFacts) -> Market | None:
     """
-    Compare the page's price with other shops', then record it. Never raises.
+    Compare the page's price with other shops', then record it (as :func:`record`). Never raises.
 
     :param url: The page URL.
     :param facts: The page facts.
     :return: The market, or ``None`` for a page without a price, a barcode or a host (or a failing store), and for
         the test shop (:mod:`unfret.test_shop`), which is never recorded.
     """
-    global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     gtin, shop = barcode(facts), shop_key(url, facts)
     if gtin is None or shop is None or not facts.price or is_test_shop(url):
         return None
     product, day, currency = product_key(gtin), today(), (facts.currency or "").upper()[:3]
     try:
         prices = await _store.others(product, shop, day - timedelta(days=WINDOW_DAYS), currency)
-        await _store.record(product, shop, day, round(facts.price, 2), currency)
-        if _purged_on != day:
-            _purged_on = day
-            await _store.purge(day - timedelta(days=RETENTION_DAYS))
+        await _record(product, shop, day, round(facts.price, 2), currency)
     except Exception as exc:  # noqa: BLE001 - optional signal
         logger.warning("market_store_failed", error=type(exc).__name__)
         return None
     return Market(len(prices), statistics.median(prices) if prices else None)
+
+
+async def _record(product: bytes, shop: bytes, day: date, price: float, currency: str) -> None:
+    global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
+    provenance = observations.current()
+    if not provenance.record:
+        return
+    vouch = observations.vouch(b"market|" + product + shop + day.isoformat().encode())
+    await _store.record(product, shop, day, price, currency, bits=provenance.bits, vouch=vouch)
+    if _purged_on != day:
+        _purged_on = day
+        await _store.purge(day - timedelta(days=RETENTION_DAYS))
+
+
+async def record(url: str, facts: PageFacts) -> bool:
+    """
+    Record the page's price for the market without looking anything up (a quick check, after its answer).
+
+    The same row :func:`observe` writes, with the running analysis's provenance. Never raises.
+
+    :param url: The page URL.
+    :param facts: The page facts.
+    :return: Whether a price was recorded (not without a price, a barcode or a host, nor for the test shop).
+    """
+    gtin, shop = barcode(facts), shop_key(url, facts)
+    if gtin is None or shop is None or not facts.price or is_test_shop(url):
+        return False
+    try:
+        await _record(product_key(gtin), shop, today(), round(facts.price, 2), (facts.currency or "").upper()[:3])
+    except Exception as exc:  # noqa: BLE001 - optional, after the answer
+        logger.warning("market_store_failed", error=type(exc).__name__)
+        return False
+    return True

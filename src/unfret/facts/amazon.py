@@ -7,23 +7,25 @@ the fact empty when none match.
 """
 
 import re
+from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
 from unfret.facts._parse import parse_count, parse_date, parse_price, parse_rating
+from unfret.facts.brand import clean_brand
 from unfret.facts.schema import PageFacts, Review
 
-_BYLINE_RE = re.compile(
-    r"^(?:visit the|besuchen sie den|visitez la boutique|bezoek de|visita la tienda de|visita lo store di)\s+(.+?)"
-    r"(?:\s+store|-store|-shop|\s+boutique)?$|^(?:brand|marke|marque|merk|marca)\s*:\s*(.+)$",
-    re.IGNORECASE,
-)
 _FIRST_AVAILABLE_RE = re.compile(
     r"date first available|im angebot von amazon|disponible depuis le|datum eerste beschikbaarheid"
     r"|producto en amazon desde|disponibile su amazon",
     re.IGNORECASE,
 )
 _BRAND_KEY_RE = re.compile(r"brand|marke|marque|merk|marca|manufacturer|hersteller", re.IGNORECASE)
+# A row that names the brand itself, not its manufacturer.
+_BRAND_ONLY_RE = re.compile(r"(?:brand|marke|marque|merk|marca|marka|märke|varumärke|marchio)$", re.IGNORECASE)
+# The byline link's search filter by brand (``field-brandtextbin=Duracell``); a store link's path is the store's
+# name, which isn't always the brand's ("AmazonBasics" for Amazon Basics).
+_BYLINE_BRAND_PARAMS = ("field-brandtextbin", "field-brand")
 _SHIPS_FROM_RE = re.compile(r"ships from|versand|expédié par|verzonden door|enviado desde|spedizione", re.IGNORECASE)
 _SOLD_BY_RE = re.compile(r"sold by|verkäufer|vendu par|verkocht door|vendido por|venduto da", re.IGNORECASE)
 _STAR_ROW_RE = re.compile(r"([1-5])\s*(?:star|stern|étoile|ster|estrella|stell)", re.IGNORECASE)
@@ -70,10 +72,39 @@ def extract(soup: BeautifulSoup, facts: PageFacts) -> None:
 
 def _title_and_brand(soup: BeautifulSoup, facts: PageFacts) -> None:
     facts.title = _text(soup.find(id="productTitle")) or facts.title
-    byline = _FORMAT_SUFFIX_RE.sub("", _text(soup.find(id="bylineInfo")))
-    if byline:
-        m = _BYLINE_RE.match(byline)
-        facts.brand = ((m.group(1) or m.group(2) or "") if m else byline).strip()[:300]
+    # Structured data first (the product's JSON-LD, the overview table's and the detail table's brand row, the
+    # byline link's brand filter), then the byline's text without the phrase around it; a manufacturer row is
+    # the last resort (in _details).
+    rows = _detail_rows(soup)
+    byline = soup.find(id="bylineInfo")
+    candidates = (
+        facts.brand,
+        *(value for key, value in _overview_rows(soup).items() if _BRAND_ONLY_RE.match(key)),
+        *(value for key, value in rows.items() if _BRAND_ONLY_RE.match(key)),
+        _byline_param(byline),
+        _FORMAT_SUFFIX_RE.sub("", _text(byline)),
+    )
+    facts.brand = next((brand for c in candidates if (brand := clean_brand(c))), "")
+
+
+def _overview_rows(soup: BeautifulSoup) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for tr in soup.select("#productOverview_feature_div tr"):
+        cells = tr.find_all("td")
+        if len(cells) >= 2:
+            rows.setdefault(_text(cells[0]).strip(_MARKS), _text(cells[1]).strip(_MARKS))
+    return rows
+
+
+def _byline_param(byline: object) -> str:
+    if not isinstance(byline, Tag):
+        return ""
+    link = byline if byline.name == "a" else byline.find("a")
+    href = link.get("href") if isinstance(link, Tag) else None
+    if not isinstance(href, str):
+        return ""
+    query = parse_qs(urlsplit(href).query)
+    return next((query[p][0] for p in _BYLINE_BRAND_PARAMS if query.get(p)), "")
 
 
 def _prices(soup: BeautifulSoup, facts: PageFacts) -> None:
@@ -100,7 +131,7 @@ def _details(soup: BeautifulSoup, facts: PageFacts) -> None:
         if _FIRST_AVAILABLE_RE.search(key):
             facts.date_first_available = parse_date(value)
         elif not facts.brand and _BRAND_KEY_RE.match(key):
-            facts.brand = value[:300]
+            facts.brand = clean_brand(value)
 
 
 def _seller(soup: BeautifulSoup, facts: PageFacts) -> None:

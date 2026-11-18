@@ -144,3 +144,181 @@ def is_shop_name(brand: str | None, domain: str) -> bool:
     if key is None or len(stem) < 3:
         return False
     return key == stem or (min(len(key), len(stem)) >= 4 and (key.startswith(stem) or stem.startswith(key)))
+
+
+# What a seller adds to the brand's name and stays the brand: "AnkerDirect", "Nike-EU", "Airmax Official".
+_SELLER_SUFFIXES = _SUFFIXES | {
+    "eu",
+    "us",
+    "uk",
+    "de",
+    "nl",
+    "fr",
+    "it",
+    "es",
+    "europe",
+    "global",
+    "international",
+    "retail",
+    "sales",
+    "trading",
+    "benelux",
+}
+_PIECE_RE = re.compile(r"[^\W_]+|[^\w\s]+|_+")
+# Characters that pass for others in a name: digits for letters, Cyrillic and Greek lookalikes for Latin.
+_HOMOGLYPHS = str.maketrans(
+    {
+        "0": "o",
+        "1": "i",
+        "l": "i",
+        "3": "e",
+        "4": "a",
+        "5": "s",
+        "7": "t",
+        "8": "b",
+        "а": "a",
+        "е": "e",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "х": "x",
+        "у": "y",
+        "і": "i",
+        "ӏ": "i",
+        "κ": "k",
+        "ν": "v",
+        "ο": "o",
+        "ι": "i",
+        "α": "a",
+    }
+)
+# A lookalike name is at least this long: below it, one letter apart is just another word ("Nike" and "Mike").
+LOOKALIKE_MIN = 4
+# Up to this many letters, a name a letter apart from the brand by a changed letter is another word, not a lookalike.
+LOOKALIKE_SHORT = 6
+
+
+def _pieces(text: str) -> list[tuple[str, bool]]:
+    """
+    A name's words and the parts of its hyphened words, folded, each with whether it hangs on the one before.
+
+    :param text: The name.
+    :return: ``(piece, glued)`` pairs: ``glued`` when only punctuation separates it from the piece before.
+    """
+    pieces: list[tuple[str, bool]] = []
+    for token in _fold(_MARKS_RE.sub(" ", text)).split():
+        seen = glued = False
+        for part in _PIECE_RE.findall(token):
+            if _WORD_RE.fullmatch(part):
+                pieces.append((part, glued))
+                seen, glued = True, False
+            else:
+                glued = seen and part not in {"&", "+"}
+    return pieces
+
+
+def _runs(pieces: list[tuple[str, bool]], longest: int) -> list[tuple[int, int, str]]:
+    return [
+        (i, j, "".join(p for p, _ in pieces[i : j + 1]))
+        for i in range(len(pieces))
+        for j in range(i, min(i + longest, len(pieces)))
+    ]
+
+
+def _names_as_words(key: str, longest: int, text: str) -> bool:
+    """Whether ``key`` is a run of whole words in ``text`` (or one word plus a seller's suffix: "AnkerDirect")."""
+    pieces = _pieces(text)
+    for i, j, run in _runs(pieces, longest + 1):
+        if run != key and not (run.startswith(key) and run[len(key) :] in _SELLER_SUFFIXES and i == j):
+            continue
+        # A single letter hyphened on is a lookalike ("Nike-e"), not the brand with a word added.
+        before = i > 0 and pieces[i][1] and len(pieces[i - 1][0]) == 1
+        after = j + 1 < len(pieces) and pieces[j + 1][1] and len(pieces[j + 1][0]) == 1
+        if not before and not after:
+            return True
+    return False
+
+
+def same_company(brand: str | None, seller: str | None) -> bool | None:
+    """
+    Whether a seller is the brand itself: the brand's name, as whole words, in the seller's name, or the other way.
+
+    "Airmax nasal dilator", "Airmax Official", "AIRMAX-Store BV" and "Air Max Benelux" are all the brand Airmax
+    (case, spaces, hyphens and accents don't count); "Nikee", "Nlke" and "Nike-e" aren't Nike (:func:`lookalike`).
+
+    :param brand: The brand.
+    :param seller: The seller's name.
+    :return: ``True`` or ``False``, or ``None`` when either is missing or isn't a name.
+    """
+    brand_k, seller_k = brand_key(brand), brand_key(seller)
+    if brand_k is None or seller_k is None or brand is None or seller is None:
+        return None
+    if brand_k == seller_k:
+        return True
+    brand_words, seller_words = len(_core(_words(brand))), len(_core(_words(seller)))
+    return _names_as_words(brand_k, brand_words, seller) or _names_as_words(seller_k, seller_words, brand)
+
+
+def _edits(a: str, b: str) -> int:
+    """The optimal string alignment distance: insertions, deletions, substitutions and swaps of neighbours."""
+    rows = [list(range(len(b) + 1))]
+    for i in range(1, len(a) + 1):
+        row = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            row[j] = min(rows[-1][j] + 1, row[j - 1] + 1, rows[-1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                row[j] = min(row[j], rows[-2][j - 2] + 1)
+        rows.append(row)
+    return rows[-1][-1]
+
+
+def _glyphs(text: str) -> str:
+    return text.translate(_HOMOGLYPHS).replace("rn", "m").replace("vv", "w")
+
+
+def _close(name: str, key: str) -> bool:
+    """
+    Whether two different names are one slip apart, compared with lookalike characters made the same.
+
+    A short name (up to six letters) is close by one letter added, dropped or swapped with its neighbour, never by
+    one letter changed: "Bose" and "Boss", "Camper" and "Casper" are other words, not lookalikes. A longer one may
+    differ by two edits of any kind.
+    """
+    a, b = _glyphs(name), _glyphs(key)
+    if a == b:
+        return True
+    if a[0] != b[0]:
+        return False
+    if len(key) > LOOKALIKE_SHORT:
+        return _edits(a, b) <= 2
+    return _edits(a, b) == 1 and (len(a) != len(b) or sorted(a) == sorted(b))
+
+
+def lookalike(brand: str | None, seller: str | None) -> str | None:
+    """
+    The seller's name when it looks like the brand's without being it: "Nikee", "Nlke", "N1ke", "Nike-e".
+
+    The seller's whole name counts (without "Official Store", a company form or a seller's suffix such as "Direct"),
+    not a word somewhere in it ("Fleet Feet" is no lookalike of Feit). Close is :func:`_close`, in a name of at least
+    :data:`LOOKALIKE_MIN` letters, with the same first letter. A seller that is the brand (:func:`same_company`) is no
+    lookalike.
+
+    :param brand: The brand.
+    :param seller: The seller's name.
+    :return: The seller's name, folded to letters and digits, or ``None``.
+    """
+    key = brand_key(brand)
+    if key is None or seller is None or len(key) < LOOKALIKE_MIN or same_company(brand, seller) is not False:
+        return None
+    words = _words(seller)
+    while len(words) > 1 and words[-1] in _SELLER_SUFFIXES:
+        words.pop()
+    name = "".join(words)
+    # A seller's suffix run on to the name ("NikeeOfficial"); the short ones ("eu", "co") only as words of their own.
+    for suffix in sorted((s for s in _SELLER_SUFFIXES if len(s) >= LOOKALIKE_MIN), key=len, reverse=True):
+        if name.endswith(suffix) and len(name) > len(suffix):
+            name = name.removesuffix(suffix)
+            break
+    if len(name) < LOOKALIKE_MIN or name == key:
+        return None
+    return name if _close(name, key) else None

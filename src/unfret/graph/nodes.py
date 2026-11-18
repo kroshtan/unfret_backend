@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from unfret import scoring, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
+from unfret.facts.brand import clean_brand
 from unfret.facts.extract import without_seller
 from unfret.graph import platforms
 from unfret.graph.skills import injection
@@ -54,6 +55,10 @@ async def preprocess_node(state: AnalysisState) -> dict:
     """
     extracted, cleaned = await asyncio.to_thread(parse_page, state["page_content"], state.get("url", ""))
     supplied = state.get("page_facts")
+    if supplied is not None and supplied.brand != (brand := clean_brand(supplied.brand)):
+        # A client's own extractor (an older extension, the Android app's copy) may still send a byline phrase as
+        # the brand ("De Airmax Store openen"): every check reads the brand the server's extractor would have read.
+        supplied = supplied.model_copy(update={"brand": brand})
     if supplied is not None and not cleaned:
         cleaned = _facts_text(supplied)  # facts only: give the LLM steps their text from the facts
     return {

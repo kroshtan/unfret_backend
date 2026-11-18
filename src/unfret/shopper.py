@@ -53,6 +53,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "implausible_discount": "high",
     "reference_anchor": "medium",
     "permanent_sale": "medium",
+    "seller_lookalike": "medium",
     "seller_not_brand": "low",
     "ships_from_far": "low",
     "dropshipping_tools": "medium",
@@ -163,6 +164,7 @@ _QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
     ("brand_no_presence", "generic_brand", "generic_product"),
+    ("seller_lookalike", "seller_not_brand"),
     ("brand_photo_reused", "rebranded_photo", "photo_reused"),
     ABSENCE_REASONS,
     ("hidden_ai_text", "ai_text"),
@@ -596,12 +598,20 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["implausible_claims"] = {"claim": _quote(claim.evidence)}
     if e.marketplace and e.f("listing.seller_not_brand") >= 1 and e.facts.seller:
         fired["seller_not_brand"] = {"seller": _quote(e.facts.seller)}
+        # A seller named almost like a brand known elsewhere ("Nikee" for Nike): a stronger sign than another seller.
+        if e.first("seller_lookalike") and _brand_known_elsewhere(e) and e.facts.brand:
+            fired["seller_lookalike"] = {"seller": _quote(e.facts.seller), "brand": _quote(e.facts.brand)}
     if e.f("listing.ships_from_china") >= 1:
         fired["ships_from_far"] = {"place": e.facts.ships_from[:60] or "China"}
 
 
 # A brand whose own domain is at least this old has existed for years: not a name made up for one listing.
 BRAND_DOMAIN_MIN_YEARS = 5
+
+
+def _brand_known_elsewhere(e: _Evidence) -> bool:
+    """Outside evidence (not the LLM's say-so) that the brand exists: Wikidata, or an own domain for years."""
+    return e.f("brand_presence.wikidata") >= 1 or e.f("brand_presence.own_domain_age_years") >= BRAND_DOMAIN_MIN_YEARS
 
 
 def _brand_exists(e: _Evidence) -> bool:
@@ -845,7 +855,9 @@ def _product_facts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if alert and (e.f("safety_gate.barcode_match") >= 1 or e.f("safety_gate.model_match") >= 1):
         fired["safety_gate_alert"] = {"alert": alert.evidence.removeprefix("Safety Gate alert ")[:400]}
     # Like "unknown brand": only on marketplace listings, and only with other signs of white-label goods.
-    if e.marketplace and e.f("brand_presence.no_presence") >= 1 and _resale_context(e):
+    # The content read knowing the brand contradicts "no presence": then neither is said (_positive_params).
+    known = e.f("content.brand_recognized") >= 1
+    if e.marketplace and e.f("brand_presence.no_presence") >= 1 and not known and _resale_context(e):
         fired["brand_no_presence"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
 
 
@@ -862,12 +874,12 @@ def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     fired: dict[str, dict[str, str]] = {}
     # Outside evidence that the brand exists (not the LLM's own say-so) outweighs a name that looks generated.
-    outside = (
-        e.f("brand_presence.wikidata") >= 1 or e.f("brand_presence.own_domain_age_years") >= BRAND_DOMAIN_MIN_YEARS
-    )
+    outside = _brand_known_elsewhere(e)
     generic = (e.f("content.generic_brand") >= 0.4 or e.first("brand_name") is not None) and not outside
     known = e.f("content.brand_recognized") >= 1 or e.f("brand_presence.wikidata") >= 1
-    if known and not generic and e.facts.brand:
+    # Lookups that found the brand nowhere contradict the content read's "known": a quiet result, not both claims
+    # (brand_no_presence then isn't said either).
+    if known and not generic and e.facts.brand and e.f("brand_presence.no_presence") < 1:
         fired["known_brand"] = {"brand": _quote(e.facts.brand)}
     # A white-label seller is "the brand" too, so that only counts as good news for a real brand.
     sold_by_brand = e.marketplace and e.facts.brand and e.facts.seller and e.has("listing.seller_not_brand")

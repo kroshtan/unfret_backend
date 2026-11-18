@@ -1317,3 +1317,23 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `UNFRET_INTRO_DAILY_CHECKS_CAP` are no longer read. `GET /v1/admin/invites` adds `via_code`, `via_code_bought` and
   `organic_bought` (the buyer counts the codes list had). Gift codes, their monthly limit, the buyer's own pack refusal
   and the claim token are unchanged, as are affiliates and bonus codes.
+
+## Changes (the brand from a marketplace byline; a seller named like the brand; backwards-compatible)
+
+- `PageFacts.brand` is the brand alone: a marketplace byline's phrase is taken off ("Visit the X Store", "De X Store
+  openen", "Besuche den X-Store", "Visiter la boutique X", "Marca: X", in en, nl, de, fr, it, es, pt, pl, se, tr and
+  ja), as is a store word hyphened on ("X-Store", "X-winkel"). On Amazon the product's structured data comes first
+  (JSON-LD, the overview table's and the detail table's brand row, the byline link's brand filter), the byline's text
+  after it. A name that reads like a sentence or a link to a store (more than five words, a "visit" or "open" word,
+  a store word before its last word) is no brand: `brand` is `""`. The server applies the same rule to a client's
+  `page_facts.brand` before the analysis, so an older client that sends the byline phrase gets the same result.
+- A seller is the brand when the brand's name appears in the seller's as whole words (case, spaces, hyphens and
+  accents ignored, "AnkerDirect" and "Airmax Official" included); `listing.seller_not_brand` follows that rule.
+- New shopper reason key `seller_lookalike` (medium; source `page`) on a marketplace listing: the seller's whole name
+  (without "Official Store", a company form or a suffix such as "Direct") is a slip away from a brand known elsewhere
+  (Wikidata, or its own domain for five years or more) without being it: a letter added, dropped or swapped with its
+  neighbour, a digit or a lookalike character for a letter, or for a name of more than six letters two edits of any
+  kind, with the same first letter ("Nikee", "N1ke", "Nike-e" for Nike; not "Boss" for Bose). It replaces `seller_not_brand` for that listing. The
+  listing skill's finding of the same name carries the evidence; there is no new feature.
+- `known_brand` and `brand_no_presence` are never on one result: when the content read knows the brand but the
+  lookups find it nowhere, neither is said.

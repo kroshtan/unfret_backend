@@ -3,6 +3,7 @@
 import math
 import re
 
+from unfret import brands
 from unfret.facts import PageFacts
 from unfret.graph.skills import NOT_APPLICABLE, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
@@ -55,10 +56,17 @@ def resold(facts: PageFacts) -> bool:
     The marketplace selling it itself (its own retail arm named as the seller) is the retailer, not a reseller.
 
     :param facts: The listing's facts.
-    :return: ``True`` when the seller is neither the brand nor the marketplace.
+    :return: ``True`` when the seller is neither the brand nor the marketplace (:func:`unfret.brands.same_company`).
     """
     brand, seller = _normalise(facts.brand), _normalise(facts.seller)
-    if not brand or not seller or brand in seller or seller in brand:
+    if not brand or not seller:
+        return False
+    # The brand's name as whole words in the seller's ("Airmax nasal dilator" is Airmax; "Nikee" isn't Nike). A
+    # word that isn't a brand ("Generic") is compared as letters.
+    same = brands.same_company(facts.brand, facts.seller)
+    if same is None:
+        same = brand in seller or seller in brand
+    if same:
         return False
     platform = _normalise(facts.platform).removesuffix("com")
     return not (platform and platform in seller)
@@ -121,6 +129,15 @@ class ListingSkill(Skill):
             observations.append(
                 Observation(type="seller", evidence=f'Sold by "{facts.seller}", not the brand "{facts.brand}".')
             )
+            # Not a feature (the scorer was trained without it): the shopper says it only for a brand known
+            # elsewhere (unfret.shopper).
+            if like := brands.lookalike(facts.brand, facts.seller):
+                observations.append(
+                    Observation(
+                        type="seller_lookalike",
+                        evidence=f'The seller "{facts.seller}" has a name like the brand "{facts.brand}" ("{like}").',
+                    )
+                )
 
         china = bool(_CHINA_RE.search(facts.ships_from))
         if china:

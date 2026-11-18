@@ -33,7 +33,7 @@ COMING_SOON = """<section class="panel notice apk-download" aria-labelledby="dow
 
 
 def _long_date(day: android_release.date) -> str:
-    return f"{day.day} {day:%B %Y}"
+    return f"{day:%B} {day.day}, {day.year}"
 
 
 def download_panel(release: AndroidRelease) -> str:

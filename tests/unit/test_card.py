@@ -34,6 +34,13 @@ def test_every_finding_but_the_overall_one_belongs_to_an_area() -> None:
         assert not missing, (kind, missing)
 
 
+def test_delivery_and_returns_are_with_the_prices_not_who_is_behind_the_shop() -> None:
+    assert COPY["checklist"]["areas"]["shop"]["prices"] == "Prices, delivery and returns"
+    assert "shop_policies" in card.AREAS["shop"]["prices"] and "shop_policies" not in card.AREAS["shop"]["who"]
+    for reason in ("long_delivery", "returns_abroad", "return_address_withheld", "restocking_fee"):
+        assert card.area_of(reason, "shop") == "prices", reason
+
+
 def test_the_checklist_and_its_notes_are_in_the_catalogue() -> None:
     for kind, areas in card.AREAS.items():
         assert set(COPY["checklist"]["areas"][kind]) == set(areas)

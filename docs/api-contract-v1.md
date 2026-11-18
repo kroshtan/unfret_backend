@@ -1086,12 +1086,12 @@ and clients show what is there.
   "The shop's terms and legal pages", "All signals together (Unfret's model)". Show it under the finding ("Source: …").
 - `checklist`: `[{"key", "label", "status": "checked"|"concern"|"not_checked", "note"}]`, what was checked, area by
   area: for shops (storefronts and marketplace listings) `who` "Who's behind the shop", `product` "The product and the
-  brand", `reviews` "Reviews", `prices` "Prices and discounts", `tricks` "Hidden tricks"; for ads `seller`, `price`,
-  `photos`, `payment`, `text`; for service providers `company`, `location`, `reviews`, `terms`, `photos`. `concern`
-  when a finding is about the area (also one beyond the three shown; `note` names the strongest), `not_checked` with
-  `note` saying why ("The page shows no reviews.", "Not part of a quick check.", "Couldn't be checked this time.",
-  "Doesn't apply to this page.", "Nothing on the page to check."). An area nothing looks at on such a page is left out.
-  New keys may be added; show `label`.
+  brand", `reviews` "Reviews", `prices` "Prices, delivery and returns", `tricks` "Hidden tricks"; for ads `seller`,
+  `price`, `photos`, `payment`, `text`; for service providers `company`, `location`, `reviews`, `terms`, `photos`.
+  `concern` when a finding is about the area (also one beyond the three shown; `note` names the strongest),
+  `not_checked` with `note` saying why ("The page shows no reviews.", "Not part of a quick check.", "Couldn't be
+  checked this time.", "Doesn't apply to this page.", "Nothing on the page to check."). An area nothing looks at on
+  such a page is left out. New keys may be added; show `label`.
 - `checks_run` (int): how many separate checks ran on the page and had something to check. A clean result (`reliable`
   without reasons) says so: "Nothing worrying in 14 checks."
 - `next_step`: `{"type", "text"}`, one suggested next step, from the strongest finding (`type` names it, e.g.

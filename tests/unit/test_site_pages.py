@@ -13,7 +13,7 @@ import unfret
 from unfret import market_prices, objections, scoring
 from unfret.config import settings
 from unfret.main import app
-from unfret.routes.pages import STATIC_DIR, asset_tag
+from unfret.routes.pages import SITEMAP_PATHS, STATIC_DIR, asset_tag
 from unfret.x402.verdict import QUICK_SKILLS, tier_description
 
 CONFIG = Path(__file__).parents[2] / "config"
@@ -341,3 +341,32 @@ def test_a_reply_address_is_optional_but_must_be_one() -> None:
 async def test_without_a_database_the_form_points_to_email(client: httpx.AsyncClient) -> None:
     response = await client.post("/v1/objections", json={"kind": "other", "site": "shop.example"})
     assert response.status_code == 503 and "hello@unfret.net" in response.json()["detail"]
+
+
+# ── /sitemap.xml ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+async def test_the_sitemap_lists_the_public_pages_at_this_servers_address(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "public_base_url", "https://dev.example.test/")
+    response = await client.get("/sitemap.xml")
+
+    assert response.status_code == 200 and response.headers["content-type"].startswith("application/xml")
+    assert response.text.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns=')
+    listed = re.findall(r"<loc>([^<]*)</loc>", response.text)
+    assert listed == [f"https://dev.example.test{path}" for path in SITEMAP_PATHS]
+    for path in ("/", "/nl", "/check", "/why", "/about", "/accuracy", "/developers", "/extension", "/money",
+                 "/press", "/privacy", "/terms", "/objection", "/affiliates", "/connect"):  # fmt: skip
+        assert path in SITEMAP_PATHS, path
+    for path in ("/android", "/affiliates/stats", "/welcome", "/checkout", "/my-checks", "/test-shop"):
+        assert path not in SITEMAP_PATHS, path
+
+
+@pytest.mark.parametrize("path", SITEMAP_PATHS)
+async def test_every_page_in_the_sitemap_can_be_indexed(client: httpx.AsyncClient, path: str) -> None:
+    response = await client.get(path)
+
+    assert response.status_code == 200
+    assert "noindex" not in response.headers.get("x-robots-tag", "")
+    assert re.search(r'<meta name="robots" content="[^"]*noindex', response.text) is None

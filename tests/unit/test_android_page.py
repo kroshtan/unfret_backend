@@ -106,7 +106,7 @@ async def test_a_published_release_is_offered_with_what_verifies_it(
     assert "coming soon" not in text.lower()
     assert f'href="{APK_URL}"' in page and page.count(APK_URL) == 1
     assert f"Download Unfret 0.1.0 (APK, {len(APK) / 1e6:.1f} MB)" in text
-    assert f"{len(APK):,} bytes" in text and "0.1.0, published 18 November 2026" in text
+    assert f"{len(APK):,} bytes" in text and "0.1.0, published November 18, 2026" in text
     assert f"unfret-0.1.0.apk (SHA-256) {RELEASE['sha256']}" in text and CERT in page
     assert 'href="https://git.kroshtan.com/kroshtan/unfret_android/releases/tag/v0.1.0"' in page
     assert 'href="https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v0.1.0/SHA256SUMS"' in page

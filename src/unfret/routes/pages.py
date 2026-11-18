@@ -89,7 +89,9 @@ def _indented(block: str, indent: str) -> str:
 _CTA_RE = re.compile(r'<a class="cta" href="[^"]*">[^<]*</a>')
 
 
-def template(name: str, current: str | None = None, cta: tuple[str, str] | None = None) -> str:
+def template(
+    name: str, current: str | None = None, cta: tuple[str, str] | None = None, footer: str = "footer.html"
+) -> str:
     """
     A page's HTML with the shared header and footer in place of ``{{header}}`` and ``{{footer}}``.
 
@@ -100,6 +102,7 @@ def template(name: str, current: str | None = None, cta: tuple[str, str] | None 
     :param name: The page's file in the static directory.
     :param current: The page's own path (``/checkout``), marked ``aria-current="page"`` in the menu.
     :param cta: The menu's button as ``(href, text)``, for a page where "Get Unfret" makes no sense (``/welcome``).
+    :param footer: The footer's file in ``static/partials`` (``footer-nl.html`` for ``/nl``: the same links, in Dutch).
     :return: The HTML.
     """
     page = (STATIC_DIR / name).read_text(encoding="utf-8")
@@ -111,8 +114,8 @@ def template(name: str, current: str | None = None, cta: tuple[str, str] | None 
     if cta:
         href, text = cta
         header = _CTA_RE.sub(f'<a class="cta" href="{html.escape(href)}">{html.escape(text)}</a>', header, count=1)
-    footer = (PARTIALS_DIR / "footer.html").read_text(encoding="utf-8")
-    return page.replace("{{header}}", _indented(header, "  ")).replace("{{footer}}", _indented(footer, "  "))
+    bottom = (PARTIALS_DIR / footer).read_text(encoding="utf-8")
+    return page.replace("{{header}}", _indented(header, "  ")).replace("{{footer}}", _indented(bottom, "  "))
 
 
 def _data_block(value: Any) -> str:
@@ -178,13 +181,13 @@ def dutch() -> HTMLResponse:
     """
     The one Dutch page: check the seller before you pay, with Marktplaats as the example, and iDEAL | Wero.
 
-    Everything else is on the English pages it links to; the shared header and footer stay English, marked as such.
+    Everything else is on the English pages it links to; the shared header stays English, marked as such, and the
+    footer is the shared one's Dutch copy (``partials/footer-nl.html``: the same links, marked as English pages).
 
     :return: The page.
     """
-    page = template("nl.html").replace("{{hreflang}}", hreflang_links())
+    page = template("nl.html", footer="footer-nl.html").replace("{{hreflang}}", hreflang_links())
     page = page.replace('<header class="site-header">', '<header class="site-header" lang="en">', 1)
-    page = page.replace('<footer class="site-footer">', '<footer class="site-footer" lang="en">', 1)
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
@@ -697,6 +700,48 @@ def check_page() -> HTMLResponse:
         .replace("{{browser_only_shops}}", browser_only_list())
     )
     return HTMLResponse(versioned(page), headers=CHECK_PAGE_HEADERS)
+
+
+# The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /affiliates/stats, shared results,
+# the test shop) and the ones for a visitor's own pass or purchase (/welcome, /checkout, /my-checks) stay out.
+SITEMAP_PATHS = (
+    "/",
+    "/nl",
+    "/check",
+    "/extension",
+    "/why",
+    "/about",
+    "/accuracy",
+    "/money",
+    "/developers",
+    "/developers/http",
+    "/affiliates",
+    "/connect",
+    "/press",
+    "/objection",
+    "/privacy",
+    "/terms",
+)
+
+
+@router.get("/sitemap.xml")
+def sitemap() -> Response:
+    """
+    The sitemap: the public pages of :data:`SITEMAP_PATHS`, at this server's public address (dev lists dev's).
+
+    :return: The sitemap (XML).
+    """
+    base = settings.public_base_url.rstrip("/")
+    urls = "".join(f"  <url><loc>{html.escape(base + path)}</loc></url>\n" for path in SITEMAP_PATHS)
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n{urls}</urlset>\n'
+    )
+    return Response(
+        body,
+        media_type="application/xml",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
+    )
 
 
 @router.get("/manifest.webmanifest")

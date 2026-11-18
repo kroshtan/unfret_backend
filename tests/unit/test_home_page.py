@@ -212,8 +212,12 @@ async def test_the_dutch_page_is_dutch_and_sends_the_rest_to_the_english_pages(c
     assert "iDEAL | Wero" in text and "Marktplaats" in text
     assert "uitgebreide checks zijn gratis" in text and "snelle checks gratis" in text
     assert "Unfret antwoordt in het Engels" in text  # results come in English: said up front
-    # The shared header and footer stay English, and say so.
-    assert '<header class="site-header" lang="en">' in page and '<footer class="site-footer" lang="en">' in page
+    # The shared header stays English, and says so; the footer is Dutch, with the English footer's links.
+    assert '<header class="site-header" lang="en">' in page
+    footer = page.split('<footer class="site-footer">', 1)[1].split("</footer>", 1)[0]
+    assert "<h2>Unfret gebruiken</h2>" in footer and "Gemaakt in Nederland door" in footer
+    english = (await client.get("/")).text.split('<footer class="site-footer">', 1)[1].split("</footer>", 1)[0]
+    assert re.findall(r'href="([^"]*)"', footer) == re.findall(r'href="([^"]*)"', english)
     # The English pages for the rest, marked as English; no translated legal pages.
     main = page.split("<main>", 1)[1].split("</main>", 1)[0]
     for path in ("/", "/privacy", "/terms", "/money", "/checkout?checks=25", "/extension"):

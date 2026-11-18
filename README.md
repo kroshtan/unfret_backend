@@ -75,6 +75,17 @@ the model store (`UNFRET_MODELS_DIR`, default `<corpus>/models`), never into `sr
 repository. The `/accuracy` page and `static/accuracy.json` keep the baseline's numbers and say so when the server
 runs another scorer.
 
+**Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
+stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and
+shops the labelled data lacks, confirmations); a full queue (`UNFRET_REPORT_QUEUE_CAP`, 1000) gives up its least
+valuable item for a better one. Each queued report gets one second opinion from a stronger model than the
+analysis's own (`UNFRET_REPORT_SECOND_OPINION_MODEL`, at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY` calls a day): a
+proposed label, a confidence and a reason. `make reports` shows the queue with the proposals, confirms the
+confident ones in bulk after a preview and goes through the rest one by one; each decision is written to the corpus
+as a human label and only then pays the first reporter (5 checks when the score was 30+ points off, 1 when 10–29)
+and becomes a training sample. A proposal nobody confirmed is never a label. Reports of the test shop never enter
+the queue.
+
 ## Run your own
 
 You need Docker and an API key for an OpenAI-compatible LLM API

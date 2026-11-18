@@ -257,16 +257,29 @@ class Settings(BaseSettings):
     fiat_retention_days: int = 180
 
     # Reports of wrong results ("this is wrong", POST /v1/reports). A report can be made within report_window_s of
-    # the check. It pays report_reward_checks to the first reporter when the human label shows the score was at
-    # least report_reward_gap points on the wrong side of the label's zone (legit >= 70, junk/scam <= 40).
-    reports_per_month: int = 5
-    report_queue_cap: int = 200
+    # the check, reports_per_month per pass, wallet or API key. Rewards go to the first reporter only, and only after
+    # a person has labelled the page: report_reward_checks when the score was at least report_reward_gap points on
+    # the wrong side of the label's zone (legit >= 70, junk/scam <= 40), report_small_reward_checks when it was at
+    # least report_training_gap points off (but less than report_reward_gap). Nothing for a correct result.
+    reports_per_month: int = Field(default=15, ge=1)
     report_window_s: int = 7 * 24 * 3600
     report_expiry_days: int = 30
     report_known_days: int = 90
-    report_reward_checks: int = 3
+    report_reward_checks: int = Field(default=5, ge=0)
     report_reward_gap: int = 30
+    report_small_reward_checks: int = Field(default=1, ge=0)
     report_training_gap: int = 10
+    # Open items in the review queue. When it is full, a new report takes the place of the open item worth least
+    # (unfret.reports.value: how far the reporter says the score is off, pages and shops not labelled yet,
+    # confirmations), if it is worth more; otherwise it is refused (QUEUE_FULL).
+    report_queue_cap: int = Field(default=1000, ge=1)
+    # The second opinion (unfret.reports.second_opinion): one call to this model per queued report proposes a label
+    # for the operator to confirm or overrule; never a label by itself. A different model from llm_model, or it only
+    # grades itself. At most report_second_opinions_per_day calls per UTC day; past it, items wait for the next day
+    # (or for a person). Empty model: off.
+    report_second_opinion_model: str = "qwen3.5-397b-a17b"
+    report_second_opinions_per_day: int = Field(default=200, ge=0)
+    report_second_opinion_timeout_s: float = Field(default=120.0, gt=0)
 
     # Shared results ("Share this result", POST /v1/shares). A result's share_token can be used for
     # share_token_ttl_s after the check; a shared result stays up share_days. At most shares_per_visitor_per_day per
@@ -463,8 +476,10 @@ class Settings(BaseSettings):
         problems = []
         if not 0 < self.key_pow_bits <= 32:
             problems.append("key_pow_bits must be 1-32")
-        if not 0 <= self.report_training_gap <= self.report_reward_gap:
-            problems.append("need 0 <= report_training_gap <= report_reward_gap")
+        if not 0 < self.report_training_gap <= self.report_reward_gap:
+            problems.append("need 0 < report_training_gap <= report_reward_gap")
+        if self.report_small_reward_checks > self.report_reward_checks:
+            problems.append("report_small_reward_checks can't be more than report_reward_checks")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self

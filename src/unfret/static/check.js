@@ -468,12 +468,7 @@ function renderResult(result, because = null) {
   $("report").hidden = true;
   $("report-status").hidden = true;
   resetShare(result);
-  const reward = pricing?.reports?.reward_checks;
-  if (reward) {
-    $("report-consent").textContent =
-      "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
-      `Personal details are removed first; once reviewed, it is kept without any link to you. If Unfret was clearly wrong, you get ${reward} free checks.`;
-  }
+  $("report-consent").textContent = reportConsent(pricing?.reports);
 }
 
 function showError(message, refunded) {
@@ -688,8 +683,24 @@ async function readStream(stream, onStep) {
 
 // ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
 
+/** The consent line, with the rewards the server pays (`/v1/pricing` → reports) when it says them. */
+function reportConsent(reports) {
+  const base =
+    "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
+    "Personal details are removed first; an AI model may suggest a label, a person decides; once reviewed, it is " +
+    "kept without any link to you.";
+  const big = reports?.reward_checks;
+  if (!big) return base;
+  const small = reports.small_reward_checks;
+  const checks = (n) => `${n} free check${n === 1 ? "" : "s"}`;
+  const reward = small
+    ? `If Unfret was clearly wrong, you get ${checks(big)}; if it was somewhat off, ${checks(small)}.`
+    : `If Unfret was clearly wrong, you get ${checks(big)}.`;
+  return `${base} ${reward}`;
+}
+
 const REPORT_OUTCOME = {
-  queued: "Thanks! We'll review this page. If we got it badly wrong, you get free checks.",
+  queued: "Thanks! We'll review this page. If we got it wrong, you get free checks.",
   already_reported: "Thanks! Someone reported this page first; your report counts as confirmation.",
   already_known: "Thanks! We reviewed this page recently.",
 };

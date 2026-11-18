@@ -57,7 +57,7 @@ def describe(item: dict[str, Any], n: int, total: int) -> str:
         f"── {n}/{total} " + "─" * 60,
         (
             f"{item['domain']}  ·  {get('platform', 'generic')}  ·  reported as {item['reason']}  ·  "
-            f"+{item['corroborations']} confirmations"
+            f"{payload.get('tier', 'deep')} check  ·  +{item['corroborations']} confirmations"
         ),
         f"url: {payload['url'] or '(none)'}",
         f"model score: {item['score']}  ·  {payload['explanation'][:200]}",
@@ -103,7 +103,12 @@ def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
         origin_url=payload["url"],
         origin_id=item["page_key"],
         collected_at=now_iso(),
-        notes=json.dumps({"model_score": item["score"], "reported_as": item["reason"]}),
+        # With the tier whose score was reported (reports from before the tier was kept were all deep checks); the
+        # page trains both the deep and the quick scorer either way.
+        notes=json.dumps(
+            {"model_score": item["score"], "reported_as": item["reason"]}
+            | ({"tier": payload["tier"]} if "tier" in payload else {})
+        ),
     )
     corpus.add(record, page)
     dump_json(corpus.pages_dir / f"{record_id}.facts.json", facts)

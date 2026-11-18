@@ -1141,3 +1141,13 @@ and clients show what is there.
 - With Base on, `ownershipProofs` (above) gains a second proof: the origin signed by the Base hot wallet, EIP-191
   (`personal_sign`), `0x`-prefixed hex, after Solana's. x402scan recovers the signer and compares it with Base's
   `payTo`.
+
+## Changes (a quick result can be reported; backwards-compatible)
+
+- A `"tier": "quick"` result of `POST /v1/analyze` and `/v1/analyze/stream` now carries a `report_token` too, for an
+  account (a pass or a wallet's session); a quick check without `Authorization` still gets none, since reports are
+  per account (the monthly limit, the reward). It never carries a `share_token`.
+- `POST /v1/reports` is unchanged: send back the analysed request exactly as sent, `"tier": "quick"` included. The
+  token binds the tier, so a quick result can't be reported as a deep one (400 `BAD_REPORT_TOKEN`); deep tokens are
+  as before. The same limits apply (5 per account per month, one per page, consent, scrubbing); the queued item
+  records the tier.

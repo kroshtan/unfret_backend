@@ -316,9 +316,10 @@ def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
 
 
 def _report_token(body: AnalyzeRequest, account: str | None, result: dict[str, Any]) -> str | None:
-    # Lets this account report the result later (POST /v1/reports) without anything being stored now. Not for a
-    # quick check (rules only: the deep check is the one to report), nor without an account (reports are per account).
-    if account is None or body.tier == "quick":
+    # Lets this account report the result later (POST /v1/reports) without anything being stored now, for a quick
+    # check as for a deep one (the token binds the tier). Not without an account: reports are per account (the
+    # monthly limit, the reward), so an anonymous quick check gets none.
+    if account is None:
         return None
     return reports.issue_token(
         settings.session_secret.get_secret_value(),

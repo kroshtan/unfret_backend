@@ -78,8 +78,8 @@ class AnalyzeResponse(BaseModel):
     )
     report_token: str | None = Field(
         default=None,
-        description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account). "
-        "Absent for pages that couldn't be analysed, for quick checks and without an account.",
+        description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account), "
+        "for a quick check as for a deep one. Absent for pages that couldn't be analysed and without an account.",
     )
     verdict: Verdict | None = Field(
         default=None,

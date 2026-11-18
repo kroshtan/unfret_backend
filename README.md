@@ -808,6 +808,15 @@ CI; the live tests run against a server and make a developer pass there:
 Both are published by the manual "Publish clients" workflow (`.forgejo/workflows/publish-clients.yaml`; repo secrets
 `PYPI_CLIENT_TOKEN` and `NPM_TOKEN`).
 
+### Example: check before checkout (`examples/browser-use-checkout`)
+
+A small [browser-use](https://github.com/browser-use/browser-use) agent that asks Unfret about the shop before it goes
+to checkout, with the Python client: a hard gate in code before the agent starts (it is never handed a shop Unfret
+says `block` for; `warn` asks the human) and an `unfret_check` tool for pages it finds on its way. It runs against the
+test shop on dev, which Unfret should block. `uv run checkout_agent.py --gate-only` needs neither a browser nor an
+LLM; the manual workflow "Examples against dev" (`.forgejo/workflows/examples.yaml`) runs that gate and the clients'
+live tests against dev.
+
 ## Configuration
 
 Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config.py) (with

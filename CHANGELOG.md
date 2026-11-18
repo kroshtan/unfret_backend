@@ -6,6 +6,11 @@
 
 * **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
   explain how to install it from the source.
+* **`/android` offers a beta as a beta**: the first Android release is `0.1.0-beta.1`. `make android-release
+  TAG=v0.1.0-beta.1` takes a pre-release tag, and `release.json`'s `"prerelease": true` (written by the app's release
+  workflow) must agree with the version. For a beta the page shows a "Beta" label next to the version and one
+  sentence: an early version, things may still change, and tell us what doesn't work at hello@unfret.net. The
+  install steps and the certificate check are unchanged; with no release the page still says "coming soon".
 
 ### Fixes
 

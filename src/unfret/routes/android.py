@@ -4,7 +4,8 @@
 What the app does, the download with its version and size, the APK's SHA-256 and the signing certificate's
 fingerprint, how to install it and turn "Install unknown apps" off again, how updates work, its permissions and its
 privacy. The release comes from :mod:`unfret.android_release`; until one is published the page says the download is
-coming soon and offers no file.
+coming soon and offers no file. A beta (a pre-release version, ``0.1.0-beta.1``) is labelled "Beta" next to its
+version, with one sentence on what that means and where to say what doesn't work.
 
 Not linked from the home page, the menu or the footer yet, and ``noindex``: reachable by its address until the app is
 listed alongside the other ways to get Unfret.
@@ -32,6 +33,11 @@ COMING_SOON = """<section class="panel notice apk-download" aria-labelledby="dow
     </section>"""
 
 
+BETA_LABEL = '<span class="beta">Beta</span>'
+BETA_NOTE = """<p class="beta-note">This is a beta, an early version: things may still change. Tell us what doesn't
+        work at <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>"""
+
+
 def _long_date(day: android_release.date) -> str:
     return f"{day:%B} {day.day}, {day.year}"
 
@@ -46,13 +52,15 @@ def download_panel(release: AndroidRelease) -> str:
     url = html.escape(release.apk_url)
     version = html.escape(release.version)
     size = android_release.megabytes(release.size)
+    label = f" {BETA_LABEL}" if release.prerelease else ""
+    note = f"\n      {BETA_NOTE}" if release.prerelease else ""
     return f"""<section class="panel apk-download" aria-labelledby="download">
-      <h2 id="download">Download</h2>
+      <h2 id="download">Download</h2>{note}
       <p class="buttons"><a class="button primary large" href="{url}" type="application/vnd.android.package-archive"
         download>Download Unfret {version} (APK, {size})</a></p>
       <dl class="facts">
         <dt>Version</dt>
-        <dd>{version}, published {_long_date(release.published)}</dd>
+        <dd>{version}{label}, published {_long_date(release.published)}</dd>
         <dt>Size</dt>
         <dd>{size} ({release.size:,} bytes)</dd>
         <dt>Needs</dt>

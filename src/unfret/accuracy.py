@@ -18,7 +18,8 @@ scorer and the open baseline side by side, and every earlier version below them,
 - ``{{num:path}}``: a count (``1,582``); ``{{pct:path}}``: a share as a percentage (``82%``, ``6.9%``);
   ``{{text:path}}``: a string; ``{{date:path}}``: an ISO date as "November 17, 2026". ``path`` is a dotted path
   into the JSON (``groups.products.caught``).
-- ``{{block:name}}``: a generated piece (a verdict table, a coverage note), see :data:`BLOCKS`.
+- ``{{block:name}}``: a generated piece (a verdict table, a coverage note, a warning that a group's measured pages
+  are mostly synthetic), see :data:`BLOCKS`.
 
 A number the replay couldn't measure renders as "not measured", never as a guess.
 """
@@ -82,6 +83,12 @@ ORIGIN_NAMES = {
 }
 
 MARKET_NAMES = {"eu": "Europe", "us": "US", "both": "Europe and US", "other": "elsewhere"}
+
+# What a group's pages are called in its coverage note.
+GROUP_NOUNS = {"products": "product pages", "ads": "ads", "trades": "trade pages"}
+
+# From this share of synthetic pages among those measured, a group's numbers say little about real pages.
+MOSTLY_SYNTHETIC = 0.5
 
 
 @cache
@@ -363,11 +370,59 @@ def coverage_note(data: dict[str, Any], group: str) -> str:
             f"{num(n)} from {ORIGIN_NAMES.get(o, (o,))[0].lower()}" for o, n in g["missing_by_label_origin"].items()
         )
         parts.append(
-            f"<strong>{num(c['missing_recordings'])} of the {num(c['labelled'])} labelled pages couldn't be "
+            f"<strong>{num(c['missing_recordings'])} of the {num(c['labelled'])} labelled "
+            f"{GROUP_NOUNS.get(group, 'pages')} couldn't be "
             f"measured</strong> ({origins}): we replay recorded answers from the language model, and those pages' "
             "answers aren't in the recording yet. They are left out rather than guessed."
         )
     return f'<p class="small">{" ".join(parts)}</p>'
+
+
+def products_scope(data: dict[str, Any]) -> str:
+    """
+    Which of the test pages the product numbers are about: the shops' and marketplaces' product pages, and the rest.
+
+    :param data: The summary.
+    :return: A sentence of HTML.
+    """
+    kinds = lookup(data, "corpus.kinds") or {}
+    products = lookup(data, "groups.products.coverage.labelled")
+    total = lookup(data, "corpus.pages")
+    ads = lookup(data, "groups.ads.coverage.labelled")
+    trades = lookup(data, "groups.trades.coverage.labelled")
+    rest = total - products if isinstance(total, int) and isinstance(products, int) else None
+    return (
+        f"This section covers the {num(products)} product pages in the test set: "
+        f"{num((kinds.get('shop') or {}).get('pages'))} from shops' own websites and "
+        f"{num((kinds.get('marketplace_product') or {}).get('pages'))} on marketplaces. They are part of all "
+        f"{num(total)} test pages; the other {num(rest)} are second-hand ads ({num(ads)}) and tradespeople's "
+        f'websites and profiles ({num(trades)}), each with <a href="#ads">their own numbers below</a>.'
+    )
+
+
+def synthetic_note(data: dict[str, Any], group: str) -> str:
+    """
+    A plain warning when most of a group's measured pages are synthetic: its numbers say little about real pages.
+
+    :param data: The summary.
+    :param group: ``products``, ``ads`` or ``trades``.
+    :return: A paragraph of HTML, or nothing when most of its measured pages are real.
+    """
+    g = lookup(data, f"groups.{group}")
+    if not g or not g.get("scored"):
+        return ""
+    synthetic = (g.get("scored_by_label_origin") or {}).get("synthetic", 0)
+    if synthetic / g["scored"] < MOSTLY_SYNTHETIC:
+        return ""
+    real = g["scored"] - synthetic
+    real_missing = sum(n for o, n in (g.get("missing_by_label_origin") or {}).items() if o != "synthetic")
+    waiting = f", and {num(real_missing)} more real ones couldn't be measured yet (see below)" if real_missing else ""
+    return (
+        f"<p><strong>{num(synthetic)} of the {num(g['scored'])} pages measured here "
+        f"({pct(synthetic / g['scored'])}) are synthetic</strong>: test pages we made up from the patterns that "
+        f"consumer warnings document. Only {num(real)} are real{waiting}. So these numbers mostly show that the rules "
+        "recognise the patterns those pages were built from, and say little yet about real sites.</p>"
+    )
 
 
 def kinds_table(data: dict[str, Any]) -> str:
@@ -500,11 +555,37 @@ def _columns() -> tuple[tuple[str, str], ...]:
     )
 
 
+def _counts(data: dict[str, Any], field: str) -> tuple[Any, Any]:
+    """
+    The pages a share in the scorers' table is counted from.
+
+    :param data: A replay summary.
+    :param field: A :func:`metrics` field.
+    :return: (part, whole); ``(None, None)`` for a field that isn't a share of pages.
+    """
+    bands = lookup(data, "groups.products.bands") or {}
+    warned = [bands.get(b) or {} for b in ("careful", "junk_or_scam")]
+    shops = lookup(data, "legit_shops.all") or {}
+    serious = bands.get("junk_or_scam") or {}
+    counts: dict[str, tuple[Any, Any]] = {
+        "caught": (sum(b.get("unreliable", 0) for b in warned), lookup(data, "groups.products.unreliable")),
+        "warning_precision": (sum(b.get("unreliable", 0) for b in warned), sum(b.get("pages", 0) for b in warned)),
+        "serious_right": (serious.get("unreliable"), serious.get("pages")),
+        "legit_shops_warned": (shops.get("warned"), shops.get("pages")),
+        "legit_shops_worth_a_look": (shops.get("worth_a_look"), shops.get("pages")),
+        "legit_shops_serious": (shops.get("serious"), shops.get("pages")),
+    }
+    return counts.get(field, (None, None))
+
+
 def _metric(e: dict[str, Any], field: str) -> str:
     value = e["metrics"].get(field)
     if field == "roc_auc":
         return f"{value:.3f}" if isinstance(value, float) else NOT_MEASURED
-    return pct(value)
+    part, whole = _counts(e.get("summary") or {}, field)
+    if not isinstance(value, int | float) or not isinstance(part, int) or not isinstance(whole, int) or not whole:
+        return pct(value)
+    return f'{pct(value)} <span class="muted">({num(part)} of {num(whole)})</span>'
 
 
 def _released(e: dict[str, Any]) -> str:
@@ -561,14 +642,23 @@ def history_block(_: dict[str, Any] | None = None) -> str:
 
     A plain ``<details>`` per version: closed until opened, by keyboard too, with no script.
 
-    :return: The HTML, or a sentence saying there are no earlier versions yet.
+    :return: The HTML, or a sentence saying no earlier version was measured this way yet (the changelog's older
+        scorers were replaced before this page measured each version, so only their changes are listed).
     """
     earlier = earlier_entries()
     if not earlier:
         return (
-            '<p class="acc-history-empty">This is the first retrained scorer, so there are no earlier versions to '
-            "show yet. Each version it replaces will appear here, with its release date.</p>"
+            '<p class="acc-history-empty">None yet. The older scorers in the <a href="#changelog">changelog</a> were '
+            "replaced before we started measuring each version on this test set, so only their changes are listed "
+            "there, without these numbers. From now on, each version that is replaced will appear here with its "
+            "numbers and release date.</p>"
         )
+    intro = (
+        "<p>The other scorer versions we published, newest first, each with its release date and the same numbers "
+        "as the table above. Open one to see them.</p>"
+        '<p class="small">Each version was measured on the labelled pages we had when it was released, and we keep '
+        "adding pages, so numbers measured on different numbers of pages aren't strictly comparable.</p>"
+    )
     boxes = []
     for e in earlier:
         rows = "".join(
@@ -585,7 +675,7 @@ def history_block(_: dict[str, Any] | None = None) -> str:
             '<div class="acc-table-wrap"><table class="acc-table acc-history-table">'
             f"<tbody>{rows}</tbody></table></div></details>"
         )
-    return f'<div class="acc-history">{"".join(boxes)}</div>'
+    return f'{intro}<div class="acc-history">{"".join(boxes)}</div>'
 
 
 BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
@@ -595,6 +685,8 @@ BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
     "coverage:products": lambda d: coverage_note(d, "products"),
     "coverage:ads": lambda d: coverage_note(d, "ads"),
     "coverage:trades": lambda d: coverage_note(d, "trades"),
+    "synthetic:trades": lambda d: synthetic_note(d, "trades"),
+    "products_scope": products_scope,
     "kinds": kinds_table,
     "origins": origins_list,
     "legit_shops": legit_shops_table,

@@ -7,6 +7,16 @@
 * **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
   explain how to install it from the source.
 
+### Fixes
+
+* **`/accuracy` says what its numbers count**: the product section names its pages as the shops' and marketplaces'
+  product pages, part of all the test pages, with how many of the rest are ads and tradespeople; the side-by-side
+  table shows the pages behind each share ("1.6% (12 of 753)"); "Earlier versions" no longer says there are none
+  while the changelog lists older scorers (they weren't measured on this test set, so only their changes are
+  listed); the well-known sellers' counts say what they are out of; the "Serious concerns" threshold's numbers say
+  which test set they come from and how they lead to the table's; and the tradespeople section says plainly that
+  most measured pages are synthetic (329 of 348), so its numbers say little yet about real sites.
+
 ## [0.13.0](https://github.com/kroshtan/unfret_backend/compare/0.12.0...0.13.0) (2026-11-18)
 
 ### Free checks and the Unfret pass

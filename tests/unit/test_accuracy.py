@@ -213,10 +213,72 @@ def test_missing_recordings_are_named_not_hidden() -> None:
         }
     }
     note = accuracy.coverage_note(data, "trades")
-    assert "20 of the 40 labelled pages couldn't be measured" in note
+    assert "20 of the 40 labelled trade pages couldn't be measured" in note
     assert "long-established businesses" in note
     assert "10 of them were measured without the language model's reading" in note
     assert "10 more were set aside" in note
+
+
+def test_the_product_pages_are_named_as_part_of_all_test_pages() -> None:
+    data = _summary()
+    kinds, groups = data["corpus"]["kinds"], data["groups"]
+    products = groups["products"]["coverage"]["labelled"]
+    assert products == kinds["shop"]["pages"] + kinds["marketplace_product"]["pages"]
+    rest = data["corpus"]["pages"] - products
+    assert rest == groups["ads"]["coverage"]["labelled"] + groups["trades"]["coverage"]["labelled"]
+
+    scope = accuracy.products_scope(data)
+    assert f"the {products:,} product pages in the test set" in scope
+    assert f"{kinds['shop']['pages']:,} from shops' own websites" in scope
+    assert f"{kinds['marketplace_product']['pages']:,} on marketplaces" in scope
+    assert f"part of all {data['corpus']['pages']:,} test pages; the other {rest:,} are second-hand ads" in scope
+    page = accuracy.render(template("accuracy.html"), data)
+    assert scope in page.split('id="products"', 1)[1].split("</table>", 1)[0]
+
+
+def test_a_mostly_synthetic_group_says_so_plainly() -> None:
+    def group(synthetic: int, real: int, real_missing: int) -> dict[str, Any]:
+        origins = {"synthetic": synthetic, "established_business": real}
+        missing = {"established_business": real_missing}
+        return {
+            "groups": {
+                "trades": {
+                    "scored": synthetic + real,
+                    "scored_by_label_origin": origins,
+                    "missing_by_label_origin": missing,
+                }
+            }
+        }
+
+    note = accuracy.synthetic_note(group(329, 19, 242), "trades")
+    assert "<strong>329 of the 348 pages measured here (95%) are synthetic</strong>" in note
+    assert "Only 19 are real, and 242 more real ones couldn't be measured yet" in note
+    assert "say little yet about real sites" in note
+    assert accuracy.synthetic_note(group(10, 30, 0), "trades") == ""  # mostly real: no warning
+    assert accuracy.synthetic_note({"groups": {}}, "trades") == ""
+    # The page's copy doesn't call the synthetic share "a few", and the warning comes before the numbers.
+    page = accuracy.render(template("accuracy.html"))
+    trades = page.split('id="trades"', 1)[1].split('id="method"', 1)[0]
+    assert "a few websites" not in trades
+    assert trades.index("are synthetic</strong>") < trades.index("<table")
+
+
+def test_the_scorers_table_shows_what_each_share_counts() -> None:
+    data = _summary()
+    table = accuracy.scorers_table()
+    serious = data["groups"]["products"]["bands"]["junk_or_scam"]
+    shops = data["legit_shops"]["all"]
+    assert f"({serious['unreliable']:,} of {serious['pages']:,})" in table
+    assert f"({shops['serious']:,} of {shops['pages']:,})" in table
+    assert f"({shops['warned']:,} of {shops['pages']:,})" in table
+
+
+def test_the_changelog_says_what_its_counts_count() -> None:
+    text = " ".join((STATIC_DIR / "accuracy.html").read_text(encoding="utf-8").split())
+    assert "(the baseline: 24)" not in text and "(the baseline: 160)" not in text
+    assert "the baseline: 24 of the 180" in text and "160 of the 179" in text
+    # The threshold change's numbers say which test set they were measured on.
+    assert "on the 1,582 product pages the test set had on November 17, 2026" in text
 
 
 def test_a_different_running_scorer_is_said() -> None:
@@ -405,8 +467,9 @@ def test_with_one_retrained_scorer_the_history_says_it_is_the_first(history: Any
     assert "Released March 2, 2026, measured on 3,000 labelled pages" in top
     assert "Released January 10, 2026, measured on 2,641 labelled pages" in top
     assert _boxes(page) == []
-    assert "This is the first retrained scorer" in page
-    assert "aren't strictly comparable" in page
+    # No earlier version, without contradicting the changelog's older scorers: only their changes are listed.
+    assert "None yet. The older scorers in the" in page and "only their changes are listed" in page
+    assert "Open one to see them" not in page and "aren't strictly comparable" not in page
 
 
 def test_with_three_the_newest_leads_and_the_others_fold_below_newest_first(history: Any) -> None:
@@ -419,7 +482,8 @@ def test_with_three_the_newest_leads_and_the_others_fold_below_newest_first(hist
     boxes = _boxes(page)
     versions = [re.search(r"<code>([^<]+)</code>", b).group(1) for b in boxes]  # type: ignore[union-attr]
     assert versions == ["v7-20260301-C", "v7-20260201-C", "v0-20251201-C"]  # newest first, the old baseline too
-    assert "This is the first" not in page
+    assert "None yet." not in page
+    assert "Open one to see them" in page and "aren't strictly comparable" in page
     first, second, baseline = boxes
     assert "Retrained scorer <code>v7-20260301-C</code>" in first
     assert "Released March 2, 2026, measured on 3,000 labelled pages</span></span></summary>" in first

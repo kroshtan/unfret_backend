@@ -221,7 +221,8 @@ async def test_a_quick_check_is_free_for_everyone_and_never_charged(
     issued = await free_pass(client)
     with_pass = await client.post("/v1/analyze/stream", json={**PAGE, "tier": "quick"}, headers=bearer(issued["key"]))
     assert '"tier": "quick"' in with_pass.text and '"charged": false' in with_pass.text
-    assert "report_token" not in with_pass.text and "share_token" not in with_pass.text
+    # A pass can report a quick result (the token binds the tier); a quick result is never shared.
+    assert '"report_token"' in with_pass.text and "share_token" not in with_pass.text
     assert await free.left(pool, issued["key_id"]) == 5
     assert await free.used_today(pool) == 0
 

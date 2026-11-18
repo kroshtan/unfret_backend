@@ -841,7 +841,7 @@
    "Healthy": {
     "description": "Response schema for the health check endpoint.",
     "properties": {
-     "base_pay_to_usdc_units": {
+     "base_hot_eth_wei": {
       "anyOf": [
        {
         "type": "integer"
@@ -850,8 +850,20 @@
         "type": "null"
        }
       ],
-      "description": "USDC held by the Base receiving address (with the operator token only)",
-      "title": "Base Pay To Usdc Units"
+      "description": "ETH on the Base hot wallet, for the sweeps' gas (with the operator token only)",
+      "title": "Base Hot Eth Wei"
+     },
+     "base_hot_usdc_units": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "USDC on the Base hot wallet, not yet swept to cold (with the operator token only)",
+      "title": "Base Hot Usdc Units"
      },
      "commit": {
       "anyOf": [
@@ -1006,7 +1018,7 @@
       "type": "integer"
      },
      "x402_base_alerts": {
-      "description": "base_sweep_due, outflow_to_non_cold, \u2026 (with the operator token only)",
+      "description": "fee_reserve_low, outflow_to_non_cold, \u2026 (with the operator token only)",
       "items": {
        "type": "string"
       },

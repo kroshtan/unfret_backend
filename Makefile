@@ -1,4 +1,4 @@
-.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy train model-release bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -111,6 +111,12 @@ train:  ## Retrain the scorer into the private model store <corpus>/models/<vers
 
 model-release:  ## Point the model store's current.json at retrained scorers (RELEASE_ARGS="--model V [--quick V]"; none: baseline)
 	uv run python -m evals.release current $(RELEASE_ARGS)
+
+golden-set:  ## Collect the golden set: product pages of well-known sellers from the corpus's private seed list (live, else archived)
+	uv run python -m evals.sources.golden $(GOLDEN_SET_ARGS)
+
+golden:  ## False alarms on the golden set, both tiers: no Serious concerns, under 5% Worth a look or worse (GOLDEN_ARGS="--replay --split test")
+	uv run python -m evals.golden $(GOLDEN_ARGS)
 
 accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP")
 	uv run python -m evals.accuracy $(ACCURACY_ARGS)

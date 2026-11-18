@@ -37,7 +37,7 @@ async def clear_alerts(request: Request, network: Literal["all", "solana", "base
 
     Only once the operator has checked the flagged transactions (``GET /v1/admin/x402/alerts``, or
     ``x402_outflow_to_non_cold`` and ``x402_post_settlement_mismatch`` in the logs) and, for a real compromise,
-    rotated the hot wallet (Solana) or moved what is left and replaced ``payTo`` (Base) first. Cleared in the database
+    rotated the hot wallet (Solana, or Base: a new ``UNFRET_X402_BASE_HOT_KEY``) first. Cleared in the database
     too: they don't come back on a restart.
 
     :param request: The incoming request.
@@ -76,12 +76,15 @@ async def x402_alerts(request: Request) -> dict[str, Any]:
             {"signature": flag.signature, "reason": flag.reason, "found_at": flag.found_at.isoformat()}
             for flag in x402.flagged()
         ],
-        # Base: payTo's outflows (``signature`` is the transaction hash) and post-settlement mismatches.
+        # Base: the hot wallet's outflows (``signature`` is the transaction hash, or the nonces or blocks a flag
+        # covers) and post-settlement mismatches.
         "base": {
             "status": base_health.status,
             "network": base.network,
             "pay_to": base.pay_to or None,
+            "cold": base.cold or None,
             "usdc_units": base_health.usdc_units,
+            "eth_wei": base_health.eth_wei,
             "alerts": list(base_health.alerts),
             "flagged": [
                 {"signature": flag.signature, "reason": flag.reason, "found_at": flag.found_at.isoformat()}

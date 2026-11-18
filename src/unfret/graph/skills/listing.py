@@ -3,7 +3,8 @@
 import math
 import re
 
-from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.facts import PageFacts
+from unfret.graph.skills import NOT_APPLICABLE, Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 
 _PINYIN_RE = re.compile(r"zh|xi|qi|xu|ao|uo|ang|eng|ong|iu|ui")
@@ -31,18 +32,36 @@ def generated_brand_score(brand: str) -> float:
     if len(name.split()) == 1 and name.isalpha() and 5 <= len(name) <= 12:
         score += 0.35
         if name.isupper():
-            score += 0.25
+            # Shops and marketplaces write well-known brands in capitals too: the shape alone stays below the 0.6 of
+            # a "looks generated" finding; it takes the letter patterns below as well.
+            score += 0.15
     if _PINYIN_RE.search(lowered):
         score += 0.2
     if any(c in lowered for c in "xzq"):
         score += 0.1
     if _CONSONANT_RUN_RE.search(lowered):
         score += 0.1
-    return min(score, 1.0)
+    return round(min(score, 1.0), 2)
 
 
 def _normalise(text: str) -> str:
     return _NORMALISE_RE.sub("", text.lower())
+
+
+def resold(facts: PageFacts) -> bool:
+    """
+    Whether a marketplace listing is sold by someone other than the brand: a reseller.
+
+    The marketplace selling it itself (its own retail arm named as the seller) is the retailer, not a reseller.
+
+    :param facts: The listing's facts.
+    :return: ``True`` when the seller is neither the brand nor the marketplace.
+    """
+    brand, seller = _normalise(facts.brand), _normalise(facts.seller)
+    if not brand or not seller or brand in seller or seller in brand:
+        return False
+    platform = _normalise(facts.platform).removesuffix("com")
+    return not (platform and platform in seller)
 
 
 class ListingSkill(Skill):
@@ -96,8 +115,8 @@ class ListingSkill(Skill):
                 Observation(type="title", evidence=f"Keyword-stuffed title ({len(facts.title)} chars).")
             )
 
-        brand, seller = _normalise(facts.brand), _normalise(facts.seller)
-        seller_not_brand = bool(brand and seller and brand not in seller and seller not in brand)
+        marketplace = state.get("page_type") == "aggregate_listing"
+        seller_not_brand = marketplace and resold(facts)
         if seller_not_brand:
             observations.append(
                 Observation(type="seller", evidence=f'Sold by "{facts.seller}", not the brand "{facts.brand}".')
@@ -107,18 +126,23 @@ class ListingSkill(Skill):
         if china:
             observations.append(Observation(type="ships_from", evidence=f"Ships from {facts.ships_from}."))
 
+        # A shop's own page names the shop as the seller of every brand it stocks: that is what a retailer is, so
+        # there it says nothing (neutral to the scorer).
+        seller = (
+            {"seller_not_brand": seller_not_brand} if marketplace else {f"seller_not_brand.{NOT_APPLICABLE}": True}
+        )
         return self.output(
             {
+                **seller,
                 "generated_brand": brand_score,
                 "discount_pct": discount,
                 "keyword_stuffed": stuffed,
                 "title_length": min(len(facts.title), 400) / 400,
-                "seller_not_brand": seller_not_brand,
                 "ships_from_china": china,
                 "variations": min(len(facts.variations), 50),
                 "log_rating_count": math.log10(1 + (facts.rating_count or 0)),
                 "rating": facts.rating if facts.rating is not None else 0.0,
-                "is_marketplace": state.get("page_type") == "aggregate_listing",
+                "is_marketplace": marketplace,
                 "is_shopify": facts.platform == "shopify",
             },
             observations,

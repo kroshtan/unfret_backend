@@ -83,13 +83,7 @@ class OwnershipProver(Protocol):
 
 def ownership_proofs(public_base_url: str, services: Iterable[object]) -> list[str]:
     """
-    One proof per ``payTo`` the services hold a key for: the Solana hot wallet's, and Base's once it signs.
-
-    TODO(base hot wallet): once Base pays to a server-held hot key (``UNFRET_X402_BASE_HOT_KEY``), give ``BaseX402``
-    an ``ownership_proof(origin)`` that returns None unless Base is enabled with that key, and else
-    ``self.hot.ownership_proof(origin)``, where ``BaseHotWallet.ownership_proof`` is
-    ``self._account.sign_message(encode_defunct(text=check_origin(origin))).signature.to_0x_hex()`` (EIP-191, from
-    ``eth_account.messages``). It is then picked up here with no other change.
+    One proof per ``payTo`` the services hold a key for: Solana's hot wallet, then Base's while Base is on.
 
     :param public_base_url: The public base URL (its origin is what is signed).
     :param services: The payment services (any that isn't an :class:`OwnershipProver` is skipped).

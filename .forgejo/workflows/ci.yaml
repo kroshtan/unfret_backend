@@ -185,6 +185,7 @@ jobs:
           UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
           # Read-only access to the private model store (README, "The model"); unset: the open baseline scorer.
           MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
+          UNFRET_X402_BASE_HOT_KEY: ${{ secrets.DEV_BASE_HOT_KEY }}
           UNFRET_BASE_PAY_TO: ${{ secrets.DEV_BASE_PAY_TO }}
           UNFRET_BASE_COLD_ADDRESS: ${{ secrets.DEV_BASE_COLD_ADDRESS }}
           UNFRET_CDP_API_KEY_ID: ${{ secrets.DEV_CDP_API_KEY_ID }}

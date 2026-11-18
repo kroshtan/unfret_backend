@@ -4,7 +4,7 @@ Run the analysis graph over the labelled corpus and report how well it separates
 Usage::
 
     uv run python -m evals.run [--limit N] [--split test|train|all] [--record | --replay] [--skills ...] [--with-url]
-        [--class product|p2p_listing|service_site|service_listing ...]
+        [--class product|p2p_listing|service_site|service_listing ...] [--dataset NAME ...]
 
 ``--record`` (the default) calls the LLM on cache misses and stores every response in the corpus's
 ``llm_cache.sqlite``; ``--replay`` serves only cached responses and fails any page that would need a new call, so
@@ -30,10 +30,12 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.globals import set_llm_cache
+from langgraph.graph.state import CompiledStateGraph
 from pydantic import SecretStr
 
 from evals.corpus import PAGE_CLASSES, PRODUCT_CLASS, Corpus, LabelRecord, dump_json, page_class
@@ -81,6 +83,8 @@ async def evaluate(
     concurrency: int,
     *,
     features: dict[str, dict[str, float]] | None = None,
+    results: dict[str, dict[str, Any]] | None = None,
+    graph: CompiledStateGraph | None = None,
 ) -> list[Outcome]:
     """
     Run the graph on each record's page.
@@ -91,9 +95,11 @@ async def evaluate(
     :param with_url: Pass the page's original URL to the graph.
     :param concurrency: Pages evaluated at the same time.
     :param features: If given, filled with each scored page's skill features, by record id.
+    :param results: If given, filled with each scored page's shopper verdict and scorer assessment, by record id.
+    :param graph: The graph to run (another tier's); by default the full graph with ``skill_names``.
     :return: One outcome per record.
     """
-    graph = build_graph([s for s in SKILLS if s.name in skill_names])
+    graph = graph or build_graph([s for s in SKILLS if s.name in skill_names])
     semaphore = asyncio.Semaphore(concurrency)
 
     async def one(record: LabelRecord) -> Outcome:
@@ -121,6 +127,8 @@ async def evaluate(
                 )
         if features is not None:
             features[record.id] = dict(result.get("features", {}))
+        if results is not None:
+            results[record.id] = {"verdict": result.get("verdict"), "assessment": result.get("assessment")}
         tokens = list(usage.usage_metadata.values())
         verdict = result.get("verdict") or {}
         assessment = result.get("assessment") or {}
@@ -239,6 +247,7 @@ def main() -> None:
     parser.add_argument("--with-url", action="store_true")
     parser.add_argument("--split", choices=["test", "train", "all"], default="test", help="which split to score")
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument("--dataset", nargs="+", default=[], help="only pages of these origin datasets")
     parser.add_argument(
         "--class",
         dest="classes",
@@ -258,7 +267,10 @@ def main() -> None:
     labelled = [
         r
         for r in corpus.labels().values()
-        if r.label and args.split in {"all", r.split} and page_class(r) in args.classes
+        if r.label
+        and args.split in {"all", r.split}
+        and page_class(r) in args.classes
+        and (not args.dataset or r.origin_dataset in args.dataset)
     ]
     records = select(labelled, args.limit)
     logger.info("eval_start", pages=len(records), skills=args.skills, replay=args.replay)

@@ -177,8 +177,16 @@ def test_a_brand_that_exists_is_not_called_unknown(presence: dict[str, float]) -
 
 
 def test_a_generated_looking_brand_without_any_presence_is_still_unknown() -> None:
-    verdict = build({"brand_presence.own_domain_age_years": 1.0}, findings=GENERATED, facts=HKLIVING)
+    # On a shop's own page, with another sign of a resold supplier product (here: generic product copy).
+    resold = {"brand_presence.own_domain_age_years": 1.0, "content.generic_product": 0.5}
+    verdict = build(resold, findings=GENERATED, facts=HKLIVING)
     assert "generic_brand" in types(verdict)
+
+
+def test_a_brand_in_capitals_on_a_shops_own_page_is_not_unknown_by_its_look_alone() -> None:
+    # A retailer's own label in capitals, seen by the quick tier without a content read.
+    verdict = build({"listing.generated_brand": 0.6}, findings=GENERATED, facts=HKLIVING)
+    assert "generic_brand" not in types(verdict)
 
 
 def test_known_brand_positive_once_wikidata_has_it() -> None:

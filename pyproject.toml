@@ -36,6 +36,8 @@ dependencies = [
     "structlog>=26.1",
     "uvicorn>=0.54",
     "solders>=0.29",
+    # Signs the Base hot wallet's USDC sweeps (EIP-1559 transactions); its only use outside the tests.
+    "eth-account>=0.13",
     "segno>=1.6",
     "onnxruntime>=1.31 ; python_full_version < '3.15'",
     "numpy>=2.5",
@@ -46,7 +48,6 @@ Repository = "https://github.com/kroshtan/unfret_backend"
 
 [dependency-groups]
 dev = [
-    "eth-account>=0.13",
     "jsonschema>=4.23",
     "mypy>=2.4",
     "pre-commit>=4.7",

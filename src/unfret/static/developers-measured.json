@@ -1,0 +1,72 @@
+{
+  "server": "dev.unfret.net",
+  "measured_on": "2026-11-18",
+  "deep": {
+    "runs": 5,
+    "median_s": 9.93,
+    "min_s": 6.16,
+    "max_s": 11.66,
+    "all_s": [
+      6.16,
+      9.93,
+      11.66,
+      6.91,
+      10.48
+    ]
+  },
+  "quick": {
+    "runs": 5,
+    "median_s": 0.24,
+    "min_s": 0.21,
+    "max_s": 0.28,
+    "all_s": [
+      0.28,
+      0.26,
+      0.21,
+      0.23,
+      0.24
+    ]
+  },
+  "sample": {
+    "action": "block",
+    "assessed": true,
+    "risk_score": 1.0,
+    "confidence": 0.9891,
+    "flags": [
+      {
+        "type": "timer_resets",
+        "evidence": "This countdown restarts when you reload the page: the deadline isn't real.",
+        "weight": 1.0,
+        "label": "Fake countdown",
+        "severity": "high"
+      },
+      {
+        "type": "preticked_addon",
+        "evidence": "A paid extra is ticked for you in advance (“Add Worry-Free Delivery Protection (+$4.99)”). That's not allowed in the EU: untick it if you don't want it.",
+        "weight": 1.0,
+        "label": "Paid extra already ticked",
+        "severity": "high"
+      },
+      {
+        "type": "implausible_discount",
+        "evidence": "79% off: discounts this deep are almost always measured against a price nobody paid.",
+        "weight": 1.0,
+        "label": "Unbelievable discount",
+        "severity": "high"
+      }
+    ],
+    "policy_applied": "balanced",
+    "tier": "deep",
+    "cached": false,
+    "source": "analysis",
+    "checked_at": "2026-11-18T05:25:56.338132Z",
+    "model_version": "v1-20261109-222323-C",
+    "band": "junk_or_scam",
+    "summary": "Fake countdown and paid extra already ticked.",
+    "page_type": "storefront",
+    "charged": true,
+    "free_check": true,
+    "balance_usd_micros": 0,
+    "free_checks_left": 16
+  }
+}

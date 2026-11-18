@@ -1,5 +1,6 @@
 """The /connect and /checkout pages: a strict CSP, their assets load, and the JS sign-in text matches ours."""
 
+import html
 import json
 import re
 import subprocess
@@ -511,6 +512,23 @@ async def test_the_developer_page_prices_come_from_the_settings(client: httpx.As
     assert "x402 on Base" in page  # the roadmap, as promised on the page
 
 
+async def test_the_developer_page_has_calls_a_real_response_speed_and_limits(client: httpx.AsyncClient) -> None:
+    from unfret.routes.pages import DEVELOPERS_MEASURED  # noqa: PLC0415 - only here
+
+    page = html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text))  # the text, no markup
+    base = settings.public_base_url.rstrip("/")
+    assert f'curl {base}/v1/check -H "Authorization: Bearer $UNFRET_PASS"' in page  # with a pass
+    assert '-H "PAYMENT-SIGNATURE: $PAYMENT"' in page  # with x402
+    measured = json.loads(DEVELOPERS_MEASURED.read_text())
+    assert measured["deep"]["runs"] >= 3 and measured["quick"]["runs"] >= 3  # measured, not made up
+    assert json.dumps(measured["sample"], indent=2, ensure_ascii=False) in page  # the whole sample response
+    assert f"{measured['deep']['median_s']:.1f} s" in page and measured["server"] in page
+    for limit in (settings.x402_check_per_minute, settings.quick_checks_per_minute, settings.developer_free_checks):
+        assert f"{limit}" in page
+    assert f"{base}/mcp" in page and "UNFRET_PASS" in page and "uvx" in page  # remote and local MCP
+    assert "Make a developer pass" in page  # a developer pass, from the page
+
+
 async def test_developers_are_one_click_away_from_every_page(client: httpx.AsyncClient) -> None:
     header = (STATIC_DIR / "partials" / "header.html").read_text()
     footer = (STATIC_DIR / "partials" / "footer.html").read_text()
@@ -563,8 +581,8 @@ async def test_no_page_mentions_the_retired_showcase(client: httpx.AsyncClient) 
 async def test_privacy_statement_covers_storage_logs_bases_and_rights(client: httpx.AsyncClient) -> None:
     text = " ".join((await client.get("/privacy")).text.split())
     assert "sets <strong>no cookies</strong>" in text
-    # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-ref
-    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "An affiliate's code"):
+    # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-ref, unfret-developer-pass
+    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "An affiliate's code", "A date"):
         assert f"<strong>{key}</strong>" in text
     assert "your IP address and your browser's name and version" in text  # the proxy's request log, as it is
     assert "salted one-way hash, in memory only" in text
@@ -590,6 +608,7 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
         "unfret-free-pass",
         "unfret-ref",
         "unfret-start-check",
+        "unfret-developer-pass",
     }
 
 

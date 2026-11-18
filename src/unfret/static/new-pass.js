@@ -31,15 +31,21 @@ export async function solve(challenge, bits) {
  * A new pass: { key, recovery_code, key_id, account, balance_usd_micros, free_checks }.
  *
  * @param {(path: string, init?: RequestInit) => Promise<any>} api - Calls the API, throwing on an error status.
- * @param {{free?: boolean}} [options] - free: ask for the free checks a new pass comes with (once per browser).
+ * @param {{free?: boolean, developer?: boolean}} [options] - free: ask for the free checks a new pass comes with (once
+ *   per browser); developer: a developer pass's free checks instead (/developers).
  * @returns {Promise<object>} The pass and its backup code, shown this once.
  */
-export async function makePass(api, { free = false } = {}) {
+export async function makePass(api, { free = false, developer = false } = {}) {
   const challenge = await api("/v1/keys/challenge");
   const solution = await solve(challenge.challenge, challenge.bits);
   // An affiliate's link brought this visitor (ref.js): the new pass counts for them, then the code is forgotten.
   const ref = storedRef();
-  const body = { challenge: challenge.challenge, solution, ...(free ? { free: true } : {}), ...(ref ? { ref } : {}) };
+  const body = {
+    challenge: challenge.challenge,
+    solution,
+    ...(developer ? { developer: true } : free ? { free: true } : {}),
+    ...(ref ? { ref } : {}),
+  };
   const made = await api("/v1/keys", { method: "POST", body: JSON.stringify(body) });
   if (ref) clearRef();
   return made;

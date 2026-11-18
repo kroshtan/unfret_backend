@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from unfret import __version__, accuracy
 from unfret.config import settings
-from unfret.credits import invites
+from unfret.credits import invites, packs
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
 from unfret.x402.verdict import tier_description
@@ -246,15 +246,62 @@ def developer_fields() -> dict[str, str]:
 
 _BASE_NAMES = {"base-mainnet": "Base", "base-sepolia": "Base Sepolia"}
 _COMING_BASE = re.compile(r"\s*<!-- base-off -->.*?<!-- /base-off -->", re.DOTALL)
+# The sample response and the median latencies on /developers: measured on a running server (dev), never made up.
+# Re-measure with scripts/measure_developers.py, which rewrites this file.
+DEVELOPERS_MEASURED = STATIC_DIR / "developers-measured.json"
+
+
+def _seconds(value: float) -> str:
+    return f"{value:.1f} s"
+
+
+def _limits_and_measurements() -> dict[str, str]:
+    """
+    The pass's prices and limits (from the settings) and what was measured on a running server.
+
+    :return: Text for the ``/developers`` placeholders about packs, limits, the sample response and the times.
+    """
+    measured = json.loads(DEVELOPERS_MEASURED.read_text(encoding="utf-8"))
+    sample = measured["sample"]
+    deep, quick = measured["deep"], measured["quick"]
+    return {
+        "developer_checks": str(settings.developer_free_checks),
+        "packs_line": ", ".join(f"{p.checks} for {format_usd(p.card_usd_micros)}" for p in packs.packs(settings)),
+        "check_per_minute": str(settings.x402_check_per_minute),
+        "quick_per_minute": str(settings.quick_checks_per_minute),
+        "fetch_per_minute": str(settings.analyze_fetch_per_minute),
+        "free_outcomes_per_hour": str(settings.analyze_free_outcomes_per_hour),
+        "max_page_mb": f"{settings.max_page_bytes / 1024 / 1024:g}",
+        "analysis_timeout": f"{settings.analysis_timeout_s:g}",
+        "x402_timeout": f"{min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s):g}",
+        "sample_server": measured["server"],
+        "measured_on": measured["measured_on"],
+        "sample_json": json.dumps(sample, indent=2, ensure_ascii=False),
+        "sample_action": str(sample.get("action")),
+        "sample_band": str(sample.get("band")),
+        "sample_risk": str(sample.get("risk_score")),
+        "latency_server": measured["server"],
+        "deep_median": _seconds(deep["median_s"]),
+        "quick_median": _seconds(quick["median_s"]),
+        "latency_note": (
+            f"the median of {deep['runs']} fresh deep and {quick['runs']} quick checks of the test shop on "
+            f"{measured['server']} (the test server, on {measured['measured_on']}), from request to answer, with "
+            "Unfret fetching the page; deep ranged "
+            f"{_seconds(deep['min_s'])}–{_seconds(deep['max_s'])}. Production runs on other hardware and other pages "
+            "take more or less time; these are dev's figures, not a promise."
+        ),
+    }
 
 
 @router.get("/developers", response_class=HTMLResponse)
 def developers(request: Request) -> HTMLResponse:
     """
-    For developers and AI agents: the MCP server, x402 on ``/v1/check`` and a prepaid pass as an API key.
+    For developers and AI agents: three-line calls, a real response, prices, speed and limits, the MCP server.
 
-    The tiers' prices and what they include come from the same settings as ``/.well-known/x402``, so the page can't
-    drift from what a check costs; the networks are those ``/v1/check`` takes (Base only while it is set up).
+    The tiers' prices, the pass's limits and what they include come from the settings (the same as
+    ``/.well-known/x402``), so the page can't drift from what a check costs; the networks are those ``/v1/check``
+    takes (Base only while it is set up); the sample response and the median times come from
+    ``developers-measured.json``, measured on a running server and stated as that server's figures.
 
     :param request: The incoming request (for the Base payment service).
     :return: The page.
@@ -264,7 +311,7 @@ def developers(request: Request) -> HTMLResponse:
     options = f"USDC and wSOL on {network}"
     if base_on:
         options += f", and USDC on {_BASE_NAMES[settings.base_network]}"
-    fields = {**developer_fields(), "payment_options": options}
+    fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
     page = template("developers.html", "/developers")
     if base_on:  # no longer "coming next"
         page = _COMING_BASE.sub("", page)

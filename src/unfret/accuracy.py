@@ -1,11 +1,14 @@
 """
 The ``/accuracy`` page: how often Unfret's verdicts are right, from the numbers ``make accuracy`` measured.
 
-``static/accuracy.json`` holds the replay's aggregates (``evals/accuracy.py`` writes it; never a URL or a corpus
-record). ``static/accuracy.html`` is the page's prose with placeholders that this module fills from it:
+Two summaries of a corpus replay, aggregates only (``evals/accuracy.py`` writes them; never a URL or a corpus
+record): ``static/accuracy.json`` for the open baseline scorer in this repository (what a self-hosted server runs),
+and ``static/accuracy-service.json`` for the retrained scorer unfret.net runs (``make accuracy
+ACCURACY_ARGS="--publish VERSION"``). The page shows the one this server runs (:func:`page_summary`), and both side by
+side. ``static/accuracy.html`` is the page's prose with placeholders that this module fills from it:
 
 - ``{{num:path}}``: a count (``1,582``); ``{{pct:path}}``: a share as a percentage (``82%``, ``6.9%``);
-  ``{{text:path}}``: a string; ``{{date:path}}``: an ISO date as "17 November 2026". ``path`` is a dotted path
+  ``{{text:path}}``: a string; ``{{date:path}}``: an ISO date as "November 17, 2026". ``path`` is a dotted path
   into the JSON (``groups.products.caught``).
 - ``{{block:name}}``: a generated piece (a verdict table, a coverage note), see :data:`BLOCKS`.
 
@@ -25,6 +28,7 @@ from unfret.scoring import load_model
 from unfret.shopper import catalogue
 
 ACCURACY_PATH = Path(__file__).resolve().parent / "static" / "accuracy.json"
+SERVICE_PATH = ACCURACY_PATH.with_name("accuracy-service.json")
 
 BANDS = ("reliable", "concerns", "careful", "junk_or_scam")
 NOT_MEASURED = "not measured"
@@ -73,12 +77,48 @@ MARKET_NAMES = {"eu": "Europe", "us": "US", "both": "Europe and US", "other": "e
 @cache
 def summary() -> dict[str, Any]:
     """
-    The measured numbers.
+    The open baseline's measured numbers.
 
     :return: The parsed ``accuracy.json``.
     """
     data: dict[str, Any] = json.loads(ACCURACY_PATH.read_text(encoding="utf-8"))
     return data
+
+
+@cache
+def service_summary() -> dict[str, Any] | None:
+    """
+    The measured numbers of the retrained scorer unfret.net runs.
+
+    :return: The parsed ``accuracy-service.json``, or ``None`` when none is published.
+    """
+    if not SERVICE_PATH.is_file():
+        return None
+    data: dict[str, Any] = json.loads(SERVICE_PATH.read_text(encoding="utf-8"))
+    return data
+
+
+def running_version() -> str | None:
+    """
+    The scorer this server runs.
+
+    :return: Its version (``UNFRET_MODEL_PATH``'s, or the baseline's).
+    """
+    model = load_model()
+    return model.version if model else None
+
+
+def page_summary() -> dict[str, Any]:
+    """
+    The numbers the page leads with: those of the scorer this server runs, when published.
+
+    :return: The retrained scorer's summary on a server that runs it (unfret.net), else the open baseline's (a
+        self-hosted server, or one running a scorer whose numbers aren't published: the page then says so).
+    """
+    service = service_summary()
+    if service is not None and service.get("scorer_version") == running_version():
+        return service
+    return summary()
 
 
 def lookup(data: dict[str, Any], path: str) -> Any:
@@ -127,13 +167,13 @@ def long_date(value: Any) -> str:
     An ISO date written out.
 
     :param value: ``"2026-11-17"``.
-    :return: ``"17 November 2026"``, or "not measured".
+    :return: ``"November 17, 2026"`` (US English, as the site), or "not measured".
     """
     try:
         day = date.fromisoformat(str(value))
     except ValueError:
         return NOT_MEASURED
-    return f"{day.day} {day:%B %Y}"
+    return f"{day:%B} {day.day}, {day.year}"
 
 
 def band_label(band: str) -> str:
@@ -304,19 +344,70 @@ def markets_sentence(data: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
+def scorer_name(data: dict[str, Any]) -> str:
+    """
+    Which scorer a summary is for, in words.
+
+    :param data: A summary.
+    :return: The retrained scorer unfret.net runs, the open baseline, or just "a scorer".
+    """
+    version = data.get("scorer_version")
+    service = service_summary()
+    if service is not None and version == service.get("scorer_version"):
+        return "the retrained scorer unfret.net runs"
+    if version == summary().get("scorer_version"):
+        return "the open baseline, the scorer in the source code that a self-hosted Unfret runs"
+    return "a scorer"
+
+
 def version_note(data: dict[str, Any]) -> str:
     """
-    A note when the running scorer isn't the one these numbers were measured with.
+    Whether the running scorer is the one these numbers were measured with.
 
     :param data: The summary.
-    :return: A sentence, or nothing when they match.
+    :return: A sentence.
     """
-    model = load_model()
-    running = model.version if model else None
-    measured = data.get("scorer_version")
-    if running == measured:
+    running = running_version()
+    if running == data.get("scorer_version"):
         return "It is the scorer this server runs."
     return f"This server runs scorer <code>{html.escape(str(running))}</code>; its numbers aren't published here yet."
+
+
+def scorers_table(_: dict[str, Any] | None = None) -> str:
+    """
+    The retrained scorer unfret.net runs and the open baseline, side by side, on the same replay of product pages.
+
+    :return: The table's HTML (the baseline alone when no retrained scorer's numbers are published).
+    """
+    running = running_version()
+    rows = []
+    for name, data in (
+        ("Retrained, runs on unfret.net", service_summary()),
+        ("Open baseline, self-hosted", summary()),
+    ):
+        if data is None:
+            continue
+        products = lookup(data, "groups.products") or {}
+        version = str(data.get("scorer_version"))
+        here = ' <span class="muted">(this server)</span>' if version == running else ""
+        rows.append(
+            f'<tr><th scope="row">{html.escape(name)}{here}<br><code>{html.escape(version)}</code></th>'
+            f"<td>{pct(products.get('caught'))}</td><td>{pct(products.get('warning_precision'))}</td>"
+            f"<td>{pct(lookup(data, 'groups.products.bands.junk_or_scam.unreliable_share'))}</td>"
+            f"<td>{pct(lookup(data, 'legit_shops.all.warned_share'))}</td>"
+            f"<td>{pct(lookup(data, 'legit_shops.all.worth_a_look_share'))}</td>"
+            f"<td>{pct(lookup(data, 'legit_shops.all.serious_share'))}</td>"
+            f"<td>{products.get('roc_auc') if isinstance(products.get('roc_auc'), float) else NOT_MEASURED}</td></tr>"
+        )
+    careful, concerns, serious = (html.escape(band_label(b)) for b in ("careful", "concerns", "junk_or_scam"))
+    return (
+        '<div class="acc-table-wrap"><table class="acc-table">'
+        '<thead><tr><th scope="col">Scorer</th><th scope="col">Unreliable pages warned about</th>'
+        f'<th scope="col">Warnings right</th><th scope="col">{serious} right</th>'
+        f'<th scope="col">Legitimate shops: {careful} or worse</th>'
+        f'<th scope="col">Legitimate shops: {concerns}</th><th scope="col">Legitimate shops: {serious}</th>'
+        f'<th scope="col">ROC AUC</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+    )
 
 
 BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
@@ -331,6 +422,8 @@ BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
     "legit_shops": legit_shops_table,
     "markets": markets_sentence,
     "version_note": version_note,
+    "scorer_name": lambda d: html.escape(scorer_name(d)),
+    "scorers": scorers_table,
 }
 
 
@@ -339,10 +432,10 @@ def render(page: str, data: dict[str, Any] | None = None) -> str:
     Fill the page's placeholders from the measured numbers.
 
     :param page: The page's HTML with placeholders.
-    :param data: The summary; defaults to ``accuracy.json``.
+    :param data: The summary; defaults to :func:`page_summary`.
     :return: The HTML.
     """
-    values = summary() if data is None else data
+    values = page_summary() if data is None else data
 
     def fill(match: re.Match[str]) -> str:
         kind, path = match.groups()

@@ -10,6 +10,10 @@ downloads the APK, checks its size and SHA-256 against ``release.json``, and wri
 The page links to the APK on git.kroshtan.com: the address is built here from the version, never read from a file.
 A release is shown only when its facts pass :func:`parse`, signed with :data:`SIGNING_CERT_SHA256`; with no file, or a
 file that doesn't pass, the page says the download is coming soon. Nothing about a visitor is involved.
+
+A version with a pre-release suffix (``0.1.0-beta.1``, tag ``v0.1.0-beta.1``) is a beta: its ``release.json`` says
+``"prerelease": true`` (the workflow publishes it as a Forgejo pre-release), and the page labels it "Beta". The flag
+must agree with the version; a ``release.json`` without it is a stable release.
 """
 
 import argparse
@@ -63,7 +67,8 @@ ANDROID_VERSIONS = {
     34: "14", 35: "15", 36: "16",
 }  # fmt: skip
 
-_VERSION_RE = re.compile(r"\d{1,3}\.\d{1,3}\.\d{1,3}")
+# major.minor.patch with an optional pre-release suffix (``-beta.1``), the same pattern the release workflow accepts.
+_VERSION_RE = re.compile(r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?:-[0-9A-Za-z]{1,16}(?:\.[0-9A-Za-z]{1,16}){0,3})?")
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _PERMISSION_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+")
@@ -83,6 +88,7 @@ class AndroidRelease:
     min_sdk: int
     permissions: tuple[str, ...]
     published: date
+    prerelease: bool = False
 
     @property
     def tag(self) -> str:
@@ -145,6 +151,7 @@ class AndroidRelease:
             "min_sdk": self.min_sdk,
             "permissions": list(self.permissions),
             "published": self.published.isoformat(),
+            "prerelease": self.prerelease,
         }
 
 
@@ -153,7 +160,8 @@ def parse(data: Any) -> AndroidRelease | None:
     The release described by ``data``, if it is complete and signed with Unfret's release key.
 
     :param data: The decoded ``release.json``.
-    :return: The release, or ``None`` when anything is missing, malformed or signed with another key.
+    :return: The release, or ``None`` when anything is missing, malformed or signed with another key, or when
+        ``prerelease`` doesn't match the version.
     """
     if not isinstance(data, dict):
         return None
@@ -168,6 +176,7 @@ def parse(data: Any) -> AndroidRelease | None:
             min_sdk=data["min_sdk"],
             permissions=tuple(data["permissions"]),
             published=date.fromisoformat(str(data["published"])),
+            prerelease=data.get("prerelease", False),
         )
     except KeyError, TypeError, ValueError:
         return None
@@ -176,6 +185,9 @@ def parse(data: Any) -> AndroidRelease | None:
         return None
     if (
         not _VERSION_RE.fullmatch(release.version)
+        # A beta says so, and only a version with a pre-release suffix is one.
+        or type(release.prerelease) is not bool
+        or release.prerelease != ("-" in release.version)
         or not _COMMIT_RE.fullmatch(release.commit)
         or not _SHA256_RE.fullmatch(release.sha256)
         or release.cert_sha256 != SIGNING_CERT_SHA256
@@ -269,12 +281,14 @@ def write(release: AndroidRelease, path: Path | None = None) -> None:
 
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - a network command, run by hand
     """
-    ``python -m unfret.android_release v0.1.0``: put that release on ``/android`` (review the diff, then commit).
+    ``python -m unfret.android_release v0.1.0`` (or ``v0.1.0-beta.1``): put that release on ``/android``.
+
+    Review the diff, then commit.
 
     :param argv: The command line.
     """
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("tag", help="the release tag, e.g. v0.1.0")
+    parser.add_argument("tag", help="the release tag, e.g. v0.1.0 or v0.1.0-beta.1")
     tag = parser.parse_args(argv).tag
     headers = {"User-Agent": "Unfret Android release importer (+https://unfret.net)"}
     with httpx.Client(timeout=120, headers=headers, follow_redirects=True) as client:
@@ -284,7 +298,8 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - a network
             sys.exit(f"error: {error}")
     write(release)
     print(  # noqa: T201 - command-line tool
-        f"{RELEASE_PATH.name}: Unfret {release.version} ({megabytes(release.size)}, sha256 {release.sha256})"
+        f"{RELEASE_PATH.name}: Unfret {release.version}{' (beta)' if release.prerelease else ''}"
+        f" ({megabytes(release.size)}, sha256 {release.sha256})"
     )
 
 

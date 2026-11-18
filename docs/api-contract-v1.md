@@ -1298,3 +1298,9 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   release's `release.json` after checking the APK's size and SHA-256; a release is offered only when they are complete
   and its certificate is Unfret's release key's (`unfret.android_release.SIGNING_CERT_SHA256`). Without that file the
   page says the download is coming soon and offers no file.
+- A beta: a version with a pre-release suffix (`0.1.0-beta.1`, tag `v0.1.0-beta.1`; `make android-release
+  TAG=v0.1.0-beta.1`) whose `release.json` says `"prerelease": true`. The page labels it "Beta" next to the version
+  and says, in one sentence, that it is an early version that may still change and to write to hello@unfret.net
+  about what doesn't work; the install steps and the certificate check are the same. The flag must match the version
+  (a beta that doesn't say so, or a plain version marked as one, is not offered); a `release.json` without it is a
+  stable release.

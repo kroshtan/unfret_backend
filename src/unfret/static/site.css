@@ -1505,6 +1505,10 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .android .apk-download .buttons { margin: 0.25rem 0 1rem; }
 .android .apk-download .button { max-width: 100%; white-space: normal; text-align: center; }
 .android .apk-download .facts { margin-bottom: 0; }
+.android .beta { display: inline-block; margin-left: 0.35rem; padding: 0 0.5rem; border: 1px solid var(--care);
+  border-radius: 999px; background: var(--care-soft); color: var(--care); font-size: 0.8rem; font-weight: 650;
+  line-height: 1.5; vertical-align: 0.1em; }
+.android .beta-note { margin: 0.25rem 0 0.75rem; }
 .android .hashes { grid-template-columns: minmax(7rem, 14rem) 1fr; }
 .android code { overflow-wrap: anywhere; }
 .android code.hash { word-break: break-all; font-size: 0.85em; line-height: 1.5; }

@@ -25,7 +25,14 @@ RELEASE: dict[str, Any] = {
     "min_sdk": 26,
     "permissions": list(android_release.DEFAULT_PERMISSIONS),
     "published": "2026-11-18",
+    "prerelease": False,
 }
+BETA: dict[str, Any] = {**RELEASE, "version": "0.1.0-beta.1", "prerelease": True}
+BETA_URL = "https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v0.1.0-beta.1/unfret-0.1.0-beta.1.apk"
+BETA_NOTE = (
+    "This is a beta, an early version: things may still change. Tell us what doesn't work at "
+    '<a href="mailto:hello@unfret.net">hello@unfret.net</a>.'
+)
 APK_URL = "https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v0.1.0/unfret-0.1.0.apk"
 CERT = "3E:71:EF:6B:76:FA:BA:49:41:97:22:AE:99:8A:42:4B:38:A7:E9:05:C6:A4:48:4A:37:F8:A9:6F:E4:5F:66:34"
 
@@ -111,6 +118,37 @@ async def test_a_published_release_is_offered_with_what_verifies_it(
     assert 'href="https://git.kroshtan.com/kroshtan/unfret_android/releases/tag/v0.1.0"' in page
     assert 'href="https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v0.1.0/SHA256SUMS"' in page
     assert "Android 8.0 or newer" in text
+    assert "Beta" not in text and 'class="beta' not in page
+
+
+async def test_a_beta_is_labelled_and_says_what_that_means(client: httpx.AsyncClient, release_file: Path) -> None:
+    release_file.write_text(json.dumps(BETA))
+    page = (await client.get("/android")).text
+    text = _text(page)
+
+    assert "coming soon" not in text.lower()
+    assert f'href="{BETA_URL}"' in page and page.count(BETA_URL) == 1
+    assert f"Download Unfret 0.1.0-beta.1 (APK, {len(APK) / 1e6:.1f} MB)" in text
+    # The label sits next to the version; the one sentence says what a beta is and where to report what doesn't work.
+    assert '<dd>0.1.0-beta.1 <span class="beta">Beta</span>, published November 18, 2026</dd>' in page
+    assert " ".join(page.split()).count(BETA_NOTE) == 1
+    # The install steps and the certificate check are the same as for any release.
+    assert f"unfret-0.1.0-beta.1.apk (SHA-256) {RELEASE['sha256']}" in text and CERT in page
+    assert 'href="https://git.kroshtan.com/kroshtan/unfret_android/releases/tag/v0.1.0-beta.1"' in page
+    for phrase in ("Allow from this source", "Turn it off again.", "apksigner verify --print-certs"):
+        assert phrase in text, phrase
+
+
+async def test_coming_soon_says_nothing_about_a_beta(client: httpx.AsyncClient, release_file: Path) -> None:
+    page = (await client.get("/android")).text
+    assert "Download coming soon" in page and "Beta" not in _text(page) and "This is a beta" not in page
+
+
+def test_a_release_without_the_flag_is_a_stable_one() -> None:
+    # release.json from before the flag: a version without a pre-release suffix is still read.
+    facts = {key: value for key, value in RELEASE.items() if key != "prerelease"}
+    release = android_release.parse(facts)
+    assert release is not None and release.prerelease is False
 
 
 async def test_the_page_says_how_to_install_update_and_what_it_asks_for(
@@ -151,6 +189,14 @@ async def test_an_unknown_permission_is_shown_by_name(client: httpx.AsyncClient,
         {"sha256": "not-a-digest"},
         {"version": "0.1.0/../../evil"},
         {"version": "1.0"},
+        {"version": "0.1.0-"},
+        {"version": "0.1.0-beta 1"},
+        {"version": "0.1.0-beta/../x", "prerelease": True},
+        {"version": "0.1.0+build.5"},
+        {"version": "0.1.0-beta.1"},  # a beta that doesn't say so
+        {"version": "0.1.0-beta.1", "prerelease": "true"},
+        {"prerelease": True},  # a stable version marked as a beta
+        {"prerelease": None},
         {"commit": "main"},
         {"size": 0},
         {"size": "123"},
@@ -183,11 +229,12 @@ def test_the_fingerprint_reads_with_or_without_colons() -> None:
     assert android_release.fingerprint(android_release.SIGNING_CERT_SHA256) == CERT
 
 
-def test_the_facts_round_trip(release_file: Path) -> None:
-    release = android_release.parse(RELEASE)
+@pytest.mark.parametrize("facts", [RELEASE, BETA], ids=["stable", "beta"])
+def test_the_facts_round_trip(release_file: Path, facts: dict[str, Any]) -> None:
+    release = android_release.parse(facts)
     assert release is not None
     android_release.write(release, release_file)
-    assert json.loads(release_file.read_text()) == RELEASE and android_release.load() == release
+    assert json.loads(release_file.read_text()) == facts and android_release.load() == release
 
 
 def test_no_release_is_published_in_the_repository_yet() -> None:
@@ -208,17 +255,19 @@ def test_the_menu_and_footer_do_not_link_it() -> None:
         assert "/android" not in (STATIC_DIR / "partials" / name).read_text(), name
 
 
-def _forge(release: dict[str, Any], apk: bytes, assets: list[str] | None = None) -> httpx.Client:
-    base = "https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v0.1.0/"
-    names = assets if assets is not None else ["unfret-0.1.0.apk", "SHA256SUMS", "release.json"]
+def _forge(
+    release: dict[str, Any], apk: bytes, assets: list[str] | None = None, version: str = "0.1.0"
+) -> httpx.Client:
+    base = f"https://git.kroshtan.com/kroshtan/unfret_android/releases/download/v{version}/"
+    names = assets if assets is not None else [f"unfret-{version}.apk", "SHA256SUMS", "release.json"]
 
     def answer(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
-        if url == f"{android_release.RELEASES_API}/tags/v0.1.0":
+        if url == f"{android_release.RELEASES_API}/tags/v{version}":
             return httpx.Response(200, json={"assets": [{"name": n, "browser_download_url": base + n} for n in names]})
         if url == base + "release.json":
             return httpx.Response(200, json=release)
-        if url == base + "unfret-0.1.0.apk":
+        if url == base + f"unfret-{version}.apk":
             return httpx.Response(200, content=apk)
         return httpx.Response(404)
 
@@ -229,6 +278,15 @@ def test_fetch_checks_the_apk_against_its_facts() -> None:
     with _forge(RELEASE, APK) as client:
         release = android_release.fetch("v0.1.0", client)
     assert release == android_release.parse(RELEASE)
+
+
+def test_fetch_takes_a_beta_tag(release_file: Path) -> None:
+    # make android-release TAG=v0.1.0-beta.1
+    with _forge(BETA, APK, version="0.1.0-beta.1") as client:
+        release = android_release.fetch("v0.1.0-beta.1", client)
+    assert release.prerelease and release.tag == "v0.1.0-beta.1" and release.apk_url == BETA_URL
+    android_release.write(release, release_file)
+    assert json.loads(release_file.read_text())["prerelease"] is True
 
 
 @pytest.mark.parametrize(

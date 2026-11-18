@@ -121,7 +121,7 @@ golden-set:  ## Collect the golden set: product pages of well-known sellers from
 golden:  ## False alarms on the golden set, both tiers: no Serious concerns, under 5% Worth a look or worse (GOLDEN_ARGS="--replay --split test")
 	uv run python -m evals.golden $(GOLDEN_ARGS)
 
-android-release:  ## Put a signed Android release on /android (TAG=v0.1.0): checks the APK against its release.json, writes static/android-release.json
+android-release:  ## Put a signed Android release on /android (TAG=v0.1.0, or a beta: TAG=v0.1.0-beta.1): checks the APK against its release.json, writes static/android-release.json
 	uv run python -m unfret.android_release $(TAG)
 
 accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP" | "--publish VERSION")

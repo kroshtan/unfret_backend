@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0-beta.1",
+  "version_code": 1,
+  "commit": "ab4ce2571e8eaf546c802af3394318e03884a3d5",
+  "size": 1535689,
+  "sha256": "9c4f10ddddf1666d484f4dd03b9f6cd0a4cc17cd8d078783f075db42f2bb1973",
+  "cert_sha256": "3e71ef6b76faba49419722ae998a424b38a7e905c6a4484a37f8a96fe45f6634",
+  "min_sdk": 26,
+  "permissions": [
+    "android.permission.INTERNET",
+    "net.unfret.android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+  ],
+  "published": "2026-11-18",
+  "prerelease": true
+}

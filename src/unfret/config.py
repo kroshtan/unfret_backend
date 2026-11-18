@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     # Analysis limits
     max_page_bytes: int = 2 * 1024 * 1024
     skill_timeout_s: float = 45.0
+    # One attempt of the content read (the page text's LLM call). It normally answers in 2-14 s, but now and then the
+    # model gets lost in its JSON and writes whitespace until it is cut off; the attempt is abandoned after this and
+    # tried once more (llm_max_retries), so two attempts and the backoff between them fit within skill_timeout_s
+    # instead of one runaway using it all up and degrading the assessment.
+    content_attempt_timeout_s: float = Field(default=20.0, gt=0)
     analysis_timeout_s: float = 90.0
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.

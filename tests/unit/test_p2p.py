@@ -721,7 +721,7 @@ async def test_the_p2p_skills_stream(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_only_ads_are_asked_about_the_off_platform_push(monkeypatch: pytest.MonkeyPatch, page_type: str) -> None:
     asked: list[tuple[type[BaseModel], str]] = []
 
-    def structured(schema: type[BaseModel]) -> RunnableLambda:
+    def structured(schema: type[BaseModel], **_: Any) -> RunnableLambda:
         def respond(messages: Any) -> BaseModel:
             asked.append((schema, messages[0].content))
             fields: dict[str, object] = {

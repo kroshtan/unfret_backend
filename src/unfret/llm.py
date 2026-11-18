@@ -6,6 +6,7 @@ from functools import cache
 from typing import Any
 
 import openai
+import structlog
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
@@ -13,6 +14,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel
 
 from unfret.config import settings
+
+logger = structlog.get_logger("unfret")
 
 # No LangSmith or any other hosted LangChain service: langchain-core ships the LangSmith client, so its tracing is
 # switched off here whatever the environment says (prompts carry page content, and nothing leaves for a third party).
@@ -64,22 +67,35 @@ def _backoff(attempt: int) -> float:
     return random.uniform(0, settings.llm_backoff_base_s * 2**attempt)  # noqa: S311 - not for security
 
 
-async def throttled[R](call: Callable[[], Awaitable[R]]) -> R:
+async def throttled[R](call: Callable[[], Awaitable[R]], *, attempt_timeout_s: float | None = None) -> R:
     """
     Run one provider call within the process-wide concurrency limit, retrying rate limits with jittered backoff.
 
     Under load, every analysis fans out several LLM calls at once; without a limit a burst of shoppers turns into
     a wall of 429s, and fixed retry intervals make the retries collide again. The limit is released while waiting.
 
+    With ``attempt_timeout_s``, an attempt that takes longer is abandoned and retried like a rate limit: now and then
+    the model doesn't stop writing (it repeats itself until it is cut off), and a fresh attempt usually answers in
+    the normal time. The time spent waiting for a free slot doesn't count against it.
+
     :param call: Makes the call.
+    :param attempt_timeout_s: Abandon an attempt after this many seconds; ``None``: only the client's own timeout.
     :return: Its result.
+    :raises TimeoutError: When the last attempt ran out of time (with ``attempt_timeout_s``).
     :raises Exception: The provider's error once retries are exhausted (at once when it isn't retryable).
     """
     attempt = 0
     while True:
         try:
             async with _limit():
-                return await call()
+                if attempt_timeout_s is None:
+                    return await call()
+                async with asyncio.timeout(attempt_timeout_s):
+                    return await call()
+        except TimeoutError:
+            if attempt_timeout_s is None or attempt >= settings.llm_max_retries:
+                raise
+            logger.warning("llm_attempt_timed_out", attempt=attempt, timeout_s=attempt_timeout_s)
         except Exception as exc:
             if not _retryable(exc) or attempt >= settings.llm_max_retries:
                 raise
@@ -87,14 +103,14 @@ async def throttled[R](call: Callable[[], Awaitable[R]]) -> R:
         attempt += 1
 
 
-def _throttle(inner: Runnable[Any, Any]) -> Runnable[Any, Any]:
+def _throttle(inner: Runnable[Any, Any], attempt_timeout_s: float | None = None) -> Runnable[Any, Any]:
     # Async calls go through throttled(); sync ones (unused by the analysis) go straight through. The config is
     # passed on, so callbacks (token usage) still see the model call.
     def call(value: Any, config: RunnableConfig) -> Any:
         return inner.invoke(value, config)
 
     async def acall(value: Any, config: RunnableConfig) -> Any:
-        return await throttled(lambda: inner.ainvoke(value, config))
+        return await throttled(lambda: inner.ainvoke(value, config), attempt_timeout_s=attempt_timeout_s)
 
     return RunnableLambda(call, afunc=acall)
 
@@ -133,17 +149,22 @@ class _ThrottledEmbeddings(Embeddings):
         return await throttled(lambda: self.inner.aembed_documents(texts))
 
 
-def get_structured_llm[T: BaseModel](schema: type[T]) -> Runnable:
+def get_structured_llm[T: BaseModel](schema: type[T], *, attempt_timeout_s: float | None = None) -> Runnable:
     """
     Return the shared chat model bound to a structured output schema.
 
     Uses tool calling rather than ``json_schema`` response formats: on Scaleway's models the latter is enforced
     but the field descriptions do not reach the model, which then misreads fields such as the page type.
 
+    The attempt timeout is enforced around the call rather than set on the client, so the model's settings (and with
+    them the evaluation's recorded responses, keyed by those settings) stay the same.
+
     :param schema: Pydantic model the LLM response is parsed into.
+    :param attempt_timeout_s: Abandon and retry an attempt after this many seconds (:func:`throttled`).
     :return: A runnable whose ``ainvoke`` returns an instance of ``schema``.
     """
-    return _throttle(get_llm().with_structured_output(schema, method="function_calling"))
+    structured = get_llm().with_structured_output(schema, method="function_calling")
+    return _throttle(structured, attempt_timeout_s)
 
 
 _embeddings_override: Embeddings | None = None

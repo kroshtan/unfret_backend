@@ -199,7 +199,7 @@ async def _check(monkeypatch: pytest.MonkeyPatch, signals: _Signals) -> tuple[di
             scam_copy=0.0, implausible_claims=0.0, addresses_the_reader_ai=False, **signals.model_dump()
         )
 
-    monkeypatch.setattr(content, "get_structured_llm", lambda schema: RunnableLambda(read))
+    monkeypatch.setattr(content, "get_structured_llm", lambda schema, **_: RunnableLambda(read))
     skills = [
         ContentSkill(),
         ListingSkill(),

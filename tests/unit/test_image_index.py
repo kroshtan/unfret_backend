@@ -244,6 +244,20 @@ async def test_the_test_shops_photo_is_looked_up_but_never_recorded(
     assert stub.rows == {}  # its tricks are made up: nothing for the next shop to match
 
 
+async def test_a_photo_named_by_its_path_is_fetched_from_the_pages_site(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Structured data may give the photo as a path (the test shop's does): fetching it as it stands fails.
+    fetched = serve(monkeypatch, {"https://glowlamp.shop/images/lamp.jpg": encode(product_photo(15), "JPEG")})
+
+    out = await ReverseImageSkill().run(page(image="/images/lamp.jpg"))
+    await reverse_image.drain()
+
+    assert fetched == ["https://glowlamp.shop/images/lamp.jpg"]
+    assert out["features"]["reverse_image.searched"] == 1.0
+    assert [url for _, url, *_ in stub.rows.values()] == ["https://glowlamp.shop/images/lamp.jpg"]  # for thumbnails
+
+
 async def test_skill_reports_nothing_without_the_model_or_with_fingerprints_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

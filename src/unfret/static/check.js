@@ -28,7 +28,7 @@ import {
   shopOf,
   unreadableKind,
 } from "./check-core.js";
-import { el, resultNodes } from "./check-render.js";
+import { deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { makePass } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
@@ -449,16 +449,21 @@ function renderResult(result, because = null) {
   nodes.push(
     el("p", "muted small source-note", "Unfret opened this page itself, so it may look a little different from what you see."),
   );
+  const hint = deepHintOf(result);
   if (result.tier === "quick") {
     nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere. Free, and no check was used."));
+    // Once, under the quick result: what a deep check would add here, what it costs, one button.
+    if (hint) nodes.push(deepHintNode(hint, { run: runDeep, checkoutHref: checkoutHref() }));
   } else if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
   else if (result.charged === false) nodes.push(el("p", "small", "You checked this page recently: no new check was used."));
   else if (result.free_check) nodes.push(el("p", "small", "One of your free checks."));
   const reason = because ? QUICK_BECAUSE[because] : null;
   if (reason) {
     $("no-checks-heading").textContent = reason.heading;
-    $("no-checks-body").textContent = reason.body;
+    // With the suggestion under the result, this says only why the check was quick: the offer is made once.
+    $("no-checks-body").textContent = hint ? reason.short : reason.body;
   }
+  $("buy-card").hidden = Boolean(hint);
 
   $("result-body").replaceChildren(...nodes);
 
@@ -468,12 +473,7 @@ function renderResult(result, because = null) {
   $("report").hidden = true;
   $("report-status").hidden = true;
   resetShare(result);
-  const reward = pricing?.reports?.reward_checks;
-  if (reward) {
-    $("report-consent").textContent =
-      "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
-      `Personal details are removed first; once reviewed, it is kept without any link to you. If Unfret was clearly wrong, you get ${reward} free checks.`;
-  }
+  $("report-consent").textContent = reportConsent(pricing?.reports);
 }
 
 function showError(message, refunded) {
@@ -523,6 +523,7 @@ async function failed(error, link) {
     renderAccount();
     $("no-checks-heading").textContent = "You have no checks left";
     $("no-checks-body").textContent = "Add a pack and check on. Nothing was used for this link.";
+    $("buy-card").hidden = false;
     showOnly("no-checks");
     return;
   }
@@ -546,16 +547,32 @@ const QUICK_BECAUSE = {
   used: {
     heading: "You have no checks left",
     body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks come in packs, with no subscription.",
+    short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
     heading: "Free deep checks are back tomorrow",
     body: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules. Bought checks work as always.",
+    short: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules.",
   },
   none: {
     heading: "A quick check",
     body: "Without a pass, Unfret reads only this page, by its rules. A deep check also looks the shop up elsewhere: get checks, or use your pass.",
+    short: "Without a pass, Unfret reads only this page, by its rules.",
   },
 };
+
+// Where "Get checks" goes: this pass's top-up, a wallet's crypto checkout, or the checkout.
+function checkoutHref() {
+  return account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
+}
+
+// "Run a deep check" under a quick result: a normal check of the same link (charged as any deep check).
+function runDeep() {
+  const link = last?.body?.url;
+  if (!link || running) return;
+  field.value = link;
+  void check(link);
+}
 
 async function check(link) {
   const abort = new AbortController();
@@ -688,8 +705,24 @@ async function readStream(stream, onStep) {
 
 // ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
 
+/** The consent line, with the rewards the server pays (`/v1/pricing` → reports) when it says them. */
+function reportConsent(reports) {
+  const base =
+    "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
+    "Personal details are removed first; an AI model may suggest a label, a person decides; once reviewed, it is " +
+    "kept without any link to you.";
+  const big = reports?.reward_checks;
+  if (!big) return base;
+  const small = reports.small_reward_checks;
+  const checks = (n) => `${n} free check${n === 1 ? "" : "s"}`;
+  const reward = small
+    ? `If Unfret was clearly wrong, you get ${checks(big)}; if it was somewhat off, ${checks(small)}.`
+    : `If Unfret was clearly wrong, you get ${checks(big)}.`;
+  return `${base} ${reward}`;
+}
+
 const REPORT_OUTCOME = {
-  queued: "Thanks! We'll review this page. If we got it badly wrong, you get free checks.",
+  queued: "Thanks! We'll review this page. If we got it wrong, you get free checks.",
   already_reported: "Thanks! Someone reported this page first; your report counts as confirmation.",
   already_known: "Thanks! We reviewed this page recently.",
 };

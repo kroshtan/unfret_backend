@@ -603,6 +603,121 @@
     "title": "CreditsResponse",
     "type": "object"
    },
+   "DeepCheck": {
+    "description": "On a quick result only: whether a deep check of the same page is worth suggesting, and what it would add.\n\nWorked out from the quick result alone; it never changes the quick verdict.",
+    "properties": {
+     "action": {
+      "anyOf": [
+       {
+        "enum": [
+         "run_deep",
+         "get_checks"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "run_deep: the caller can run it now (tier deep); get_checks: it needs checks first.",
+      "title": "Action"
+     },
+     "action_label": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "\"Run a deep check\" or \"Get checks\".",
+      "title": "Action Label"
+     },
+     "adds": {
+      "description": "What a deep check adds here.",
+      "items": {
+       "$ref": "#/components/schemas/DeepCheckAdd"
+      },
+      "maxItems": 3,
+      "title": "Adds",
+      "type": "array"
+     },
+     "cost": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What a deep check would cost this caller, in words: \"Uses 1 of your 3 free deep checks.\", \"Uses 1 check (you have 12).\", \"Deep checks come in packs, from $6.00 for 25.\"; on /v1/check paid with x402, the deep tier's price.",
+      "title": "Cost"
+     },
+     "quiet": {
+      "default": false,
+      "description": "Show it quietly (Looks fine): as a note, not a call to action.",
+      "title": "Quiet",
+      "type": "boolean"
+     },
+     "reason": {
+      "description": "Why (not): on_the_fence (Worth a look, Think twice), unknown_seller (Looks fine, but the quick check can't see who is behind the page); serious_concerns (the advice is already to buy elsewhere), known_seller (a big marketplace's own or the brand's listing), nothing_to_add.",
+      "enum": [
+       "on_the_fence",
+       "unknown_seller",
+       "serious_concerns",
+       "known_seller",
+       "nothing_to_add"
+      ],
+      "title": "Reason",
+      "type": "string"
+     },
+     "suggested": {
+      "title": "Suggested",
+      "type": "boolean"
+     },
+     "text": {
+      "default": "",
+      "description": "\"A deep check also looks at \u2026\" (empty when not suggested).",
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "suggested",
+     "reason"
+    ],
+    "title": "DeepCheck",
+    "type": "object"
+   },
+   "DeepCheckAdd": {
+    "description": "One thing a deep check would look at on this page that the quick check left out.",
+    "properties": {
+     "area": {
+      "description": "The checklist area it belongs to (a CheckItem key).",
+      "title": "Area",
+      "type": "string"
+     },
+     "key": {
+      "description": "shop_age, photo_elsewhere, reviews, brand, price_history, vat_register (shops and marketplace listings); seller_profile, ad_photos, ad_price (ads); provider_profile, service_terms (service platforms).",
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "description": "In words, to follow \"A deep check also looks at\": \"how old this shop is\".",
+      "title": "Label",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "area",
+     "label"
+    ],
+    "title": "DeepCheckAdd",
+    "type": "object"
+   },
    "Email": {
     "description": "An e-mail address the business publishes.",
     "properties": {
@@ -2350,7 +2465,7 @@
     "properties": {
      "consent": {
       "const": true,
-      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; once reviewed, it is kept without any link to my account.",
+      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; once reviewed, it is kept without any link to my account.",
       "title": "Consent",
       "type": "boolean"
      },
@@ -3264,6 +3379,17 @@
       "description": "How many separate checks ran on this page and had something to check.",
       "title": "Checks Run"
      },
+     "deep_check": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DeepCheck"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Quick results only: whether a deep check of this page is worth it and what it would add."
+     },
      "headline": {
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
@@ -3404,6 +3530,17 @@
       "description": "How many separate checks ran on this page and had something to check.",
       "title": "Checks Run"
      },
+     "deep_check": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DeepCheck"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Quick results only: whether a deep check of this page is worth it and what it would add."
+     },
      "headline": {
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
@@ -3513,6 +3650,17 @@
       "minimum": 0.0,
       "title": "Confidence",
       "type": "number"
+     },
+     "deep_check": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/DeepCheck"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Quick answers only: whether a deep check of this page is worth its price (suggested), what it would add here (adds) and why (reason). Not suggested at Serious concerns, on a big marketplace's own listing that looks fine, or when a deep check would add nothing for this page."
      },
      "flags": {
       "items": {
@@ -4835,7 +4983,7 @@
   },
   "/v1/reports": {
    "post": {
-    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+\npoints outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per\nmonth, one per page.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first\nreporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.\nLimits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a\nproposed label for the reviewer, never a label by itself).\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
     "operationId": "report_v1_reports_post",
     "requestBody": {
      "content": {

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from unfret import page_fetch, reports
 from unfret.auth import require_account
 from unfret.config import settings
+from unfret.reports import second_opinion
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -23,7 +24,8 @@ router = APIRouter(prefix="/v1/reports", tags=["Reports"])
 
 CONSENT = (
     "I share this one check's page facts, page text and result with Unfret for review. Personal details are removed "
-    "before it is stored; once reviewed, it is kept without any link to my account."
+    "before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; "
+    "once reviewed, it is kept without any link to my account."
 )
 
 
@@ -100,9 +102,10 @@ async def report(body: ReportRequest, request: Request, account: str = Depends(r
     Send back the ``report_token`` from the result with the request and explanation exactly as they were, so the
     report provably concerns a check this account got (for a URL-only check, the page is fetched again now).
     Personal details are scrubbed before anything is stored. A page already in the queue counts the report as
-    confirmation; a page reviewed recently is ``already_known``. If the review shows the score was far off (30+
-    points outside the label's zone), the first reporter gets free checks. Limits: a few reports per account per
-    month, one per page.
+    confirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first
+    reporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.
+    Limits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a
+    proposed label for the reviewer, never a label by itself).
 
     :param body: The report.
     :param request: The incoming request.
@@ -129,4 +132,6 @@ async def report(body: ReportRequest, request: Request, account: str = Depends(r
         )
     except reports.ReportError as exc:
         _refused(exc)
+    if done.report_id is not None:
+        second_opinion.schedule(request.app.db_pool, settings, done.report_id)
     return ReportResponse(status=done.outcome, reports_used=done.used, reports_per_month=done.limit)

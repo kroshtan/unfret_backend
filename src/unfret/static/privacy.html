@@ -185,9 +185,14 @@
       server: greetings with your name, delivery and e-mail addresses, phone numbers, bank and card numbers, and
       everything after the <code>?</code> in links. The checkout page is never kept.</p>
     <p>Until it is reviewed, a report is linked to your wallet or pass, only so a good report can earn free checks, and
-      we count your reports per month (as a keyed hash). After review the report is deleted; the page and its label
-      stay, without any link to you, as an example for improving the checks. Reports not reviewed within 30 days are
-      deleted.</p>
+      we count your reports per month (as a keyed hash). To help the person who reviews it, a language model hosted by
+      Scaleway in the EU (the same provider that reads pages for the checks) reads the report once, as stored: the
+      page facts and text with personal details removed, the result you were shown and the reason you chose. It
+      suggests a label; a person decides. Nothing that identifies you is sent with it, and the suggestion is kept only
+      with the report. After review the report is deleted; the page and its label stay, without any link to you, as an
+      example for improving the checks. Reports not reviewed within 30 days are deleted, and when the review queue is
+      full, a newer report that tells us more may take the place of one that tells us less, which is then deleted the
+      same way.</p>
 
     <h2>What your browser keeps</h2>
     <p>This website sets <strong>no cookies</strong>. It keeps a few things in your browser's local storage, only what
@@ -224,8 +229,8 @@
 
     <h2>Who else sees what</h2>
     <ul>
-      <li>A language model hosted by Scaleway in the EU reads the page text. We send it nothing that identifies
-        you.</li>
+      <li>A language model hosted by Scaleway in the EU reads the page text, and a wrong result you report (as stored,
+        to suggest a label for the reviewer). We send it nothing that identifies you.</li>
       <li>Public registries (RDAP, crt.sh, the EU's VIES) and Wikidata answer the shop and brand lookups. They see the
         shop's domain, its VAT number, or the product's brand and the domains named after it, not you. The EU's Safety
         Gate alerts (dangerous products) are a copy on our server: checking a product against them asks no one.</li>

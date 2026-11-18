@@ -276,10 +276,10 @@ valid 7 days. Nothing is stored when a check runs.
 - Before the queue: a page (domain + ASIN / bol.com id / GTIN, else the clean URL) already queued is
   `already_reported` and counts as confirmation; a page labelled in the last 90 days is `already_known`.
 - Errors: 400 `BAD_REPORT_TOKEN` (someone else's check, changed data, or older than 7 days), 409
-  `ALREADY_REPORTED_BY_YOU`, 429 `REPORT_LIMIT` (5 per account per month, `metadata: {"used", "limit"}`), 503
-  `QUEUE_FULL` (about 200 open reports).
+  `ALREADY_REPORTED_BY_YOU`, 429 `REPORT_LIMIT` (5 per account per month, `metadata: {"used", "limit"}`; 15 since
+  the reports change below), 503 `QUEUE_FULL` (about 200 open reports; see below for the queue by value).
 - Reward: when the human label shows the score was at least 30 points outside the label's zone (legit ≥ 70, junk and
-  scam ≤ 40), the reporter gets 3 checks. The report is then deleted (its only link to the account); the scrubbed page
+  scam ≤ 40), the reporter gets 3 checks (5, and 1 for 10–29 points, since the reports change below). The report is then deleted (its only link to the account); the scrubbed page
   and its label stay as training data. Reports nobody handled are deleted after 30 days.
 - Operator: `GET /v1/admin/reports` (the queue, without accounts) and `POST /v1/admin/reports/{id}/label`
   `{"label": "legit"|"junk"|"scam"|"reject"}`, used by `make reports`.
@@ -1151,3 +1151,75 @@ and clients show what is there.
   token binds the tier, so a quick result can't be reported as a deep one (400 `BAD_REPORT_TOKEN`); deep tokens are
   as before. The same limits apply (5 per account per month, one per page, consent, scrubbing); the queued item
   records the tier.
+
+## Changes (a quick result says whether a deep check is worth it; backwards-compatible)
+
+Quick results (`"tier": "quick"` on `POST /v1/analyze`, its stream's `result` event, and `POST /v1/check`, with x402
+or a pass, so also the MCP tools' `verdict`) add an optional **`deep_check`**: on `/v1/analyze` inside `verdict`, on
+`/v1/check` at the top level of the verdict. It is worked out from the quick result alone and never changes it: the
+rest of a quick answer is byte for byte what it was. Deep results, pages that couldn't be assessed, cached results from
+before this change and older servers have no `deep_check` (or `null`); clients show nothing then.
+
+- `{"suggested": bool, "reason", "quiet": bool, "adds": [{"key", "area", "label"}], "text", "cost", "action",
+  "action_label"}`.
+- **When**: `concerns` ("Worth a look") or `careful` ("Think twice"): suggested, `reason: "on_the_fence"`. `reliable`
+  ("Looks fine"): suggested with `quiet: true`, `reason: "unknown_seller"` (a quick check can't see a weeks-old domain
+  or a supplier's photo), except on a big marketplace's own listing: a page the quick check classifies as
+  `aggregate_listing` (Amazon, bol.com, Walmart) that the listing skill doesn't call a reseller's (the seller is the
+  brand, the marketplace's retail arm, or not named): not suggested, `reason: "known_seller"`. Whether a web shop is a
+  known brand's own takes outside evidence (Wikidata, the AI read) that only a deep check looks up, so a web shop that
+  looks fine gets the quiet suggestion. `junk_or_scam` ("Serious concerns"): never (`reason: "serious_concerns"`; the
+  advice is already to buy elsewhere). A page where a deep check would add nothing: `reason: "nothing_to_add"`.
+- **`adds`** (at most 2): what a deep check would look at on this page that the quick one left out, an area with a
+  concern first: `shop_age` "how old this shop is" (web shops), `photo_elsewhere` "whether its product photo appears
+  on other shops" (a photo on the page), `reviews` "whether its reviews look genuine" (reviews on the page), `brand`
+  "whether the brand is known beyond this page" (a brand named), `price_history` "whether its 'was' price was ever
+  really charged" (a struck-through price), `vat_register` "whether its VAT number is in the EU register" (a VAT
+  number shown). An ad or a provider's profile on a known platform (which a quick check reads as a shop's page, and a
+  deep check, with the page classes beyond products on, as what it is): `seller_profile`, `ad_photos`, `ad_price`;
+  `provider_profile`, `service_terms`. `area` is the `checklist` key it belongs to. New keys may be added; show `label`.
+- **`text`**: "A deep check also looks at how old this shop is and whether its product photo appears on other
+  shops." (empty when not suggested).
+- **`cost`**, `action` (`run_deep` | `get_checks`) and `action_label` ("Run a deep check" | "Get checks"), only when
+  suggested, for this caller (a cached quick result is priced per request): a pass with free checks (today's not all
+  used) "Uses 1 of your N free deep checks." / "Uses your last free deep check."; bought checks "Uses 1 check (you
+  have N)."; neither "Deep checks come in packs, from $6 for 25." (the smallest pack's card price, from the settings),
+  or, with only free checks while today's are all used, "Free deep checks are back at 00:00 UTC. Deep checks also
+  come in packs, from $6 for 25." (`get_checks`). `/v1/check` paid with x402: "A deep check of this page costs $0.20."
+  (the deep tier's price). Running it is a normal deep check of the same page, charged as always.
+- Clients show it once, under the quick result, with one button (`action_label`): `run_deep` runs a deep check of the
+  same page, `get_checks` opens the checkout. Quietly when `quiet`. No timers, no colour of its own.
+- OpenAPI snapshot updated (`DeepCheck`, `DeepCheckAdd`).
+
+## Changes (reports: rewards in two steps, 15 a month, a second opinion, a queue by value; backwards-compatible; migration 30)
+
+- Limit: `reports_per_month` is **15** per account (pass, wallet or API key), up from 5; still one report per page per
+  account. `POST /v1/reports` answers as before (`reports_per_month: 15`; 429 `REPORT_LIMIT` past it).
+- Rewards, to the first reporter only and only after a person labelled the page: **5 checks** when the score was at
+  least 30 points outside the label's zone (legit ≥ 70, junk and scam ≤ 40), **1 check** when it was 10–29 points
+  outside it, nothing for a correct result. `GET /v1/pricing` → `"reports"` adds `"reward_gap": 30`,
+  `"small_reward_checks": 1` and `"small_reward_gap": 10` next to `"per_month"` and `"reward_checks"` (now 5).
+  Settings: `UNFRET_REPORT_REWARD_CHECKS`, `UNFRET_REPORT_REWARD_GAP`, `UNFRET_REPORT_SMALL_REWARD_CHECKS`,
+  `UNFRET_REPORT_TRAINING_GAP` (the small reward's gap, also what counts as a training sample).
+- A full queue: `report_queue_cap` is 1000 (was 200). Each open report has a value (how far the reporter says the
+  score is off, +15 for a page and +15 for a shop the labelled data doesn't have yet, +10 per confirmation by another
+  account, up to three). With the queue full, a new report takes the place of the open report worth least if it is
+  worth more (that one is deleted, as if expired); otherwise it is refused with 503 `QUEUE_FULL` as before.
+- A second opinion: each queued report is read once by a language model (`UNFRET_REPORT_SECOND_OPINION_MODEL`,
+  default `qwen3.5-397b-a17b` on the same EU provider; empty: off), at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY`
+  (200) calls per UTC day, in the background. It proposes `label` (`legit`|`junk`|`scam`|`unsure`), `confidence`
+  (0–1) and a one-line `reason` (the corpus labeller's field names). It sees only the stored, scrubbed report (facts,
+  text, score, explanation and verdict, the reporter's reason), with everything from the page as delimited data. A
+  proposal is never a label: it trains nothing and pays nothing until the operator confirms it. A failed call leaves
+  the report for a person; one over the daily cap waits for a later day.
+- Operator: `GET /v1/admin/reports` takes `order` (`value`, the default, or `confidence`), `agreement` (`reporter`,
+  `score`, `neither`, `unsure`, `none`), `min_confidence` and `limit` (up to 1000), and returns `cap`,
+  `second_opinions` (count per state) and per item `value` and `second_opinion: {"state", "label", "confidence",
+  "reason", "model", "agreement", "gap", "reward_checks"}` (what confirming the proposal would mean). New
+  `POST /v1/admin/reports/confirm` `{"min_confidence", "items": [{"id", "label"}]}` labels the previewed items that
+  still carry exactly that proposal (per item `labelled`, `changed` or `gone`, with `gap`, `reward_checks`,
+  `reward_usd_micros`, `training`); the label endpoint's answer adds `reward_checks`. `make reports` uses both: a
+  preview of the confident proposals to confirm at once, then the rest one by one.
+- Clients: the report consent says an AI model may suggest a label and a person decides; the website's dialog shows
+  both rewards from `/v1/pricing`. The extension's own copy says "3 free checks": it should read the numbers from
+  `/v1/pricing` (`reports.reward_checks`, `reports.small_reward_checks`).

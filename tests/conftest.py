@@ -6,6 +6,7 @@ from typing import NoReturn
 import pytest
 
 from unfret import scoring
+from unfret.reports import second_opinion
 from unfret.visitors import RateLimit
 
 
@@ -28,6 +29,14 @@ def no_shipped_scorer(monkeypatch: pytest.MonkeyPatch) -> None:
     # test: tests that read an artifact read the baseline.
     monkeypatch.setattr(scoring.settings, "model_path", "")
     monkeypatch.setattr(scoring.settings, "model_quick_path", "")
+
+
+@pytest.fixture(autouse=True)
+def no_second_opinion_calls(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """No test asks a real model for a report's second opinion (a provider key in .env would otherwise reach one)."""
+    monkeypatch.setattr(scoring.settings, "report_second_opinion_model", "")
+    yield
+    second_opinion.use_model(None)
 
 
 @pytest.fixture(autouse=True)

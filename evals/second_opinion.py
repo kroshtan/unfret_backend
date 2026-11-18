@@ -24,13 +24,12 @@ Usage: ``uv run python -m evals.second_opinion [--limit N] [--queue-size 25] [--
 import argparse
 import asyncio
 from collections import Counter, defaultdict
-from typing import Literal, cast
+from typing import cast
 
 import structlog
 from langchain_core.globals import set_llm_cache
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
 
 from evals.config import eval_settings
 from evals.corpus import (
@@ -48,6 +47,7 @@ from evals.corpus import (
 from evals.llm_cache import SQLiteLLMCache
 from unfret.config import settings
 from unfret.html_cleaner import clean_html
+from unfret.reports.second_opinion import RUBRIC, RUBRICS, Opinion
 
 logger = structlog.get_logger("unfret.evals")
 
@@ -56,73 +56,6 @@ _CONFIDENT = 0.75
 # Product datasets whose labels nobody reviews by hand: kept only when the second opinion confidently agrees, like the
 # new page classes (evals.sources.us_shops, evals.sources.coi_shops).
 STRICT_DATASETS: frozenset[str] = frozenset({"us-established-shops", "coi-risky-eshops"})
-
-RUBRIC = """\
-You label e-commerce pages for a consumer-protection test set. Read the page text and choose ONE label:
-
-- scam: the shop is likely to take money without delivering what it promises. Typical signs: a fake or cloned
-  shop, big-brand goods at impossible discounts, no verifiable company identity or address, copied or nonsensical
-  policies, pressure tactics, a mismatch between the shop name and what it sells, payment via unusual channels.
-- junk: generic, mass-produced goods of the kind sold on Temu or AliExpress, presented as if they were a brand
-  product. The goods probably exist and ship, but the seller adds nothing: a meaningless or machine-generated
-  brand name (random capitals, pinyin-like strings), keyword-stuffed titles, interchangeable white-label items,
-  often with exaggerated claims or ratings and reviews that look bought or templated. Proof of deception is NOT
-  required: an unknown generated brand selling generic marketplace goods is junk even with decent reviews.
-- legit: an established brand or retailer, or a genuine independent maker or shop with its own identity,
-  selling what it says at a plausible price.
-- unsure: the page does not give enough to decide.
-
-Judge only from the page. Prefer "unsure" over guessing; confidence must reflect real certainty (0-1).\
-"""
-
-P2P_RUBRIC = """\
-You label classified ads by private sellers (Marktplaats, 2dehands, eBay, Vinted, Craigslist, Facebook Marketplace)
-for a consumer-protection test set. Read the ad page and choose ONE label:
-
-- scam: the ad is likely a fraud: the buyer would pay and get nothing, or be phished. Typical signs: moving the
-  deal off the platform (WhatsApp, e-mail, a phone number to text), payment in advance by bank transfer, gift
-  cards, crypto, wire or "friends and family", a payment link sent by the seller, shipping only because the seller
-  is "abroad", a price far below what the item sells for, a brand-new account with no reviews selling sought-after
-  goods, a rental with a deposit before any viewing or keys sent by post, pressure to decide today.
-- legit: an ordinary ad by a genuine private seller: a plausible price, specific honest details (including flaws),
-  pickup or the platform's own payment and buyer protection, a seller with a history on the platform.
-- unsure: the page does not give enough to decide.
-
-Do not use "junk" for ads. A single weak sign (a new account alone, a low price alone) is not enough for scam.
-Judge only from the page. Prefer "unsure" over guessing; confidence must reflect real certainty (0-1).\
-"""
-
-SERVICE_RUBRIC = """\
-You label pages of service providers (plumbers, locksmiths, electricians, cleaners, removals, roofers, pest control
-...) for a consumer-protection test set: a company's own website, or its profile on a platform such as Werkspot,
-Thumbtack or Angi. Read the page and choose ONE label:
-
-- scam: likely a rogue or fake trader. Typical signs: a fake "local" business that is really one call centre
-  behind many city pages ("Locksmith <city>", the same national or premium number everywhere), no verifiable
-  company identity (no address, no KvK or licence number where one would be expected, or an identity that does
-  not fit), bait prices ("call-out from 0", "$19 service call") with vague real rates, cash or payment up front,
-  "there within 15 minutes, 24/7, everywhere", generic or templated reviews, stock photos.
-- legit: a genuine business with its own identity: a real address and history, a company or licence number,
-  clear prices or written quotes, a plausible service area, specific work and reviews.
-- unsure: the page does not give enough to decide.
-
-Do not use "junk" for service providers. Missing one detail (no street address for a mobile trade) is not enough
-for scam. Judge only from the page. Prefer "unsure" over guessing; confidence must reflect real certainty (0-1).\
-"""
-
-RUBRICS: dict[str, str] = {
-    "p2p_listing": P2P_RUBRIC,
-    "service_site": SERVICE_RUBRIC,
-    "service_listing": SERVICE_RUBRIC,
-}
-
-
-class Opinion(BaseModel):
-    """The labeller's verdict on one page."""
-
-    label: Literal["legit", "junk", "scam", "unsure"] = Field(description="The single best label.")
-    confidence: float = Field(ge=0, le=1, description="Certainty in the label, 0-1.")
-    reason: str = Field(description="One sentence citing the decisive evidence on the page.")
 
 
 def unreliable(label: str | None) -> bool | None:

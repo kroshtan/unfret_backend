@@ -194,3 +194,43 @@ export function resultNodes(result, { band, label, symbol }) {
   }
   return { nodes };
 }
+
+/**
+ * A quick result's suggestion of a deep check, as plain data, or null: only when the server suggests one (an older
+ * server, a deep result, a page that couldn't be assessed have none). The words are the server's.
+ */
+export function deepHintOf(result) {
+  const offer = result?.verdict?.deep_check;
+  if (result?.tier !== "quick" || !offer?.suggested || !offer.text) return null;
+  const action = offer.action === "run_deep" ? "run_deep" : "get_checks";
+  return {
+    text: offer.text,
+    cost: offer.cost ?? "",
+    action,
+    label: offer.action_label || (action === "run_deep" ? "Run a deep check" : "Get checks"),
+    quiet: offer.quiet === true,
+  };
+}
+
+/** The suggestion as a section with one real button (`run`) or a link to `checkoutHref`. */
+export function deepHintNode(hint, { run, checkoutHref }) {
+  const box = el("section", hint.quiet ? "deep-hint quiet" : "deep-hint");
+  const text = el("p", undefined, hint.text);
+  text.id = "deep-hint-text";
+  box.setAttribute("aria-labelledby", text.id);
+  box.append(text);
+  if (hint.cost) box.append(el("p", "cost", hint.cost));
+  const row = el("p", "buttons");
+  if (hint.action === "run_deep") {
+    const button = el("button", undefined, hint.label);
+    button.type = "button";
+    button.addEventListener("click", run);
+    row.append(button);
+  } else {
+    const link = el("a", "button", hint.label);
+    link.href = checkoutHref;
+    row.append(link);
+  }
+  box.append(row);
+  return box;
+}

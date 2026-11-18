@@ -1115,3 +1115,17 @@ and clients show what is there.
   agentcash discovery spec register paid calls from it; the 402 still has the exact amounts.
 - The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
   before an agent buys). Clients don't parse it.
+
+## Changes (`/v1/check`: the 402 before body validation; backwards-compatible)
+
+- A `POST /v1/check` without `PAYMENT-SIGNATURE` and without `Authorization: Bearer …` now always answers the x402
+  `402` with `PAYMENT-REQUIRED`, whatever the body: none, empty, not JSON, or not a valid check request (it was a
+  `422 VALIDATION_ERROR`). x402 directories (x402scan, x402-list.com) probe without a body first and read the price
+  from that 402. The tier priced is the body's `tier` when it is `quick` or `deep`, else `quick` (the default), so
+  such a 402 is byte for byte the one a valid request for that tier gets, `resource` and Base's `extensions.bazaar`
+  included. The 402 of a valid request is unchanged.
+- With a payment or a pass the body is validated first, as before (`422 VALIDATION_ERROR`); nothing is verified,
+  settled or charged for an invalid body.
+- The OpenAPI document (snapshot updated) has `info.contact.email` (`hello@unfret.net`) and a top-level
+  `x-agentcash-guidance: {"llmsTxtUrl": "<base URL>/llms.txt"}`, which x402scan reads; `POST /v1/check`'s description
+  says that the 402 comes first. Request and response schemas are unchanged.

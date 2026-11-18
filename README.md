@@ -621,7 +621,8 @@ pass, `POST /v1/keys`) in place of a payment, charged like `/v1/analyze`: a deep
 per pass), and a cached answer costs a deep check like a fresh one, except for the pass that paid for that listing
 within the hour. A page that can't be read, assessed or analysed is given back. The verdict is the same, plus
 `charged`, `free_check`, `balance_usd_micros` and `free_checks_left`; no `PAYMENT-RESPONSE`. A request that carries
-`PAYMENT-SIGNATURE` is always an x402 payment, and one without either header still gets the `402` above. A
+`PAYMENT-SIGNATURE` is always an x402 payment, and one without either header gets the `402` above whatever its body
+(even none, as directories probe); the body is validated (`422`) only with a payment or a pass. A
 **developer pass** (`POST /v1/keys` with `"developer": true`) comes with `UNFRET_DEVELOPER_FREE_CHECKS` (20) free deep
 checks, one a day per visitor network.
 
@@ -634,7 +635,7 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass: fix it, or pay with x402 |
 | `INSUFFICIENT_CREDITS` | 402 | no | the pass has no checks left: top it up, or pay with x402 |
 | `FREE_CHECKS_PAUSED` | 429 | no | the pass has only free checks and today's are used: after 00:00 UTC, or pay |
-| `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`) |
+| `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`); checked only with a payment or a pass |
 | `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |
 | `PAGE_BLOCKED` | 422 | no | the page is a bot check: send the real page as page_content |
 | `RATE_LIMITED` | 429 | no | wait Retry-After seconds |

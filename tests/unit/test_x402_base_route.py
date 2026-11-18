@@ -112,6 +112,27 @@ async def test_solana_only_clients_see_no_change_while_base_is_off(
     assert paid.status_code == 200
 
 
+async def test_without_a_body_the_402_offers_base_with_its_bazaar_metadata(both: httpx.AsyncClient) -> None:
+    valid = await both.post("/v1/check", json=BODY)
+    no_body = await both.post("/v1/check")
+
+    assert no_body.status_code == 402
+    assert (no_body.headers["PAYMENT-REQUIRED"], no_body.content) == (valid.headers["PAYMENT-REQUIRED"], valid.content)
+    required = decode_header(no_body.headers["PAYMENT-REQUIRED"])
+    assert required["resource"]["url"].endswith("/v1/check") and "bazaar" in required["extensions"]
+
+
+async def test_a_base_payment_with_an_invalid_body_is_a_422_and_never_settled(
+    both: httpx.AsyncClient, facilitator: FakeFacilitator, graph: FakeGraph
+) -> None:
+    header = base_header((await offered(both))[-1])  # the Base option
+
+    response = await both.post("/v1/check", json={"tier": "quick"}, headers={"PAYMENT-SIGNATURE": header})
+
+    assert (response.status_code, response.json()["error_code"]) == (422, "VALIDATION_ERROR")
+    assert (facilitator.requests, graph.calls) == ([], [])
+
+
 async def test_base_alone_when_solana_is_off(base_only: httpx.AsyncClient) -> None:
     (option,) = await offered(base_only)
     assert option["network"] == NETWORK

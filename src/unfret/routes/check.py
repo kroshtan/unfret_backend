@@ -20,13 +20,14 @@ import json
 import re
 import time
 import traceback
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from decimal import Decimal
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
 from unfret import __version__, verdict_store
@@ -360,47 +361,115 @@ def _payment_info() -> dict[str, Any]:
     }
 
 
-@router.post(
-    "/v1/check",
-    response_model=Verdict,
-    responses={
-        401: {"description": "Not a valid Unfret pass (only with Authorization)"},
-        402: {"description": "Payment required (x402), or the pass has no checks left"},
-    },
-    openapi_extra={"x-payment-info": _payment_info()},
-)
-async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0911
+def _offers_payment(request: Request) -> bool:
+    """
+    Whether a ``/v1/check`` request pays: an x402 payment (``PAYMENT-SIGNATURE``) or an Unfret pass (a bearer token).
+
+    :param request: The incoming request.
+    :return: True if it does; its body is then validated (422) before anything else.
+    """
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    return bool(request.headers.get(PAYMENT_SIGNATURE)) or (scheme.lower() == "bearer" and bool(token.strip()))
+
+
+def _tier_of(raw: bytes) -> Tier:
+    """
+    The tier an unvalidated body asks for, to price an unpaid request's 402.
+
+    :param raw: The request body, whatever it is.
+    :return: Its ``tier`` when that's a tier, else the default (quick), as for a valid body without one.
+    """
+    try:
+        sent = json.loads(raw)
+    except ValueError:  # not JSON (or not UTF-8), or empty
+        return "quick"
+    tier = sent.get("tier") if isinstance(sent, dict) else None
+    return "deep" if tier == "deep" else "quick"
+
+
+class PaymentFirstRoute(APIRoute):
+    """
+    ``POST /v1/check``: a request without a payment or a pass gets the 402 whatever its body, before validation.
+
+    x402 directories (x402scan, x402-list.com) probe without a body first and read the price from the 402. The body is
+    only validated (422) once a payment or a pass comes with it, so nothing is ever charged for an invalid body.
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        """
+        FastAPI's handler (validation, then the endpoint), behind the unpaid shortcut.
+
+        :return: The handler.
+        """
+        validate_and_check = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            if _offers_payment(request):
+                return await validate_and_check(request)
+            return await _x402_check(None, _tier_of(await request.body()), request)
+
+        return handler
+
+
+async def check(body: CheckRequest, request: Request) -> Response:
     """
     Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
 
     Retrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an
     Unfret pass as ``Authorization: Bearer ufk_…`` instead of paying: charged like ``POST /v1/analyze`` (a deep check
     uses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,
-    ``free_check``, ``balance_usd_micros`` and ``free_checks_left``.
+    ``free_check``, ``balance_usd_micros`` and ``free_checks_left``. Without a payment or a pass the answer is the 402,
+    whatever the body; the body is validated (422) only with one.
 
     :param body: URL, optional page HTML, tier and policy.
     :param request: The incoming request (payment header or pass, app state).
     :return: The verdict, or an x402 payment-required / error response.
     """
-    ip = request.client.host if request.client else "unknown"
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if not request.headers.get(PAYMENT_SIGNATURE) and scheme.lower() == "bearer" and token.strip():
         # A pass is limited per pass rather than per network (agents behind one host, e.g. a hosted MCP client).
         from unfret.routes import check_pass  # noqa: PLC0415 - it imports analyze → auth → this module
 
         return await check_pass.pass_check(body, request, token.strip())
+    return await _x402_check(body, body.tier, request)
+
+
+router.add_api_route(
+    "/v1/check",
+    check,
+    methods=["POST"],
+    response_model=Verdict,
+    responses={
+        401: {"description": "Not a valid Unfret pass (only with Authorization)"},
+        402: {"description": "Payment required (x402), or the pass has no checks left"},
+    },
+    openapi_extra={"x-payment-info": _payment_info()},
+    route_class_override=PaymentFirstRoute,
+)
+
+
+async def _x402_check(body: CheckRequest | None, tier: Tier, request: Request) -> Response:  # noqa: PLR0911
+    """
+    The x402 side of ``/v1/check``: the 402 without a payment, else verify the payment and run the paid check.
+
+    :param body: The validated body, or None for a request without a payment (only its 402 is possible).
+    :param tier: The tier to price (the body's, or :func:`_tier_of` the raw body's).
+    :param request: The incoming request.
+    :return: The verdict, or an x402 payment-required / error response.
+    """
+    ip = request.client.host if request.client else "unknown"
     if (wait := _rate.retry_after(ip)) is not None:
         return rate_limited(wait)
     x402, base = get_x402(request), get_x402_base(request)
     solana_ok = (await x402.health()).status == "ok"
-    base_accepts = await base.accepts(body.tier)
+    base_accepts = await base.accepts(tier)
     if not solana_ok and not base_accepts:
         return JSONResponse(
             {"detail": "Payments are not available right now.", "error_code": "SERVICE_UNAVAILABLE"}, status_code=503
         )
 
     # Solana's options first (unchanged for clients that only know Solana), then Base's.
-    accepts = (await x402.accepts(body.tier) if solana_ok else []) + base_accepts
+    accepts = (await x402.accepts(tier) if solana_ok else []) + base_accepts
     if not accepts:
         return JSONResponse(
             {"detail": "No payment option can be priced right now; retry shortly.", "error_code": "PRICE_UNAVAILABLE"},
@@ -408,7 +477,7 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0
             headers={"Retry-After": "30"},
         )
     header = request.headers.get(PAYMENT_SIGNATURE)
-    if not header:
+    if not header or body is None:
         return _payment_required(accepts, f"{PAYMENT_SIGNATURE} header is required")
 
     try:
@@ -420,7 +489,7 @@ async def check(body: CheckRequest, request: Request) -> Response:  # noqa: PLR0
             )
         if not solana_ok:  # not a payment on Base, and Solana is off: nothing it could match
             return _payment_required(accepts, "requirements_mismatch")
-        pre = x402.precheck(header, body.tier, accepts)
+        pre = x402.precheck(header, tier, accepts)
     except PaymentError as exc:
         if exc.malformed:
             return JSONResponse({"detail": exc.reason, "error_code": "INVALID_PAYMENT"}, status_code=400)
@@ -832,7 +901,7 @@ ERRORS: dict[str, tuple[int, str, str]] = {
     "INVALID_API_KEY": (401, "no", "the Authorization header isn't a valid Unfret pass: fix it, or pay with x402"),
     "INSUFFICIENT_CREDITS": (402, "no", "the pass has no checks left: top it up, or pay with x402"),
     "FREE_CHECKS_PAUSED": (429, "no", "the pass has only free checks and today's are used: after 00:00 UTC, or pay"),
-    "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`)"),
+    "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`); checked only with a payment or a pass"),
     "PAGE_UNAVAILABLE": (422, "no", "the page couldn't be fetched: send page_content"),
     "PAGE_BLOCKED": (422, "no", "the page is a bot check: send the real page as page_content"),
     "RATE_LIMITED": (429, "no", "wait Retry-After seconds"),
@@ -1060,7 +1129,8 @@ in lamports (SOL) on every option, USDC included, because the fee is paid in SOL
 converted at the SOL/USD quote (`extra.feeCapNote`). A refused payment answers 402 again with `error` (why) and, when
 the payment's simulation failed, `reason` (e.g. `insufficient_funds`, `source_token_account_missing`,
 `blockhash_not_found`). A page we can't fetch costs nothing. Retrying with the same PAYMENT-SIGNATURE returns the
-same answer and is never charged twice.
+same answer and is never charged twice. Without a payment (or a pass) the answer is this 402 whatever the body,
+even none; the body is validated (422) once a payment or a pass comes with it, and an invalid one is never charged.
 {_llms_base(d)}
 ## Or pay with an Unfret pass
 

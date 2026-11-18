@@ -385,7 +385,7 @@ async def test_the_402_says_what_the_check_is_for(client: httpx.AsyncClient) -> 
 
 
 async def test_every_error_has_an_error_code(client: httpx.AsyncClient) -> None:
-    invalid = await client.post("/v1/check", json={"tier": "quick"})  # no url
+    invalid = await client.post("/v1/check", json={"tier": "quick"}, headers={"PAYMENT-SIGNATURE": paid_header()})
     assert invalid.status_code == 422
     assert invalid.json()["error_code"] == "VALIDATION_ERROR"
     assert invalid.json()["errors"][0]["loc"] == ["body", "url"]
@@ -393,6 +393,75 @@ async def test_every_error_has_an_error_code(client: httpx.AsyncClient) -> None:
     assert (missing.status_code, missing.json()["error_code"]) == (404, "NOT_FOUND")
     unpaid = await client.post("/v1/check", json=BODY)
     assert unpaid.json()["error_code"] == "PAYMENT_REQUIRED"
+
+
+# Bodies a directory probe (x402scan, x402-list.com) or a careless client may send: none, empty, not JSON, not an
+# object, not a check request.
+BAD_BODIES: dict[str, dict[str, Any]] = {
+    "no body": {},
+    "empty body": {"content": b"", "headers": {"Content-Type": "application/json"}},
+    "malformed JSON": {"content": b'{"url": ', "headers": {"Content-Type": "application/json"}},
+    "not UTF-8": {"content": b"\xff\xfe", "headers": {"Content-Type": "application/json"}},
+    "not JSON at all": {"content": b"url=https://shop.test", "headers": {"Content-Type": "text/plain"}},
+    "a list": {"json": [BODY]},
+    "no url": {"json": {"tier": "quick"}},
+    "an invalid url field": {"json": {**BODY, "url": 42}},
+    "an unknown policy": {"json": {**BODY, "policy": "reckless"}},
+}
+
+
+@pytest.mark.parametrize("bad", BAD_BODIES.values(), ids=BAD_BODIES.keys())
+async def test_without_payment_any_body_gets_the_402_of_a_valid_request(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, bad: dict[str, Any]
+) -> None:
+    valid = await client.post("/v1/check", json=BODY)
+    response = await client.post("/v1/check", **bad)
+
+    assert response.status_code == 402
+    # Byte for byte the 402 of a valid (quick, the default tier) request: same price, resource and options.
+    assert response.headers["PAYMENT-REQUIRED"] == valid.headers["PAYMENT-REQUIRED"]
+    assert response.content == valid.content
+    assert (graph.calls, rpc.simulated, rpc.sent) == ([], [], [])
+
+
+async def test_an_invalid_body_that_asks_for_deep_is_priced_as_deep(client: httpx.AsyncClient) -> None:
+    deep = await client.post("/v1/check", json={**BODY, "tier": "deep"})
+    no_url = await client.post("/v1/check", json={"tier": "deep"})
+
+    assert no_url.status_code == 402
+    assert no_url.headers["PAYMENT-REQUIRED"] == deep.headers["PAYMENT-REQUIRED"]
+    assert decode_header(no_url.headers["PAYMENT-REQUIRED"])["accepts"][0]["amount"] == str(DEEP_LAMPORTS)
+
+
+async def test_an_unpaid_request_without_a_body_is_rate_limited_too(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("unfret.routes.check._rate", RateLimit(1))
+    assert (await client.post("/v1/check")).status_code == 402
+    assert (await client.post("/v1/check")).status_code == 429
+
+
+@pytest.mark.parametrize("bad", BAD_BODIES.values(), ids=BAD_BODIES.keys())
+async def test_with_a_payment_an_invalid_body_is_a_422_and_costs_nothing(
+    client: httpx.AsyncClient, rpc: FakeRpc, graph: FakeGraph, bad: dict[str, Any]
+) -> None:
+    headers = {**bad.get("headers", {}), "PAYMENT-SIGNATURE": paid_header()}
+    response = await client.post("/v1/check", **{**bad, "headers": headers})
+
+    assert (response.status_code, response.json()["error_code"]) == (422, "VALIDATION_ERROR")
+    assert (graph.calls, rpc.simulated, rpc.sent) == ([], [], [])
+
+
+@pytest.mark.parametrize("bad", BAD_BODIES.values(), ids=BAD_BODIES.keys())
+async def test_with_a_pass_an_invalid_body_is_a_422_before_the_pass_is_looked_up(
+    client: httpx.AsyncClient, graph: FakeGraph, bad: dict[str, Any]
+) -> None:
+    # No database here: a 422 proves the body was refused before the pass was authenticated or charged.
+    headers = {**bad.get("headers", {}), "Authorization": "Bearer ufk_not-looked-up"}
+    response = await client.post("/v1/check", **{**bad, "headers": headers})
+
+    assert (response.status_code, response.json()["error_code"]) == (422, "VALIDATION_ERROR")
+    assert graph.calls == []
 
 
 async def test_the_402_states_what_a_payment_must_look_like(client: httpx.AsyncClient) -> None:

@@ -69,6 +69,9 @@ class Model:
     coefficients: list[float]
     intercept: float
     calibration: list[tuple[float, float]]  # isotonic (raw probability, calibrated) points, ascending
+    # The shopper's "Worth a look" needs a reason with this scorer (artifact key ``verdict_needs_reason``, see
+    # :func:`unfret.shopper.build`): measured per scorer, since a weaker scorer leaves more scams at that band.
+    needs_reason: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Model:
@@ -90,6 +93,7 @@ class Model:
             coefficients=[float(v) for v in data["coefficients"]],
             intercept=float(data["intercept"]),
             calibration=[(float(x), float(y)) for x, y in data.get("calibration", [])],
+            needs_reason=bool(data.get("verdict_needs_reason", False)),
         )
 
     def contributions(self, features: dict[str, float]) -> list[float]:

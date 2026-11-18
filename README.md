@@ -27,19 +27,19 @@ Think twice, Serious concerns), and an LLM writes the explanation from the signa
 
 ## How accurate it is
 
-Measured on Unfret's labelled corpus of **1,582 product pages** (scam shops, junk and dropshipping, and legitimate
-shops and listings), each replayed through the analysis and scored by the open baseline model in this repository.
-**ROC AUC 0.897.**
+Measured on Unfret's labelled corpus of **1,762 product pages** (scam shops, junk and dropshipping, and legitimate
+shops and listings, among them a golden set of well-known sellers' pages), each replayed through the analysis and
+scored by the open baseline model in this repository. **ROC AUC 0.917.**
 
 | Verdict | Pages | Scam or junk among them |
 | --- | --- | --- |
-| Serious concerns | 282 | 95% |
-| Think twice | 423 | 82% |
-| Worth a look | 404 | 46% |
-| Looks fine | 464 | 7% |
+| Serious concerns | 278 | 96% |
+| Think twice | 415 | 83% |
+| Worth a look | 430 | 44% |
+| Looks fine | 629 | 5% |
 
-Think twice or Serious concerns catches 74% of the scam and junk pages, and 12% of the legitimate pages get one
-(false alarms); Serious concerns alone catches 32%, with 2% false alarms. The corpus includes the pages the model was
+Think twice or Serious concerns catches 73% of the scam and junk pages, and 9% of the legitimate pages get one
+(false alarms); Serious concerns alone catches 32%, with 1% false alarms. The corpus includes the pages the model was
 trained on, so expect somewhat lower numbers on pages it has never seen. It covers product pages only (not ads or
 service providers), and the corpus itself is private (see below). The method, ads and tradespeople, false alarms per
 market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
@@ -63,7 +63,19 @@ run but not retrained from this repository alone. `/v1/health` names the scorers
 make train TRAIN_ARGS="--ship C"            # → $UNFRET_CORPUS_DIR/models/<version>/model.json and RELEASE.md
 make train TRAIN_ARGS="--ship C --quick"    # the quick tier's own scorer (optional)
 UNFRET_MODEL_PATH=…/models/<version>/model.json make accuracy   # replay your corpus with it (→ accuracy.json there)
+UNFRET_MODEL_PATH=… UNFRET_MODEL_QUICK_PATH=… make golden GOLDEN_ARGS="--replay --split test"   # false alarms
 ```
+
+`make golden` measures both tiers on the corpus's **golden set** (`evals/sources/golden.py`: product pages of
+well-known, legitimate sellers, from a seed list kept in the corpus) against a fixed rule: no "Serious concerns", and
+under 5% "Worth a look" or worse, with the reasons and flags behind each failure. Every scorer version is run
+through it before release.
+
+A retrained scorer can also say that with it, "Worth a look" needs a reason to show (`--needs-reason`, the artifact's
+`verdict_needs_reason`): a page it scores in that band with no reason, or only something missing from the page, then
+reads "Looks fine", and the quick tier's needs a concrete reason (`unfret.shopper.build`). Whether that pays is
+measured per scorer, on the golden set and the corpus replay; the open baseline doesn't set it (with its weaker
+scorer it would call too many scam pages "Looks fine").
 
 Then point the server at the files: `UNFRET_MODEL_PATH` for analyses and deep checks, `UNFRET_MODEL_QUICK_PATH` for
 the quick tier (in Docker, mount them read-only, e.g. `-v /srv/scorer:/app/private-model:ro` and
@@ -902,6 +914,7 @@ make vat-rates-check   # vendored EU VAT rates and Cloudflare ranges vs their so
 make safety-gate       # add the EU Safety Gate's new weekly reports to the vendored index (safety-gate-check: CI, monthly)
 make run               # uvicorn with auto-reload
 make train             # retrain the scorer into the model store outside the repository (see The model)
+make golden            # false alarms on well-known sellers' pages, both tiers (the corpus's golden set; see The model)
 ```
 
 Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection, x402

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-17",
+  "generated": "2026-11-18",
   "scorer_version": "v1-20261109-222323-C",
   "llm_model": "mistral-small-3.2-24b-instruct-2506",
   "replay": {
@@ -8,7 +8,7 @@
     "network_lookups": false
   },
   "corpus": {
-    "pages": 2461,
+    "pages": 2641,
     "unlabelled_set_aside": 413,
     "kinds": {
       "ad": {
@@ -17,13 +17,13 @@
         "unreliable": 147
       },
       "marketplace_product": {
-        "pages": 339,
-        "legit": 155,
+        "pages": 347,
+        "legit": 163,
         "unreliable": 184
       },
       "shop": {
-        "pages": 1243,
-        "legit": 586,
+        "pages": 1415,
+        "legit": 758,
         "unreliable": 657
       },
       "trade_profile": {
@@ -43,8 +43,8 @@
         "unreliable": 253
       },
       "established_business": {
-        "pages": 425,
-        "legit": 425
+        "pages": 605,
+        "legit": 605
       },
       "research_dataset": {
         "pages": 826,
@@ -64,12 +64,13 @@
         "us": 56
       },
       "marketplace_product": {
-        "us": 339
+        "eu": 5,
+        "us": 342
       },
       "shop": {
-        "eu": 632,
+        "eu": 695,
         "other": 19,
-        "us": 592
+        "us": 701
       },
       "trade_profile": {
         "eu": 166,
@@ -81,8 +82,8 @@
       }
     },
     "split": {
-      "train": 1740,
-      "test": 721
+      "train": 1866,
+      "test": 775
     },
     "synthetic": 957,
     "second_opinion_agreed": 2102
@@ -90,16 +91,16 @@
   "groups": {
     "products": {
       "coverage": {
-        "labelled": 1582,
-        "scored": 1562,
+        "labelled": 1762,
+        "scored": 1742,
         "not_assessed": 0,
         "missing_recordings": 20,
         "without_llm_read": 0
       },
       "per_class": {
         "product": {
-          "labelled": 1582,
-          "scored": 1562,
+          "labelled": 1762,
+          "scored": 1742,
           "not_assessed": 0,
           "missing_recordings": 20,
           "without_llm_read": 0
@@ -111,52 +112,52 @@
       },
       "scored_by_label_origin": {
         "consumer_authority": 158,
-        "established_business": 256,
+        "established_business": 436,
         "research_dataset": 809,
         "synthetic": 339
       },
-      "scored": 1562,
+      "scored": 1742,
       "unreliable": 826,
-      "legit": 736,
+      "legit": 916,
       "bands": {
         "reliable": {
-          "pages": 460,
-          "unreliable": 31,
-          "legit": 429,
-          "unreliable_share": 0.067,
-          "share_of_unreliable": 0.038,
-          "share_of_legit": 0.583
+          "pages": 625,
+          "unreliable": 32,
+          "legit": 593,
+          "unreliable_share": 0.051,
+          "share_of_unreliable": 0.039,
+          "share_of_legit": 0.647
         },
         "concerns": {
-          "pages": 402,
-          "unreliable": 186,
-          "legit": 216,
-          "unreliable_share": 0.463,
-          "share_of_unreliable": 0.225,
-          "share_of_legit": 0.293
+          "pages": 429,
+          "unreliable": 189,
+          "legit": 240,
+          "unreliable_share": 0.441,
+          "share_of_unreliable": 0.229,
+          "share_of_legit": 0.262
         },
         "careful": {
-          "pages": 420,
-          "unreliable": 344,
-          "legit": 76,
-          "unreliable_share": 0.819,
-          "share_of_unreliable": 0.416,
-          "share_of_legit": 0.103
+          "pages": 412,
+          "unreliable": 341,
+          "legit": 71,
+          "unreliable_share": 0.828,
+          "share_of_unreliable": 0.413,
+          "share_of_legit": 0.078
         },
         "junk_or_scam": {
-          "pages": 280,
-          "unreliable": 265,
-          "legit": 15,
-          "unreliable_share": 0.946,
-          "share_of_unreliable": 0.321,
-          "share_of_legit": 0.02
+          "pages": 276,
+          "unreliable": 264,
+          "legit": 12,
+          "unreliable_share": 0.957,
+          "share_of_unreliable": 0.32,
+          "share_of_legit": 0.013
         }
       },
-      "caught": 0.737,
-      "caught_with_worth_a_look": 0.962,
-      "warning_precision": 0.87,
-      "legit_warned": 0.124,
-      "roc_auc": 0.897
+      "caught": 0.732,
+      "caught_with_worth_a_look": 0.961,
+      "warning_precision": 0.879,
+      "legit_warned": 0.091,
+      "roc_auc": 0.918
     },
     "ads": {
       "coverage": {
@@ -301,39 +302,39 @@
   },
   "products_test_only": {
     "coverage": {
-      "labelled": 457,
-      "scored": 451,
+      "labelled": 511,
+      "scored": 505,
       "not_assessed": 0,
       "missing_recordings": 6,
       "without_llm_read": 0
     },
-    "scored": 451,
+    "scored": 505,
     "unreliable": 233,
-    "legit": 218,
+    "legit": 272,
     "bands": {
       "reliable": {
-        "pages": 146,
+        "pages": 194,
         "unreliable": 12,
-        "legit": 134,
-        "unreliable_share": 0.082,
+        "legit": 182,
+        "unreliable_share": 0.062,
         "share_of_unreliable": 0.052,
-        "share_of_legit": 0.615
+        "share_of_legit": 0.669
       },
       "concerns": {
-        "pages": 125,
-        "unreliable": 61,
-        "legit": 64,
-        "unreliable_share": 0.488,
-        "share_of_unreliable": 0.262,
-        "share_of_legit": 0.294
+        "pages": 134,
+        "unreliable": 62,
+        "legit": 72,
+        "unreliable_share": 0.463,
+        "share_of_unreliable": 0.266,
+        "share_of_legit": 0.265
       },
       "careful": {
-        "pages": 111,
-        "unreliable": 91,
-        "legit": 20,
-        "unreliable_share": 0.82,
-        "share_of_unreliable": 0.391,
-        "share_of_legit": 0.092
+        "pages": 108,
+        "unreliable": 90,
+        "legit": 18,
+        "unreliable_share": 0.833,
+        "share_of_unreliable": 0.386,
+        "share_of_legit": 0.066
       },
       "junk_or_scam": {
         "pages": 69,
@@ -344,90 +345,90 @@
         "share_of_legit": 0.0
       }
     },
-    "caught": 0.687,
+    "caught": 0.682,
     "caught_with_worth_a_look": 0.948,
-    "warning_precision": 0.889,
-    "legit_warned": 0.092,
-    "roc_auc": 0.905
+    "warning_precision": 0.898,
+    "legit_warned": 0.066,
+    "roc_auc": 0.919
   },
   "products_checks_off": {
     "coverage": {
-      "labelled": 1582,
-      "scored": 1572,
+      "labelled": 1762,
+      "scored": 1752,
       "not_assessed": 9,
       "missing_recordings": 1,
       "without_llm_read": 0
     },
-    "scored": 1572,
+    "scored": 1752,
     "unreliable": 832,
-    "legit": 740,
+    "legit": 920,
     "bands": {
       "reliable": {
-        "pages": 464,
-        "unreliable": 32,
-        "legit": 432,
-        "unreliable_share": 0.069,
-        "share_of_unreliable": 0.038,
-        "share_of_legit": 0.584
+        "pages": 629,
+        "unreliable": 33,
+        "legit": 596,
+        "unreliable_share": 0.052,
+        "share_of_unreliable": 0.04,
+        "share_of_legit": 0.648
       },
       "concerns": {
-        "pages": 403,
-        "unreliable": 187,
-        "legit": 216,
-        "unreliable_share": 0.464,
-        "share_of_unreliable": 0.225,
-        "share_of_legit": 0.292
+        "pages": 430,
+        "unreliable": 190,
+        "legit": 240,
+        "unreliable_share": 0.442,
+        "share_of_unreliable": 0.228,
+        "share_of_legit": 0.261
       },
       "careful": {
-        "pages": 423,
-        "unreliable": 346,
-        "legit": 77,
-        "unreliable_share": 0.818,
-        "share_of_unreliable": 0.416,
-        "share_of_legit": 0.104
+        "pages": 415,
+        "unreliable": 343,
+        "legit": 72,
+        "unreliable_share": 0.827,
+        "share_of_unreliable": 0.412,
+        "share_of_legit": 0.078
       },
       "junk_or_scam": {
-        "pages": 282,
-        "unreliable": 267,
-        "legit": 15,
-        "unreliable_share": 0.947,
-        "share_of_unreliable": 0.321,
-        "share_of_legit": 0.02
+        "pages": 278,
+        "unreliable": 266,
+        "legit": 12,
+        "unreliable_share": 0.957,
+        "share_of_unreliable": 0.32,
+        "share_of_legit": 0.013
       }
     },
-    "caught": 0.737,
-    "caught_with_worth_a_look": 0.962,
-    "warning_precision": 0.87,
-    "legit_warned": 0.124,
-    "roc_auc": 0.897
+    "caught": 0.732,
+    "caught_with_worth_a_look": 0.96,
+    "warning_precision": 0.879,
+    "legit_warned": 0.091,
+    "roc_auc": 0.917
   },
   "legit_shops": {
     "all": {
-      "pages": 581,
-      "warned": 91,
-      "warned_share": 0.157,
-      "worth_a_look": 203,
-      "worth_a_look_share": 0.349,
-      "serious": 15,
-      "serious_share": 0.026
+      "pages": 753,
+      "warned": 83,
+      "warned_share": 0.11,
+      "worth_a_look": 227,
+      "worth_a_look_share": 0.301,
+      "serious": 12,
+      "serious_share": 0.016
     },
     "eu": {
-      "pages": 387,
-      "warned": 67,
-      "warned_share": 0.173,
-      "worth_a_look": 134,
-      "worth_a_look_share": 0.346,
+      "pages": 450,
+      "warned": 68,
+      "warned_share": 0.151,
+      "worth_a_look": 140,
+      "worth_a_look_share": 0.311,
       "serious": 10,
-      "serious_share": 0.026
+      "serious_share": 0.022
     },
     "us": {
-      "pages": 190,
-      "warned": 23,
-      "warned_share": 0.121,
-      "worth_a_look": 69,
-      "worth_a_look_share": 0.363,
-      "serious": 5,
-      "serious_share": 0.026
+      "pages": 299,
+      "warned": 14,
+      "warned_share": 0.047,
+      "worth_a_look": 87,
+      "worth_a_look_share": 0.291,
+      "serious": 2,
+      "serious_share": 0.007
     }
   }
 }

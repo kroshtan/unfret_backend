@@ -3,7 +3,7 @@ Train the feature scorer on the corpus TRAIN split and evaluate it on TEST.
 
 Usage::
 
-    uv run python -m evals.train [--features <run>-features.jsonl] [--ship A|B|C|none]
+    uv run python -m evals.train [--features <run>-features.jsonl] [--ship A|B|C|none] [--quick] [--needs-reason]
 
 Features come from an evaluation run (``python -m evals.run --split all`` writes ``<stamp>-features.jsonl``).
 Three variants, because the marketplace labels were proposed by rules over listing statistics that some skills
@@ -19,10 +19,12 @@ model uses features the quick tier doesn't compute (e.g. network lookups).
 
 Each is a standardised logistic regression with its L2 regularisation chosen by cross-validation on TRAIN (the
 balanced log loss of the held-out folds), calibrated with isotonic regression on cross-validated TRAIN predictions,
-and scored once on TEST. Two guards keep it from learning how the corpus was collected rather than what a shop looks
+and scored once on TEST. Three guards keep it from learning how the corpus was collected rather than what a shop looks
 like: each coefficient is **sign-constrained** to the direction its feature can mean (:data:`FEATURE_SIGNS`), and a
 feature seen on fewer than :data:`MIN_SUPPORT` training pages gets no weight (one page is no evidence, and a pair of
-such columns let the fit trade huge opposite coefficients). A **source-prediction leakage test** checks, within each
+such columns let the fit trade huge opposite coefficients), and no feature may move the log-odds by more than
+:data:`MAX_UNIT_LOGIT` per unit (a rare feature that happens to separate the training labels would otherwise outweigh
+everything else on the page). A **source-prediction leakage test** checks, within each
 label, how well the features tell the corpus sources apart, and how the scorer does on the one source that holds
 both legit and scam pages. The calibration reweights
 the classes to a base rate of ``--prior`` (default 0.5): the corpus share of unreliable pages says how the corpus was
@@ -162,6 +164,10 @@ FEATURE_SIGNS: dict[str, int] = {
 }
 # A feature measured (non-zero) on fewer training pages than this gets no weight.
 MIN_SUPPORT = 5
+# The most one unit of a feature (a yes/no feature turning yes) may move the log-odds. A rare feature that happens to
+# separate the training labels (a US street address on six legit pages and no scam page) otherwise gets whatever
+# weight the regularisation leaves it: a step of hundreds of log-odds that no other evidence on the page can outweigh.
+MAX_UNIT_LOGIT = 3.0
 # The L2 strengths tried (sklearn's C: larger is weaker), the same range LogisticRegressionCV(Cs=12) searches.
 C_GRID = tuple(float(c) for c in np.logspace(-4, 4, 17))
 
@@ -263,25 +269,37 @@ def fit_logistic(
 
 
 def coefficient_bounds(
-    train: Dataset, names: list[str], signs: dict[str, int] | None = None, min_support: int = MIN_SUPPORT
+    train: Dataset,
+    names: list[str],
+    signs: dict[str, int] | None = None,
+    min_support: int = MIN_SUPPORT,
+    scales: np.ndarray | None = None,
 ) -> list[tuple[float | None, float | None]]:
     """
     Each coefficient's bounds: zero for a feature with too little support, else its sign from :data:`FEATURE_SIGNS`.
+
+    With ``scales`` (the standardisation's), each standardised coefficient is also kept within
+    ``±MAX_UNIT_LOGIT × scale``: one unit of the feature moves the log-odds by at most :data:`MAX_UNIT_LOGIT`.
 
     :param train: The training data (NaN = never measured).
     :param names: Its feature columns.
     :param signs: Expected signs; :data:`FEATURE_SIGNS` by default, ``{}`` for none.
     :param min_support: The fewest training pages a feature must be non-zero on to get weight.
+    :param scales: The columns' standardisation scales, or ``None`` for no cap.
     :return: ``(low, high)`` per column.
     """
     signs = FEATURE_SIGNS if signs is None else signs
     support = (np.nan_to_num(train.x) != 0).sum(axis=0)
+    caps = [None] * len(names) if scales is None else [MAX_UNIT_LOGIT * float(s) for s in scales]
     bounds: list[tuple[float | None, float | None]] = []
-    for name, n in zip(names, support.tolist(), strict=True):
+    for name, n, cap in zip(names, support.tolist(), caps, strict=True):
         if n < min_support:
             bounds.append((0.0, 0.0))
-        else:
-            bounds.append({1: (0.0, None), -1: (None, 0.0)}.get(signs.get(name, 0), (None, None)))
+            continue
+        sign = signs.get(name, 0)
+        low = 0.0 if sign == 1 else (-cap if cap is not None else None)
+        high = 0.0 if sign == -1 else cap
+        bounds.append((low, high))
     return bounds
 
 
@@ -313,7 +331,7 @@ def fit(
     scales = x.std(axis=0)
     scales[scales == 0] = 1.0
     z = (x - means) / scales
-    bounds = coefficient_bounds(train, names, signs, min_support)
+    bounds = coefficient_bounds(train, names, signs, min_support, scales)
     folds = list(StratifiedKFold(n_splits=5, shuffle=True, random_state=7).split(z, train.y))
     best: tuple[float, float, np.ndarray] | None = None
     for c in C_GRID:
@@ -549,7 +567,15 @@ def top_coefficients(model: Model, n: int = 12) -> list[tuple[str, float]]:
 
 
 def write_artifact(
-    model: Model, path: Path, *, features_file: str, train_n: int, prior: float, test: Dataset, corpus_root: Path
+    model: Model,
+    path: Path,
+    *,
+    features_file: str,
+    train_n: int,
+    prior: float,
+    test: Dataset,
+    corpus_root: Path,
+    needs_reason: bool = False,
 ) -> None:
     """
     Write a model's JSON artifact (what :func:`unfret.scoring.load_model` reads), with its provenance and TEST metrics.
@@ -561,6 +587,8 @@ def write_artifact(
     :param prior: The base rate its calibration assumes.
     :param test: The TEST split, in the model's feature columns.
     :param corpus_root: The corpus it was trained on (its commit is the data snapshot).
+    :param needs_reason: Mark it ``verdict_needs_reason``: with it the shopper's "Worth a look" needs a reason to show
+        (:func:`unfret.shopper.build`). Set it only for a scorer whose corpus replay and golden set show it pays.
     """
     metrics = evaluate(model, test, model.features)
     artifact = {
@@ -579,6 +607,8 @@ def write_artifact(
         },
         "test": {k: metrics[k] for k in ("roc_auc", "brier", "thresholds")},
     }
+    if needs_reason:
+        artifact["verdict_needs_reason"] = True
     path.write_text(json.dumps(artifact, indent=1) + "\n")
     release.write_note(path.parent)
 
@@ -654,6 +684,9 @@ def main() -> None:
     parser.add_argument(
         "--quick", action="store_true", help="train on the quick tier's skills only (UNFRET_MODEL_QUICK_PATH)"
     )
+    parser.add_argument(
+        "--needs-reason", action="store_true", help="the shopper's 'Worth a look' needs a reason with this scorer"
+    )
     args = parser.parse_args()
 
     corpus = Corpus()
@@ -710,6 +743,7 @@ def main() -> None:
             prior=args.prior,
             test=build(test_records, features, models[args.ship].features),
             corpus_root=corpus.root,
+            needs_reason=args.needs_reason,
         )
         report["artifact"] = str(out)
     dump_json(reports / f"scorer-{tag}{stamp}.json", report)

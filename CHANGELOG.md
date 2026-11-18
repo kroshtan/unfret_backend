@@ -32,6 +32,9 @@
   read now gets 20 s (`UNFRET_CONTENT_ATTEMPT_TIMEOUT_S`; normal reads take 2-14 s) and a runaway is tried once more,
   so both attempts fit within the step's time. The prompt and model settings are unchanged, so the evaluation's
   recorded responses still replay.
+* Plainer words: the home page's FAQ said Unfret answers "in one of four words" (it gives one of four answers), and
+  "it can be wrong, in both directions" on the home page, /about, /why and /terms now says what that means: it can
+  miss a bad shop, and it can warn about a good one.
 * **`/accuracy` says what its numbers count**: the product section names its pages as the shops' and marketplaces'
   product pages, part of all the test pages, with how many of the rest are ads and tradespeople; the side-by-side
   table shows the pages behind each share ("1.6% (12 of 753)"); "Earlier versions" no longer says there are none

@@ -116,7 +116,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     use_postgres_stores(api.db_pool)
     api.x402 = X402(settings)
     await api.x402.attach(api.db_pool)  # the outflow audit's cursor and uncleared alerts survive restarts
-    api.x402_base = BaseX402(settings)  # off unless UNFRET_X402_BASE_ENABLED and UNFRET_BASE_PAY_TO
+    api.x402_base = BaseX402(settings)  # off unless UNFRET_X402_BASE_ENABLED, its hot key and cold address are set
     await api.x402_base.attach(api.db_pool)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)

@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
@@ -2263,6 +2263,7 @@ source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
     { name = "beautifulsoup4" },
+    { name = "eth-account" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "langchain-core" },
@@ -2282,7 +2283,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "eth-account" },
     { name = "jsonschema" },
     { name = "mypy" },
     { name = "pre-commit" },
@@ -2300,6 +2300,7 @@ dev = [
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.32" },
     { name = "beautifulsoup4", specifier = ">=4.15" },
+    { name = "eth-account", specifier = ">=0.13" },
     { name = "fastapi", specifier = ">=0.162" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "langchain-core", specifier = "~=1.7.6" },
@@ -2319,7 +2320,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "eth-account", specifier = ">=0.13" },
     { name = "jsonschema", specifier = ">=4.23" },
     { name = "mypy", specifier = ">=2.4" },
     { name = "pre-commit", specifier = ">=4.7" },

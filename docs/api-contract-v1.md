@@ -1115,3 +1115,16 @@ and clients show what is there.
   agentcash discovery spec register paid calls from it; the 402 still has the exact amounts.
 - The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
   before an agent buys). Clients don't parse it.
+
+## Changes (x402 on Base: a hot wallet swept to cold; behind `UNFRET_X402_BASE_ENABLED`, still off)
+
+- Base's treasury now matches Solana's: `payTo` in the Base option of the 402 and in `/.well-known/x402` `networks` is
+  the Base hot wallet (the address of `UNFRET_X402_BASE_HOT_KEY`), which the server sweeps, as USDC, to the cold
+  address (`UNFRET_BASE_COLD_ADDRESS`). Clients pay exactly as before: whatever `payTo` the 402 names. With Base off
+  nothing changes, the 402 included.
+- `GET /v1/health/ready` with the operator token: `base_pay_to_usdc_units` becomes `base_hot_usdc_units`, and
+  `base_hot_eth_wei` (the hot wallet's ETH for the sweeps' gas) is new (snapshot updated). `x402_base_alerts` drops
+  `base_sweep_due` and gains `fee_reserve_low`, `usdc_above_threshold` and `sweep_failing` (as Solana's). The public
+  fields are unchanged.
+- `GET /v1/admin/x402/alerts`: `base` gains `cold` and `eth_wei`; a flag's `signature` is a transaction hash, or the
+  nonces (`nonce 3-4`) or blocks a flag covers.

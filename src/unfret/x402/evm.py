@@ -1,10 +1,11 @@
 """
 Base (EVM) constants, address checks and the few JSON-RPC calls x402 on Base needs.
 
-Unfret never signs anything on Base: the payer signs an EIP-3009 ``transferWithAuthorization`` for USDC, the
-facilitator submits it and pays the gas. The RPC here only reads: a settled transaction's receipt (to check what
-really moved), an authorization's state, the receiving address's USDC balance and the logs of its outgoing transfers
-and approvals (the outflow audit).
+Payments: the payer signs an EIP-3009 ``transferWithAuthorization`` for USDC, the facilitator submits it and pays the
+gas. The only transaction Unfret ever signs on Base is a sweep of the hot wallet's USDC to the cold address
+(``unfret.x402.evm_wallet``), paid for with the hot wallet's own ETH. The RPC here reads a settled transaction's
+receipt (to check what really moved), an authorization's state, the hot wallet's USDC, ETH, nonce and code, the logs
+of its outgoing transfers and approvals (the outflow audit) and the network's fees, and broadcasts signed sweeps.
 """
 
 import re
@@ -38,6 +39,7 @@ AUTHORIZATION_USED_TOPIC = (
 )
 AUTHORIZATION_STATE_SELECTOR = "0xe94a0102"  # authorizationState(address,bytes32)
 BALANCE_OF_SELECTOR = "0x70a08231"  # balanceOf(address)
+TRANSFER_SELECTOR = "0xa9059cbb"  # transfer(address,uint256)
 
 _ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 _BYTES32 = re.compile(r"^0x[0-9a-fA-F]{64}$")
@@ -268,6 +270,85 @@ class BaseRpc:
         """
         data = BALANCE_OF_SELECTOR + topic_address(owner)[2:]
         return word(str(await self.call("eth_call", [{"to": token, "data": data}, "latest"])))
+
+    async def eth_balance(self, owner: str) -> int:
+        """
+        An address's ETH balance at the latest block.
+
+        :param owner: The address.
+        :return: Wei.
+        """
+        return word(str(await self.call("eth_getBalance", [owner, "latest"])))
+
+    async def transaction_count(self, owner: str, block: int | str = "latest") -> int:
+        """
+        An address's nonce: how many transactions it has signed, as of a block (or ``"pending"``).
+
+        :param owner: The address.
+        :param block: A block number, ``"latest"`` or ``"pending"`` (which counts transactions waiting to be mined).
+        :return: The nonce.
+        """
+        tag = hex(block) if isinstance(block, int) else block
+        return word(str(await self.call("eth_getTransactionCount", [owner, tag])))
+
+    async def code(self, owner: str, block: int | str = "latest") -> str:
+        """
+        The code at an address (``0x`` for a plain account; an EIP-7702 delegation shows as ``0xef0100…``).
+
+        :param owner: The address.
+        :param block: A block number or ``"latest"``.
+        :return: The code, hex.
+        """
+        tag = hex(block) if isinstance(block, int) else block
+        return str(await self.call("eth_getCode", [owner, tag]) or "0x")
+
+    async def block_timestamp(self, block: int) -> int | None:
+        """
+        A block's time.
+
+        :param block: The block number.
+        :return: Unix seconds, or ``None`` if the block isn't known.
+        """
+        result = await self.call("eth_getBlockByNumber", [hex(block), False])
+        return word(str(result["timestamp"])) if isinstance(result, dict) and "timestamp" in result else None
+
+    async def base_fee(self) -> int:
+        """
+        The latest block's base fee per gas (EIP-1559).
+
+        :return: Wei per gas.
+        :raises RpcError: If the block has no base fee.
+        """
+        result = await self.call("eth_getBlockByNumber", ["latest", False])
+        if not isinstance(result, dict) or "baseFeePerGas" not in result:
+            raise RpcError("eth_getBlockByNumber: no base fee")
+        return word(str(result["baseFeePerGas"]))
+
+    async def max_priority_fee(self) -> int:
+        """
+        The node's suggested priority fee (tip) per gas.
+
+        :return: Wei per gas.
+        """
+        return word(str(await self.call("eth_maxPriorityFeePerGas", [])))
+
+    async def estimate_gas(self, tx: dict[str, Any]) -> int:
+        """
+        The gas a call would use, which also runs it against the latest state (a revert is an error).
+
+        :param tx: ``from``, ``to``, ``data``, ``value``.
+        :return: Gas units.
+        """
+        return word(str(await self.call("eth_estimateGas", [tx])))
+
+    async def send_raw(self, raw: str) -> str:
+        """
+        Broadcast a signed transaction.
+
+        :param raw: The signed transaction, ``0x`` hex.
+        :return: Its hash, as the node reports it (a refusal is an :class:`RpcError`, from :meth:`call`).
+        """
+        return str(await self.call("eth_sendRawTransaction", [raw]))
 
     async def logs(self, token: str, topics: list[Any], from_block: int, to_block: int) -> list[dict[str, Any]]:
         """

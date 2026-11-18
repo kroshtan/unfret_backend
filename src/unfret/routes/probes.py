@@ -79,5 +79,6 @@ async def ready(request: Request) -> Healthy:
         report.hot_usdc_units = x402.usdc_units
         report.x402_alerts = list(x402.alerts)
         report.x402_base_alerts = list(base.alerts)
-        report.base_pay_to_usdc_units = base.usdc_units
+        report.base_hot_usdc_units = base.usdc_units
+        report.base_hot_eth_wei = base.eth_wei
     return report

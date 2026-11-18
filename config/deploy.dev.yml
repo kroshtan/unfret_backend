@@ -26,8 +26,10 @@ env:
     # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
     UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"
     UNFRET_MODEL_QUICK_PATH: "<%= ENV.fetch('UNFRET_MODEL_QUICK_PATH', '') %>"
-    # x402 in USDC on Base Sepolia (testnet), off until DEV_BASE_PAY_TO and the facilitator's key exist (README,
-    # "USDC on Base"); then this flips to "true" in a PR. Mainnet stays refused here.
+    # x402 in USDC on Base Sepolia (testnet), off until DEV_BASE_HOT_KEY, DEV_BASE_COLD_ADDRESS and the facilitator's
+    # key exist (README, "USDC on Base"); then this flips to "true" in a PR. Mainnet stays refused here. After a change
+    # of DEV_BASE_COLD_ADDRESS the old one goes here, public: UNFRET_BASE_FORMER_COLD_ADDRESSES and
+    # UNFRET_BASE_FORMER_COLD_UNTIL (README, "Changing the Base cold address").
     UNFRET_X402_BASE_ENABLED: "false"
     UNFRET_BASE_NETWORK: base-sepolia
     UNFRET_X402_BASE_ALLOW_MAINNET: "false"
@@ -45,8 +47,10 @@ env:
     - UNFRET_POLAR_ENVIRONMENT
     - UNFRET_POLAR_PRODUCTS
     - UNFRET_FIAT_WEBHOOK_SECRET
-    # Optional: x402 on Base Sepolia (off while UNFRET_X402_BASE_ENABLED is "false" above). payTo and the cold
-    # address are public; the CDP API key is the facilitator's credential (Ed25519 secret).
+    # Optional: x402 on Base Sepolia (off while UNFRET_X402_BASE_ENABLED is "false" above). The hot key is payTo's
+    # key (a Sepolia-only key holding a little Sepolia ETH for the sweeps' gas); the cold address and the optional
+    # payTo check are public; the CDP API key is the facilitator's credential (Ed25519 secret).
+    - UNFRET_X402_BASE_HOT_KEY
     - UNFRET_BASE_PAY_TO
     - UNFRET_BASE_COLD_ADDRESS
     - UNFRET_CDP_API_KEY_ID

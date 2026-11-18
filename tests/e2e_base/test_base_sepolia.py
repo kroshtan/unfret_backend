@@ -10,6 +10,11 @@ signature are all as the facilitator expects, and nothing can move.
 ``UNFRET_E2E_BASE_PAYER_KEY`` (a Base Sepolia key holding test USDC, at least $0.02; never a mainnet key): a quick
 check on dev (``UNFRET_E2E_URL``) paid in USDC on Base Sepolia, confirmed on chain, and answered again, without a
 second charge, for the same payment.
+
+``UNFRET_E2E_BASE_HOT_KEY`` (a throwaway Base Sepolia key holding a little Sepolia ETH for gas and at least 0.5 test
+USDC; never a mainnet key, and not dev's own hot key) with ``UNFRET_E2E_BASE_COLD_ADDRESS``: one real sweep, built,
+signed and checked by the service exactly as on dev, of that key's USDC to the cold address, then an audit that finds
+nothing wrong.
 """
 
 import asyncio
@@ -19,6 +24,7 @@ from typing import Any
 import httpx
 import pytest
 from eth_account import Account
+from pydantic import SecretStr
 
 from tests.unit.x402_base_helpers import authorization
 from unfret.config import Settings
@@ -42,8 +48,13 @@ async def test_the_facilitator_takes_unfrets_payment_shape() -> None:
     if not url:
         pytest.skip("UNFRET_E2E_BASE_FACILITATOR_URL is not set")
     auth = facilitator_auth(url, env("CDP_API_KEY_ID"), env("CDP_API_KEY_SECRET"))
-    pay_to = Account.create()  # throwaway: nothing will reach it
-    settings = Settings(x402_base_enabled=True, base_pay_to=pay_to.address, base_facilitator_url=url)
+    pay_to = Account.create()  # throwaway hot wallet: nothing will reach it
+    settings = Settings(
+        x402_base_enabled=True,
+        x402_base_hot_key=SecretStr("0x" + pay_to.key.hex().removeprefix("0x")),
+        base_cold_address=Account.create().address,
+        base_facilitator_url=url,
+    )
     base = BaseX402(settings, rpc=BaseRpc(PUBLIC_RPC["base-sepolia"]), facilitator=Facilitator(url, auth))
     option = base.requirements("quick")
     auth_fields, signature = authorization(Account.create(), to=pay_to.address, value=int(option["amount"]))
@@ -110,3 +121,40 @@ async def _receipt(rpc: BaseRpc, transaction: str) -> dict[str, Any]:
             return found
         await asyncio.sleep(1)
     pytest.fail(f"no receipt for {transaction}")
+
+
+async def test_a_real_sweep_to_cold_on_base_sepolia() -> None:
+    key, cold = env("BASE_HOT_KEY"), env("BASE_COLD_ADDRESS")
+    if not key or not cold:
+        pytest.skip("UNFRET_E2E_BASE_HOT_KEY and UNFRET_E2E_BASE_COLD_ADDRESS are not set")
+    rpc = BaseRpc(env("BASE_RPC_URL") or PUBLIC_RPC["base-sepolia"])
+    assert int(await rpc.call("eth_chainId", []), 16) == 84532, "refusing: the RPC isn't Base Sepolia"
+    settings = Settings(
+        x402_base_enabled=True,
+        base_network="base-sepolia",
+        x402_base_hot_key=SecretStr(key),
+        base_cold_address=cold,
+        base_facilitator_url="https://x402.org/facilitator",
+        base_usdc_sweep_threshold_units=500_000,
+        base_usdc_sweep_dust_units=500_000,
+    )
+    base = BaseX402(settings, rpc=rpc)
+    assert base.configured, "the key or the cold address is invalid"
+    usdc = await rpc.token_balance(base.usdc, base.pay_to)
+    if usdc < settings.base_usdc_sweep_threshold_units:
+        pytest.fail(f"fund {base.pay_to} with at least 0.5 Base Sepolia USDC (has {usdc} units)")
+    before = await rpc.token_balance(base.usdc, base.cold)
+    await base.audit_outflows()  # the baseline: the nonce before the sweep
+    transaction = await base.sweep_once()
+    assert transaction is not None, "nothing swept: is there Sepolia ETH for the gas?"
+    await _receipt(rpc, transaction)
+    assert await rpc.token_balance(base.usdc, base.cold) == before + usdc
+    for _ in range(30):  # until the sweep is base_audit_confirmations deep
+        if await rpc.block_number() - settings.base_audit_confirmations >= word(
+            (await rpc.receipt(transaction) or {})["blockNumber"]
+        ):
+            break
+        await asyncio.sleep(2)
+    assert await base.audit_outflows() == []
+    assert (await base.health()).status == "ok"
+    await base.aclose()

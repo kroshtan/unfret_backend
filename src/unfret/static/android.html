@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <meta name="description" content="Unfret for Android: share a link from any app and check it on your phone itself. Download the signed APK, check it, install it.">
+  <title>Unfret for Android · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+</head>
+<body>
+  {{header}}
+  <main class="prose android">
+    <p class="eyebrow">Android app</p>
+    <h1>Unfret for Android</h1>
+    <p class="lead">Share a link to Unfret from any app and check it on your phone itself. The page opens inside
+      Unfret, over your own connection, and is read on your phone when you tap <b>Check this page</b>.</p>
+
+    {{download}}
+
+    <h2 id="what">What it does</h2>
+    <ul>
+      <li><strong>Share a link from any app</strong>: your browser, Marktplaats, Vinted, eBay, Facebook or a shop's
+        own app. Tap <b>Share</b>, then <b>Check with Unfret</b>. Or paste a link in the app.</li>
+      <li><strong>The page opens on your phone</strong>, over your own connection, so shops that turn servers away
+        still show it, and you can deal with a cookie banner or a captcha yourself.</li>
+      <li><strong>It reads the page on your phone</strong> when you tap <b>Check this page</b>, with the same code as
+        the browser extension, and tells you in plain words whether it all adds up.</li>
+      <li>It uses the checks on your Unfret pass, like the extension and the <a href="/check">link checker</a>.
+        Nothing is sold in the app: <b>Get checks</b> opens <a href="/checkout">this website</a>.</li>
+    </ul>
+
+    <h2 id="install">Install it</h2>
+    <ol class="howto">
+      <li><b>Download the APK on your phone.</b> Your browser may warn that this kind of file can harm your device:
+        that's said of every app from outside Google Play. Tap <b>Download anyway</b>.</li>
+      <li><b>Open the file</b> from the download notification, or from <b>Files</b> → <b>Downloads</b>.</li>
+      <li><b>Allow this one source.</b> Android asks whether your browser (or Files) may install apps: tap
+        <b>Settings</b>, turn on <b>Allow from this source</b>, go back, and tap <b>Install</b>. If Play Protect says it
+        doesn't know the app, choose to install it anyway or to scan it first.</li>
+      <li><b>Turn it off again.</b> In <b>Settings</b> → <b>Apps</b> → <b>Special app access</b> →
+        <b>Install unknown apps</b>, pick the browser (or Files) and turn <b>Allow from this source</b> off. Unfret
+        stays installed. The names differ a little between phones; searching Settings for "unknown apps" finds
+        it.</li>
+    </ol>
+    <p>It needs {{min_android}} or newer.</p>
+
+    <h2 id="updates">Updates</h2>
+    <p>The app doesn't update itself yet. When a new version is out, download it from this page and open it like the
+      first time: it installs over the old one and keeps your pass. That works because every version is signed with
+      the same key.</p>
+    <p class="muted small">If Android ever refuses an update because it conflicts with the installed app, that file was
+      not signed by Unfret: don't uninstall Unfret to make it fit. (A test build you made yourself from the source
+      code is signed with another key: uninstall that one first.)</p>
+
+    <h2 id="verify">Check the file</h2>
+    <p>For people who verify what they install. Both are also listed with the release on Unfret's code forge.</p>
+    <dl class="facts hashes">
+      {{apk_hash}}
+      <dt>Signing certificate (SHA-256)</dt>
+      <dd><code class="hash">{{cert_fingerprint}}</code></dd>
+    </dl>
+    <p>On a computer with the Android SDK, <code>apksigner verify --print-certs</code> on the file prints the signing
+      certificate's SHA-256 digest (in lower case, without colons), and <code>sha256sum</code> the file's. On
+      the phone, an app that verifies APK signatures shows the same certificate fingerprint.</p>
+
+    <h2 id="permissions">Permissions</h2>
+    <p>Everything the app asks Android for, from its manifest:</p>
+    <ul>
+      {{permissions}}
+    </ul>
+    <p>No location, contacts, camera, microphone, files or notifications.</p>
+
+    <h2 id="privacy">Privacy</h2>
+    <ul>
+      <li><strong>Nothing is read until you tap Check this page.</strong> Loading a page sends nothing to Unfret.</li>
+      <li><strong>Sent, only to unfret.net:</strong> the page address, its product facts and visible text (account
+        menus, forms, checkout and addresses that aren't the business's own are removed on your phone first), and
+        your Unfret pass. No device details, no location, no contacts.</li>
+      <li><strong>Kept on your phone:</strong> your pass, encrypted, and that you accepted the intro. The pages you
+        open are forgotten when you close them.</li>
+      <li>No ads, no trackers, no analytics or crash reporting, no Google Play Services.</li>
+    </ul>
+    <p>The app's full statement is
+      <a href="https://git.kroshtan.com/kroshtan/unfret_android/src/branch/main/PRIVACY.md" rel="noopener">its privacy
+      policy</a>; what the server keeps is on <a href="/privacy">Privacy</a>.</p>
+
+    <h2 id="play">Google Play</h2>
+    <p>Unfret will be on Google Play later, with the same app. Until then this page is the place to get it. The app is
+      open source under the MIT licence:
+      <a href="https://git.kroshtan.com/kroshtan/unfret_android" rel="noopener">source code</a>.</p>
+  </main>
+
+  {{footer}}
+</body>
+</html>

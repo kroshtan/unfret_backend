@@ -7,6 +7,9 @@ transaction on this chain to the USDC contract, sending no ETH, whose data is ``
 positive amount, within the gas and fee caps. Nothing else, and no other destination. Payments need no signature from
 it (the payer signs, the facilitator pays the gas), so its ETH only ever pays for sweeps.
 
+The only other use is :meth:`BaseHotWallet.ownership_proof`: the public origin signed as an EIP-191 message (the
+``personal_sign`` prefix makes it unusable as a transaction) for x402 directories (unfret.x402.ownership).
+
 The cold address is a plain public setting, not tied to the key: changing it (a software wallet now, a hardware wallet
 later) needs no new key; see ``base_former_cold_addresses`` for the audit's side of such a change.
 """
@@ -16,9 +19,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from eth_account import Account
+from eth_account.messages import encode_defunct
 from eth_account.signers.local import LocalAccount
 
 from unfret.x402.evm import TRANSFER_SELECTOR, parse_address, topic_address
+from unfret.x402.ownership import check_origin
 
 _KEY = re.compile(r"^(0x)?[0-9a-fA-F]{64}$")
 _FIELDS = frozenset(
@@ -169,7 +174,7 @@ def check_sweep(tx: dict[str, Any], cold: str, usdc: str, *, chain_id: int, max_
 
 
 class BaseHotWallet:
-    """The Base hot key. It never leaves this class, and :meth:`sign` is the only code path that uses it."""
+    """The Base hot key. It never leaves this class: :meth:`sign` signs sweeps, :meth:`ownership_proof` the origin."""
 
     def __init__(
         self, account: LocalAccount, cold: str, usdc: str, *, chain_id: int, max_gas: int, max_fee: int
@@ -221,3 +226,13 @@ class BaseHotWallet:
             nonce=int(item.tx["nonce"]),
             amount=amount,
         )
+
+    def ownership_proof(self, origin: str) -> str:
+        """
+        Sign the public origin as x402scan's ownership proof: EIP-191 ``personal_sign``, ``0x`` hex.
+
+        :param origin: A bare origin (``scheme://host[:port]``, from :func:`~unfret.x402.ownership.origin_of`).
+        :return: The 65-byte signature. ``check_origin`` refuses (PermissionError) anything but a bare origin.
+        """
+        signature = self._account.sign_message(encode_defunct(text=check_origin(origin))).signature.hex()
+        return signature if signature.startswith("0x") else "0x" + signature

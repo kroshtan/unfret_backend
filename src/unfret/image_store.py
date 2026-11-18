@@ -86,8 +86,8 @@ def listing(url: str, facts: PageFacts) -> Listing | None:
     return Listing(domain, hashlib.sha256(f"{domain}|{pid}".encode()).digest())
 
 
-class ImageStore(Protocol):
-    """Where the index lives: Postgres in production, memory in tests."""
+class Candidates(Protocol):
+    """What a lookup needs of an index: the real one, or the test shop's (:mod:`unfret.test_shop_photos`)."""
 
     async def candidates(self, phash: int, max_distance: int) -> list[StoredPrint]:
         """
@@ -97,6 +97,10 @@ class ImageStore(Protocol):
         :param max_distance: The largest Hamming distance.
         :return: Up to a few hundred rows.
         """
+
+
+class ImageStore(Candidates, Protocol):
+    """Where the index lives: Postgres in production, memory in tests."""
 
     async def upsert(
         self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
@@ -290,7 +294,7 @@ class PostgresImageStore:
 
 
 async def lookup(
-    store: ImageStore, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
+    store: Candidates, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
 ) -> Lookup:
     """
     The other shops and listings showing the same photo.
@@ -314,7 +318,7 @@ async def lookup(
 
 
 async def lookup_ad(
-    store: ImageStore, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
+    store: Candidates, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
 ) -> Lookup:
     """
     The other ads and shops showing the same photo as a peer-to-peer ad.

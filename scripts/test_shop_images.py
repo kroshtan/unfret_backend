@@ -63,13 +63,17 @@ def projector(image: Image.Image, rng: random.Random, cx: int, base_y: int, scal
 
 
 def main() -> None:
-    """Write the three photos."""
+    """Write the four photos."""
     rng = random.Random(7)  # noqa: S311 - a fixed drawing, not a secret
 
     hero = gradient((18, 14, 48), (62, 30, 96))
     stars(hero, rng, 140, (0, 0, SIZE, 520))
     projector(hero, rng, 400, 600, 1.0)
     hero.save(OUT / "projector-hero.jpg", quality=82, optimize=True)
+    # The sister test shop's copy of it, re-uploaded as a reseller does (cropped a little, smaller, saved again): the
+    # same photo for the "same product, sold elsewhere" match (unfret.test_shop_photos).
+    resold = hero.crop((24, 24, SIZE - 24, SIZE - 24)).resize((640, 640), Image.Resampling.LANCZOS)
+    resold.save(OUT / "sister-hero.jpg", quality=72, optimize=True)
 
     ceiling = gradient((10, 12, 36), (30, 18, 60))
     nebula = Image.new("RGBA", ceiling.size, (0, 0, 0, 0))

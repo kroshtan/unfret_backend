@@ -218,6 +218,7 @@ class BaseX402:
         self.domain = USDC_DOMAIN[settings.base_network]
         self.facilitator = facilitator
         self.hot: BaseHotWallet | None = None
+        self._proof: tuple[str, str] | None = None  # (origin, its ownership proof): signed once per process
         self.pay_to = ""  # the hot wallet's address
         self.cold = ""
         self.usdc = ""
@@ -299,6 +300,19 @@ class BaseX402:
     def configured(self) -> bool:
         """Whether Base payments are set up (they may still be paused)."""
         return self._status == "ok" and self.hot is not None
+
+    def ownership_proof(self, origin: str) -> str | None:
+        """
+        The origin signed by the hot wallet (``payTo``), for x402scan's ownership check (unfret.x402.ownership).
+
+        :param origin: The public origin.
+        :return: The proof (EIP-191, hex), or None while Base is off or misconfigured (no hot wallet).
+        """
+        if not self.configured or self.hot is None:
+            return None
+        if self._proof is None or self._proof[0] != origin:
+            self._proof = (origin, self.hot.ownership_proof(origin))
+        return self._proof[1]
 
     @property
     def audit_key(self) -> str:

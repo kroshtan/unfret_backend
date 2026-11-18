@@ -276,6 +276,13 @@ only at checkout. A banner on every view says what it is; the pages are `noindex
 Security Policy, and drawn (`scripts/test_shop_images.py`), with no real brand, shop, person or photo. Review dates are
 relative to the day the page is served, so the burst stays a burst.
 
+`/test-shop/sister-shop` is its sister shop (Quenvale Deals): the same made-up projector, cheaper ($17.99), under
+another made-up brand (VELUNOX), with a re-uploaded copy of the same photo. A deep check of either page finds the
+photo on the other ("Looks like the same product, sold elsewhere for $17.99", both photos side by side): test shop
+pages are looked up only in the test shop's own photo index (`unfret.test_shop_photos`, made in memory from the
+static photos, rows with negative IDs, thumbnails at `/v1/images/test-shop/<photo>`), never in the real one, and a real
+page is never looked up there, so neither can match the other.
+
 Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
 each trick raises and the verdict. Its tricks are deliberate, so the test shop (by address: `/test-shop` on
 `unfret.net`, its subdomains or this service, `unfret.test_shop`) never reaches what Unfret keeps about shops: the
@@ -578,6 +585,17 @@ refused payment answers `402` again with `error` saying why; when the simulation
 `reason`, a short cause derived from the simulation's error and logs: `insufficient_funds`,
 `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_not_found`, `blockhash_not_found`, the
 error class in snake case (`invalid_account_data`) or `custom_program_error_<code>` for another program's own error.
+
+**Ownership proof.** x402 directories (x402scan) mark an origin as verified when its `payTo` key signed the origin.
+While x402 is on, the server signs the origin of `UNFRET_PUBLIC_BASE_URL` (`https://unfret.net`: no trailing slash,
+as a browser's `URL.origin`) with the hot wallet's key, in process, once per start (`unfret.x402.ownership`). The
+signature (ed25519 over the origin's UTF-8 bytes, base58) is published as `ownershipProofs` in the OpenAPI document
+(`x-agentcash-provenance` and `x-discovery`) and in `/.well-known/x402`, one per `payTo` key the server holds; a new
+hot key gives a new proof at the next start, and with x402 off there is none. The key signs nothing else this way:
+only a bare origin, far too short to parse as a transaction. Anyone can check it against the hot wallet's address
+(the `payTo` of the 402's Solana options). While Base is on, a second proof follows: the origin signed by the Base hot
+wallet as an EIP-191 `personal_sign` message (`0x` hex; the message prefix keeps it from ever being a transaction),
+checked against Base's `payTo`.
 
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority

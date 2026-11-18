@@ -34,7 +34,7 @@ _LOAD_MODEL = scoring.load_model
 
 URL = "https://unfret.net/test-shop"
 BANNER = "Unfret test shop — every trick here is copied from real listings, names removed"
-PAGES = ("/test-shop", "/test-shop/checkout")
+PAGES = ("/test-shop", "/test-shop/checkout", "/test-shop/sister-shop")
 
 # Each trick and the findings (skill, type) it must raise in both tiers.
 TRICKS: dict[str, set[tuple[str, str]]] = {
@@ -149,7 +149,7 @@ async def test_pages_run_no_inline_code_and_load_nothing_from_elsewhere(client: 
 
 
 async def test_the_shop_static_files_are_served(client: httpx.AsyncClient) -> None:
-    for name in ("shop.css", "shop.js", "favicon.svg", "projector-hero.jpg"):
+    for name in ("shop.css", "shop.js", "favicon.svg", "projector-hero.jpg", "sister-hero.jpg"):
         response = await client.get(f"/static/{asset_tag()}/test-shop/{name}")
         assert response.status_code == 200, name
 
@@ -310,7 +310,7 @@ def test_the_result_card_on_the_test_shop(quick: dict[str, Any], deep: dict[str,
             "Who's behind the shop", "The product and the brand", "Reviews", "Prices and discounts", "Hidden tricks",
         ]  # fmt: skip
         assert verdict["next_step"]["text"] == "Better to buy this from a shop you know."
-        assert verdict["same_product"] is None  # the test shop's photos match nothing
+        assert verdict["same_product"] is None  # no photo model here (the sister shop's match: test_image_index)
     reviews = [next(i for i in r["verdict"]["checklist"] if i["key"] == "reviews") for r in (quick, deep)]
     assert reviews[0]["status"] == "concern" and reviews[0]["note"] == "Imported reviews"  # from the page's code
     assert reviews[1]["status"] == "concern"

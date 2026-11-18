@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from unfret import image_index, image_store, price_store, shop_store, shopper
+from unfret import image_index, image_store, price_store, shop_store, shopper, test_shop_photos
 from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph.skills import reverse_image
@@ -244,6 +244,20 @@ async def test_the_test_shops_photo_is_looked_up_but_never_recorded(
     assert stub.rows == {}  # its tricks are made up: nothing for the next shop to match
 
 
+async def test_a_photo_named_by_its_path_is_fetched_from_the_pages_site(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Structured data may give the photo as a path (the test shop's does): fetching it as it stands fails.
+    fetched = serve(monkeypatch, {"https://glowlamp.shop/images/lamp.jpg": encode(product_photo(15), "JPEG")})
+
+    out = await ReverseImageSkill().run(page(image="/images/lamp.jpg"))
+    await reverse_image.drain()
+
+    assert fetched == ["https://glowlamp.shop/images/lamp.jpg"]
+    assert out["features"]["reverse_image.searched"] == 1.0
+    assert [url for _, url, *_ in stub.rows.values()] == ["https://glowlamp.shop/images/lamp.jpg"]  # for thumbnails
+
+
 async def test_skill_reports_nothing_without_the_model_or_with_fingerprints_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -426,18 +440,106 @@ async def test_a_catalogue_match_names_no_price_and_nothing_of_the_seed_but_the_
     assert "abo/2.jpg" not in str(match)  # only the thumbnail proxy's address, never the seed's own
 
 
-async def test_no_same_product_for_the_test_shop_without_a_match_or_for_ads(
+async def test_no_same_product_without_a_match_or_for_ads(
     stub: MemoryImageStore, prices: price_store.MemoryPriceStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     photo = product_photo(23)
-    test_shop = "https://unfret.net/static/test-shop/projector-hero.jpg"
-    serve(monkeypatch, {test_shop: encode(photo, "JPEG", quality=70), "https://cdn.glowlamp.shop/lamp.jpg":
+    ad_photo = "https://img.marktplaats.nl/a.jpg"
+    serve(monkeypatch, {ad_photo: encode(photo, "JPEG", quality=70), "https://cdn.glowlamp.shop/lamp.jpg":
                         encode(product_photo(24), "JPEG", quality=70)})  # fmt: skip
     assert "same_product" not in await ReverseImageSkill().run(page())  # nothing in the index yet
     await stub.upsert(listing_at("cheap.shop", 9), fp(photo), image_url="u", day=TODAY, source="seen")
 
-    out = await ReverseImageSkill().run(page("https://unfret.net/test-shop", test_shop))
-    assert out["same_product"]["own_image"] is None  # the test shop's photo is never kept
-    ad = page("https://www.marktplaats.nl/v/a/m1", test_shop) | {"page_type": "p2p_listing"}
+    ad = page("https://www.marktplaats.nl/v/a/m1", ad_photo) | {"page_type": "p2p_listing"}
     assert "same_product" not in await ReverseImageSkill().run(ad)
     await reverse_image.drain()
+
+
+# ── The test shop's own photo index (unfret.test_shop_photos) ────────────────────────────────────────────────────
+
+TEST_SHOP = "https://unfret.net/test-shop"
+SISTER = "https://unfret.net/test-shop/sister-shop"
+
+
+def serve_test_shop(monkeypatch: pytest.MonkeyPatch, extra: dict[str, bytes] | None = None) -> None:
+    files = test_shop_photos.PHOTO_DIR
+    serve(monkeypatch, {
+        "https://unfret.net/static/test-shop/projector-hero.jpg": (files / "projector-hero.jpg").read_bytes(),
+        "https://unfret.net/static/test-shop/sister-hero.jpg": (files / "sister-hero.jpg").read_bytes(),
+        **(extra or {}),
+    })  # fmt: skip
+    monkeypatch.setattr(test_shop_photos, "_rows", None)  # fingerprinted with this test's model
+
+
+async def test_a_test_shop_page_finds_its_photo_on_the_sister_shop(
+    stub: MemoryImageStore, prices: price_store.MemoryPriceStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve_test_shop(monkeypatch)
+
+    out = await ReverseImageSkill().run(page(TEST_SHOP, "https://unfret.net/static/test-shop/projector-hero.jpg"))
+    back = await ReverseImageSkill().run(page(SISTER, "https://unfret.net/static/test-shop/sister-hero.jpg"))
+    await reverse_image.drain()
+
+    assert out["features"]["reverse_image.other_shops"] == 1.0
+    [found] = out["findings"]
+    assert found.evidence == "The same product photo is on 1 other shop: unfret.net/test-shop/sister-shop."
+    assert found.thumbnails == ["https://unfret.net/v1/images/test-shop/sister-hero.jpg"]
+    assert out["same_product"] == {
+        "where": "unfret.net/test-shop/sister-shop",
+        "domain": "unfret.net/test-shop/sister-shop",
+        "others": 0,
+        "image": "https://unfret.net/v1/images/test-shop/sister-hero.jpg",
+        "own_image": "https://unfret.net/v1/images/test-shop/projector-hero.jpg",
+        "title": "Looks like the same product, sold elsewhere for $17.99",
+        "detail": "The main photo is the same photo as on unfret.net/test-shop/sister-shop. Unfret saw it there for "
+        "$17.99 on 9 November 2026.",
+        "price": 17.99,
+        "currency": "USD",
+        "price_text": "$17.99",
+        "price_seen_on": "2026-11-09",
+    }
+    assert shopper.SameProduct.model_validate(out["same_product"]).where == "unfret.net/test-shop/sister-shop"
+    assert back["same_product"]["image"] == "https://unfret.net/v1/images/test-shop/projector-hero.jpg"
+    assert back["same_product"]["price_text"] == "$39.99"
+    # Two made-up brands on one photo, ready for a finding about it; nothing of it is written anywhere.
+    assert [row.label for _, row in await test_shop_photos.rows(image_index.embedder())] == ["LUMIQZEN", "VELUNOX"]
+    assert stub.rows == {} and prices.rows == {}
+
+
+async def test_the_test_shop_and_the_real_index_never_match_each_other(
+    stub: MemoryImageStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hero = (test_shop_photos.PHOTO_DIR / "projector-hero.jpg").read_bytes()
+    copied = "https://cdn.glowlamp.shop/lamp.jpg"
+    serve_test_shop(monkeypatch, {copied: hero})
+    await stub.upsert(listing_at("cheap.shop", 9), fp(Image.open(io.BytesIO(hero))), image_url="u", day=TODAY,
+                      source="seen")  # fmt: skip
+
+    test_page = await ReverseImageSkill().run(
+        page(TEST_SHOP, "https://unfret.net/static/test-shop/projector-hero.jpg")
+    )
+    real_page = await ReverseImageSkill().run(page(image=copied))  # a real shop with the test shop's photo
+    await reverse_image.drain()
+
+    assert test_page["same_product"]["where"] == "unfret.net/test-shop/sister-shop"  # not cheap.shop
+    assert real_page["same_product"]["where"] == "cheap.shop"  # not the test shop's sister
+    assert "test-shop" not in str(real_page)
+    assert {d for d, _ in stub.rows} == {"cheap.shop", "glowlamp.shop"}  # the test shop's page isn't kept
+
+
+async def test_a_test_shop_page_without_a_product_photo_matches_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_test_shop(monkeypatch)
+    checkout = page(f"{TEST_SHOP}/checkout", "https://unfret.net/static/test-shop/projector-hero.jpg")
+    out = await ReverseImageSkill().run(checkout)
+    assert "same_product" not in out and out["features"]["reverse_image.other_shops"] == 0.0
+
+
+async def test_test_shop_thumbnails_come_from_its_static_photos_only() -> None:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        ok = await client.get("/v1/images/test-shop/sister-hero.jpg")
+        other = await client.get("/v1/images/test-shop/shop.js")
+        up = await client.get("/v1/images/test-shop/..%2Fsite.css")
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/jpeg"
+    assert max(Image.open(io.BytesIO(ok.content)).size) <= test_shop_photos.THUMBNAIL_SIDE
+    assert (other.status_code, up.status_code) == (404, 404)
+    assert "/v1/images/test-shop/{photo}" not in app.openapi()["paths"]  # not part of the public API

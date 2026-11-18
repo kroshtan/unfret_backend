@@ -938,7 +938,8 @@ client are unchanged.
 - Operator (admin token): `GET /v1/admin/objections[?limit=]` → `{"open", "items": [{"id", "kind", "site",
   "message", "reply_to", "received_on"}]}` (oldest first), `DELETE /v1/admin/objections/{id}` → `{"deleted": true}`.
   Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
-- Pages: `/about`, `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
+- Pages: `/about`, `/why` ("Why Unfret?": questions to ask any checker, Unfret next to free scam checkers and AI
+  assistants, a Fakespot alternative), `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
   `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.
@@ -1116,6 +1117,15 @@ and clients show what is there.
 - The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
   before an agent buys). Clients don't parse it.
 
+## Changes (ownership proof for x402 directories; backwards-compatible)
+
+- While x402 is on, the OpenAPI document has top-level `x-agentcash-provenance: {"ownershipProofs": [...]}` and
+  `x-discovery: {"ownershipProofs": [...]}`, and `/.well-known/x402` a top-level `ownershipProofs` (its other fields
+  are unchanged). Each proof is the public origin (`https://unfret.net`, no trailing slash) signed by a `payTo` key:
+  for Solana the hot wallet's ed25519 signature over the origin's UTF-8 bytes, base58. x402scan verifies it against
+  the `payTo` of the 402's options. With x402 off the fields are absent (the OpenAPI snapshot, taken with x402 off,
+  is unchanged).
+
 ## Changes (x402 on Base: a hot wallet swept to cold; behind `UNFRET_X402_BASE_ENABLED`, still off)
 
 - Base's treasury now matches Solana's: `payTo` in the Base option of the 402 and in `/.well-known/x402` `networks` is
@@ -1128,3 +1138,6 @@ and clients show what is there.
   fields are unchanged.
 - `GET /v1/admin/x402/alerts`: `base` gains `cold` and `eth_wei`; a flag's `signature` is a transaction hash, or the
   nonces (`nonce 3-4`) or blocks a flag covers.
+- With Base on, `ownershipProofs` (above) gains a second proof: the origin signed by the Base hot wallet, EIP-191
+  (`personal_sign`), `0x`-prefixed hex, after Solana's. x402scan recovers the signer and compares it with Base's
+  `payTo`.

@@ -1428,6 +1428,20 @@ mark.placeholder { padding: 0 0.2rem; border-radius: 4px; background: var(--note
 .clean { margin: 0.8rem 0 0; font-weight: 600; color: var(--good); }
 .card .source { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--muted); }
 .next-step { margin-top: 1rem; padding: 0.8rem 0.95rem; border-radius: var(--radius-sm); background: var(--surface-2); }
+/* "Why Unfret?": questions to ask any checker, then the alternatives and Unfret side by side. */
+main.why { max-width: 54rem; }
+.why > p, .why > h1, .why > h2, .why-questions { max-width: var(--text); }
+.why-questions { margin: 0 0 1rem; }
+.why-questions dt { margin-top: 0.9rem; font-weight: 650; color: var(--ink); }
+.why-questions dd { margin: 0.2rem 0 0; color: var(--ink-2); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.25rem 0 0.5rem; }
+.compare-col { padding: 1.1rem 1.25rem 0.6rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.compare-col.unfret { border-color: var(--brand); background: var(--surface); box-shadow: var(--shadow-sm); }
+.compare-col h3 { margin: 0 0 0.6rem; }
+.compare-col.unfret h3 { color: var(--brand-ink); }
+.compare-col ul { margin: 0; }
+.compare-col li { color: var(--ink-2); }
+@media (max-width: 44rem) { .compare { grid-template-columns: 1fr; } }
 .next-step h2 { margin: 0 0 0.25rem; font-size: 1rem; }
 .next-step p { margin: 0; }
 h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }

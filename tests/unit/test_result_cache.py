@@ -28,7 +28,8 @@ def test_the_note_expires_and_needs_a_url() -> None:
 
 
 def test_the_note_names_neither_the_account_nor_the_page() -> None:
-    result_cache.mark_paid("key:abc", "https://shop.test/sweater")
+    # Not hex, so the random key's digest can't contain it by chance (as "abc" sometimes did).
+    result_cache.mark_paid("key:pass-xyz", "https://shop.test/sweater")
 
     (key,) = result_cache._paid
-    assert "abc" not in key and "shop" not in key and len(key) == 64
+    assert "xyz" not in key and "shop" not in key and len(key) == 64

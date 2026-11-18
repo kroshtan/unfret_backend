@@ -100,7 +100,7 @@ def describe(item: dict[str, Any], n: int, total: int, in_corpus: str | None = N
         f"── {n}/{total} " + "─" * 60,
         (
             f"{item['domain']}  ·  {get('platform', 'generic')}  ·  reported as {item['reason']}  ·  "
-            f"+{item['corroborations']} confirmations"
+            f"{payload.get('tier', 'deep')} check  ·  +{item['corroborations']} confirmations"
         ),
         f"url: {payload['url'] or '(none)'}",
         f"model score: {item['score']}  ·  {payload['explanation'][:200]}",
@@ -140,6 +140,10 @@ def corpus_entry(item: dict[str, Any], label: Label, *, bulk: bool = False) -> t
     page = f"<html><head><title>{title}</title>{ld}</head><body><main><pre>{text}</pre></main></body></html>"
     opinion = item.get("second_opinion") or {}
     notes: dict[str, Any] = {"model_score": item["score"], "reported_as": item["reason"]}
+    # With the tier whose score was reported (reports from before the tier was kept were all deep checks); the page
+    # trains both the deep and the quick scorer either way.
+    if "tier" in payload:
+        notes["tier"] = payload["tier"]
     if bulk:
         notes["confirmed_in_bulk"] = True
     record = LabelRecord(

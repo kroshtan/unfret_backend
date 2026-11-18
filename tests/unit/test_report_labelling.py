@@ -95,3 +95,16 @@ def test_a_labelled_report_lands_in_the_corpus_layout(tmp_path: Path) -> None:
     assert facts["title"] == "Wool <sweater>"
     assert to_corpus(corpus, ITEM, "junk") == record_id  # labelling again overwrites the same page
     assert corpus.labels()[record_id].label == "junk"
+
+
+def test_a_reported_quick_result_lands_in_the_corpus_like_any_other(tmp_path: Path) -> None:
+    # The corpus page is the same whichever tier was reported, so it trains both the deep and the quick scorer
+    # (evals.train, with and without --quick); the record notes which tier's score was off.
+    payload: dict[str, object] = {**ITEM["payload"], "tier": "quick"}  # type: ignore[dict-item]
+    quick = {**ITEM, "page_key": "amazon.nl|asin:B0QUICK123", "payload": payload}
+    corpus = Corpus(tmp_path)
+    record_id = to_corpus(corpus, quick, "scam")
+    record = corpus.labels()[record_id]
+    assert json.loads(record.notes) == {"model_score": 82, "reported_as": "scam", "tier": "quick"}
+    assert (record.label_source, record.source, record.split) == ("human", "report", None)  # split later, as all
+    assert "quick check" in describe(quick, 1, 1) and "deep check" in describe(ITEM, 1, 1)

@@ -1,11 +1,11 @@
 """
 Reports of wrong results: "this is wrong" from a shopper, ``POST /v1/reports`` from an API user.
 
-**The check behind a report.** Every analysis result for an account carries a ``report_token``: an HMAC over the
-account, the score, a hash of exactly what was analysed and of the explanation, and an expiry. Nothing is stored
-when a check runs. Only when the reporter consents does the client send the analysed request and the explanation
-back with the token, which proves they are what that account was shown, so a report can't claim a score the model
-never gave.
+**The check behind a report.** Every analysis result for an account, quick or deep, carries a ``report_token``: an
+HMAC over the account, the score, a hash of exactly what was analysed (a quick check's tier included) and of the
+explanation, and an expiry. Nothing is stored when a check runs. A quick check without an account gets none. Only
+when the reporter consents does the client send the analysed request and the explanation back with the token, which
+proves they are what that account was shown, so a report can't claim a score the model never gave.
 
 **Before the queue.** A report is about a page (:func:`~unfret.reports.scrub.page_identity`). If that page is
 already in the queue, the report is closed as ``already_reported`` and counts as corroboration (raising the item's
@@ -27,7 +27,9 @@ proposals in bulk (:func:`confirm_proposals`). The label's zone is legit ≥ 70,
 ``report_reward_gap`` points outside it pays the first reporter ``report_reward_checks`` checks, one at least
 ``report_training_gap`` points outside it ``report_small_reward_checks``. The labelled page (scrubbed facts, text,
 score, label) is kept as training data, and the report itself, the only link to the account, is deleted. Items
-nobody handled are deleted after ``report_expiry_days``.
+nobody handled are deleted after ``report_expiry_days``. The item
+records the tier that gave the score (``payload["tier"]``); the labelled page is the same training data either way
+(``make reports`` writes it to the corpus, whose pages both the deep and the quick scorer are trained on).
 """
 
 import base64
@@ -91,13 +93,15 @@ def input_hash(body: AnalyzeRequest) -> str:
     A hash of exactly what was analysed.
 
     :param body: The analysed request.
-    :return: 32 hex characters.
+    :return: 32 hex characters. A quick check's differs from a deep check's of the same page (a deep check's is as
+        it always was), so a token can't pass a quick score off as a deep one.
     """
     key = result_cache.key_for(
         url=body.url,
         page_content=body.page_content or "",
         page_facts_json=body.page_facts.model_dump_json() if body.page_facts else "",
         checkout_content=body.checkout_content or "",
+        tier="quick" if body.tier == "quick" else "full",
         flags=body.flags,
     )
     return hashlib.sha256(key.encode()).hexdigest()[:32]
@@ -306,6 +310,7 @@ async def submit(
                 "flags": body.flags,
                 "explanation": explanation[:2000],
                 "verdict": verdict,
+                "tier": body.tier,  # which check gave the score: quick (rules only) or deep
             }
             report_id = await conn.fetchval(
                 "INSERT INTO reports (page_key, domain, account, reason, score, payload, created_at, value) "

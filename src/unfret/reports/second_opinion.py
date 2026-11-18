@@ -184,7 +184,8 @@ def messages(score: int, reason: str, payload: dict[str, Any]) -> list[SystemMes
     context = "\n\n".join(
         [
             f"Platform: {'own shop' if platform == 'generic' else platform}",
-            f"Unfret's score: {score}/100",
+            f"Unfret's score: {score}/100"
+            + (" (a quick check: rules only)" if payload.get("tier") == "quick" else ""),
             f"The reporter says the page is: {_REPORTED_AS.get(reason, 'something else')}",
             "Page facts:\n" + untrusted(_facts_lines(payload.get("url", ""), facts)),
             "What Unfret showed:\n" + untrusted(_result_lines(payload.get("explanation", ""), payload.get("verdict"))),

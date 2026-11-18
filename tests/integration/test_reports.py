@@ -317,3 +317,50 @@ async def test_the_operator_takes_credit_back_from_a_key_but_never_below_zero(
     assert (await client.post(url, json={"usd_micros": 0}, headers=ADMIN)).status_code == 422
     unknown = await client.post("/v1/admin/keys/aaaaaaaaaa/debit", json={"usd_micros": 1}, headers=ADMIN)
     assert unknown.status_code == 404
+
+
+@pytest.fixture
+def quick(monkeypatch: pytest.MonkeyPatch) -> FakeGraph:
+    from unfret.main import app  # noqa: PLC0415 - as the client fixture does
+
+    graph = FakeGraph()
+    graph.result = {"score": 85, "explanation": "A quick look: nothing wrong.", "skill_results": []}
+    monkeypatch.setattr(app, "quick_graph", graph)
+    return graph
+
+
+@pytest.mark.usefixtures("quick")
+async def test_a_quick_result_can_be_reported_and_becomes_training_data_with_its_tier(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, wallet: Wallet
+) -> None:
+    address, headers = await wallet(0)  # quick checks are free: an account with no checks can report them too
+    body = page(tier="quick")
+    result = await check(client, headers, body)
+    assert result["tier"] == "quick" and result["report_token"] and "share_token" not in result
+
+    # The token binds the tier: the same page and score can't be passed off as a deep check's.
+    deep = await report(client, headers, {k: v for k, v in body.items() if k != "tier"}, result)
+    assert deep.status_code == 400 and deep.json()["error_code"] == "BAD_REPORT_TOKEN"
+
+    response = await report(client, headers, body, result)
+    assert response.status_code == 201 and response.json()["status"] == "queued"
+    item = (await client.get("/v1/admin/reports", headers=ADMIN)).json()["items"][0]
+    assert item["score"] == 85 and item["payload"]["tier"] == "quick"
+
+    labelled = await client.post(f"/v1/admin/reports/{item['id']}/label", json={"label": "scam"}, headers=ADMIN)
+    assert labelled.json()["training"] is True and labelled.json()["reward_usd_micros"] > 0  # 45 points off
+    sample = await pool.fetchrow("SELECT label, score, payload FROM labelled_pages")
+    assert (sample["label"], sample["score"], json.loads(sample["payload"])["tier"]) == ("scam", 85, "quick")
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == (
+        settings.report_reward_checks * PRICE
+    )
+    # The page is known now, whichever tier reports it next.
+    deep_body = {k: v for k, v in body.items() if k != "tier"}
+    again = await report(client, headers, deep_body, await check(client, headers, deep_body))
+    assert again.status_code == 201 and again.json()["status"] == "already_known"
+
+
+@pytest.mark.usefixtures("quick")
+async def test_an_anonymous_quick_check_gets_no_report_token(client: httpx.AsyncClient) -> None:
+    result = await check(client, {}, page(tier="quick"))
+    assert "report_token" not in result  # reports are per account (the monthly limit, the reward)

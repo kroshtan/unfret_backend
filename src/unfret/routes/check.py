@@ -29,7 +29,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from unfret import __version__, observations, verdict_store
+from unfret import __version__, clients_info, observations, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.net import fetch_public
@@ -1105,6 +1105,16 @@ reliable, concerns, careful and junk_or_scam as "Looks fine", "Worth a look", "T
 Every error is JSON with `detail` and `error_code`.
 
 {_errors_table()}
+
+## Clients
+
+- Python: `unfret-client`: check(url) gives allow, warn or block, and a developer pass takes one call.
+  {clients_info.python_install_note()}
+- Any other language: plain HTTPS, as above. {settings.public_base_url}/developers/http has the request, the
+  response, the errors, the proof of work for a developer pass (SHA-256 of challenge + ":" + solution with `bits`
+  leading zero bits) and examples in curl, JavaScript, Go and PHP. A TypeScript reference client without
+  dependencies is in the repository, to copy: {clients_info.TYPESCRIPT_CLIENT_URL} (mirror:
+  {clients_info.TYPESCRIPT_CLIENT_MIRROR}); it is not on npm.
 
 ## Shared results (shoppers)
 

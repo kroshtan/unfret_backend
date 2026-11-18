@@ -101,6 +101,11 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         timeout-minutes: 5
         run: make audit
+      # Before the tests: they run /developers/http's JavaScript examples (tests/unit/test_developers_http.py).
+      - uses: https://github.com/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 24
       - name: Run tests
         if: steps.gate.outputs.run == 'true'
         timeout-minutes: 10
@@ -125,10 +130,6 @@ jobs:
           uv sync --project clients/python --all-groups --frozen
           uv run --project clients/python mypy clients/python/src clients/python/tests
           uv run --project clients/python pytest clients/python/tests
-      - uses: https://github.com/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.gate.outputs.run == 'true'
-        with:
-          node-version: 24
       - name: TypeScript client (clients/typescript)
         if: steps.gate.outputs.run == 'true'
         timeout-minutes: 5

@@ -1223,3 +1223,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - Clients: the report consent says an AI model may suggest a label and a person decides; the website's dialog shows
   both rewards from `/v1/pricing`. The extension's own copy says "3 free checks": it should read the numbers from
   `/v1/pricing` (`reports.reward_checks`, `reports.small_reward_checks`).
+
+## Changes (Unfret from any language: `/developers/http`; only the Python client is published)
+
+- New page `GET /developers/http`, "Use Unfret from any language": the two ways to pay (a pass as
+  `Authorization: Bearer ufk_…`, or x402), a developer pass in code (`GET /v1/keys/challenge`, the proof of work:
+  SHA-256 of the UTF-8 bytes of `challenge + ":" + solution` with `bits` leading zero bits, then `POST /v1/keys` with
+  `"developer": true`), `POST /v1/check`'s request and the response fields a client typically reads, the clients'
+  band → action policy, errors, retries and timeouts, and examples in curl, JavaScript, Go and PHP. Numbers come from
+  the settings and `developers-measured.json`; the JavaScript examples are run in the tests against the server's own
+  proof-of-work check and models. Linked from `/developers` and the footer.
+- `/llms.txt` gains a "Clients" section: Python (`pip install unfret-client`; from the source until its first release
+  on PyPI) and `/developers/http` for every other language.
+- The TypeScript client (`clients/typescript`) is a reference to copy, not an npm package (`"private": true`); the
+  "Publish clients" workflow publishes only the Python client. No API change; the OpenAPI document is unchanged.

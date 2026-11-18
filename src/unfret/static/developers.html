@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Unfret for developers and AI agents: one HTTP call per check, an MCP server (remote or local) and clients for Python and TypeScript. Pay per call over x402 in USDC or SOL, or with an Unfret pass; a developer pass comes with free checks. Returns allow, warn or block with the evidence.">
+  <meta name="description" content="Unfret for developers and AI agents: one HTTP call per check, an MCP server (remote or local), a Python client and a guide for any other language. Pay per call over x402 in USDC or SOL, or with an Unfret pass; a developer pass comes with free checks. Returns allow, warn or block with the evidence.">
   <title>For developers and AI agents · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -28,6 +28,8 @@
             <a class="button primary large" href="#start">Try it in three lines</a>
             <a class="button large" href="#mcp">Set up the MCP server</a>
           </div>
+          <p class="small">From any language: <a href="/developers/http">the HTTP guide</a>, with curl,
+            JavaScript, Go and PHP.</p>
         </div>
         <pre class="terminal" aria-label="An example check"><span class="c"># one check, with an Unfret pass</span>
 <span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
@@ -50,7 +52,8 @@
           <li>
             <h3><a href="#start">HTTP</a></h3>
             <p><code>POST /v1/check</code> with an Unfret pass as a bearer token, or paid per call over x402 in USDC
-              or wSOL. Unfret pays the network fee.</p>
+              or wSOL. Unfret pays the network fee. <a href="/developers/http">From any language</a>: the request,
+              the response, errors and examples.</p>
           </li>
           <li>
             <h3><a href="#mcp">MCP server</a></h3>
@@ -58,9 +61,9 @@
               from a pass or the agent's own Solana wallet.</p>
           </li>
           <li>
-            <h3><a href="#clients">Clients</a></h3>
-            <p>Python and TypeScript: <code>check(url)</code> gives <code>allow</code>, <code>warn</code> or
-              <code>block</code>, from a policy you can change.</p>
+            <h3><a href="#clients">Python client</a></h3>
+            <p><code>check(url)</code> gives <code>allow</code>, <code>warn</code> or <code>block</code>, from a
+              policy you can change. Other languages: <a href="/developers/http">plain HTTP</a>.</p>
           </li>
         </ul>
       </div>
@@ -94,10 +97,10 @@
           <p class="buttons"><button type="button" id="dev-pass-make" class="primary">Make a developer pass</button></p>
           <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>
           <div id="dev-pass-result" hidden></div>
-          <p class="small muted">Or in code: <code>Unfret().new_developer_pass()</code> (Python),
-            <code>new Unfret().newDeveloperPass()</code> (TypeScript), or <code>GET /v1/keys/challenge</code>, then
-            <code>POST /v1/keys</code> with the solved challenge and <code>"developer": true</code>.
-            <a href="/checkout">Buy checks</a> for any pass.</p>
+          <p class="small muted">Or in code: <code>Unfret().new_developer_pass()</code> (Python), or
+            <code>GET /v1/keys/challenge</code>, then <code>POST /v1/keys</code> with the solved challenge and
+            <code>"developer": true</code> (<a href="/developers/http#developer-pass">the proof of work, step by
+            step</a>). <a href="/checkout">Buy checks</a> for any pass.</p>
         </div>
       </div>
     </section>
@@ -240,11 +243,12 @@
 
     <section class="section" id="clients" aria-labelledby="clients-heading">
       <div class="wrap narrow">
-        <h2 id="clients-heading">Clients for Python and TypeScript</h2>
-        <p><code>unfret-client</code>, MIT licensed, with a pass: <code>check(url)</code> answers
+        <h2 id="clients-heading">A Python client, and any other language</h2>
+        <p><b>Python:</b> <code>unfret-client</code>, MIT licensed, with a pass: <code>check(url)</code> answers
           <code>allow</code>, <code>warn</code> or <code>block</code> from the verdict a shopper would see ("Looks
           fine" → allow, "Worth a look" → warn, "Think twice" and "Serious concerns" → block; change it with
           <code>policy</code>).</p>
+        {{python_install}}
         <div class="code-block">
           <pre class="terminal" id="client-python"><span class="k">from</span> unfret_client <span class="k">import</span> Unfret
 
@@ -252,15 +256,15 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
 <span class="k">if</span> decision.action == "block": ...</pre>
           <button type="button" class="copy" data-copy="client-python">Copy</button>
         </div>
-        <div class="code-block">
-          <pre class="terminal" id="client-ts"><span class="k">import</span> { Unfret } <span class="k">from</span> "unfret-client";
-
-<span class="k">const</span> decision = <span class="k">await</span> <span class="k">new</span> Unfret({ pass: "ufk_…" }).check("https://shop.example/p/42");</pre>
-          <button type="button" class="copy" data-copy="client-ts">Copy</button>
-        </div>
-        <p class="small muted">Coming to PyPI and npm; until then, the source:
-          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/python" rel="noopener">Python</a>,
-          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript" rel="noopener">TypeScript</a>,
+        <p><b>Any other language:</b> it's one HTTPS call. <a href="/developers/http">Use Unfret from any
+          language</a> has the request, the response, the errors and the developer pass's proof of work, with
+          examples in curl, JavaScript, Go and PHP. For JavaScript and TypeScript there is also a reference client
+          without dependencies in the repository, to copy into a project (it isn't on npm).</p>
+        <p class="small muted">The source:
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/python" rel="noopener">Python
+          client</a>,
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript" rel="noopener">TypeScript
+          reference client</a>,
           and <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples/browser-use-checkout" rel="noopener">an
           example agent</a> that checks the shop before checkout.</p>
       </div>
@@ -305,7 +309,8 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
             <ul>
               <li><a href="/llms.txt">llms.txt</a>: the service described for language models</li>
               <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, assets, policies and the pass</li>
-              <li><a href="/openapi.json">openapi.json</a> and the <a href="/docs">API reference</a></li>
+              <li><a href="/openapi.json">openapi.json</a> and the <a href="/docs">API reference</a>; from any
+                language: <a href="/developers/http">the HTTP guide</a></li>
               <li><a href="/static/accuracy.json">accuracy.json</a>: how often each verdict is right, from the
                 <a href="/accuracy">accuracy page</a></li>
               <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a>, MIT

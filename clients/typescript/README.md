@@ -1,11 +1,17 @@
-# unfret-client
+# unfret-client (TypeScript reference client)
 
 A minimal TypeScript/JavaScript client for [Unfret](https://unfret.net): before an AI agent buys, ask whether the
 store or product page shows signs of a scam, dropshipped generic goods, fake reviews or pressure tricks, and get back
 what to do. No dependencies (it uses `fetch` and Web Crypto: Node 20 or newer, Deno, Bun, browsers). MIT licensed.
 
+**It is not published on npm.** It is a reference to copy: put [`src/index.ts`](src/index.ts) into your project (one
+file, with [`LICENSE`](LICENSE)) and import it from there. For any other language, or to write your own,
+[unfret.net/developers/http](https://unfret.net/developers/http) has the request, the response, the errors and the
+proof of work for a developer pass. (The Python client, `unfret-client` in [`../python`](../python), is the one
+published package.)
+
 ```ts
-import { Unfret } from "unfret-client";
+import { Unfret } from "./unfret"; // src/index.ts, copied into your project as unfret.ts
 
 const unfret = new Unfret({ pass: "ufk_…" }); // or set UNFRET_PASS
 const decision = await unfret.check("https://shop.example/p/42");

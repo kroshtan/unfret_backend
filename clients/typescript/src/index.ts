@@ -1,7 +1,7 @@
 /**
  * A minimal client for Unfret: check a store or product page before an agent buys, and get allow, warn or block.
  *
- *     import { Unfret } from "unfret-client";
+ *     import { Unfret } from "./unfret"; // this file, copied into your project (it isn't on npm)
  *     const decision = await new Unfret({ pass: "ufk_…" }).check("https://shop.example/p/42");
  *     if (decision.action === "block") { ... }
  *

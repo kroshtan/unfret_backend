@@ -21,12 +21,13 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from unfret import __version__, accuracy
+from unfret import __version__, accuracy, clients_info
 from unfret.config import settings
 from unfret.credits import invites, packs
+from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
-from unfret.x402.verdict import tier_description
+from unfret.x402.verdict import POLICY_THRESHOLDS, tier_description
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -293,6 +294,66 @@ def _limits_and_measurements() -> dict[str, str]:
     }
 
 
+def _payment_options(request: Request) -> tuple[str, bool]:
+    """
+    What ``/v1/check`` takes over x402 right now, in words, and whether Base is among it.
+
+    :param request: The incoming request (for the Base payment service).
+    :return: ``("USDC and wSOL on Solana devnet[, and USDC on Base Sepolia]", base_on)``.
+    """
+    network = developer_fields()["network_name"]
+    base_on = get_x402_base(request).configured
+    options = f"USDC and wSOL on {network}"
+    if base_on:
+        options += f", and USDC on {_BASE_NAMES[settings.base_network]}"
+    return options, base_on
+
+
+def python_install_html() -> str:
+    """
+    How to install the Python client, as HTML for ``/developers`` (see :mod:`unfret.clients_info`).
+
+    :return: Trusted markup: ``pip install unfret-client``, and before its first release on PyPI the source install,
+        each as a code block with a Copy button.
+    """
+    block = (
+        '<div class="code-block">\n          <pre class="terminal" id="{id}">{command}</pre>\n'
+        '          <button type="button" class="copy" data-copy="{id}">Copy</button>\n        </div>'
+    )
+    pypi = block.format(id="client-python-pip", command="pip install unfret-client")
+    if clients_info.PYTHON_CLIENT_ON_PYPI:
+        return pypi
+    source = html.escape(f'pip install "{clients_info.PYTHON_CLIENT_SOURCE}"')
+    return (
+        '<p class="small">From PyPI once its first release is out (it comes with Unfret\'s next release):</p>\n'
+        f"        {pypi}\n"
+        '        <p class="small">Until then, from the source:</p>\n'
+        f"        {block.format(id='client-python-source', command=source)}"
+    )
+
+
+_NUMBER_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def _count(n: int) -> str:
+    return _NUMBER_WORDS[n] if 0 <= n < len(_NUMBER_WORDS) else str(n)
+
+
+def _pow_example(bits: int) -> str:
+    """
+    What ``bits`` leading zero bits mean for the digest's bytes, for ``/developers/http``.
+
+    :param bits: The difficulty.
+    :return: E.g. "the first 2 bytes are 0 and the next one is below 64" for 18.
+    """
+    whole, rest = divmod(bits, 8)
+    zero = "the first byte is 0" if whole == 1 else f"the first {whole} bytes are 0"
+    if not rest:
+        return zero
+    below = f"{'the first byte' if not whole else 'the next one'} is below {2 ** (8 - rest)}"
+    return below if not whole else f"{zero} and {below}"
+
+
 @router.get("/developers", response_class=HTMLResponse)
 def developers(request: Request) -> HTMLResponse:
     """
@@ -306,14 +367,47 @@ def developers(request: Request) -> HTMLResponse:
     :param request: The incoming request (for the Base payment service).
     :return: The page.
     """
-    network = developer_fields()["network_name"]
-    base_on = get_x402_base(request).configured
-    options = f"USDC and wSOL on {network}"
-    if base_on:
-        options += f", and USDC on {_BASE_NAMES[settings.base_network]}"
+    options, base_on = _payment_options(request)
     fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
-    page = template("developers.html", "/developers")
+    page = template("developers.html", "/developers").replace("{{python_install}}", python_install_html())
     if base_on:  # no longer "coming next"
+        page = _COMING_BASE.sub("", page)
+    for name, value in fields.items():
+        page = page.replace("{{" + name + "}}", html.escape(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/developers/http", response_class=HTMLResponse)
+def developers_http(request: Request) -> HTMLResponse:
+    """
+    Use Unfret from any language: the two ways to pay, a developer pass in code, the request, the response, errors.
+
+    Every number comes from the settings (prices, limits, the proof of work's difficulty and lifetime) or from
+    ``developers-measured.json`` (the times), like ``/developers``; the examples are run in the tests
+    (``tests/unit/test_developers_http.py``) against the server's own proof-of-work check and models.
+
+    :param request: The incoming request (for the Base payment service).
+    :return: The page.
+    """
+    options, base_on = _payment_options(request)
+    warn, block = POLICY_THRESHOLDS["balanced"]
+    bits, passes = settings.key_pow_bits, settings.developer_passes_per_ip_per_day
+    fields = {
+        **developer_fields(),
+        **_limits_and_measurements(),
+        "payment_options": options,
+        "pow_bits": str(bits),
+        "pow_example": _pow_example(bits),
+        "pow_hashes": f"{2**bits:,}",
+        "pow_extra_max": str(MAX_EXTRA_BITS),
+        "pow_ttl_min": f"{settings.key_pow_ttl_s / 60:g}",
+        "developer_passes_per_day": _count(passes) + (" developer pass" if passes == 1 else " developer passes"),
+        "key_create_per_day": str(settings.key_create_per_ip_per_day),
+        "balanced_warn": f"{warn:g}",
+        "balanced_block": f"{block:g}",
+    }
+    page = template("developers-http.html")
+    if base_on:  # Base is on: nothing to announce
         page = _COMING_BASE.sub("", page)
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))

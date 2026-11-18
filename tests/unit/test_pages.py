@@ -221,6 +221,7 @@ SITE_PAGES = {
     "/privacy": None,  # in the footer, not the menu
     "/extension": "/extension",
     "/welcome": None,
+    "/developers/http": None,  # under /developers, which the menu links to
 }
 
 

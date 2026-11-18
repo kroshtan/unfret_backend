@@ -2511,6 +2511,15 @@
    "SameProduct": {
     "description": "The same product photo on another shop or listing (Unfret's image index): shown first, with both photos.",
     "properties": {
+     "brands": {
+      "description": "Other brand names the same photo is sold under there (names only), when Unfret knows them.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Brands",
+      "type": "array"
+     },
      "currency": {
       "anyOf": [
        {

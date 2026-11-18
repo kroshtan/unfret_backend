@@ -24,6 +24,18 @@ Precision comes first: a false "this photo is used elsewhere" is worse than a mi
    a recognised brand. Up to three thumbnails are served by `GET /v1/images/{id}/thumbnail.jpg`, so the shopper's
    browser never contacts the other shops.
 
+5. **Brands.** Each row keeps the brand its listing names (`label`: the page's brand for photos seen in analyses,
+   the catalogue's for the seed; `unfret.brands` makes them comparable: case, accents, ™/®, punctuation and a
+   trailing "Official Store" or company form don't count). A listing without a brand is *unknown*, never a different
+   brand. The same photo under two or more brand names is relabelled generic goods (`photo_other_brands`, the reason
+   `rebranded_photo`): it counts even without other signs of a resold product, but not a brand the page's title names
+   (a reseller), a brand that is only a shop's own name, or other shops' labels on the brand's own shop. A catalogue
+   photo of a brand on Wikidata, on a page naming another brand, is the stronger `brand_photo_reused` (a copied
+   listing, or a copy of the product). Neither is said of a brand that exists beyond the page (the content read,
+   Wikidata or its own old domain). On a marketplace the photo is compared with the marketplace's other listings too.
+   The brand follows the photo's provenance: a report that doesn't count can't relabel a photo a fetched page gave,
+   and two that disagree leave the brand unknown.
+
 Retrieval is a Postgres scan with a popcount filter on the pHash (about 5 ms for 53,000 rows); the dHash and the
 embedding are checked in Python. pgvector isn't needed: with both fingerprints required, the pHash gate loses
 nothing. An approximate nearest-neighbour index would only matter for a later, more edit-tolerant mode.

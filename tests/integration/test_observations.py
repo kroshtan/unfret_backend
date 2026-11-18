@@ -143,6 +143,28 @@ async def test_image_index_counts_once_corroborated_and_keeps_a_photo_that_count
     assert await store.image_url(real_id or 0) == "https://real/2.jpg"
 
 
+async def test_image_index_keeps_the_brand_with_the_photo(pool: asyncpg.Pool) -> None:
+    store = PostgresImageStore(pool)
+    photo, other = _print(33), _print(34)
+    where = Listing("lampery.nl", key("lamp"))
+
+    async def brand() -> str | None:
+        label: str | None = await pool.fetchval("SELECT label FROM image_prints WHERE domain = 'lampery.nl'")
+        return label
+
+    await store.upsert(where, photo, image_url="u", day=DAY, source="seen", label="Brightora")
+    await store.upsert(where, photo, image_url="u", day=DAY, source="seen", label="Zorvi", bits=CLIENT, vouch=1)
+    assert await brand() == "Brightora"  # a report that doesn't count can't relabel a fetched page's photo
+    await store.upsert(where, photo, image_url="u", day=DAY, source="seen", label="Zorvi")
+    assert await brand() == "Zorvi"
+    await store.upsert(where, other, image_url="u2", day=DAY, source="seen", label=None)
+    assert await brand() is None  # a new photo, with its page's brand (none: unknown)
+    (match,) = (await lookup(store, other, None)).matches
+    assert match.label is None
+    with pytest.raises(asyncpg.CheckViolationError):  # migration 31: a seen row's brand is a short name
+        await pool.execute("UPDATE image_prints SET label = $1 WHERE domain = 'lampery.nl'", "x" * 61)
+
+
 # ── The routes say where the page came from ─────────────────────────────────────────────────────────────────
 
 

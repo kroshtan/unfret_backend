@@ -1344,6 +1344,19 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
 .band-dot.concerns { background: var(--note); }
 .band-dot.careful { background: var(--care); }
 .band-dot.junk_or_scam { background: var(--stop); }
+.acc-scorer-meta { display: block; margin-top: 0.15rem; color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.acc-scorers thead th { color: var(--ink); font-size: 0.92rem; font-weight: 650; text-transform: none; letter-spacing: 0; }
+.acc-scorers thead th:first-child { color: var(--muted); font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.acc-scorers thead th code { display: block; margin-top: 0.15rem; font-size: 0.8rem; overflow-wrap: anywhere; }
+.acc-scorers tbody th, .acc-history { margin: 1rem 0; border-top: 1px solid var(--line); }
+.acc-history-item { border-bottom: 1px solid var(--line); }
+.acc-history-item > summary { display: flex; align-items: baseline; min-height: 2.75rem; padding: 0.7rem 0; font-weight: 650; color: var(--ink); }
+.acc-history-item > summary::before { align-self: center; }
+.acc-history-item > summary code { overflow-wrap: anywhere; }
+.acc-history-item > p, .acc-history-item > .acc-table-wrap { margin-left: 1.25rem; }
+.acc-history-item > p { margin-top: 0; }
+.acc-history-table { max-width: 32rem; }
+.acc-history-empty { color: var(--ink-2); }
 .acc-changelog dt { margin-top: 1.1rem; font-weight: 650; color: var(--ink); }
 .acc-changelog dd { margin: 0.3rem 0 0; color: var(--ink-2); }
 @media (max-width: 40rem) {
@@ -1354,6 +1367,7 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
   .acc-table th:first-child { padding-left: 0; }
   .acc-table th:last-child, .acc-table td:last-child { padding-right: 0; }
   .acc-table thead th { font-size: 0.7rem; letter-spacing: 0.02em; }
+  .acc-scorers thead th { font-size: 0.85rem; }
 }
 @media (max-width: 26rem) { .acc-table td .muted { display: none; } }
 /* /check: example links under the form */

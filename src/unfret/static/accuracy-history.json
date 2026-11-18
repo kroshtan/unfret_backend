@@ -1,0 +1,906 @@
+{
+  "entries": [
+    {
+      "version": "v1-20261118-113117-C",
+      "kind": "private",
+      "released": "2026-11-18",
+      "measured": "2026-11-18",
+      "corpus_pages": 2641,
+      "metrics": {
+        "products_scored": 1742,
+        "caught": 0.834,
+        "warning_precision": 0.855,
+        "serious_right": 1.0,
+        "legit_shops_warned": 0.155,
+        "legit_shops_worth_a_look": 0.106,
+        "legit_shops_serious": 0.0,
+        "roc_auc": 0.928
+      },
+      "summary": {
+        "generated": "2026-11-18",
+        "scorer_version": "v1-20261118-113117-C",
+        "llm_model": "mistral-small-3.2-24b-instruct-2506",
+        "replay": {
+          "split": "all",
+          "with_url": true,
+          "network_lookups": false
+        },
+        "corpus": {
+          "pages": 2641,
+          "unlabelled_set_aside": 413,
+          "kinds": {
+            "ad": {
+              "pages": 289,
+              "legit": 142,
+              "unreliable": 147
+            },
+            "marketplace_product": {
+              "pages": 347,
+              "legit": 163,
+              "unreliable": 184
+            },
+            "shop": {
+              "pages": 1415,
+              "legit": 758,
+              "unreliable": 657
+            },
+            "trade_profile": {
+              "pages": 279,
+              "legit": 129,
+              "unreliable": 150
+            },
+            "trade_site": {
+              "pages": 311,
+              "legit": 186,
+              "unreliable": 125
+            }
+          },
+          "label_origins": {
+            "consumer_authority": {
+              "pages": 253,
+              "unreliable": 253
+            },
+            "established_business": {
+              "pages": 605,
+              "legit": 605
+            },
+            "research_dataset": {
+              "pages": 826,
+              "legit": 327,
+              "unreliable": 499
+            },
+            "synthetic": {
+              "pages": 957,
+              "legit": 446,
+              "unreliable": 511
+            }
+          },
+          "markets": {
+            "ad": {
+              "both": 86,
+              "eu": 147,
+              "us": 56
+            },
+            "marketplace_product": {
+              "eu": 5,
+              "us": 342
+            },
+            "shop": {
+              "eu": 695,
+              "other": 19,
+              "us": 701
+            },
+            "trade_profile": {
+              "eu": 166,
+              "us": 113
+            },
+            "trade_site": {
+              "eu": 216,
+              "us": 95
+            }
+          },
+          "split": {
+            "train": 1866,
+            "test": 775
+          },
+          "synthetic": 957,
+          "second_opinion_agreed": 2102
+        },
+        "groups": {
+          "products": {
+            "coverage": {
+              "labelled": 1762,
+              "scored": 1742,
+              "not_assessed": 0,
+              "missing_recordings": 20,
+              "without_llm_read": 0
+            },
+            "per_class": {
+              "product": {
+                "labelled": 1762,
+                "scored": 1742,
+                "not_assessed": 0,
+                "missing_recordings": 20,
+                "without_llm_read": 0
+              }
+            },
+            "missing_by_label_origin": {
+              "established_business": 3,
+              "research_dataset": 17
+            },
+            "scored_by_label_origin": {
+              "consumer_authority": 158,
+              "established_business": 436,
+              "research_dataset": 809,
+              "synthetic": 339
+            },
+            "scored": 1742,
+            "unreliable": 826,
+            "legit": 916,
+            "bands": {
+              "reliable": {
+                "pages": 770,
+                "unreliable": 55,
+                "legit": 715,
+                "unreliable_share": 0.071,
+                "share_of_unreliable": 0.067,
+                "share_of_legit": 0.781
+              },
+              "concerns": {
+                "pages": 166,
+                "unreliable": 82,
+                "legit": 84,
+                "unreliable_share": 0.494,
+                "share_of_unreliable": 0.099,
+                "share_of_legit": 0.092
+              },
+              "careful": {
+                "pages": 699,
+                "unreliable": 582,
+                "legit": 117,
+                "unreliable_share": 0.833,
+                "share_of_unreliable": 0.705,
+                "share_of_legit": 0.128
+              },
+              "junk_or_scam": {
+                "pages": 107,
+                "unreliable": 107,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.13,
+                "share_of_legit": 0.0
+              }
+            },
+            "caught": 0.834,
+            "caught_with_worth_a_look": 0.933,
+            "warning_precision": 0.855,
+            "legit_warned": 0.128,
+            "roc_auc": 0.928
+          },
+          "ads": {
+            "coverage": {
+              "labelled": 289,
+              "scored": 289,
+              "not_assessed": 0,
+              "missing_recordings": 0,
+              "without_llm_read": 289
+            },
+            "per_class": {
+              "p2p_listing": {
+                "labelled": 289,
+                "scored": 289,
+                "not_assessed": 0,
+                "missing_recordings": 0,
+                "without_llm_read": 289
+              }
+            },
+            "missing_by_label_origin": {},
+            "scored_by_label_origin": {
+              "synthetic": 289
+            },
+            "scored": 289,
+            "unreliable": 147,
+            "legit": 142,
+            "bands": {
+              "reliable": {
+                "pages": 4,
+                "unreliable": 0,
+                "legit": 4,
+                "unreliable_share": 0.0,
+                "share_of_unreliable": 0.0,
+                "share_of_legit": 0.028
+              },
+              "concerns": {
+                "pages": 236,
+                "unreliable": 98,
+                "legit": 138,
+                "unreliable_share": 0.415,
+                "share_of_unreliable": 0.667,
+                "share_of_legit": 0.972
+              },
+              "careful": {
+                "pages": 46,
+                "unreliable": 46,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.313,
+                "share_of_legit": 0.0
+              },
+              "junk_or_scam": {
+                "pages": 3,
+                "unreliable": 3,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.02,
+                "share_of_legit": 0.0
+              }
+            },
+            "caught": 0.333,
+            "caught_with_worth_a_look": 1.0,
+            "warning_precision": 1.0,
+            "legit_warned": 0.0,
+            "roc_auc": 0.676
+          },
+          "trades": {
+            "coverage": {
+              "labelled": 590,
+              "scored": 348,
+              "not_assessed": 0,
+              "missing_recordings": 242,
+              "without_llm_read": 344
+            },
+            "per_class": {
+              "service_listing": {
+                "labelled": 279,
+                "scored": 279,
+                "not_assessed": 0,
+                "missing_recordings": 0,
+                "without_llm_read": 275
+              },
+              "service_site": {
+                "labelled": 311,
+                "scored": 69,
+                "not_assessed": 0,
+                "missing_recordings": 242,
+                "without_llm_read": 69
+              }
+            },
+            "missing_by_label_origin": {
+              "consumer_authority": 86,
+              "established_business": 156
+            },
+            "scored_by_label_origin": {
+              "consumer_authority": 9,
+              "established_business": 10,
+              "synthetic": 329
+            },
+            "scored": 348,
+            "unreliable": 189,
+            "legit": 159,
+            "bands": {
+              "reliable": {
+                "pages": 129,
+                "unreliable": 0,
+                "legit": 129,
+                "unreliable_share": 0.0,
+                "share_of_unreliable": 0.0,
+                "share_of_legit": 0.811
+              },
+              "concerns": {
+                "pages": 45,
+                "unreliable": 15,
+                "legit": 30,
+                "unreliable_share": 0.333,
+                "share_of_unreliable": 0.079,
+                "share_of_legit": 0.189
+              },
+              "careful": {
+                "pages": 120,
+                "unreliable": 120,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.635,
+                "share_of_legit": 0.0
+              },
+              "junk_or_scam": {
+                "pages": 54,
+                "unreliable": 54,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.286,
+                "share_of_legit": 0.0
+              }
+            },
+            "caught": 0.921,
+            "caught_with_worth_a_look": 1.0,
+            "warning_precision": 1.0,
+            "legit_warned": 0.0,
+            "roc_auc": 0.993
+          }
+        },
+        "products_test_only": {
+          "coverage": {
+            "labelled": 511,
+            "scored": 505,
+            "not_assessed": 0,
+            "missing_recordings": 6,
+            "without_llm_read": 0
+          },
+          "scored": 505,
+          "unreliable": 233,
+          "legit": 272,
+          "bands": {
+            "reliable": {
+              "pages": 236,
+              "unreliable": 17,
+              "legit": 219,
+              "unreliable_share": 0.072,
+              "share_of_unreliable": 0.073,
+              "share_of_legit": 0.805
+            },
+            "concerns": {
+              "pages": 54,
+              "unreliable": 31,
+              "legit": 23,
+              "unreliable_share": 0.574,
+              "share_of_unreliable": 0.133,
+              "share_of_legit": 0.085
+            },
+            "careful": {
+              "pages": 185,
+              "unreliable": 155,
+              "legit": 30,
+              "unreliable_share": 0.838,
+              "share_of_unreliable": 0.665,
+              "share_of_legit": 0.11
+            },
+            "junk_or_scam": {
+              "pages": 30,
+              "unreliable": 30,
+              "legit": 0,
+              "unreliable_share": 1.0,
+              "share_of_unreliable": 0.129,
+              "share_of_legit": 0.0
+            }
+          },
+          "caught": 0.794,
+          "caught_with_worth_a_look": 0.927,
+          "warning_precision": 0.86,
+          "legit_warned": 0.11,
+          "roc_auc": 0.929
+        },
+        "products_checks_off": {
+          "coverage": {
+            "labelled": 1762,
+            "scored": 1752,
+            "not_assessed": 9,
+            "missing_recordings": 1,
+            "without_llm_read": 0
+          },
+          "scored": 1752,
+          "unreliable": 832,
+          "legit": 920,
+          "bands": {
+            "reliable": {
+              "pages": 773,
+              "unreliable": 55,
+              "legit": 718,
+              "unreliable_share": 0.071,
+              "share_of_unreliable": 0.066,
+              "share_of_legit": 0.78
+            },
+            "concerns": {
+              "pages": 169,
+              "unreliable": 84,
+              "legit": 85,
+              "unreliable_share": 0.497,
+              "share_of_unreliable": 0.101,
+              "share_of_legit": 0.092
+            },
+            "careful": {
+              "pages": 702,
+              "unreliable": 585,
+              "legit": 117,
+              "unreliable_share": 0.833,
+              "share_of_unreliable": 0.703,
+              "share_of_legit": 0.127
+            },
+            "junk_or_scam": {
+              "pages": 108,
+              "unreliable": 108,
+              "legit": 0,
+              "unreliable_share": 1.0,
+              "share_of_unreliable": 0.13,
+              "share_of_legit": 0.0
+            }
+          },
+          "caught": 0.833,
+          "caught_with_worth_a_look": 0.934,
+          "warning_precision": 0.856,
+          "legit_warned": 0.127,
+          "roc_auc": 0.928
+        },
+        "legit_shops": {
+          "all": {
+            "pages": 753,
+            "warned": 117,
+            "warned_share": 0.155,
+            "worth_a_look": 80,
+            "worth_a_look_share": 0.106,
+            "serious": 0,
+            "serious_share": 0.0
+          },
+          "eu": {
+            "pages": 450,
+            "warned": 95,
+            "warned_share": 0.211,
+            "worth_a_look": 65,
+            "worth_a_look_share": 0.144,
+            "serious": 0,
+            "serious_share": 0.0
+          },
+          "us": {
+            "pages": 299,
+            "warned": 21,
+            "warned_share": 0.07,
+            "worth_a_look": 15,
+            "worth_a_look_share": 0.05,
+            "serious": 0,
+            "serious_share": 0.0
+          }
+        }
+      }
+    },
+    {
+      "version": "v1-20261109-222323-C",
+      "kind": "public",
+      "released": "2026-11-10",
+      "measured": "2026-11-18",
+      "corpus_pages": 2641,
+      "metrics": {
+        "products_scored": 1742,
+        "caught": 0.732,
+        "warning_precision": 0.879,
+        "serious_right": 0.957,
+        "legit_shops_warned": 0.11,
+        "legit_shops_worth_a_look": 0.301,
+        "legit_shops_serious": 0.016,
+        "roc_auc": 0.918
+      },
+      "summary": {
+        "generated": "2026-11-18",
+        "scorer_version": "v1-20261109-222323-C",
+        "llm_model": "mistral-small-3.2-24b-instruct-2506",
+        "replay": {
+          "split": "all",
+          "with_url": true,
+          "network_lookups": false
+        },
+        "corpus": {
+          "pages": 2641,
+          "unlabelled_set_aside": 413,
+          "kinds": {
+            "ad": {
+              "pages": 289,
+              "legit": 142,
+              "unreliable": 147
+            },
+            "marketplace_product": {
+              "pages": 347,
+              "legit": 163,
+              "unreliable": 184
+            },
+            "shop": {
+              "pages": 1415,
+              "legit": 758,
+              "unreliable": 657
+            },
+            "trade_profile": {
+              "pages": 279,
+              "legit": 129,
+              "unreliable": 150
+            },
+            "trade_site": {
+              "pages": 311,
+              "legit": 186,
+              "unreliable": 125
+            }
+          },
+          "label_origins": {
+            "consumer_authority": {
+              "pages": 253,
+              "unreliable": 253
+            },
+            "established_business": {
+              "pages": 605,
+              "legit": 605
+            },
+            "research_dataset": {
+              "pages": 826,
+              "legit": 327,
+              "unreliable": 499
+            },
+            "synthetic": {
+              "pages": 957,
+              "legit": 446,
+              "unreliable": 511
+            }
+          },
+          "markets": {
+            "ad": {
+              "both": 86,
+              "eu": 147,
+              "us": 56
+            },
+            "marketplace_product": {
+              "eu": 5,
+              "us": 342
+            },
+            "shop": {
+              "eu": 695,
+              "other": 19,
+              "us": 701
+            },
+            "trade_profile": {
+              "eu": 166,
+              "us": 113
+            },
+            "trade_site": {
+              "eu": 216,
+              "us": 95
+            }
+          },
+          "split": {
+            "train": 1866,
+            "test": 775
+          },
+          "synthetic": 957,
+          "second_opinion_agreed": 2102
+        },
+        "groups": {
+          "products": {
+            "coverage": {
+              "labelled": 1762,
+              "scored": 1742,
+              "not_assessed": 0,
+              "missing_recordings": 20,
+              "without_llm_read": 0
+            },
+            "per_class": {
+              "product": {
+                "labelled": 1762,
+                "scored": 1742,
+                "not_assessed": 0,
+                "missing_recordings": 20,
+                "without_llm_read": 0
+              }
+            },
+            "missing_by_label_origin": {
+              "established_business": 3,
+              "research_dataset": 17
+            },
+            "scored_by_label_origin": {
+              "consumer_authority": 158,
+              "established_business": 436,
+              "research_dataset": 809,
+              "synthetic": 339
+            },
+            "scored": 1742,
+            "unreliable": 826,
+            "legit": 916,
+            "bands": {
+              "reliable": {
+                "pages": 625,
+                "unreliable": 32,
+                "legit": 593,
+                "unreliable_share": 0.051,
+                "share_of_unreliable": 0.039,
+                "share_of_legit": 0.647
+              },
+              "concerns": {
+                "pages": 429,
+                "unreliable": 189,
+                "legit": 240,
+                "unreliable_share": 0.441,
+                "share_of_unreliable": 0.229,
+                "share_of_legit": 0.262
+              },
+              "careful": {
+                "pages": 412,
+                "unreliable": 341,
+                "legit": 71,
+                "unreliable_share": 0.828,
+                "share_of_unreliable": 0.413,
+                "share_of_legit": 0.078
+              },
+              "junk_or_scam": {
+                "pages": 276,
+                "unreliable": 264,
+                "legit": 12,
+                "unreliable_share": 0.957,
+                "share_of_unreliable": 0.32,
+                "share_of_legit": 0.013
+              }
+            },
+            "caught": 0.732,
+            "caught_with_worth_a_look": 0.961,
+            "warning_precision": 0.879,
+            "legit_warned": 0.091,
+            "roc_auc": 0.918
+          },
+          "ads": {
+            "coverage": {
+              "labelled": 289,
+              "scored": 289,
+              "not_assessed": 0,
+              "missing_recordings": 0,
+              "without_llm_read": 289
+            },
+            "per_class": {
+              "p2p_listing": {
+                "labelled": 289,
+                "scored": 289,
+                "not_assessed": 0,
+                "missing_recordings": 0,
+                "without_llm_read": 289
+              }
+            },
+            "missing_by_label_origin": {},
+            "scored_by_label_origin": {
+              "synthetic": 289
+            },
+            "scored": 289,
+            "unreliable": 147,
+            "legit": 142,
+            "bands": {
+              "reliable": {
+                "pages": 4,
+                "unreliable": 0,
+                "legit": 4,
+                "unreliable_share": 0.0,
+                "share_of_unreliable": 0.0,
+                "share_of_legit": 0.028
+              },
+              "concerns": {
+                "pages": 236,
+                "unreliable": 98,
+                "legit": 138,
+                "unreliable_share": 0.415,
+                "share_of_unreliable": 0.667,
+                "share_of_legit": 0.972
+              },
+              "careful": {
+                "pages": 46,
+                "unreliable": 46,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.313,
+                "share_of_legit": 0.0
+              },
+              "junk_or_scam": {
+                "pages": 3,
+                "unreliable": 3,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.02,
+                "share_of_legit": 0.0
+              }
+            },
+            "caught": 0.333,
+            "caught_with_worth_a_look": 1.0,
+            "warning_precision": 1.0,
+            "legit_warned": 0.0,
+            "roc_auc": 0.676
+          },
+          "trades": {
+            "coverage": {
+              "labelled": 590,
+              "scored": 348,
+              "not_assessed": 0,
+              "missing_recordings": 242,
+              "without_llm_read": 344
+            },
+            "per_class": {
+              "service_listing": {
+                "labelled": 279,
+                "scored": 279,
+                "not_assessed": 0,
+                "missing_recordings": 0,
+                "without_llm_read": 275
+              },
+              "service_site": {
+                "labelled": 311,
+                "scored": 69,
+                "not_assessed": 0,
+                "missing_recordings": 242,
+                "without_llm_read": 69
+              }
+            },
+            "missing_by_label_origin": {
+              "consumer_authority": 86,
+              "established_business": 156
+            },
+            "scored_by_label_origin": {
+              "consumer_authority": 9,
+              "established_business": 10,
+              "synthetic": 329
+            },
+            "scored": 348,
+            "unreliable": 189,
+            "legit": 159,
+            "bands": {
+              "reliable": {
+                "pages": 129,
+                "unreliable": 0,
+                "legit": 129,
+                "unreliable_share": 0.0,
+                "share_of_unreliable": 0.0,
+                "share_of_legit": 0.811
+              },
+              "concerns": {
+                "pages": 45,
+                "unreliable": 15,
+                "legit": 30,
+                "unreliable_share": 0.333,
+                "share_of_unreliable": 0.079,
+                "share_of_legit": 0.189
+              },
+              "careful": {
+                "pages": 120,
+                "unreliable": 120,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.635,
+                "share_of_legit": 0.0
+              },
+              "junk_or_scam": {
+                "pages": 54,
+                "unreliable": 54,
+                "legit": 0,
+                "unreliable_share": 1.0,
+                "share_of_unreliable": 0.286,
+                "share_of_legit": 0.0
+              }
+            },
+            "caught": 0.921,
+            "caught_with_worth_a_look": 1.0,
+            "warning_precision": 1.0,
+            "legit_warned": 0.0,
+            "roc_auc": 0.993
+          }
+        },
+        "products_test_only": {
+          "coverage": {
+            "labelled": 511,
+            "scored": 505,
+            "not_assessed": 0,
+            "missing_recordings": 6,
+            "without_llm_read": 0
+          },
+          "scored": 505,
+          "unreliable": 233,
+          "legit": 272,
+          "bands": {
+            "reliable": {
+              "pages": 194,
+              "unreliable": 12,
+              "legit": 182,
+              "unreliable_share": 0.062,
+              "share_of_unreliable": 0.052,
+              "share_of_legit": 0.669
+            },
+            "concerns": {
+              "pages": 134,
+              "unreliable": 62,
+              "legit": 72,
+              "unreliable_share": 0.463,
+              "share_of_unreliable": 0.266,
+              "share_of_legit": 0.265
+            },
+            "careful": {
+              "pages": 108,
+              "unreliable": 90,
+              "legit": 18,
+              "unreliable_share": 0.833,
+              "share_of_unreliable": 0.386,
+              "share_of_legit": 0.066
+            },
+            "junk_or_scam": {
+              "pages": 69,
+              "unreliable": 69,
+              "legit": 0,
+              "unreliable_share": 1.0,
+              "share_of_unreliable": 0.296,
+              "share_of_legit": 0.0
+            }
+          },
+          "caught": 0.682,
+          "caught_with_worth_a_look": 0.948,
+          "warning_precision": 0.898,
+          "legit_warned": 0.066,
+          "roc_auc": 0.919
+        },
+        "products_checks_off": {
+          "coverage": {
+            "labelled": 1762,
+            "scored": 1752,
+            "not_assessed": 9,
+            "missing_recordings": 1,
+            "without_llm_read": 0
+          },
+          "scored": 1752,
+          "unreliable": 832,
+          "legit": 920,
+          "bands": {
+            "reliable": {
+              "pages": 629,
+              "unreliable": 33,
+              "legit": 596,
+              "unreliable_share": 0.052,
+              "share_of_unreliable": 0.04,
+              "share_of_legit": 0.648
+            },
+            "concerns": {
+              "pages": 430,
+              "unreliable": 190,
+              "legit": 240,
+              "unreliable_share": 0.442,
+              "share_of_unreliable": 0.228,
+              "share_of_legit": 0.261
+            },
+            "careful": {
+              "pages": 415,
+              "unreliable": 343,
+              "legit": 72,
+              "unreliable_share": 0.827,
+              "share_of_unreliable": 0.412,
+              "share_of_legit": 0.078
+            },
+            "junk_or_scam": {
+              "pages": 278,
+              "unreliable": 266,
+              "legit": 12,
+              "unreliable_share": 0.957,
+              "share_of_unreliable": 0.32,
+              "share_of_legit": 0.013
+            }
+          },
+          "caught": 0.732,
+          "caught_with_worth_a_look": 0.96,
+          "warning_precision": 0.879,
+          "legit_warned": 0.091,
+          "roc_auc": 0.917
+        },
+        "legit_shops": {
+          "all": {
+            "pages": 753,
+            "warned": 83,
+            "warned_share": 0.11,
+            "worth_a_look": 227,
+            "worth_a_look_share": 0.301,
+            "serious": 12,
+            "serious_share": 0.016
+          },
+          "eu": {
+            "pages": 450,
+            "warned": 68,
+            "warned_share": 0.151,
+            "worth_a_look": 140,
+            "worth_a_look_share": 0.311,
+            "serious": 10,
+            "serious_share": 0.022
+          },
+          "us": {
+            "pages": 299,
+            "warned": 14,
+            "warned_share": 0.047,
+            "worth_a_look": 87,
+            "worth_a_look_share": 0.291,
+            "serious": 2,
+            "serious_share": 0.007
+          }
+        }
+      }
+    }
+  ]
+}

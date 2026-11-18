@@ -1,6 +1,9 @@
 """The /accuracy page and the script behind its numbers: aggregates only, every number filled, the right scorer."""
 
+import copy
 import json
+import re
+import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,24 +14,25 @@ import pytest
 
 from evals.accuracy import (
     DEFAULT_OUT,
+    HISTORY_OUT,
     LABEL_ORIGINS,
-    SERVICE_OUT,
     TOLERATED_MISSING,
     band_summary,
     check_aggregates_only,
-    check_publishable,
+    check_history,
     complete,
     coverage,
     kind,
     label_origin,
     missing_skills,
     publish,
+    record,
 )
 from evals.corpus import LabelRecord
 from evals.metrics import Outcome
 from unfret import accuracy
 from unfret.main import app
-from unfret.routes.pages import PARTIALS_DIR, STATIC_DIR, template
+from unfret.routes.pages import PARTIALS_DIR, STATIC_DIR, asset_tag, template
 from unfret.scoring import load_model
 
 
@@ -251,12 +255,17 @@ async def test_the_numbers_are_served_as_json(client: httpx.AsyncClient) -> None
     assert response.json() == _summary()
 
 
-# ── The retrained scorer unfret.net runs, next to the open baseline ─────────────────────────────────────────────
+# ── The retrained scorer unfret.net runs, next to the open baseline, and every earlier version ─────────────────
 
 
 def _service() -> dict[str, Any]:
     data = accuracy.service_summary()
     assert data is not None, "the numbers of the scorer unfret.net runs are published"
+    return data
+
+
+def _history_file() -> dict[str, Any]:
+    data: dict[str, Any] = json.loads(accuracy.HISTORY_PATH.read_text(encoding="utf-8"))
     return data
 
 
@@ -270,14 +279,32 @@ def running(monkeypatch: pytest.MonkeyPatch) -> Any:
     return run
 
 
-def test_the_service_numbers_are_aggregates_only_and_for_a_retrained_scorer() -> None:
+def test_the_history_is_checked_aggregates_for_every_published_version() -> None:
+    history = _history_file()
+    assert HISTORY_OUT == accuracy.HISTORY_PATH
+    check_history(history)  # fixed fields, checked summaries, metrics as their summaries give them
+    entries = history["entries"]
+    assert entries == accuracy.newest_first(entries)  # stored newest first
     service = _service()
-    assert SERVICE_OUT == accuracy.SERVICE_PATH
-    check_publishable(service, service["scorer_version"])
     assert service["scorer_version"] != _summary()["scorer_version"]
+    # The open baseline's entry is accuracy.json itself, for the scorer this repository ships.
+    baseline = accuracy.baseline_entry()
+    assert baseline["summary"] == _summary() and baseline["kind"] == "public" and baseline["released"]
     # Measured on the same replay as the baseline, so the side-by-side table compares like with like.
     assert service["corpus"] == _summary()["corpus"]
     assert service["scorer_version"] in (STATIC_DIR / "accuracy.html").read_text(encoding="utf-8")  # the changelog
+
+
+def test_the_single_service_file_is_gone_and_nothing_points_at_it() -> None:
+    assert not (STATIC_DIR / "accuracy-service.json").exists()
+    tracked = subprocess.run(
+        ["git", "grep", "-l", "accuracy-service", "--", ":!CHANGELOG.md", ":!tests/unit/test_accuracy.py"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=Path(__file__).parents[2],
+    )
+    assert tracked.stdout == "", tracked.stdout
 
 
 @pytest.mark.parametrize(
@@ -310,11 +337,122 @@ def test_the_page_leads_with_the_numbers_of_the_scorer_this_server_runs(
 def test_without_published_service_numbers_the_baseline_leads_alone(
     running: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(accuracy, "service_summary", lambda: None)
+    monkeypatch.setattr(accuracy, "history", list)
     running("v1-whatever")
     assert accuracy.page_summary() == _summary()
     table = accuracy.scorers_table()
     assert "Open baseline" in table and "Retrained" not in table
+    assert "Release date not recorded" in table  # the baseline without a history entry
+
+
+# Made-up versions, each with its own numbers and corpus size, to render the history with.
+
+
+def _made_up(version: str, measured: str, pages: int, caught: float) -> dict[str, Any]:
+    summary = copy.deepcopy(_summary())
+    summary.update(scorer_version=version, generated=measured)
+    summary["corpus"]["pages"] = pages
+    summary["groups"]["products"]["caught"] = caught
+    return summary
+
+
+def _baseline(released: str = "2026-01-10") -> dict[str, Any]:
+    return accuracy.entry(_summary(), "public", released)
+
+
+ONE = [
+    ("v7-20260301-C", "private", "2026-03-02", "2026-03-01", 3000, 0.81),
+]
+THREE = [
+    ("v7-20260201-C", "private", "2026-02-03", "2026-02-01", 2200, 0.71),
+    ("v7-20260401-C", "private", "2026-04-02", "2026-04-01", 3400, 0.88),  # the newest
+    ("v7-20260301-C", "private", "2026-03-02", "2026-03-01", 3000, 0.81),
+]
+
+
+def _entries(rows: list[tuple[str, str, str, str, int, float]]) -> list[dict[str, Any]]:
+    return [
+        accuracy.entry(_made_up(v, measured, pages, caught), k, released)
+        for v, k, released, measured, pages, caught in rows
+    ]
+
+
+@pytest.fixture
+def history(monkeypatch: pytest.MonkeyPatch, running: Any) -> Any:
+    """Render the page with a made-up history (plus the real open baseline), on a server running the newest."""
+
+    def use(entries: list[dict[str, Any]]) -> str:
+        ordered = accuracy.newest_first(entries)
+        monkeypatch.setattr(accuracy, "history", lambda: ordered)
+        running(next(e["version"] for e in ordered if e["kind"] == "private"))
+        return accuracy.render(template("accuracy.html"))
+
+    return use
+
+
+def _boxes(page: str) -> list[str]:
+    return re.findall(r"<details\b[^>]*>.*?</details>", page, re.DOTALL)
+
+
+def _top(page: str) -> str:
+    return page.split('id="scorers"', 1)[1].split("</table>", 1)[0]
+
+
+def test_with_one_retrained_scorer_the_history_says_it_is_the_first(history: Any) -> None:
+    page = history([*_entries(ONE), _baseline()])
+    top = _top(page)
+    assert "v7-20260301-C" in top and _summary()["scorer_version"] in top
+    assert "Released March 2, 2026, measured on 3,000 labelled pages" in top
+    assert "Released January 10, 2026, measured on 2,641 labelled pages" in top
+    assert _boxes(page) == []
+    assert "This is the first retrained scorer" in page
+    assert "aren't strictly comparable" in page
+
+
+def test_with_three_the_newest_leads_and_the_others_fold_below_newest_first(history: Any) -> None:
+    older_baseline = accuracy.entry(_made_up("v0-20251201-C", "2025-12-01", 1500, 0.6), "public", "2025-12-02")
+    page = history([*_entries(THREE), _baseline(), older_baseline])
+    top = _top(page)
+    # The top: the newest retrained scorer and the open baseline this repository ships, nothing else.
+    assert "v7-20260401-C" in top and _summary()["scorer_version"] in top and "88%" in top
+    assert "v7-20260301-C" not in top and "v7-20260201-C" not in top and "v0-20251201-C" not in top
+    boxes = _boxes(page)
+    versions = [re.search(r"<code>([^<]+)</code>", b).group(1) for b in boxes]  # type: ignore[union-attr]
+    assert versions == ["v7-20260301-C", "v7-20260201-C", "v0-20251201-C"]  # newest first, the old baseline too
+    assert "This is the first" not in page
+    first, second, baseline = boxes
+    assert "Retrained scorer <code>v7-20260301-C</code>" in first
+    assert "Released March 2, 2026, measured on 3,000 labelled pages</span></span></summary>" in first
+    assert "on 3,000 labelled pages" in first and "81%" in first
+    assert "Released February 3, 2026" in second and "on 2,200 labelled pages" in second and "71%" in second
+    assert "Open baseline <code>v0-20251201-C</code>" in baseline and "Released December 2, 2025" in baseline
+    # The same numbers as the table above, under the same headings.
+    for heading, _ in accuracy._columns():
+        assert all(f'<th scope="row">{heading}</th>' in b for b in boxes), heading
+
+
+def test_the_boxes_are_closed_and_work_without_a_script(history: Any) -> None:
+    page = history([*_entries(THREE), _baseline()])
+    opening = re.findall(r"<details\b[^>]*>", page)
+    assert len(opening) == 2 and not any(re.search(r"\bopen\b", tag) for tag in opening)
+    for box in _boxes(page):
+        assert box.count("<summary>") == 1 and "<script" not in box and " style=" not in box
+        assert not re.search(r"\son[a-z]+=", box)
+
+
+async def test_the_page_has_the_strict_policy_and_loads_nothing_from_elsewhere(client: httpx.AsyncClient) -> None:
+    response = await client.get("/accuracy")
+    csp = response.headers["content-security-policy"]
+    for directive in ("default-src 'none'", "script-src 'self'", "style-src 'self'", "frame-ancestors 'none'"):
+        assert directive in csp, directive
+    assert "unsafe-inline" not in csp
+    page = response.text
+    for tag in re.findall(r"<(?:script|img|link)\b[^>]*>", page):
+        address = re.search(r'\b(?:src|href)="([^"]*)"', tag)
+        assert address and address.group(1).startswith(f"/static/{asset_tag()}/"), tag
+    assert "<style" not in page and " style=" not in page and "<iframe" not in page
+    assert not re.search(r"\son[a-z]+=", page)
+    assert 'id="history"' in page
 
 
 def _store(tmp_path: Path, version: str, summary: dict[str, Any]) -> Path:
@@ -323,12 +461,26 @@ def _store(tmp_path: Path, version: str, summary: dict[str, Any]) -> Path:
     return tmp_path
 
 
-def test_publishing_copies_a_retrained_scorers_summary_after_checking_it(tmp_path: Path) -> None:
+def test_publishing_adds_a_retrained_scorers_entry_after_checking_it(tmp_path: Path) -> None:
+    out = tmp_path / "history.json"
+    record(_summary(), "public", "2026-01-10", out)
     summary = {**_summary(), "scorer_version": "v2-test-C"}
-    out = publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=tmp_path / "page.json")
-    assert json.loads(out.read_text()) == summary
+    publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=out, released="2026-02-01")
+    entries = json.loads(out.read_text())["entries"]
+    assert [(e["version"], e["kind"], e["released"]) for e in entries] == [
+        ("v2-test-C", "private", "2026-02-01"),
+        (_summary()["scorer_version"], "public", "2026-01-10"),
+    ]
+    assert entries[0]["summary"] == summary and entries[0]["corpus_pages"] == summary["corpus"]["pages"]
+    assert entries[0]["metrics"] == accuracy.metrics(summary)
+    # Publishing it again (measured anew) replaces its entry and keeps its release date.
+    remeasured = {**summary, "generated": "2026-03-01"}
+    (tmp_path / "v2-test-C" / "accuracy.json").write_text(json.dumps(remeasured))
+    publish("v2-test-C", root=tmp_path, out=out)
+    entries = json.loads(out.read_text())["entries"]
+    assert len(entries) == 2 and entries[0]["measured"] == "2026-03-01" and entries[0]["released"] == "2026-02-01"
     with pytest.raises(FileNotFoundError, match="make accuracy"):
-        publish("v3-missing-C", root=tmp_path, out=tmp_path / "page.json")
+        publish("v3-missing-C", root=tmp_path, out=out)
 
 
 @pytest.mark.parametrize(
@@ -343,12 +495,56 @@ def test_publishing_copies_a_retrained_scorers_summary_after_checking_it(tmp_pat
 def test_publishing_refuses_anything_but_aggregates_for_that_version(tmp_path: Path, change: dict[str, Any]) -> None:
     summary = {**_summary(), "scorer_version": "v2-test-C", **change}
     with pytest.raises(ValueError, match="aggregates only|not 'v2-test-C'"):
-        publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=tmp_path / "page.json")
-    assert not (tmp_path / "page.json").exists()
+        publish("v2-test-C", root=_store(tmp_path, "v2-test-C", summary), out=tmp_path / "history.json")
+    assert not (tmp_path / "history.json").exists()
 
 
-async def test_the_service_numbers_are_served_as_json(client: httpx.AsyncClient) -> None:
-    response = await client.get("/static/accuracy-service.json")
+def _tampered(change: Any) -> dict[str, Any]:
+    history = copy.deepcopy(_history_file())
+    change(history["entries"][0])
+    return history
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda e: e.update(kind="secret"), "kind"),
+        (lambda e: e.update(released="18 November"), "ISO date"),
+        (lambda e: e.update(shop="Some Shop"), "exactly the fields"),
+        (lambda e: e["metrics"].update(caught=0.99), "metrics isn't what its summary gives"),
+        (lambda e: e.update(corpus_pages=10), "corpus_pages isn't"),
+        (lambda e: e["summary"].update(note="a page's words"), "aggregates only"),
+        (lambda e: e.update(version="v0-other-C"), "not 'v0-other-C'"),
+    ],
+)
+def test_the_history_refuses_anything_but_checked_entries(change: Any, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        check_history(_tampered(change))
+
+
+def test_the_history_refuses_a_version_twice() -> None:
+    history = _history_file()
+    with pytest.raises(ValueError, match="twice"):
+        check_history({"entries": [history["entries"][0], history["entries"][0]]})
+    with pytest.raises(ValueError, match="entries"):
+        check_history({"entries": [], "extra": 1})
+
+
+async def test_the_history_is_served_as_json(client: httpx.AsyncClient) -> None:
+    response = await client.get("/static/accuracy-history.json")
 
     assert response.status_code == 200
-    assert response.json() == _service()
+    assert response.json() == _history_file()
+    assert (await client.get("/static/accuracy-service.json")).status_code == 404
+
+
+def test_a_server_running_an_earlier_retrained_scorer_leads_with_its_numbers(history: Any, running: Any) -> None:
+    history([*_entries(THREE), _baseline()])
+    running("v7-20260301-C")
+    assert accuracy.page_summary()["scorer_version"] == "v7-20260301-C"
+    page = " ".join(accuracy.render(template("accuracy.html")).split())
+    assert (
+        "with scorer <code>v7-20260301-C</code>, an earlier retrained scorer. It is the scorer this server runs."
+        in page
+    )
+    assert "(this server)" not in _top(page)  # the table still shows the newest and the baseline

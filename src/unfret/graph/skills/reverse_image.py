@@ -22,6 +22,7 @@ import asyncio
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import urljoin
 
 import structlog
 
@@ -255,6 +256,8 @@ class ReverseImageSkill(Skill):
         image_url = main_photo(facts, state.get("page_type", "storefront"))
         if image_url is None:
             return self.output({"searched": False}, note="No product image found.")
+        # A page's structured data may name its photos by path ("/images/lamp.jpg"): fetched from the page's site.
+        image_url = urljoin(state.get("url", ""), image_url)
         try:
             data = await fetch_public(image_url, timeout=_FETCH_TIMEOUT_S, max_bytes=MAX_IMAGE_BYTES)
             fp = await asyncio.to_thread(image_index.fingerprint, data, model)

@@ -34,8 +34,15 @@ ssh:
 proxy:
   # Caddy owns 80/443 on the server and terminates TLS. kamal-proxy runs behind it on the `kamal` network,
   # unpublished, and routes plain HTTP by Host header (hosts: per destination).
+  # kamal-proxy logs every request with the visitor's address (from X-Forwarded-For) and the query string, and has
+  # no switch to leave that out, so its container logs nothing (privacy page, "Server logs and limits"). The empty
+  # log_max_size drops Kamal's --log-opt, which Docker refuses for the `none` driver. The proxy is shared, so this
+  # block must match kroshtan-web's and bonbr's (Kamal only applies it when the proxy container is created).
   run:
     publish: false
+    log_max_size: ""
+    options:
+      log-driver: none
   ssl: false
   app_port: 8080
   healthcheck:

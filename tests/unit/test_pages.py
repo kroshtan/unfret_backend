@@ -584,7 +584,7 @@ async def test_privacy_statement_covers_storage_logs_bases_and_rights(client: ht
     # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-ref, unfret-developer-pass
     for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "An affiliate's code", "A date"):
         assert f"<strong>{key}</strong>" in text
-    assert "your IP address and your browser's name and version" in text  # the proxy's request log, as it is
+    assert "no request log" in text and "proxy log" not in text  # kamal-proxy runs with Docker's `none` log driver
     assert "salted one-way hash, in memory only" in text
     assert "Why we may use it (legal basis)" in text and "Because the law requires it" in text
     assert "Autoriteit Persoonsgegevens" in text and "mailto:hello@unfret.net" in text

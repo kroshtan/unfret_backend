@@ -12,7 +12,7 @@
   {{header}}
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: 17 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands), who
+    <p><em>Last updated: 18 November 2026.</em> Unfret is made by Kroshtan (Floris van Beers, the Netherlands), who
       is responsible for the personal data described here (the controller, in the words of the GDPR). Questions and
       requests: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
@@ -50,9 +50,8 @@
       in this browser: a yes or no, from the page to the extension in your browser, nowhere else. A pass made with
       free checks sets that note too. Our server counts new free passes per
       internet connection for a day, in memory only and under a salted one-way hash of the address, gone at the next
-      restart: <strong>it never stores your IP address for this</strong> (the proxy's request log, under "Server
-      logs and limits" below, is the one place an IP address is kept). Of the free checks it stores only how many a pass has
-      left, and how many were used in all today.</p>
+      restart: <strong>it never stores your IP address for this</strong>. Of the free checks it stores only how many
+      a pass has left, and how many were used in all today.</p>
 
     <p>Your <strong>Unfret pass</strong> is what holds your checks (developers know it as an API key). When the
       checkout page or My checks gives you a pass, it can hand it to the Unfret extension in the same browser, so you
@@ -205,14 +204,10 @@
       results for the tabs you checked and a phone sign-in in progress. Uninstalling it removes all of that.</p>
 
     <h2>Server logs and limits</h2>
-    <p>Unfret's own service keeps no access log: it doesn't record IP addresses or which pages are requested, and its
-      logs never contain the addresses of the pages you check. The web server in front of it (Caddy) keeps no access log
-      either. The <strong>proxy</strong> that routes requests between them does: for each request to unfret.net, the
-      time, the address asked for on unfret.net (with anything after the <code>?</code>, such as an intro code or the
-      payment number on the link back from a card payment), the answer's status and size, your IP address and your
-      browser's name and version (user agent). Not what a check sent or returned. This log is overwritten as it fills
-      up, which at today's traffic means after several weeks; it is read only to keep the service running and to deal
-      with abuse, and never linked to a pass or wallet.</p>
+    <p>Our server keeps <strong>no request log</strong>: neither the web server in front (Caddy) nor the proxy behind
+      it that routes requests to Unfret's service records your IP address or which pages you ask for. The service
+      itself keeps no access log either. Its own logs (what it did, such as a check, a payment or an error) leave out
+      IP addresses and the addresses of the pages you check, and mask any that turn up in a message.</p>
     <p>To stop abuse, the service counts requests per visitor network (your IP address, or for IPv6 its /64), as a
       salted one-way hash, in memory only: never written down, and the salt changes at every restart, so counts can't
       be linked from one day to the next. Cloudflare keeps its own logs, as it does for every site it serves.</p>
@@ -251,8 +246,7 @@
       <li><strong>With your consent</strong>, which you can withdraw: a result you share (delete it with its delete
         code) and a wrong result you report.</li>
       <li><strong>Our legitimate interest</strong> in warning shoppers and keeping the service safe: the fingerprints
-        and price records above (shops, contact details, ads, photos, reviews, prices), the proxy log and the request
-        limits, the country suggestion, affiliates' counts, and handling a request a shop owner sends us.
+        and price records above (shops, contact details, ads, photos, reviews, prices), the request limits, the country suggestion, affiliates' counts, and handling a request a shop owner sends us.
         You can object (below).</li>
       <li>What this site keeps in your browser is only what a feature you use needs, so it asks no consent for it.</li>
     </ul>

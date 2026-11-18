@@ -4,6 +4,14 @@ A minimal Python client for [Unfret](https://unfret.net): before an AI agent buy
 page shows signs of a scam, dropshipped generic goods, fake reviews or pressure tricks, and get back what to do.
 MIT licensed.
 
+```bash
+pip install unfret-client
+```
+
+The first release on PyPI comes with Unfret's next release; until it's there, install it from the source:
+`pip install "unfret-client @ git+https://git.kroshtan.com/kroshtan/unfret_backend.git#subdirectory=clients/python"`.
+For other languages, see [unfret.net/developers/http](https://unfret.net/developers/http).
+
 ```python
 from unfret_client import Unfret
 

@@ -1316,6 +1316,12 @@ table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; t
 .dev-links h2 { margin: 0 0 0.75rem; font-size: 1.2rem; }
 .dev-links ul { margin: 0 0 0.75rem; padding-left: 1.1rem; display: grid; gap: 0.4rem; color: var(--ink-2); }
 .dev-page .section { padding: 3.5rem 0; }
+/* /developers/http: what's on the page, as a row of links under the lead; field tables keep long names on one line. */
+.dev-toc { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; margin: 0; font-size: 0.95rem; }
+.dev-toc a { color: var(--brand-ink); }
+table.fields td:first-child code { white-space: nowrap; }
+.code-block .terminal { tab-size: 4; }
+.dev-page .eyebrow a { color: inherit; }
 .dev-page .section + .section { padding-top: 0.5rem; }
 @media (max-width: 56rem) { .dev-hero .wrap, .tiers, .dev-links { grid-template-columns: 1fr; } }
 @media (max-width: 48rem) { .ways { grid-template-columns: 1fr; } }
@@ -1494,3 +1500,13 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .checked-list .why { display: block; font-size: 0.88rem; color: var(--muted); }
 .result-links button.link { font-size: inherit; }
 #report-area { margin-top: 1rem; }
+
+/* ── Unfret for Android (/android) ───────────────────────────────────────────────────────────────────────────── */
+.android .apk-download { margin: 1.5rem 0 0.5rem; }
+.android .apk-download .buttons { margin: 0.25rem 0 1rem; }
+.android .apk-download .button { max-width: 100%; white-space: normal; text-align: center; }
+.android .apk-download .facts { margin-bottom: 0; }
+.android .hashes { grid-template-columns: minmax(7rem, 14rem) 1fr; }
+.android code { overflow-wrap: anywhere; }
+.android code.hash { word-break: break-all; font-size: 0.85em; line-height: 1.5; }
+@media (max-width: 34rem) { .android .hashes { grid-template-columns: 1fr; } }

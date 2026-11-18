@@ -1,4 +1,4 @@
-.PHONY: help install lint audit affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -120,6 +120,9 @@ golden-set:  ## Collect the golden set: product pages of well-known sellers from
 
 golden:  ## False alarms on the golden set, both tiers: no Serious concerns, under 5% Worth a look or worse (GOLDEN_ARGS="--replay --split test")
 	uv run python -m evals.golden $(GOLDEN_ARGS)
+
+android-release:  ## Put a signed Android release on /android (TAG=v0.1.0): checks the APK against its release.json, writes static/android-release.json
+	uv run python -m unfret.android_release $(TAG)
 
 accuracy:  ## Replay the corpus (recorded LLM answers only): the /accuracy page's numbers, or a retrained scorer's with UNFRET_MODEL_PATH (ACCURACY_ARGS="--reuse STAMP" | "--publish VERSION")
 	uv run python -m evals.accuracy $(ACCURACY_ARGS)

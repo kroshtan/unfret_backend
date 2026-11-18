@@ -258,7 +258,7 @@ def pow_ok(challenge: str, solution: str, bits: int) -> bool:
 
 
 # Past the daily number of new keys, each doubling of it adds a bit of proof of work, up to this many bits.
-_MAX_EXTRA_BITS = 6
+MAX_EXTRA_BITS = 6
 
 
 @dataclass
@@ -300,7 +300,7 @@ class KeyGuard:
     def _extra_bits(self) -> int:
         made, cap = self.creations.today(), max(self.creations.daily_cap, 1)
         extra = 0
-        while made >= cap and extra < _MAX_EXTRA_BITS:
+        while made >= cap and extra < MAX_EXTRA_BITS:
             extra, cap = extra + 1, cap * 2
         return extra
 

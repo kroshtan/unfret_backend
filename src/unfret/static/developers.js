@@ -1,7 +1,8 @@
-// /developers: the Copy buttons next to the code blocks, and "Make a developer pass" (a pass with free deep checks,
-// once per browser: new-pass.js does the proof of work, and the server allows one a day per network). The prices,
-// limits, sample response and times are put in by the server.
+// /developers: the Copy buttons next to the code blocks (code-copy.js), and "Make a developer pass" (a pass with
+// free deep checks, once per browser: new-pass.js does the proof of work, and the server allows one a day per
+// network). The prices, limits, sample response and times are put in by the server.
 
+import { copy } from "./code-copy.js";
 import { makePass } from "./new-pass.js";
 import { api } from "./wallet.js";
 
@@ -14,22 +15,6 @@ function copyButton(text) {
   button.textContent = "Copy";
   button.addEventListener("click", () => copy(button, text));
   return button;
-}
-
-async function copy(button, text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    button.textContent = "Copied";
-  } catch {
-    button.textContent = "Select and copy it";
-  }
-  setTimeout(() => {
-    button.textContent = "Copy";
-  }, 2000);
-}
-
-for (const button of document.querySelectorAll("[data-copy]")) {
-  button.addEventListener("click", () => copy(button, document.getElementById(button.dataset.copy).textContent.trim()));
 }
 
 function secret(label, hint, value) {

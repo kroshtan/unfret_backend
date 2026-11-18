@@ -4,6 +4,7 @@ from unfret.routes.admin import router as admin_router
 from unfret.routes.affiliates import admin as affiliates_admin
 from unfret.routes.affiliates import router as affiliates_router
 from unfret.routes.analyze import router as analyze_router
+from unfret.routes.android import router as android_router
 from unfret.routes.check import router as check_router
 from unfret.routes.credits import router as credits_router
 from unfret.routes.extension import router as extension_router
@@ -35,6 +36,7 @@ router.include_router(shares_router)
 router.include_router(share_pages)
 router.include_router(objections_router)
 router.include_router(extension_router)
+router.include_router(android_router)
 router.include_router(images_router)
 router.include_router(admin_router)
 router.include_router(affiliates_admin)

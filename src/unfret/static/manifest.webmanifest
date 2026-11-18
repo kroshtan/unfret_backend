@@ -2,7 +2,7 @@
   "id": "/check",
   "name": "Unfret",
   "short_name": "Unfret",
-  "description": "Check a link before you buy or hire: a web shop, a second-hand ad or a tradesperson. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.",
+  "description": "Check a link before you buy or hire: a product on a marketplace or web shop, a second-hand ad, or a tradesperson or local service. Fake discounts, made-up brands, copied photos and pushy tricks, in plain words.",
   "lang": "en",
   "start_url": "/check",
   "scope": "/",

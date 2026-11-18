@@ -475,4 +475,5 @@ async def test_the_402_states_what_a_payment_must_look_like(client: httpx.AsyncC
 
 def test_the_readme_lists_every_error_code() -> None:
     readme = (Path(__file__).parents[2] / "README.md").read_text()
-    assert _errors_table() in readme  # regenerate the README table from ERRORS when this fails
+    # The README documents both networks (Base behind its switch): regenerate its table from ERRORS when this fails.
+    assert _errors_table(base_on=True) in readme

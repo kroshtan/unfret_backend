@@ -382,6 +382,35 @@ async def test_typescript_is_a_reference_to_copy_not_an_npm_package(client: http
         assert "coming to npm" not in body.lower() and 'from "unfret-client"' not in body, path
     package = json.loads((Path(__file__).parents[2] / "clients" / "typescript" / "package.json").read_text())
     assert package["private"] is True  # npm refuses to publish it
+    # /developers says so in its own words, with the link, next to the Python client on PyPI.
+    developers = (await client.get("/developers")).text
+    clients = developers.split('id="clients"', 1)[1].split("</section>", 1)[0]
+    assert "there's no package on npm" in _text(clients)
+    assert f'href="{clients_info.TYPESCRIPT_CLIENT_URL}"' in clients.split("no package on npm", 1)[1]
+    assert (
+        "a client on PyPI" in _text(page)
+        and 'href="#typescript"' in page.split('class="lead"', 1)[1].split("</p>", 1)[0]
+    )
+
+
+async def test_the_pack_prices_say_what_tax_they_are_before(client: httpx.AsyncClient) -> None:
+    from unfret.credits import packs  # noqa: PLC0415 - only here
+    from unfret.prices import format_usd  # noqa: PLC0415 - only here
+
+    for path in ("/developers", "/developers/http"):
+        text = _text((await client.get(path)).text)
+        for pack in packs.packs(settings):
+            assert f"{pack.checks} for {format_usd(pack.card_usd_micros)}" in text, path
+            assert f"{pack.checks} for {format_usd(pack.value_usd_micros)}" in text, path
+        assert "by card, before tax (checkout shows the card price with VAT for an EU country" in text, path
+        assert "plus VAT where it applies" in text, path
+
+
+async def test_developers_says_passes_do_not_expire_as_the_code_does(client: httpx.AsyncClient) -> None:
+    text = _text((await client.get("/developers")).text)
+    assert "Passes don't expire. Neither do the checks on them" in text
+    assert "by default such a clean-up refuses to touch passes that bought checks" in text
+    assert "401 INVALID_API_KEY" in text
 
 
 @pytest.mark.parametrize("on_pypi", [False, True])

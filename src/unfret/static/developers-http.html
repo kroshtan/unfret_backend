@@ -22,7 +22,9 @@
           <p class="lead">Unfret is one HTTPS call: send a link to <code>POST /v1/check</code> and get back
             whether the page shows signs of a scam, dropshipped generic goods, fake reviews or pressure tricks,
             with the evidence. Anything that can send JSON can use it. Python has
-            <a href="/developers#clients">a client</a>; this page is for everything else.</p>
+            <a href="/developers#clients">a client on PyPI</a>. For TypeScript there's
+            <a href="#typescript">a reference client to copy</a> from the repository (it isn't on npm). This page
+            covers everything else.</p>
           <nav class="dev-toc" aria-label="On this page">
             <a href="#pay">Two ways to pay</a>
             <a href="#developer-pass">A developer pass</a>
@@ -60,7 +62,8 @@
           then carries a <code>PAYMENT-RESPONSE</code> header. Don't write the signing yourself: use an x402 client
           library for your language (the <a href="https://github.com/coinbase/x402" rel="noopener">x402
           project</a> has them for TypeScript, Python and Go), or <a href="/developers#mcp">unfret-mcp</a>, which
-          pays from a Solana wallet.<!-- base-off --> USDC on Base comes next.<!-- /base-off --> The same payment
+          pays from a Solana wallet.<!-- base-off --> Today x402 here is Solana only: USDC on Base comes
+          next.<!-- /base-off --> The same payment
           sent again gets the same answer and is never charged twice. Every option, price and rule is in the
           <a href="/.well-known/x402">x402 discovery document</a> and in <a href="/llms.txt">llms.txt</a>.</p>
         <p class="small muted">With x402 the answer is the same as with a pass, without the pass's four fields

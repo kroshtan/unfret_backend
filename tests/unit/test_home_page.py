@@ -269,3 +269,82 @@ process.stdout.write(JSON.stringify(out));
 def test_the_privacy_statement_names_the_handed_link() -> None:
     privacy = _flat((STATIC_DIR / "privacy.html").read_text())
     assert "a link you paste on the home page, for the moment it takes to open the link checker" in privacy
+
+
+# ── Site feedback: words that mean what they say ─────────────────────────────────────────────────────────────────
+
+
+async def test_the_hero_offers_the_link_checker_without_install_next_to_the_install_button(
+    client: httpx.AsyncClient,
+) -> None:
+    hero = _flat((await client.get("/")).text.split('<section class="hero', 1)[1].split("</section>", 1)[0])
+    assert "nothing to install to try it." in hero  # next to "Add to Chrome": installing is the other way in
+    assert "nothing to install." not in hero
+
+
+async def test_the_questions_say_what_a_pass_is_and_that_it_does_not_expire(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/")).text
+    faq = _flat(page.split('class="faq"', 1)[1].split("</section>", 1)[0])
+    # Where "pass" first shows up on the page, so "My checks" in the menu doesn't read like an account.
+    main = _flat(re.sub(r"<[^>]+>", " ", page[page.index("<main>") :]))
+    first = re.search(r"\bpass\b", main)
+    assert first and "Your pass is a code saved in your browser." in main[first.start() : first.start() + 200]
+    assert "Your pass is a code saved in your browser. It holds your checks. No name, no email." in faq
+    assert "Do passes or checks expire?" in faq
+    assert "don't expire" in faq and "doesn't delete a pass for not being used" in faq
+    assert "refuses to touch passes that bought checks" in faq  # what retire-passes does by default
+
+
+@pytest.mark.parametrize("path", ["/", "/nl"])
+async def test_the_prices_read_as_separate_words(client: httpx.AsyncClient, path: str) -> None:
+    page = (await client.get(path)).text
+    prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
+    assert "</span><span" not in prices  # a screen reader or an agent reads "Free 5 deep checks", not "Free5 deep"
+    text = " ".join(re.sub(r"<[^>]+>", "", prices).split())
+    assert ("Free 5 deep checks" in text and "$0 Start" in text) or ("Gratis 5 uitgebreide" in text)
+
+
+async def test_the_prices_say_what_they_include(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/")).text
+    pricing = _flat(page.split('class="pricing"', 1)[1].split('class="code-box"', 1)[0])
+    note = pricing.split('id="price-note">', 1)[1].split("</p>", 1)[0]
+    # The defaults in the page are the prices before tax (home.js puts in the VAT once it knows the country).
+    assert "These card prices are before tax. In the EU, card prices include VAT" in note
+    assert "sales tax is added at checkout where it applies" in note
+    assert "the crypto price is plus VAT where it applies" in pricing
+    prices = (STATIC_DIR / "prices.js").read_text()
+    assert "`Card prices include ${pct}% VAT for ${countryPhrase(country)}.`" in prices
+
+
+async def test_the_test_shops_discount_is_the_same_everywhere(client: httpx.AsyncClient) -> None:
+    shop = (STATIC_DIR / "test-shop" / "product.html").read_text()
+    now = re.search(r'<span class="price-now">\$([\d.]+)</span>', shop)
+    was = re.search(r"Compare at <s>\$([\d.]+)</s>", shop)
+    assert now and was
+    pct = round(100 * (1 - float(now.group(1)) / float(was.group(1))))
+    assert f"({pct}%)" in shop
+    page = (await client.get("/")).text
+    assert f"{pct}% off" in page.split('class="sample"', 1)[1].split("</figure>", 1)[0]  # the real result
+    mock = re.search(r'<span class="mock-price">(.*?)</span>', page)
+    assert mock and mock.group(1) == f"<s>${was.group(1)}</s> <b>${now.group(1)}</b> <i>−{pct}%</i>"
+
+
+@pytest.mark.parametrize("name", ["footer.html", "footer-nl.html"])
+def test_the_footer_has_the_contact_address_and_the_scope_the_hero_has(name: str) -> None:
+    footer = _flat((STATIC_DIR / "partials" / name).read_text())
+    assert '<a href="mailto:hello@unfret.net">hello@unfret.net</a>' in footer
+    assert "company's website" not in footer and "website van een bedrijf" not in footer
+    if name == "footer.html":
+        assert "a product on a marketplace or a web shop, a second-hand ad, or the website of a tradesperson or" in (
+            footer
+        )
+    else:
+        assert "tweedehands advertentie, of de website van een vakman of lokale dienstverlener" in footer
+
+
+async def test_the_scope_is_the_same_wherever_it_is_listed(client: httpx.AsyncClient) -> None:
+    for path in ("/", "/check", "/checkout", "/welcome", "/welcome?free=5", "/press", "/about", "/why"):
+        page = _flat((await client.get(path)).text)
+        assert "company's website" not in page and "companies' websites" not in page, path
+        assert "local service" in page, path
+    assert "companies' websites" not in (STATIC_DIR / "check.js").read_text()

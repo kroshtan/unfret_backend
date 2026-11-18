@@ -773,8 +773,9 @@ function renderPacks() {
       price.dataset.checks = String(option.checks);
       const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
       const crypto = element("span", "+ VAT where it applies", "muted crypto crypto-only");
-      label.append(input, name, price, cryptoPrice, crypto);
-      if (option.invites?.count) label.append(element("span", inviteOffer(option.invites), "muted gift"));
+      // Spaces between the parts (a grid ignores them), so read as text the words don't run together.
+      label.append(input, name, " ", price, " ", cryptoPrice, " ", crypto);
+      if (option.invites?.count) label.append(" ", element("span", inviteOffer(option.invites), "muted gift"));
       return label;
     }),
   );

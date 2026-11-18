@@ -906,7 +906,7 @@ def _json(response: Response) -> dict[str, Any]:
     return decoded
 
 
-# error_code → (HTTP status, charged?, what to do). Published in /llms.txt and the README.
+# error_code → (HTTP status, charged?, what to do). Published in the README, and in /llms.txt while Base is on.
 ERRORS: dict[str, tuple[int, str, str]] = {
     "PAYMENT_REQUIRED": (
         402,
@@ -947,8 +947,19 @@ ERRORS: dict[str, tuple[int, str, str]] = {
 }
 
 
-def _errors_table() -> str:
-    rows = [f"| `{code}` | {status} | {charged} | {action} |" for code, (status, charged, action) in ERRORS.items()]
+# The same rows for a server that takes Solana only (Base off, as on unfret.net for now): nothing about Base.
+SOLANA_ONLY_ERRORS: dict[str, tuple[int, str, str]] = {
+    **ERRORS,
+    "SETTLEMENT_FAILED": (402, "no", "the network refused the payment: pay again"),
+    "SETTLEMENT_PENDING": (402, "maybe", "don't pay again; if it lands within 2 min its price is credited"),
+    "GATEWAY_TIMEOUT": (504, "refunded", "the analysis timed out: the price is credited to the paying wallet"),
+    "INTERNAL_ERROR": (500, "refunded", "the analysis failed: the price is credited to the paying wallet"),
+}
+
+
+def _errors_table(base_on: bool) -> str:
+    errors = ERRORS if base_on else SOLANA_ONLY_ERRORS
+    rows = [f"| `{code}` | {status} | {charged} | {action} |" for code, (status, charged, action) in errors.items()]
     return "\n".join(["| error_code | HTTP | charged | what to do |", "| --- | --- | --- | --- |", *rows])
 
 
@@ -1120,7 +1131,8 @@ async def llms_txt(request: Request) -> str:
     :param request: The incoming request (for the Base payment service).
     :return: Plain text.
     """
-    d = _discovery(get_x402_base(request))
+    base = get_x402_base(request)
+    d, base_on = _discovery(base), base.configured
     quick, deep = d["tiers"]["quick"]["price_usd"], d["tiers"]["deep"]["price_usd"]
     return f"""# Unfret
 
@@ -1181,7 +1193,7 @@ reliable, concerns, careful and junk_or_scam as "Looks fine", "Worth a look", "T
 
 Every error is JSON with `detail` and `error_code`.
 
-{_errors_table()}
+{_errors_table(base_on)}
 
 ## Clients
 

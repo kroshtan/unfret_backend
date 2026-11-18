@@ -16,6 +16,19 @@
   listed); the well-known sellers' counts say what they are out of; the "Serious concerns" threshold's numbers say
   which test set they come from and how they lead to the table's; and the tradespeople section says plainly that
   most measured pages are synthetic (329 of 348), so its numbers say little yet about real sites.
+* **Site feedback**: the footer (English and Dutch) gives the contact address, hello@unfret.net. The home page says
+  what a pass is where the word first appears ("a code saved in your browser … No name, no email"), and the home page
+  and `/developers` say that passes and checks don't expire (what ends a pass, and that the operator's one-off
+  clean-up refuses passes that bought checks by default). The hero says "nothing to install to try it"; the test
+  shop's discount is 79% in both places on the home page. Next to the prices: card prices include VAT in the EU, the
+  crypto price is plus VAT where it applies, and the page's own default prices are before tax (also on `/developers`,
+  `/developers/http` and `/money`). The price tiles on `/` and `/nl` and the packs at checkout no longer run their
+  words together for screen readers and agents ("Free5 deep checks"). The scope reads the same everywhere it is
+  listed: products on marketplaces and web shops, second-hand ads, and the websites of tradespeople and local
+  services. `/developers` and `/developers/http` say that x402 is Solana only today, with Base coming next (the Base
+  steps show only while Base is on), and `/llms.txt`'s errors table names Base only while it is on. `/developers` says
+  the TypeScript client is a reference to copy, not on npm, with its link. On `/check` the three example shops are
+  links (a click still checks one), and the note under the shops that need the extension says why.
 
 ## [0.13.0](https://github.com/kroshtan/unfret_backend/compare/0.12.0...0.13.0) (2026-11-18)
 

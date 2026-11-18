@@ -413,11 +413,18 @@ def why() -> HTMLResponse:
     """
     Why Unfret: questions to ask any checker, and Unfret next to free scam checkers and AI assistants.
 
-    Compares with kinds of tools, never a named one (Fakespot, closed in 2025, only as the closed service it is).
+    Compares with kinds of tools, never a named one (Fakespot, closed in 2025, only as the closed service it is). The
+    free tier's numbers come from the settings, like the home page's.
 
     :return: The page.
     """
-    return _page("why.html", "/why")
+    page = with_store_links(template("why.html", "/why"))
+    for name, value in {
+        "free_checks": settings.free_checks_per_pass,
+        "quick_per_minute": settings.quick_checks_per_minute,
+    }.items():
+        page = page.replace("{{" + name + "}}", str(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
 @router.get("/money", response_class=HTMLResponse)

@@ -14,6 +14,7 @@ from unfret import market_prices, objections, scoring
 from unfret.config import settings
 from unfret.main import app
 from unfret.routes.pages import STATIC_DIR, asset_tag
+from unfret.x402.verdict import QUICK_SKILLS, tier_description
 
 CONFIG = Path(__file__).parents[2] / "config"
 PAGES = {"/about": "about.html", "/why": "why.html", "/money": "money.html", "/press": "press.html",
@@ -234,6 +235,22 @@ async def test_why_names_unfrets_sources_as_results_do(client: httpx.AsyncClient
     assert "The same signals always give the same verdict" in text
 
 
+async def test_why_says_what_the_free_tier_covers_as_the_quick_tier_runs(client: httpx.AsyncClient) -> None:
+    text = " ".join((await client.get("/why")).text.split())
+
+    assert f"up to {settings.quick_checks_per_minute} a minute" in text
+    assert f"comes with {settings.free_checks_per_pass} free deep checks, once per browser" in text
+    assert "while the day's free checks last" in text  # the daily budget (FREE_CHECKS_PAUSED)
+    assert 'href="/#price-heading"' in text and "no subscription" in text and "checks never expire" in text
+    # What a quick check reads is what the quick tier runs; what it leaves to a deep check, the quick tier skips.
+    for skill in ("listing", "dark_patterns", "shop_policies", "shop_links", "us_identity"):
+        assert skill in QUICK_SKILLS, skill
+    for skill in ("reviews", "domain_age", "reverse_image", "content"):
+        assert skill not in QUICK_SKILLS, skill
+    assert "No AI read of the page" in tier_description("quick")
+    assert "with no AI and no lookups elsewhere" in text
+
+
 async def test_why_says_what_is_kept_as_the_privacy_statement_does(client: httpx.AsyncClient) -> None:
     why = " ".join((await client.get("/why")).text.split())
     privacy = " ".join((await client.get("/privacy")).text.split())
@@ -246,8 +263,11 @@ async def test_why_says_what_is_kept_as_the_privacy_statement_does(client: httpx
     # What it does keep about a pass, named as the statement names it.
     assert "a public ID, how many checks it has left and the day it was made" in why
     assert "the pass's public ID, its balance, its free checks left, the day it was made" in privacy
-    # No claim about IP addresses here: the statement is where the proxy's log is spelled out.
-    assert "IP" not in why.split("<main", 1)[1].split("</main>", 1)[0]
+    # No IP addresses: no request log at Caddy or the proxy, limits as salted hashes in memory; Cloudflare's own logs.
+    assert "No account, no IP addresses and no history of what you check" in why
+    assert "Our server keeps no request log" in why and "Cloudflare, in front of the site, keeps its own logs" in why
+    assert "Our server keeps <strong>no request log</strong>" in privacy
+    assert "as a salted one-way hash, in memory only" in privacy and "Cloudflare keeps its own logs" in privacy
 
 
 async def test_the_press_page_offers_the_logo_and_test_shop_screenshots(client: httpx.AsyncClient) -> None:

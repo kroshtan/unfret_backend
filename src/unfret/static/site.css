@@ -1444,6 +1444,14 @@ main.why { max-width: 54rem; }
 @media (max-width: 44rem) { .compare { grid-template-columns: 1fr; } }
 .next-step h2 { margin: 0 0 0.25rem; font-size: 1rem; }
 .next-step p { margin: 0; }
+/* Under a quick result: what a deep check would add for this page, its cost and one button. Plain: no colour of its
+   own, no timer; quieter still when the quick result looks fine. */
+.deep-hint { margin-top: 1rem; padding: 0.8rem 0.95rem; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.deep-hint p { margin: 0 0 0.35rem; }
+.deep-hint .cost { font-size: 0.9rem; color: var(--muted); }
+.deep-hint .buttons { margin-top: 0.5rem; }
+.deep-hint.quiet { border-style: dashed; }
+.deep-hint.quiet p:first-child { color: var(--ink-2); font-size: 0.95rem; }
 h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .checked-list { list-style: none; padding: 0; margin: 0.4rem 0 0; display: grid; gap: 0.35rem; }
 .checked-list li { display: flex; gap: 0.6rem; align-items: flex-start; }

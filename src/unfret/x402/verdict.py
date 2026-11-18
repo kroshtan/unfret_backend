@@ -6,9 +6,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from unfret import card
+from unfret.config import settings
 from unfret.graph.skills import Skill
 from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.pricing import PricingSkill
+from unfret.shopper import DeepCheck
 
 Tier = Literal["quick", "deep"]
 Policy = Literal["strict", "balanced", "lenient"]
@@ -125,6 +128,12 @@ class Verdict(BaseModel):
         description="aggregate_listing (marketplace), storefront, article or non_product; while the expansion classes "
         "are on, also p2p_listing (a private seller's ad), service_listing or service_site (service providers).",
     )
+    deep_check: DeepCheck | None = Field(
+        default=None,
+        description="Quick answers only: whether a deep check of this page is worth its price (suggested), what it "
+        "would add here (adds) and why (reason). Not suggested at Serious concerns, on a big marketplace's own "
+        "listing that looks fine, or when a deep check would add nothing for this page.",
+    )
 
 
 # Bands at which a shopper is not warned; only `strict` callers are warned about them.
@@ -151,6 +160,21 @@ def action_for(risk_score: float, policy: Policy, band: str | None = None) -> Ac
     if risk_score >= warn:
         return "warn"
     return "allow"
+
+
+def _deep_check(shopper_verdict: dict[str, Any], tier: Tier) -> DeepCheck | None:
+    """
+    A quick answer's suggestion of a deep check (:func:`unfret.card.deep_check`), priced at the deep tier's x402 price.
+
+    :param shopper_verdict: The shopper verdict of the result.
+    :param tier: The tier that ran.
+    :return: The suggestion, or ``None`` (a deep answer, or a result without one).
+    """
+    found = shopper_verdict.get("deep_check")
+    if tier != "quick" or not found:
+        return None
+    offer = DeepCheck.model_validate(found)
+    return card.with_cost(offer, card.deep_check_cost(x402_usd_micros=settings.x402_price_deep_usd_micros))
 
 
 def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict:
@@ -214,6 +238,7 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
             band=shopper_verdict.get("band"),
             summary=shopper_verdict.get("headline") or result.get("explanation"),
             page_type=result.get("page_type"),
+            deep_check=_deep_check(shopper_verdict, tier),
         )
 
     findings: list[tuple[str, str]] = []
@@ -238,4 +263,5 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
         checked_at=now,
         summary=str(result.get("explanation") or "") or None,
         page_type=result.get("page_type"),
+        deep_check=_deep_check(result.get("verdict") or {}, tier),
     )

@@ -181,7 +181,8 @@ async def check_store_quick(
     Quick, free check of a store or product page: rules on the page itself.
 
     Discount tricks, dropshipping apps, fake timers, missing legal information, …; no AI read, reviews or photos. Use
-    it to screen; use check_store_deep before buying.
+    it to screen; ``verdict.deep_check.suggested`` says whether check_store_deep is worth it for this page (and
+    ``adds`` what it would add).
     Act on ``action``: allow = go ahead, warn = ask your human first, block = don't buy.
 
     :param url: The store or product page URL.

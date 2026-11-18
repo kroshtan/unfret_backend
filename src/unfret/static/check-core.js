@@ -50,10 +50,10 @@ const MARKETPLACE_RE =
   /(?:^|\.)(?:amazon|ebay|bol|aliexpress|temu|shein|etsy|wish|walmart|zalando|vinted|marktplaats|2dehands|kleinanzeigen|leboncoin|wallapop|subito|allegro|cdiscount|rakuten|otto)\.[a-z.]+$/i;
 // A product, an ad or a profile by its path: /item/, /itm/ (eBay), /dp/ and /gp/product/ (Amazon), /p/, /pd/,
 // /ip/ (Walmart), /product/, /products/ (Shopify), /listing/ (Etsy), /goods (Temu), /v/…/m123 (Marktplaats), a
-// seller's /profile/, /seller/ or /user/.
+// seller's /profile/, /seller/ or /user/; a product file such as …-p-123.html or Zara's …-p03332301.html.
 const ITEM_PATH_RE =
   /\/(?:items?|itm|dp|gp\/product|p|pd|ip|products?|listings?|goods|offer|ads?|aanbod|v|profile|sellers?|users?|usr|members?|professionals?)(?:\/[^/]|\.html)/i;
-const ITEM_FILE_RE = /(?:-p-\d+|\/goods)\.html$/i;
+const ITEM_FILE_RE = /(?:-p-\d+|-p\d{8}|\/goods)\.html$/i;
 // A search or a category, never one item: /s, /search, /sch/, /w/ (AliExpress), /wholesale, /q/, /c/, /category…
 const SEARCH_PATH_RE = /^\/(?:[a-z]{2}(?:[-_][a-z]{2})?\/)*(?:s|search|sch|w|wholesale|q|c|l|category|categories|catalog|b|browse)(?:[/.?]|$)/i;
 const SEARCH_PARAM_RE = /^(?:q|k|query|search|searchtext|search_key|keyword|keywords|_nkw|text)$/i;

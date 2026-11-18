@@ -166,6 +166,9 @@ app = UnfretAPI(
         "x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as "
         "`Authorization: Bearer ufk_…`, on `POST /v1/analyze`."
     ),
+    contact={"email": "hello@unfret.net"},
+    # x402scan (the agentcash discovery spec) points agents at the guide for language models.
+    openapi_extensions={"x-agentcash-guidance": {"llmsTxtUrl": f"{settings.public_base_url}/llms.txt"}},
     lifespan=lifespan,
 )
 

@@ -129,6 +129,25 @@ async def test_a_wrong_pass_is_401(client: httpx.AsyncClient) -> None:
         assert refused.json()["error_code"] == "INVALID_API_KEY"
 
 
+async def test_an_invalid_body_with_a_pass_is_a_422_and_costs_nothing(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+) -> None:
+    issued = await new_pass(client, developer=True)
+    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", issued["account"], PRICE)
+
+    json_type = {"Content-Type": "application/json"}
+    for response in (
+        await client.post("/v1/check", headers=bearer(issued["key"])),
+        await client.post("/v1/check", content=b"{", headers={**json_type, **bearer(issued["key"])}),
+        await client.post("/v1/check", json={"tier": "deep"}, headers=bearer(issued["key"])),
+    ):
+        assert (response.status_code, response.json()["error_code"]) == (422, "VALIDATION_ERROR")
+
+    assert await free.left(pool, issued["key_id"]) == 20
+    assert await balance(pool, issued["account"]) == PRICE
+    assert graph.calls == []
+
+
 async def test_a_payment_header_is_always_x402(client: httpx.AsyncClient) -> None:
     headers = {"Authorization": "Bearer not-a-pass", "PAYMENT-SIGNATURE": "e30="}
 

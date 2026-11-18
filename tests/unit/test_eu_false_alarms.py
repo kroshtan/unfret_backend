@@ -114,7 +114,7 @@ async def _prompt(monkeypatch: pytest.MonkeyPatch, on: bool) -> str:
             addresses_the_reader_ai=False,
         )
 
-    monkeypatch.setattr(content, "get_structured_llm", lambda schema: RunnableLambda(read))
+    monkeypatch.setattr(content, "get_structured_llm", lambda schema, **_: RunnableLambda(read))
     monkeypatch.setattr(settings, "content_policy_links", on)
     facts = PageFacts(title="Tee", policy_links={"refund": "https://s/r", "contact": "https://s/c"})
     await ContentSkill().run(_state(facts, "A tee."))

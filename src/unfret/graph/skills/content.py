@@ -157,7 +157,8 @@ class ContentSkill(Skill):
             header += f"Links to: {', '.join(_POLICY_NAMES.get(k, k) for k in sorted(facts.policy_links))}\n"
         ad = state.get("page_type") in P2P_PAGES
         schema: type[_Signals] = _AdSignals if ad else _Signals
-        signals: _Signals = await get_structured_llm(schema).ainvoke(
+        llm = get_structured_llm(schema, attempt_timeout_s=settings.content_attempt_timeout_s)
+        signals: _Signals = await llm.ainvoke(
             [
                 SystemMessage(content=_SYSTEM + _AD_ADDENDUM if ad else _SYSTEM),
                 HumanMessage(content=untrusted(header + "\n" + state["cleaned_content"][:_MAX_CHARS])),

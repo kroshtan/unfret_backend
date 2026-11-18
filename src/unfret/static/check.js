@@ -11,6 +11,9 @@
 // address bar at once). A deep check that only free checks could pay for, once they're used (402) or today's are all
 // used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
 //
+// A pass the server no longer knows (401 INVALID_API_KEY: retired at Unfret's free start, or replaced elsewhere) is
+// dropped and this browser starts over with the free pass, the page saying so once (passRetired).
+//
 // What this page keeps, in localStorage: the sign-in (the pass, or a wallet's session token) until it's removed on
 // /my-checks, and that this browser got its free pass (FREE_GIVEN, so it gets one only once). No history: the link lives in the text field and in memory for the one check (and goes into a shared
 // result only when the shopper shares it, after a preview). A shared link (/check?url=… or, via the service worker,
@@ -24,6 +27,8 @@ import {
   checklistDone,
   checklistFor,
   extractLink,
+  passEnded,
+  passEndedHint,
   sharedLink,
   shopOf,
   unreadableKind,
@@ -72,6 +77,7 @@ const checkButton = $("check");
 
 let account = null; // { kind: "wallet" | "key", token, address, expires_at }
 let expired = false;
+let ended = false; // the pass that was here was retired (the server no longer knows it): a new free start
 let checks = null;
 let freeLeft = 0; // of `checks`, the free ones
 let freePaused = false; // today's free deep checks are all used
@@ -101,6 +107,7 @@ function loadAccount() {
 function saveAccount(value) {
   account = value;
   expired = false;
+  ended = false;
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(value));
   } catch {
@@ -129,6 +136,15 @@ function markFreeGiven() {
     localStorage.setItem(FREE_GIVEN, "1");
   } catch {
     // not remembered
+  }
+}
+
+// The pass made in this browser, if it is the one that ended: its backup code is no use now, and a new one may be kept.
+function forgetNewPass(keyId) {
+  try {
+    if (JSON.parse(localStorage.getItem(NEW_KEY) ?? "null")?.key_id === keyId) localStorage.removeItem(NEW_KEY);
+  } catch {
+    // nothing kept
   }
 }
 
@@ -219,7 +235,9 @@ function renderAccount() {
   const fresh = freeAvailable();
   $("have-pass-row").hidden = !fresh;
   if (!running) {
-    $("hint").textContent = fresh
+    $("hint").textContent = ended
+      ? passEndedHint(fresh ? freePerPass() : 0)
+      : fresh
       ? `Your first ${freePerPass()} checks are free: no account, nothing to buy. Nothing is sent until you tap Check.`
       : account && checks === 0
         ? "Quick checks are free. Nothing is sent until you tap Check."
@@ -240,8 +258,18 @@ async function refreshChecks() {
     freePaused = credits.free_checks_paused === true;
     inviteEligible = credits.invite_eligible === true;
   } catch (error) {
+    if (passEnded(error, account)) return passRetired();
     if (error.status === 401) return signedOut(true);
   }
+  renderAccount();
+}
+
+// A pass the server no longer knows (check-core's passEnded): dropped without fuss, with a pass made here and kept
+// with its backup code; this browser starts over with the free pass, and the page says so once.
+function passRetired() {
+  forgetNewPass(account?.address.slice("key:".length));
+  signedOut(false);
+  ended = true;
   renderAccount();
 }
 
@@ -517,6 +545,11 @@ function showUnreadable(code, link) {
 // ── Checking ─────────────────────────────────────────────────────────────────────────────────────────────
 
 async function failed(error, link) {
+  if (passEnded(error, account)) {
+    passRetired();
+    showOnly();
+    return;
+  }
   if (error.status === 401) {
     signedOut(true);
     showOnly();
@@ -933,6 +966,11 @@ $("invite-redeem").addEventListener("click", async () => {
     checks = added.checks_remaining;
     renderAccount();
   } catch (error) {
+    if (passEnded(error, account)) {
+      passRetired();
+      status.textContent = "";
+      return;
+    }
     if (error.status === 401) signedOut(true);
     status.textContent = error.message || "That code didn't work.";
   } finally {

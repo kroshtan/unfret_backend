@@ -6,11 +6,12 @@ contact details from the fingerprint store on request, the queue of shop owners'
 review queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits
 for a store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the count
 of invites outstanding (a gift, not revenue), intro codes (``python -m unfret.credits.codes``: make, list, switch
-off, more uses), the review of shared results a shop owner objected to, and how the photo, price and review stores
-are fed (counts only).
+off, more uses), the review of shared results a shop owner objected to, how the photo, price and review stores
+are fed (counts only), and retiring every pass made before a moment (``python -m unfret.admin_cli retire-passes``).
 """
 
 import json
+from datetime import datetime
 from typing import Any, Literal
 
 import structlog
@@ -21,7 +22,7 @@ from pydantic import BaseModel, Field
 from unfret import ad_store, objections, observations, recording, reports, shares, shop_store
 from unfret.auth import require_admin
 from unfret.config import settings
-from unfret.credits import invites, keys, ledger, vat
+from unfret.credits import invites, keys, ledger, retire, vat
 from unfret.fingerprint import contact_hash, normalise_address, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
 from unfret.routes.check import get_x402, get_x402_base
@@ -367,6 +368,41 @@ async def invites_summary(request: Request) -> dict[str, int]:
     if request.app.db_pool is None:
         raise HTTPException(503, "Database not ready.")
     return await invites.summary(request.app.db_pool, settings)
+
+
+class RetireRequest(BaseModel):
+    """Retire every pass made before a moment, and every wallet account (dry run unless ``confirm``)."""
+
+    before: datetime = Field(description="ISO date or time (UTC unless it says otherwise); not in the future.")
+    keep: list[str] = Field(default_factory=list, max_length=100, description="Key ids of passes to keep.")
+    confirm: bool = False
+    include_wallet_balances: bool = False
+    include_purchases: bool = False
+
+
+@router.post("/passes/retire")
+async def retire_passes(body: RetireRequest, request: Request) -> dict[str, Any]:
+    """
+    Count, and with ``confirm`` retire, the passes made before ``before`` (:mod:`unfret.credits.retire`).
+
+    :param body: The moment, the passes to keep and the switches.
+    :param request: The incoming request.
+    :return: Counts only (never a key, key id or wallet); ``retired`` once done, ``refused`` with the reasons.
+    :raises HTTPException: 422 for a moment in the future or a malformed key id.
+    """
+    try:
+        report = await retire.retire_passes(
+            _pool(request),
+            before=body.before,
+            keep=[k.strip() for k in body.keep],
+            confirm=body.confirm,
+            settings=settings,
+            include_wallet_balances=body.include_wallet_balances,
+            include_purchases=body.include_purchases,
+        )
+    except retire.RetireError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return report.as_dict()
 
 
 # ── Intro codes ────────────────────────────────────────────────────────────────────────────────────────────────

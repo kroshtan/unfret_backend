@@ -1,4 +1,4 @@
-.PHONY: help install lint audit affiliates bonus-codes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -102,6 +102,9 @@ affiliates:  ## Affiliates: ARGS="list | create CODE --name NAME [--note T] | of
 
 bonus-codes:  ## Bonus codes: ARGS="list | create CODE --bonus PCT [--expires YYYY-MM-DD] [--uses N] [--affiliate CODE] | off|on CODE"
 	uv run python -m unfret.credits.affiliates_cli bonus $(ARGS)
+
+retire-passes:  ## Retire every pass made before a moment (dry run unless --confirm): ARGS="--before ISO [--keep ID | --keep-from FILE]... [--confirm]"
+	uv run python -m unfret.admin_cli retire-passes $(ARGS)
 
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)

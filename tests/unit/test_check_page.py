@@ -106,8 +106,8 @@ def test_the_page_keeps_only_the_sign_in() -> None:
     script = (STATIC_DIR / "check.js").read_text()
     # Three localStorage keys, every access wrapped in try/catch (private modes throw): the account (get, set,
     # remove), that this browser had its free pass (get, set; no link to the pass or anything checked), and a pass
-    # made here with its backup code, as /checkout keeps one (get, set).
-    assert script.count("localStorage.") == 3 + 2 + 2
+    # made here with its backup code, as /checkout keeps one (get, set; get and remove once that pass has ended).
+    assert script.count("localStorage.") == 3 + 2 + 2 + 2
     assert script.count('"unfret-account"') == 1
     assert script.count('"unfret-free-pass"') == 1 and script.count('"unfret-new-key"') == 1
     assert "sessionStorage" not in script and "indexedDB" not in script
@@ -360,3 +360,41 @@ def test_an_unreadable_product_link_gets_the_extension_and_app_not_the_search_hi
     assert "only work with the Unfret browser extension or the Android app" in script
     # A first check of a listed shop asks the server before the free pass's proof of work.
     assert "shopOf(link, BROWSER_ONLY_SHOPS) && (await unreadableFirst(link, abort))" in script
+
+
+@pytest.mark.usefixtures("node")
+def test_a_pass_the_server_no_longer_knows_is_a_new_free_start(tmp_path: Path) -> None:
+    out = _run_core(
+        tmp_path,
+        """[
+          core.passEnded({ status: 401, code: "INVALID_API_KEY" }, { kind: "key" }),
+          core.passEnded({ status: 401, code: "INVALID_API_KEY" }, { kind: "wallet" }),
+          core.passEnded({ status: 401, code: "UNAUTHORIZED" }, { kind: "key" }),
+          core.passEnded({ status: 402, code: "INSUFFICIENT_CREDITS" }, { kind: "key" }),
+          core.passEnded({ status: 401, code: "INVALID_API_KEY" }, null),
+          core.passEndedHint(5),
+          core.passEndedHint(0),
+        ]""",
+    )
+    assert out[:5] == [True, False, False, False, False]  # a wallet's 401 stays an expired sign-in
+    assert out[5:] == [
+        "Unfret has a new free start: your old pass has ended. Your first 5 deep checks are free: tap Check.",
+        "Unfret has a new free start: your old pass has ended. Quick checks stay free; deep checks come in packs.",
+    ]
+
+
+def test_the_page_drops_an_ended_pass_before_treating_a_401_as_an_expired_sign_in() -> None:
+    script = (STATIC_DIR / "check.js").read_text()
+    # Wherever a 401 is handled (the balance, a check, a code), an ended pass is caught first: dropped (with the pass
+    # made here, if it is that one), no "sign in again", and the next Check gets the free pass.
+    assert script.count("if (passEnded(error, account))") == 3
+    for handler in ("async function refreshChecks()", "async function failed(error, link)", "invite-redeem"):
+        start = script.index(handler)
+        assert script.index("passEnded(error, account)", start) < script.index("error.status === 401", start)
+    retired = script[script.index("function passRetired()") :]
+    retired = retired[: retired.index("\n}\n")]
+    assert "forgetNewPass(" in retired and "signedOut(false)" in retired and "ended = true" in retired
+    assert "passEndedHint(fresh ? freePerPass() : 0)" in script
+    assert "function freeAvailable() {\n  return !account && !freeGiven()" in script  # the free pass follows
+    mine = (STATIC_DIR / "my-checks.js").read_text()
+    assert "Unfret has a new free start: the pass that was on this device has ended." in mine

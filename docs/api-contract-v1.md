@@ -938,7 +938,8 @@ client are unchanged.
 - Operator (admin token): `GET /v1/admin/objections[?limit=]` → `{"open", "items": [{"id", "kind", "site",
   "message", "reply_to", "received_on"}]}` (oldest first), `DELETE /v1/admin/objections/{id}` → `{"deleted": true}`.
   Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
-- Pages: `/about`, `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
+- Pages: `/about`, `/why` ("Why Unfret?": questions to ask any checker, Unfret next to free scam checkers and AI
+  assistants, a Fakespot alternative), `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
   `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.

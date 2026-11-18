@@ -4,9 +4,9 @@ The site's pages: home, sign-in, checkout, the link checker, accuracy, and the p
 ``/`` introduces Unfret (``/nl`` is its one Dutch counterpart), ``/welcome`` greets a new extension install,
 ``/connect`` signs in and hands the session to the extension, then ``/checkout`` (which hands a new API key to the
 extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``,
-``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer. ``/check``
-checks a link from any browser, phones first; with its web app manifest and service worker it can be installed and
-shows up in Android's share sheet.
+``/why``, ``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer.
+``/check`` checks a link from any browser, phones first; with its web app manifest and service worker it can be
+installed and shows up in Android's share sheet.
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -406,6 +406,18 @@ def about() -> HTMLResponse:
     :return: The page.
     """
     return _page("about.html", "/about")
+
+
+@router.get("/why", response_class=HTMLResponse)
+def why() -> HTMLResponse:
+    """
+    Why Unfret: questions to ask any checker, and Unfret next to free scam checkers and AI assistants.
+
+    Compares with kinds of tools, never a named one (Fakespot, closed in 2025, only as the closed service it is).
+
+    :return: The page.
+    """
+    return _page("why.html", "/why")
 
 
 @router.get("/money", response_class=HTMLResponse)

@@ -194,6 +194,9 @@ async def test_the_questions_are_answered_honestly(client: httpx.AsyncClient) ->
     assert "never calls a shop a scam" in faq and 'href="/accuracy"' in faq
     assert 'href="/privacy"' in faq and 'href="/money"' in faq
     assert "asks for your email for the receipt" in faq  # card payments need an e-mail; crypto doesn't
+    # The AI assistant question: fair to assistants, and the comparison on /why.
+    assert "Why not just ask an AI assistant?" in questions and 'href="/why"' in faq
+    assert "good second opinion" in faq
 
 
 # ── /nl: one Dutch page ──────────────────────────────────────────────────────────────────────────────────────────

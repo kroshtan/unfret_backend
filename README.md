@@ -224,7 +224,7 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs; a "since 1998" / "founded 20 years ago" claim about the shop itself on a domain younger than a year by both measures (claims vs facts) |
-| `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Local lookup, also in the quick tier; not in the scorer yet |
+| `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Another shop's identifiers seen only in client-supplied content count once corroborated (see "What free checks record"). Local lookup, also in the quick tier; not in the scorer yet |
 | `payment_methods` | Storefronts: only payments that can't be reversed (bank transfer, crypto, Western Union, MoneyGram; gift cards don't count alone) and no card, PayPal, iDEAL, Klarna or other protected method in the text, logo alt texts or a payment provider's script (Shopify shops never: their checkout takes cards); protected methods offered (a positive). Not in the scorer yet |
 | `claims` | Storefronts: claims against the facts: "a Dutch company", "family business in Amsterdam", "based in Germany" while every address the shop gives is in another country (told from the address text: country names, Dutch postcodes, US state and ZIP, UK postcodes; no geocoding); "visit our showroom" with no address, postcode or phone number anywhere. Not in the scorer yet |
 | `market_price` | Product pages with a barcode (GTIN/EAN): the price against each other shop's median price for the same barcode over 90 days, from Unfret's own anonymous observations (`unfret.market_prices`); far below means at most 40% of the median of at least three other shops in the same currency. Off in evaluation; not in the scorer yet |
@@ -271,7 +271,13 @@ the current UTC day, as keyed hashes under a salt that is replaced daily and nev
 count, not a link from a pass or network to a page. A different value that doesn't count never overwrites one that
 does. Each network records from at most `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` quick checks or
 client-supplied pages a day. Rows from before provenance was kept count as before. `GET /v1/admin/observations`
-shows the counts.
+shows the counts. The shop fingerprint store (`shop_links`), which every check feeds too, is guarded the same way
+(`src/unfret/shop_store.py`): each shop identifier (analytics/pixel ID, payment account, hashed contact or address)
+keeps its provenance and source count, and another shop's identifier links it, counts towards `MAX_SHARE` or counts
+as a shop giving the same address only once seen on a page Unfret fetched (or kept from before) or corroborated;
+so does a shop's own stored identifier when its links are looked up, so a forged page can't plant one on it. Only a
+page Unfret fetched changes a shop's platform, apps, template and digest. The identifiers on the page being checked
+count as before.
 
 ### Adding a skill
 
@@ -929,7 +935,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
-| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
+| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint or a shop identifier seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
 | `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |
 | `UNFRET_QUICK_RECORD_QUEUE` | `16` | Quick checks whose photo, price and reviews are being recorded at once, after their answer; more are skipped (0: quick checks record nothing) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |

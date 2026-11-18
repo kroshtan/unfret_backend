@@ -22,19 +22,35 @@ businesses. They are only counted (:meth:`ShopStore.address_shops`), to tell a s
 Links are one hop: two shops are linked when they share an identifier, never because both share one with a third
 shop. An identifier shared by more than :data:`MAX_SHARE` shops is an agency's or a template's, not an operator's,
 and links nobody.
+
+Every check feeds the store, quick ones and pages whose content a client sent included, so a forged page (any shop's
+address, any pixel or payment account) could otherwise make a shop look linked to young or bad shops, or make an
+address look shared. The store is guarded like the photo, price and review stores (:mod:`unfret.observations`):
+
+- Each identifier row keeps its provenance bits and a count of independent sources (a pass and a network, counted
+  once per row per UTC day, in memory only). Nothing that names the caller, their pass or their network.
+- Another shop's identifier counts (links, the shared-identifier count against :data:`MAX_SHARE`, the shops giving an
+  address) only when it was seen on a page Unfret fetched itself, kept from before this was recorded, or reported by
+  ``observation_min_sources`` independent sources. So does a shop's own stored identifier when its links are looked
+  up: a forged page can't plant another shop's pixel on it. The identifiers on the page being checked count as
+  before: they are that check's own input.
+- Only an observation from a page Unfret fetched changes a shop's facts (platform, apps, template, digest); others add
+  a shop with its looked-up dates only, and keep its rows alive.
+- A quick check or client-supplied page records nothing past the network's daily write limit
+  (``observation_pages_per_network_per_day``, shared with the other stores).
 """
 
 import asyncio
 import hashlib
 import hmac
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol, get_args
 
 import asyncpg
 import structlog
 
-from unfret import background, fact_cache
+from unfret import background, fact_cache, observations
 from unfret.config import settings
 from unfret.facts.business import WEBMAIL_DOMAINS
 from unfret.facts.schema import PageFacts, Platform
@@ -74,6 +90,8 @@ class ShopRecord:
     first_cert: date | None = None
     links: dict[str, set[str]] = field(default_factory=dict)  # kind → values; contact values are hex HMACs
     fingerprint: bytes | None = None  # digest of this observation's identifiers, apps and template
+    bits: int = observations.DEFAULT_BITS  # where it was seen (unfret.observations): fetched by Unfret, deep
+    vouched: frozenset[tuple[str, str]] = frozenset()  # the (kind, value) links a new source reports today
 
 
 @dataclass(frozen=True)
@@ -164,6 +182,7 @@ class MemoryShopStore:
         """Start empty."""
         self.shops: dict[str, _Shop] = {}
         self.links: dict[tuple[str, str, str], tuple[date, date]] = {}  # (kind, value, domain) → first, last seen
+        self.kept: dict[tuple[str, str, str], observations.Kept] = {}  # its provenance (none: kept from before)
 
     async def record(self, rec: ShopRecord) -> None:
         """
@@ -172,13 +191,25 @@ class MemoryShopStore:
         :param rec: The observation.
         """
         old = self.shops.get(rec.domain)
+        new = rec if _trusted(rec) else _untrusted(rec)
         self.shops[rec.domain] = _Shop(
-            old.first_seen if old else rec.day, rec.day, _merged(old.rec, rec) if old else rec
+            old.first_seen if old else rec.day,
+            max(old.last_seen, rec.day) if old else rec.day,
+            (_merged(old.rec, rec) if _trusted(rec) else _filled(old.rec, rec)) if old else new,
         )
         for kind, values in rec.links.items():
             for value in values:
-                first, _ = self.links.get((kind, value, rec.domain), (rec.day, rec.day))
-                self.links[(kind, value, rec.domain)] = (first, rec.day)
+                key = (kind, value, rec.domain)
+                # A row without provenance was there before it was kept: it counts, as it did then.
+                before = self.kept.get(key, observations.Kept(observations.LEGACY, 0)) if key in self.links else None
+                first, _ = self.links.get(key, (rec.day, rec.day))
+                self.links[key] = (first, rec.day)
+                vouch = 1 if (kind, value) in rec.vouched else 0
+                self.kept[key] = observations.merge(before, rec.bits, vouch, same=True, newer_wins=False)[1]
+
+    def _counts(self, key: tuple[str, str, str]) -> bool:
+        kept = self.kept.get(key)
+        return kept is None or observations.counts(kept.bits, kept.sources)
 
     async def linked(self, domain: str, current: dict[str, set[str]]) -> list[Linked]:
         """
@@ -188,11 +219,12 @@ class MemoryShopStore:
         :param current: The identifiers on its page now.
         :return: The linked shops.
         """
-        mine = {(k, v) for (k, v, d) in self.links if d == domain} | _pairs(current)
+        counting = [key for key in self.links if self._counts(key)]
+        mine = {(k, v) for (k, v, d) in counting if d == domain} | _pairs(current)
         mine = {(k, v) for k, v in mine if k not in NOT_LINKING}
         found: dict[str, list[tuple[str, str]]] = {}
         for kind, value in mine:
-            holders = {d for (k, v, d) in self.links if (k, v) == (kind, value)} | {domain}
+            holders = {d for (k, v, d) in counting if (k, v) == (kind, value)} | {domain}
             if len(holders) > MAX_SHARE:
                 continue
             for other in holders - {domain}:
@@ -219,7 +251,11 @@ class MemoryShopStore:
         :param addresses: Address hashes.
         :return: Their domains.
         """
-        return {d for (k, v, d) in self.links if k == "address" and v in addresses and d != domain}
+        return {
+            d
+            for (k, v, d) in self.links
+            if k == "address" and v in addresses and d != domain and self._counts((k, v, d))
+        }
 
     async def purge(self, today: date) -> None:
         """
@@ -232,6 +268,7 @@ class MemoryShopStore:
         }
         self.shops = {d: s for d, s in self.shops.items() if s.last_seen >= _cutoff(today, contact=False)}
         self.links = {key: seen for key, seen in self.links.items() if key[2] in self.shops}
+        self.kept = {key: kept for key, kept in self.kept.items() if key in self.links}
 
     async def fingerprint(self, domain: str) -> bytes | None:
         """
@@ -251,6 +288,7 @@ class MemoryShopStore:
         :return: Whether it was there.
         """
         self.links = {key: seen for key, seen in self.links.items() if key[2] != domain}
+        self.kept = {key: kept for key, kept in self.kept.items() if key in self.links}
         return self.shops.pop(domain, None) is not None
 
     async def forget_contact(self, kind: str, value: str) -> int:
@@ -264,6 +302,7 @@ class MemoryShopStore:
         gone = [key for key in self.links if key[:2] == (kind, value)]
         for key in gone:
             del self.links[key]
+            self.kept.pop(key, None)
         return len(gone)
 
 
@@ -285,31 +324,39 @@ class PostgresShopStore:
         :param rec: The observation.
         """
         rows = [(kind, value) for kind, values in rec.links.items() for value in values]
+        shop = rec if _trusted(rec) else _untrusted(rec)
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute(
-                "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
-                " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
-                "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
-                " platform = EXCLUDED.platform, apps = EXCLUDED.apps,"
-                " skeleton = COALESCE(EXCLUDED.skeleton, shops.skeleton),"
-                " registered = COALESCE(EXCLUDED.registered, shops.registered),"
-                " registrar = COALESCE(EXCLUDED.registrar, shops.registrar),"
-                " first_cert = COALESCE(EXCLUDED.first_cert, shops.first_cert), fingerprint = EXCLUDED.fingerprint",
-                rec.domain,
-                rec.day,
-                rec.platform,
-                list(rec.apps),
-                rec.skeleton,
-                rec.registered,
-                rec.registrar,
-                rec.first_cert,
-                rec.fingerprint,
+                _SHOP_UPSERT if _trusted(rec) else _SHOP_KEEP,
+                shop.domain,
+                shop.day,
+                shop.platform,
+                list(shop.apps),
+                shop.skeleton,
+                shop.registered,
+                shop.registrar,
+                shop.first_cert,
+                shop.fingerprint,
             )
             if rows:
                 await conn.executemany(
-                    "INSERT INTO shop_links (kind, value, domain, first_seen, last_seen) VALUES ($1, $2, $3, $4, $4) "
-                    "ON CONFLICT (kind, value, domain) DO UPDATE SET last_seen = EXCLUDED.last_seen",
-                    [(kind, value, rec.domain, rec.day) for kind, value in rows],
+                    "INSERT INTO shop_links (kind, value, domain, first_seen, last_seen, provenance, sources)"
+                    " VALUES ($1, $2, $3, $4, $4, $5, $6) "
+                    "ON CONFLICT (kind, value, domain) DO UPDATE SET last_seen = EXCLUDED.last_seen,"
+                    " provenance = shop_links.provenance | EXCLUDED.provenance,"
+                    " sources = LEAST(shop_links.sources + EXCLUDED.sources, $7)",
+                    [
+                        (
+                            kind,
+                            value,
+                            rec.domain,
+                            rec.day,
+                            rec.bits,
+                            1 if (kind, value) in rec.vouched else 0,
+                            observations.MAX_SOURCES,
+                        )
+                        for kind, value in rows
+                    ],
                 )
 
     async def linked(self, domain: str, current: dict[str, set[str]]) -> list[Linked]:
@@ -323,22 +370,26 @@ class PostgresShopStore:
         pairs = sorted((k, v) for k, v in _pairs(current) if k not in NOT_LINKING)
         rows: list[Any] = await self.pool.fetch(
             "WITH mine AS ("
-            "  SELECT kind, value FROM shop_links WHERE domain = $1 AND kind <> ALL($5::text[])"
+            "  SELECT kind, value FROM shop_links"
+            "  WHERE domain = $1 AND kind <> ALL($5::text[]) AND (provenance & $6 <> 0 OR sources >= $7)"
             "  UNION SELECT * FROM unnest($3::text[], $4::text[]) AS c (kind, value)"
             "), shared AS ("
             "  SELECT mine.kind, mine.value FROM mine WHERE ("
             "    SELECT COUNT(*) FROM shop_links c"
             "    WHERE c.kind = mine.kind AND c.value = mine.value AND c.domain <> $1"
+            "    AND (c.provenance & $6 <> 0 OR c.sources >= $7)"
             "  ) + 1 <= $2"
             ") "
             "SELECT o.domain, o.kind, o.value, s.first_seen, s.registered, s.first_cert "
             "FROM shared JOIN shop_links o ON o.kind = shared.kind AND o.value = shared.value AND o.domain <> $1 "
+            " AND (o.provenance & $6 <> 0 OR o.sources >= $7) "
             "JOIN shops s ON s.domain = o.domain",
             domain,
             MAX_SHARE,
             [k for k, _ in pairs],
             [v for _, v in pairs],
             sorted(NOT_LINKING),
+            *observations.trusted_params(),
         )
         found: dict[str, list[Any]] = {}
         for row in rows:
@@ -366,10 +417,11 @@ class PostgresShopStore:
         :return: Their domains.
         """
         rows: list[Any] = await self.pool.fetch(
-            "SELECT DISTINCT domain FROM shop_links "
-            "WHERE kind = 'address' AND value = ANY($1::text[]) AND domain <> $2",
+            "SELECT DISTINCT domain FROM shop_links WHERE kind = 'address' AND value = ANY($1::text[])"
+            " AND domain <> $2 AND (provenance & $3 <> 0 OR sources >= $4)",
             sorted(addresses),
             domain,
+            *observations.trusted_params(),
         )
         return {r["domain"] for r in rows}
 
@@ -416,6 +468,50 @@ class PostgresShopStore:
         """
         status = await self.pool.execute("DELETE FROM shop_links WHERE kind = $1 AND value = $2", kind, value)
         return int(status.split()[-1])
+
+
+_SHOP_UPSERT = (
+    "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
+    " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
+    "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
+    " platform = EXCLUDED.platform, apps = EXCLUDED.apps,"
+    " skeleton = COALESCE(EXCLUDED.skeleton, shops.skeleton),"
+    " registered = COALESCE(EXCLUDED.registered, shops.registered),"
+    " registrar = COALESCE(EXCLUDED.registrar, shops.registrar),"
+    " first_cert = COALESCE(EXCLUDED.first_cert, shops.first_cert), fingerprint = EXCLUDED.fingerprint"
+)
+# An observation that doesn't count at once (client content, unless a page Unfret fetched showed it): the shop is
+# added with its looked-up dates only, and an existing one keeps its facts (its looked-up dates are filled in).
+_SHOP_KEEP = (
+    "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
+    " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
+    "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
+    " registered = COALESCE(shops.registered, EXCLUDED.registered),"
+    " registrar = COALESCE(shops.registrar, EXCLUDED.registrar),"
+    " first_cert = COALESCE(shops.first_cert, EXCLUDED.first_cert)"
+)
+
+
+def _trusted(rec: ShopRecord) -> bool:
+    # Seen on a page Unfret fetched itself: the shop's facts may change (as every observation did before).
+    return bool(rec.bits & observations.TRUSTED_BITS)
+
+
+def _untrusted(rec: ShopRecord) -> ShopRecord:
+    # What a new shop row keeps of an observation that doesn't count yet: the day and Unfret's own lookups.
+    return ShopRecord(
+        rec.domain, rec.day, registered=rec.registered, registrar=rec.registrar, first_cert=rec.first_cert
+    )
+
+
+def _filled(old: ShopRecord, new: ShopRecord) -> ShopRecord:
+    # An observation that doesn't count yet keeps the shop's facts and only fills in looked-up dates it lacked.
+    return replace(
+        old,
+        registered=old.registered or new.registered,
+        registrar=old.registrar or new.registrar,
+        first_cert=old.first_cert or new.first_cert,
+    )
 
 
 def _merged(old: ShopRecord, new: ShopRecord) -> ShopRecord:
@@ -608,6 +704,23 @@ async def observation(state: dict[str, Any]) -> ShopRecord | None:
     )
 
 
+def with_provenance(rec: ShopRecord, provenance: observations.Provenance) -> ShopRecord:
+    """
+    The observation with where it was seen, and which of its links a new source reports today.
+
+    :param rec: The observation.
+    :param provenance: The analysis's provenance (:func:`unfret.observations.current`).
+    :return: The record to store.
+    """
+    vouched = frozenset(
+        (kind, value)
+        for kind, values in rec.links.items()
+        for value in values
+        if observations.witnesses.vouch(provenance, f"shop|{kind}|{value}|{rec.domain}".encode())
+    )
+    return replace(rec, bits=provenance.bits, vouched=vouched)
+
+
 def _date(value: object) -> date | None:
     try:
         return date.fromisoformat(str(value)[:10]) if value else None
@@ -626,7 +739,7 @@ async def observe(state: dict[str, Any]) -> None:
         rec = await observation(state)
         if rec is None:
             return
-        await _store.record(rec)
+        await _store.record(with_provenance(rec, observations.current()))
         if _purged_on != rec.day:
             _purged_on = rec.day
             await _store.purge(rec.day)
@@ -638,11 +751,14 @@ def observe_later(state: dict[str, Any]) -> None:
     """
     Record the shop in the background, after the analysis has answered (off when ``fingerprints`` is off).
 
-    Never the test shop (:mod:`unfret.test_shop`): its tricks are made up.
+    Never the test shop (:mod:`unfret.test_shop`): its tricks are made up. Nothing past the network's daily write
+    limit (:func:`unfret.observations.for_request`). The task inherits the analysis's provenance.
 
     :param state: The final analysis state.
     """
     if not settings.fingerprints or is_test_shop(str(state.get("url") or "")):
+        return
+    if not observations.current().record:
         return
     task = asyncio.create_task(observe(dict(state)))
     _pending.add(task)

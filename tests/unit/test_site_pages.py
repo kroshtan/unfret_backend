@@ -117,6 +117,7 @@ async def test_the_terms_are_marked_as_a_draft_only_while_the_setting_is_on(
 
     assert "Draft, not in force." in draft and 'class="panel notice draft-note"' in draft
     assert draft.index("draft-note") < draft.index("<h1>")  # at the top
+    assert 'class="placeholder"' not in draft  # the company details are filled in; the note points at none
     assert "Draft, not in force." not in final and "draft-note" not in final
 
 

@@ -1,5 +1,6 @@
-"""About, money, press, terms and the shop owners' page: strict CSP, nothing from elsewhere, true to the code."""
+"""About, why, money, press, terms and the shop owners' page: strict CSP, nothing from elsewhere, true to the code."""
 
+import json
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -8,14 +9,15 @@ import httpx
 import pytest
 import yaml
 
-from unfret import objections
+import unfret
+from unfret import market_prices, objections, scoring
 from unfret.config import settings
 from unfret.main import app
 from unfret.routes.pages import STATIC_DIR, asset_tag
 
 CONFIG = Path(__file__).parents[2] / "config"
-PAGES = {"/about": "about.html", "/money": "money.html", "/press": "press.html", "/terms": "terms.html",
-         "/objection": "objection.html"}  # fmt: skip
+PAGES = {"/about": "about.html", "/why": "why.html", "/money": "money.html", "/press": "press.html",
+         "/terms": "terms.html", "/objection": "objection.html"}  # fmt: skip
 
 
 @pytest.fixture
@@ -187,6 +189,65 @@ async def test_about_says_who_and_where_without_made_up_numbers(client: httpx.As
     assert "Floris van Beers" in text and "one-person company in the Netherlands" in text
     assert "Scaleway" in text and "MIT licence" in text and 'href="/money"' in text
     assert not re.search(r"\b\d[\d,.]*\s*(?:users|shoppers|checks a|installs|customers)\b", text)
+
+
+# Comparative claims must be objective and verifiable: kinds of tools, never a named one (Fakespot, closed, aside).
+_NAMED_TOOLS = re.compile(
+    r"scam ?advis|trustpilot|scamdoc|scam detector|norton|mcafee|chatgpt|openai|gemini|copilot|perplexity|claude"
+    r"|anthropic|\bgrok\b|mistral|honey|keepa|camelcamel|reviewmeta|trustedshops|sitejabber",
+    re.IGNORECASE,
+)
+
+
+async def test_why_compares_with_kinds_of_tools_fairly(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/why")).text
+    text = " ".join(re.sub(r"<[^>]+>", " ", page.split("<main", 1)[1].split("</main>", 1)[0]).split())
+
+    assert not _NAMED_TOOLS.search(text), _NAMED_TOOLS.search(text)
+    # The other side as "many" and "often", and what it does well, not as absolutes.
+    assert "Many free website checkers are quick and useful" in text
+    assert "a capable assistant can do much of a careful check" in text and "good second opinion" in text
+    others = re.findall(r'<section class="compare-col" [^>]*>(.*?)</section>', page, re.DOTALL)
+    assert len(others) == 2
+    for column in others:
+        assert not re.search(r"\b(?:never|always|all|none|can't|cannot|every)\b", column, re.IGNORECASE), column
+    # Fakespot only as the closed service, with Mozilla's own announcement.
+    assert "shut down on July 1, 2025" in text
+    assert 'href="https://blog.mozilla.org/en/mozilla/building-whats-next/" rel="noopener"' in page
+    # Each Unfret claim leads to where it can be checked.
+    for path in ("/accuracy", "/money", "/privacy"):
+        assert f'href="{path}"' in page, path
+    assert "never calls a shop a scam" in text
+
+
+async def test_why_names_unfrets_sources_as_results_do(client: httpx.AsyncClient) -> None:
+    text = " ".join((await client.get("/why")).text.split())
+    sources = json.loads((Path(unfret.__file__).parent / "copy" / "en.json").read_text())["sources"]
+    for key in ("rdap", "vies", "price_history"):
+        assert sources[key].lower() in text.lower(), sources[key]
+    # The records it adds, as kept (privacy statement) and for as long as the stores keep them.
+    assert f"over the last {market_prices.WINDOW_DAYS} days" in text
+    assert market_prices.RETENTION_DAYS >= market_prices.WINDOW_DAYS
+    assert "Safety Gate" in text and "shops that share an analytics ID, a payment account or contact details" in text
+    # The scorer is deterministic: the same signals, the same verdict.
+    assert "deterministic (same features, same score)" in (scoring.__doc__ or "")
+    assert "The same signals always give the same verdict" in text
+
+
+async def test_why_says_what_is_kept_as_the_privacy_statement_does(client: httpx.AsyncClient) -> None:
+    why = " ".join((await client.get("/why")).text.split())
+    privacy = " ".join((await client.get("/privacy")).text.split())
+
+    assert "Unfret remembers shops, not what you shop for" in why
+    assert "the pages you check aren't stored, and they're never linked to you" in why
+    assert (
+        "Not the pages you check." in privacy and "aren't stored, on their own or with your wallet or pass" in privacy
+    )
+    # What it does keep about a pass, named as the statement names it.
+    assert "a public ID, how many checks it has left and the day it was made" in why
+    assert "the pass's public ID, its balance, its free checks left, the day it was made" in privacy
+    # No claim about IP addresses here: the statement is where the proxy's log is spelled out.
+    assert "IP" not in why.split("<main", 1)[1].split("</main>", 1)[0]
 
 
 async def test_the_press_page_offers_the_logo_and_test_shop_screenshots(client: httpx.AsyncClient) -> None:

@@ -300,6 +300,8 @@ def test_a_product_ad_or_profile_link_is_told_from_a_search_or_home_page(tmp_pat
         "https://www.marktplaats.nl/v/fietsen/m2243708464-fiets": True,
         "https://www.ebay.com/usr/some-seller": True,
         "https://www.zalando.nl/tommy-jeans-jas-black-tob22t0fk-q11.html": True,  # a marketplace's listing
+        "https://www.zara.com/us/en/linen-blend-shirt-p03332301.html?v1=123": True,  # -p + 8 digits
+        "https://www.zara.com/us/en/man-shirts-l737.html": False,  # a category
         "https://www.aliexpress.com/": False,
         "https://www.aliexpress.com/w/wholesale-airpods.html": False,
         "https://www.amazon.nl/s?k=airpods": False,

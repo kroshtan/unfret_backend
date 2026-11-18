@@ -694,6 +694,34 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE review_fingerprints ALTER COLUMN provenance SET DEFAULT 9;
         """,
     ),
+    (
+        30,
+        "report values and second opinions",
+        """
+        -- What an open report is worth (unfret.reports.value): a full queue replaces the item worth least.
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS value SMALLINT NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS reports_value_idx ON reports (value, created_at);
+        -- The second opinion on an open report (unfret.reports.second_opinion): a model's proposed label for the
+        -- operator, never a label by itself. waiting (not asked yet), asked, done or failed: asked once at most.
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS opinion_state TEXT NOT NULL DEFAULT 'waiting'
+            CHECK (opinion_state IN ('waiting', 'asked', 'done', 'failed'));
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS llm_label TEXT
+            CHECK (llm_label IN ('legit', 'junk', 'scam', 'unsure'));
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS llm_confidence REAL CHECK (llm_confidence BETWEEN 0 AND 1);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS llm_reason TEXT CHECK (length(llm_reason) <= 300);
+        ALTER TABLE reports ADD COLUMN IF NOT EXISTS llm_model TEXT CHECK (length(llm_model) <= 100);
+        -- Second-opinion calls per UTC day, for their daily cap; old days are deleted.
+        CREATE TABLE IF NOT EXISTS report_opinion_days (
+            day    DATE PRIMARY KEY,
+            calls  INTEGER NOT NULL DEFAULT 0
+        );
+        -- How a labelled page was decided: the second opinion it had (if any) and whether the operator confirmed
+        -- that proposal in bulk rather than one by one. The label itself is always a person's.
+        ALTER TABLE labelled_pages ADD COLUMN IF NOT EXISTS llm_label TEXT;
+        ALTER TABLE labelled_pages ADD COLUMN IF NOT EXISTS llm_confidence REAL;
+        ALTER TABLE labelled_pages ADD COLUMN IF NOT EXISTS confirmed_in_bulk BOOLEAN NOT NULL DEFAULT FALSE;
+        """,
+    ),
 ]
 
 

@@ -218,6 +218,9 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     document["reports"] = {
         "per_month": settings.reports_per_month,
         "reward_checks": settings.report_reward_checks,
+        "reward_gap": settings.report_reward_gap,
+        "small_reward_checks": settings.report_small_reward_checks,
+        "small_reward_gap": settings.report_training_gap,
     }
     response.headers["Cache-Control"] = "private, no-store"
     return document

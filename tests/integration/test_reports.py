@@ -68,7 +68,7 @@ async def test_a_report_enters_the_queue_scrubbed(
     response = await report(client, headers, body, result)
 
     assert response.status_code == 201
-    assert response.json() == {"status": "queued", "reports_used": 1, "reports_per_month": 5}
+    assert response.json() == {"status": "queued", "reports_used": 1, "reports_per_month": 15}
     row = await pool.fetchrow("SELECT * FROM reports")
     assert row["page_key"] == "amazon.nl|asin:B000000001"
     assert row["score"] == 80
@@ -147,31 +147,45 @@ async def test_monthly_limit(client: httpx.AsyncClient, wallet: Wallet, monkeypa
     assert statuses == [201, 201, 429]
 
 
-async def test_a_full_queue_says_so(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, wallet: Wallet, monkeypatch: pytest.MonkeyPatch
+async def test_a_full_queue_gives_up_its_least_valuable_item_for_a_better_one(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, wallet: Wallet, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "report_queue_cap", 1)
+    monkeypatch.setattr(settings, "report_queue_cap", 2)
     headers = await reporter(wallet)
-    first, second = page(asin="B00000000A"), page(asin="B00000000B")
-    await report(client, headers, first, await check(client, headers, first))
 
-    response = await report(client, headers, second, await check(client, headers, second))
+    async def report_at(asin: str, score: int, reason: str = "scam") -> httpx.Response:
+        graph.result = {**graph.result, "score": score}
+        body = page(asin=asin)
+        return await report(client, headers, body, await check(client, headers, body), reason=reason)
 
-    assert response.status_code == 503
-    assert response.json()["error_code"] == "QUEUE_FULL"
-    # A page that is already queued is still confirmed when the queue is full.
+    await report_at("B00000000A", 80)  # claims 40 off; the shop's first: +15 page, +15 shop = 70
+    await report_at("B00000000B", 50)  # claims 10 off, a known shop by now: 10 + 15 = 25
+
+    better = await report_at("B00000000C", 90)  # claims 50 off: 65, worth more than B
+    worse = await report_at("B00000000D", 45)  # claims 5 off: 20, worth less than anything queued
+
+    assert better.status_code == 201
+    assert worse.status_code == 503
+    assert worse.json()["error_code"] == "QUEUE_FULL"
+    keys = {r["page_key"][-1]: r["value"] for r in await pool.fetch("SELECT page_key, value FROM reports")}
+    assert keys == {"A": 70, "C": 65}
+    # A page that is already queued is still confirmed when the queue is full, and is worth more for it.
     other = await reporter(wallet)
-    assert (await report(client, other, first, await check(client, other, first))).status_code == 201
+    graph.result = {**graph.result, "score": 90}
+    body = page(asin="B00000000C")
+    assert (await report(client, other, body, await check(client, other, body))).status_code == 201
+    assert await pool.fetchval("SELECT value FROM reports WHERE page_key LIKE '%C'") == 75
 
 
 @pytest.mark.parametrize(
     ("score", "label", "reward", "training"),
     [
-        (80, "scam", 3 * PRICE, True),  # 40 points above the scam zone (<= 40): the model was badly wrong
-        (70, "junk", 3 * PRICE, True),  # exactly 30 off
-        (60, "junk", 0, True),  # 20 off: training data, no reward
+        (80, "scam", 5 * PRICE, True),  # 40 points above the scam zone (<= 40): the model was badly wrong
+        (70, "junk", 5 * PRICE, True),  # exactly 30 off
+        (60, "junk", PRICE, True),  # 20 off: training data, the small reward
+        (50, "scam", PRICE, True),  # exactly 10 off
         (45, "scam", 0, False),  # 5 off: close enough
-        (20, "legit", 3 * PRICE, True),  # 50 below the legit zone (>= 70)
+        (20, "legit", 5 * PRICE, True),  # 50 below the legit zone (>= 70)
         (80, "legit", 0, False),  # the model was right
     ],
 )
@@ -237,7 +251,9 @@ async def test_queue_order_and_admin_only(
 
     assert (await client.get("/v1/admin/reports")).status_code == 401
     items = (await client.get("/v1/admin/reports", headers=ADMIN)).json()["items"]
-    assert [i["page_key"][-1] for i in items] == ["E", "D", "C"]  # corroborated, then least certain, then the rest
+    # By value: E claims 50 off and was confirmed (+10), C claims 55 off and was the shop's first (+15), D 15 off.
+    assert [i["page_key"][-1] for i in items] == ["C", "E", "D"]
+    assert [i["value"] for i in items] == [85, 75, 30]
 
 
 async def test_unhandled_reports_expire_and_unlink(

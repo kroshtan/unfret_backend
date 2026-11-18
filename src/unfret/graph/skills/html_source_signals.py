@@ -14,9 +14,26 @@ from unfret.facts import PageFacts
 from unfret.graph.skills import Observation, Skill, SkillOutput
 from unfret.graph.state import AnalysisState
 
+_BARE_NAME_RE = re.compile(r"[a-z0-9?|\-]+")
+
+
+def _bounded(pattern: str) -> re.Pattern[str]:
+    """
+    A pattern that matches only as a name of its own, never inside a longer token.
+
+    Without the bounds, "eprolo" matched a large retailer's ``enableProLoyaltyApi`` setting and "ryviu" a stretch of
+    base64. A pattern that is a bare name ("eprolo", "zendrop|cjpacket") must also end where the token does.
+
+    :param pattern: The lower-case pattern.
+    :return: The compiled pattern.
+    """
+    end = r"(?![a-z0-9])" if _BARE_NAME_RE.fullmatch(pattern) else ""
+    return re.compile(rf"(?<![a-z0-9])(?:{pattern}){end}")
+
+
 # (category, pattern, label). Patterns are lower-case and matched against the lower-cased source.
 _SIGNALS: list[tuple[str, re.Pattern[str], str]] = [
-    (cat, re.compile(pattern), label)
+    (cat, _bounded(pattern), label)
     for cat, pattern, label in [
         # Dropshipping fulfilment apps and platforms
         ("dropship_app", r"oberlo", "Oberlo (Shopify dropship fulfilment)"),

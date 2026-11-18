@@ -303,7 +303,7 @@ async def test_the_test_shop_shows_its_two_made_up_brands(
     ]
     assert one["same_product"]["detail"] == (
         "The main photo is the same photo as on unfret.net/test-shop/sister-shop, under another brand name (VELUNOX)."
-        " Unfret saw it there for $17.99 on 9 November 2026."
+        " Unfret saw it there for $17.99 on November 9, 2026."
     )
     assert stub.rows == {}  # nothing of the test shop is kept
 

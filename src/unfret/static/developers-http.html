@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Use Unfret from any language: one HTTPS call, POST /v1/check, with an Unfret pass or paid per call over x402. A developer pass with free deep checks, the request and response, errors and retries, and examples in curl, JavaScript, Go and PHP.">
+  <title>Use Unfret from any language · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/code-copy.js"></script>
+</head>
+<body class="landing">
+  {{header}}
+
+  <main class="dev-page">
+    <section class="hero dev-hero">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow"><a href="/developers">For developers</a> · any language</p>
+          <h1>Use Unfret from any language</h1>
+          <p class="lead">Unfret is one HTTPS call: send a link to <code>POST /v1/check</code> and get back
+            whether the page shows signs of a scam, dropshipped generic goods, fake reviews or pressure tricks,
+            with the evidence. Anything that can send JSON can use it. Python has
+            <a href="/developers#clients">a client</a>; this page is for everything else.</p>
+          <nav class="dev-toc" aria-label="On this page">
+            <a href="#pay">Two ways to pay</a>
+            <a href="#developer-pass">A developer pass</a>
+            <a href="#request">The request</a>
+            <a href="#response">The response</a>
+            <a href="#errors">Errors and retries</a>
+            <a href="#examples">Examples</a>
+            <a href="#typescript">TypeScript</a>
+          </nav>
+        </div>
+        <pre class="terminal" aria-label="An example check"><span class="c"># check a page with an Unfret pass</span>
+<span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'
+
+<span class="c"># → 200</span>
+{"action": "{{sample_action}}", "band": "{{sample_band}}",
+ "risk_score": {{sample_risk}}, "flags": [ … ]}</pre>
+      </div>
+    </section>
+
+    <section class="section" id="pay" aria-labelledby="pay-heading">
+      <div class="wrap narrow">
+        <h2 id="pay-heading">Two ways to pay</h2>
+        <p><b>An Unfret pass</b>, sent as <code>Authorization: Bearer ufk_…</code>. A deep check uses one of the
+          pass's checks (its free ones first); a quick check is free, up to {{quick_per_minute}} a minute. Make a
+          <a href="#developer-pass">developer pass</a> with {{developer_checks}} free deep checks, or
+          <a href="/checkout">buy checks</a> for any pass: {{packs_line}}.</p>
+        <p><b>x402</b>, with no pass and no account: the agent pays each check from its own wallet,
+          {{quick_price}} for quick and {{deep_price}} for deep. Send the request without
+          <code>Authorization</code> and the first answer is <code>402</code>, with a
+          <code>PAYMENT-REQUIRED</code> header (base64 of the JSON that is also the body) whose
+          <code>accepts</code> lists what Unfret takes: {{payment_options}}, scheme <code>exact</code>. Pay one
+          and send the same request again with the payment in a <code>PAYMENT-SIGNATURE</code> header; the answer
+          then carries a <code>PAYMENT-RESPONSE</code> header. Don't write the signing yourself: use an x402 client
+          library for your language (the <a href="https://github.com/coinbase/x402" rel="noopener">x402
+          project</a> has them for TypeScript, Python and Go), or <a href="/developers#mcp">unfret-mcp</a>, which
+          pays from a Solana wallet.<!-- base-off --> USDC on Base comes next.<!-- /base-off --> The same payment
+          sent again gets the same answer and is never charged twice. Every option, price and rule is in the
+          <a href="/.well-known/x402">x402 discovery document</a> and in <a href="/llms.txt">llms.txt</a>.</p>
+        <p class="small muted">With x402 the answer is the same as with a pass, without the pass's four fields
+          (<a href="#response">below</a>). The rest of this page uses a pass.</p>
+      </div>
+    </section>
+
+    <section class="section" id="developer-pass" aria-labelledby="pass-heading">
+      <div class="wrap narrow">
+        <h2 id="pass-heading">Get a developer pass in code</h2>
+        <p>A pass with {{developer_checks}} free deep checks, for building and testing against Unfret. No account:
+          the server asks for a few seconds of proof of work instead. (Or press "Make a developer pass" on
+          <a href="/developers#developer-pass">the developer page</a>.)</p>
+        <ol class="howto">
+          <li><b>Get a challenge.</b> <code>GET /v1/keys/challenge</code> answers
+            <code>{"challenge": "…", "bits": {{pow_bits}}, "expires_at": …}</code>. It can be used once, within
+            {{pow_ttl_min}} minutes (<code>expires_at</code>, Unix seconds).</li>
+          <li><b>Solve it.</b> Find a <code>solution</code>: a string of 1 to 32 characters (a decimal counter
+            0, 1, 2, … works) such that SHA-256 of the UTF-8 bytes of <code>challenge + ":" + solution</code>
+            starts with <code>bits</code> zero bits, counted from the most significant bit of the first byte
+            ({{pow_bits}} bits: {{pow_example}}). That takes about
+            {{pow_hashes}} hashes on average. Use the <code>bits</code> the challenge came with: it is
+            {{pow_bits}}, and up to {{pow_extra_max}} more on a day when very many passes are being made.</li>
+          <li><b>Make the pass.</b> <code>POST /v1/keys</code> with
+            <code>{"challenge": "…", "solution": "…", "developer": true}</code> answers <code>201</code> with
+            <code>key</code> (the pass, <code>ufk_…</code>), <code>recovery_code</code> (its backup code),
+            <code>key_id</code>, <code>account</code>, <code>balance_usd_micros</code> and
+            <code>free_checks</code>. Both secrets are shown only this once and stored only as hashes: save them.</li>
+        </ol>
+        <p><b>Limits.</b> {{developer_checks}} free deep checks per developer pass, and
+          {{developer_passes_per_day}} with free checks a day per visitor network; past that, the
+          pass is made without them (<code>"free_checks": 0</code>). At most {{key_create_per_day}} new passes a
+          day per network (then <code>429</code>). Free deep checks, everyone's together, come out of one daily
+          budget; once it's used, a deep check that only free checks could pay for answers
+          <code>429 FREE_CHECKS_PAUSED</code> until 00:00 UTC. Quick checks always go on.</p>
+
+        <h3>The proof of work in JavaScript</h3>
+        <p>Node 20 or newer, Deno, Bun or a browser: Web Crypto, no packages. Usually a few seconds.</p>
+        <div class="code-block">
+          <pre class="terminal" id="pow-js">async function solve(challenge, bits) {
+  const encoder = new TextEncoder();
+  for (let n = 0; ; n++) {
+    const digest = await crypto.subtle.digest("SHA-256", encoder.encode(`${challenge}:${n}`));
+    if (leadingZeroBits(new Uint8Array(digest)) &gt;= bits) return String(n);
+  }
+}
+
+function leadingZeroBits(bytes) {
+  let bits = 0;
+  for (const byte of bytes) {
+    if (byte !== 0) return bits + Math.clz32(byte) - 24;
+    bits += 8;
+  }
+  return bits;
+}</pre>
+          <button type="button" class="copy" data-copy="pow-js">Copy</button>
+        </div>
+        <p>And the two calls around it (as an ES module, e.g. <code>pass.mjs</code>):</p>
+        <div class="code-block">
+          <pre class="terminal" id="pass-js">const base = "{{base_url}}";
+const { challenge, bits } = await (await fetch(`${base}/v1/keys/challenge`)).json();
+const response = await fetch(`${base}/v1/keys`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ challenge, solution: await solve(challenge, bits), developer: true }),
+});
+const pass = await response.json();
+if (!response.ok) throw new Error(`${response.status} ${pass.error_code}: ${pass.detail}`);
+console.log(pass.key, pass.recovery_code, pass.free_checks); // save both: shown only this once</pre>
+          <button type="button" class="copy" data-copy="pass-js">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="request" aria-labelledby="request-heading">
+      <div class="wrap narrow">
+        <h2 id="request-heading">The request: <code>POST /v1/check</code></h2>
+        <p>JSON, with <code>Content-Type: application/json</code>, to <code>{{base_url}}/v1/check</code>.</p>
+        <table class="settings fields" id="check-request">
+          <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col"></th></tr></thead>
+          <tbody>
+            <tr><td><code>url</code></td><td>string, required</td><td>The shop, product page, ad or service
+              provider's page to check.</td></tr>
+            <tr><td><code>tier</code></td><td><code>quick</code> | <code>deep</code></td><td>Default
+              <code>quick</code>: rules on the page itself, free with a pass. <code>deep</code>:
+              everything, including an AI read of the listing, its reviews, its photo and the shop's age; one check
+              from the pass.</td></tr>
+            <tr><td><code>page_content</code></td><td>string, optional</td><td>The page's HTML, up to
+              {{max_page_mb}} MB, if you have it. Needed for marketplaces such as Amazon that refuse server-side
+              visits; without it Unfret fetches the page itself.</td></tr>
+            <tr><td><code>policy</code></td><td><code>strict</code> | <code>balanced</code> |
+              <code>lenient</code></td><td>Default <code>balanced</code>: how cautious the server's own
+              <code>action</code> is (<a href="#policy">below</a>).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" id="response" aria-labelledby="response-heading">
+      <div class="wrap narrow">
+        <h2 id="response-heading">The response</h2>
+        <p><code>200</code> with the verdict. The fields you'll typically use (the
+          <a href="/developers#sample">full response</a> for the test shop is on the developer page, every field in
+          the <a href="/docs">API reference</a>):</p>
+        <table class="settings fields" id="check-response">
+          <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col"></th></tr></thead>
+          <tbody>
+            <tr><td><code>band</code></td><td>string or null</td><td>The verdict a shopper would see:
+              <code>reliable</code> "Looks fine", <code>concerns</code> "Worth a look", <code>careful</code> "Think
+              twice", <code>junk_or_scam</code> "Serious concerns". Null when the page couldn't be assessed.</td></tr>
+            <tr><td><code>summary</code></td><td>string or null</td><td>One plain sentence for the person you're
+              buying for.</td></tr>
+            <tr><td><code>flags</code></td><td>array</td><td>The evidence. Flags are signals, never a
+              verdict that a shop is a scam.</td></tr>
+            <tr><td><code>flags[].label</code></td><td>string</td><td>A short name: "Fake countdown".</td></tr>
+            <tr><td><code>flags[].evidence</code></td><td>string</td><td>What Unfret found, in words, and where.</td></tr>
+            <tr><td><code>flags[].severity</code></td><td>string</td><td><code>high</code>, <code>medium</code> or
+              <code>low</code>.</td></tr>
+            <tr><td><code>flags[].type</code></td><td>string</td><td>A stable key (<code>timer_resets</code>), for
+              code.</td></tr>
+            <tr><td><code>assessed</code></td><td>boolean</td><td>False for a page that isn't a shop, listing, ad or
+              provider's page: no band, <code>risk_score</code> null, and the check is given back.</td></tr>
+            <tr><td><code>action</code></td><td><code>allow</code> | <code>warn</code> | <code>block</code></td>
+              <td>The server's own suggestion under the request's <code>policy</code>.</td></tr>
+            <tr><td><code>risk_score</code></td><td>0–1 or null</td><td>0 = no concerns, 1 = clear risk.</td></tr>
+            <tr><td><code>confidence</code></td><td>0–1</td><td>How sure the scorer is.</td></tr>
+            <tr><td><code>tier</code></td><td>string</td><td>The tier that ran.</td></tr>
+            <tr><td><code>cached</code></td><td>boolean</td><td>True when the answer is one from the last day for
+              the same page, charged the same.</td></tr>
+            <tr><td><code>page_type</code></td><td>string or null</td><td><code>storefront</code>,
+              <code>aggregate_listing</code> (a marketplace), <code>article</code>, <code>non_product</code>,
+              …</td></tr>
+            <tr><td><code>deep_check</code></td><td>object or null</td><td>On quick answers only: whether a deep
+              check of this page is worth it.</td></tr>
+            <tr><td><code>deep_check.suggested</code></td><td>boolean</td><td>Escalate to <code>deep</code> only
+              when this is true.</td></tr>
+            <tr><td><code>deep_check.reason</code></td><td>string</td><td>Why (not): <code>on_the_fence</code>,
+              <code>unknown_seller</code>, <code>serious_concerns</code>, <code>known_seller</code>,
+              <code>nothing_to_add</code>.</td></tr>
+            <tr><td><code>deep_check.text</code></td><td>string</td><td>"A deep check also looks at …", for a
+              person.</td></tr>
+            <tr><td><code>deep_check.adds</code></td><td>array</td><td>What a deep check would add here
+              (<code>key</code>, <code>label</code>).</td></tr>
+            <tr class="pass-only"><td><code>charged</code></td><td>boolean</td><td>With a pass: whether this check
+              used one of its checks.</td></tr>
+            <tr class="pass-only"><td><code>free_check</code></td><td>boolean</td><td>With a pass: whether that was
+              one of its free checks.</td></tr>
+            <tr class="pass-only"><td><code>free_checks_left</code></td><td>integer</td><td>With a pass: free deep
+              checks left.</td></tr>
+            <tr class="pass-only"><td><code>balance_usd_micros</code></td><td>integer</td><td>With a pass: bought
+              credit left, in millionths of a US dollar.</td></tr>
+          </tbody>
+        </table>
+
+        <h3 id="policy">From verdict to action</h3>
+        <p>A suggested policy, the one the clients use: decide on <code>band</code>, and ask the human when the page
+          couldn't be assessed. Change it to suit your agent.</p>
+        <table class="settings">
+          <thead><tr><th scope="col"><code>band</code></th><th scope="col">Action</th><th scope="col"></th></tr></thead>
+          <tbody>
+            <tr><td><code>reliable</code></td><td><code>allow</code></td><td>"Looks fine": go ahead.</td></tr>
+            <tr><td><code>concerns</code></td><td><code>warn</code></td><td>"Worth a look": ask your human
+              first.</td></tr>
+            <tr><td><code>careful</code></td><td><code>block</code></td><td>"Think twice": don't buy.</td></tr>
+            <tr><td><code>junk_or_scam</code></td><td><code>block</code></td><td>"Serious concerns": don't
+              buy.</td></tr>
+            <tr><td>not assessed</td><td><code>warn</code></td><td><code>"assessed": false</code>: let the human
+              decide.</td></tr>
+          </tbody>
+        </table>
+        <p class="small muted">The server's own <code>action</code> follows the request's <code>policy</code> from
+          <code>risk_score</code>: under <code>balanced</code> (warn from {{balanced_warn}}, block from
+          {{balanced_block}}) and <code>lenient</code> it never warns about a page a shopper would see as "Looks
+          fine" or "Worth a look"; <code>strict</code> does. The thresholds are in the
+          <a href="/.well-known/x402">discovery document</a>.</p>
+
+        <h3 id="checks-left">Checks left</h3>
+        <p>Every answer with a pass carries <code>free_checks_left</code> and <code>balance_usd_micros</code>. To ask
+          without checking a page: <code>GET /v1/credits</code> with the pass answers with
+          <code>checks_remaining</code> (deep checks it can pay for, free ones included),
+          <code>free_checks_remaining</code>, <code>free_checks_paused</code> (true while today's free deep checks
+          are all used) and <code>balance_usd_micros</code>.</p>
+        <p class="small muted">For the card a shopper sees (a headline, reasons with where each one comes from, what
+          looks good, what was checked), <code>POST /v1/analyze</code> takes the same <code>url</code>,
+          <code>tier</code> and pass and answers with a <code>verdict</code>; see the
+          <a href="/docs">API reference</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="errors" aria-labelledby="errors-heading">
+      <div class="wrap narrow">
+        <h2 id="errors-heading">Errors, retries and timeouts</h2>
+        <p>Every error is JSON with <code>detail</code> (in words) and <code>error_code</code>, and nothing is
+          charged for any of these: a check that fails after it started is given back to the pass.</p>
+        <table class="settings">
+          <thead><tr><th scope="col"><code>error_code</code></th><th scope="col">HTTP</th><th scope="col">What to
+            do</th></tr></thead>
+          <tbody>
+            <tr><td><code>INVALID_API_KEY</code></td><td>401</td><td>Not a valid pass (mistyped, or replaced with
+              its backup code): fix it.</td></tr>
+            <tr><td><code>INSUFFICIENT_CREDITS</code></td><td>402</td><td>The pass has no checks left for a deep
+              check: <a href="/checkout">buy checks</a>, or use <code>quick</code>.</td></tr>
+            <tr><td><code>PAYMENT_REQUIRED</code></td><td>402</td><td>No pass and no payment: x402 (above).</td></tr>
+            <tr><td><code>VALIDATION_ERROR</code></td><td>422</td><td>The body is wrong; <code>errors</code> says
+              where. Fix it; don't retry as is.</td></tr>
+            <tr><td><code>PAGE_UNAVAILABLE</code>, <code>PAGE_BLOCKED</code></td><td>422</td><td>Unfret couldn't
+              fetch the page, or got a bot check: send its HTML as <code>page_content</code>.</td></tr>
+            <tr><td><code>RATE_LIMITED</code></td><td>429</td><td>Over {{check_per_minute}} requests a minute: wait
+              the <code>Retry-After</code> header's seconds.</td></tr>
+            <tr><td><code>TOO_MANY_REQUESTS</code></td><td>429</td><td>Over a pass's per-minute limit
+              ({{quick_per_minute}} quick checks, {{fetch_per_minute}} pages Unfret fetches): wait
+              <code>metadata.retry_after_s</code> seconds. Also for too many new passes in a day.</td></tr>
+            <tr><td><code>FREE_CHECKS_PAUSED</code></td><td>429</td><td>Only free checks left and today's are all
+              used: back at 00:00 UTC (<code>metadata.retry_after_s</code>). Quick checks still work.</td></tr>
+            <tr><td><code>BAD_CHALLENGE</code></td><td>400</td><td><code>POST /v1/keys</code>: the challenge is
+              wrong, expired, used or unsolved: get a new one.</td></tr>
+            <tr><td><code>INTERNAL_ERROR</code>, <code>GATEWAY_TIMEOUT</code></td><td>500, 504</td><td>The analysis
+              failed or ran out of time; the check was given back. Retry later.</td></tr>
+            <tr><td><code>SERVICE_UNAVAILABLE</code></td><td>503</td><td>Passes, payments or the analysis are off
+              for a moment: retry later (after <code>Retry-After</code> when it's sent).</td></tr>
+          </tbody>
+        </table>
+        <p><b>Retries.</b> Retry a <code>429</code> after the time it gives, and a <code>5xx</code> or a dropped
+          connection a few times with a growing pause (a few seconds, then longer): none of them used a check. Don't
+          retry other
+          <code>4xx</code> answers unchanged. With x402, retry with the same <code>PAYMENT-SIGNATURE</code>: it is
+          never charged twice.</p>
+        <p><b>Timeouts.</b> On {{latency_server}} a quick check takes {{quick_median}} and a deep check
+          {{deep_median}} (medians, measured on {{measured_on}}; production runs on other hardware). The server
+          answers a deep check within {{analysis_timeout}} s with a pass ({{x402_timeout}} s with x402), or with a
+          free <code>504</code>, so set your client's timeout above that: the examples use 120 s.</p>
+      </div>
+    </section>
+
+    <section class="section" id="examples" aria-labelledby="examples-heading">
+      <div class="wrap narrow">
+        <h2 id="examples-heading">Examples: check a page, print the verdict</h2>
+        <p>Each one sends a deep check of the test shop (a made-up store with every trick Unfret catches) with the
+          pass in <code>UNFRET_PASS</code>, and prints the band and the action, or the error.
+          Use <code>https://dev.unfret.net</code>, the test server, to try things without real money.</p>
+
+        <h3 id="curl">curl</h3>
+        <p>With <a href="https://jqlang.org" rel="noopener">jq</a> to pick the fields.</p>
+        <div class="code-block">
+          <pre class="terminal" id="example-curl">curl -sS --max-time 120 {{base_url}}/v1/check \
+  -H "Authorization: Bearer $UNFRET_PASS" -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}' \
+  | jq -r '.band // .error_code, .action // .detail'</pre>
+          <button type="button" class="copy" data-copy="example-curl">Copy</button>
+        </div>
+
+        <h3 id="javascript">JavaScript or TypeScript (<code>fetch</code>)</h3>
+        <p>Node 20 or newer as an ES module (<code>check.mjs</code>), Deno or Bun. Keep the pass on a server: in a
+          web page anyone can read it.</p>
+        <div class="code-block">
+          <pre class="terminal" id="example-js">const response = await fetch("{{base_url}}/v1/check", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${process.env.UNFRET_PASS}`, "Content-Type": "application/json" },
+  body: JSON.stringify({ url: "{{base_url}}/test-shop", tier: "deep" }),
+  signal: AbortSignal.timeout(120_000),
+});
+const verdict = await response.json();
+if (!response.ok) throw new Error(`${response.status} ${verdict.error_code}: ${verdict.detail}`);
+console.log(verdict.band, verdict.action);</pre>
+          <button type="button" class="copy" data-copy="example-js">Copy</button>
+        </div>
+
+        <h3 id="go">Go (<code>net/http</code>)</h3>
+        <div class="code-block">
+          <pre class="terminal" id="example-go">package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+)
+
+func main() {
+	body, _ := json.Marshal(map[string]string{"url": "{{base_url}}/test-shop", "tier": "deep"})
+	req, err := http.NewRequest("POST", "{{base_url}}/v1/check", bytes.NewReader(body))
+	if err != nil {
+		panic(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("UNFRET_PASS"))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&amp;http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+	var verdict struct {
+		Band      string `json:"band"`
+		Action    string `json:"action"`
+		ErrorCode string `json:"error_code"`
+		Detail    string `json:"detail"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&amp;verdict); err != nil {
+		panic(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Println(resp.StatusCode, verdict.ErrorCode, verdict.Detail)
+		os.Exit(1)
+	}
+	fmt.Println(verdict.Band, verdict.Action)
+}</pre>
+          <button type="button" class="copy" data-copy="example-go">Copy</button>
+        </div>
+
+        <h3 id="php">PHP (cURL)</h3>
+        <p>For a shop or a plugin on your own server, PHP 8 with the cURL extension.</p>
+        <div class="code-block">
+          <pre class="terminal" id="example-php">&lt;?php
+$ch = curl_init("{{base_url}}/v1/check");
+curl_setopt_array($ch, [
+    CURLOPT_POST =&gt; true,
+    CURLOPT_HTTPHEADER =&gt; ["Authorization: Bearer " . getenv("UNFRET_PASS"), "Content-Type: application/json"],
+    CURLOPT_POSTFIELDS =&gt; json_encode(["url" =&gt; "{{base_url}}/test-shop", "tier" =&gt; "deep"]),
+    CURLOPT_RETURNTRANSFER =&gt; true,
+    CURLOPT_TIMEOUT =&gt; 120,
+]);
+$body = curl_exec($ch);
+if ($body === false) {
+    fwrite(STDERR, curl_error($ch) . "\n");
+    exit(1);
+}
+$verdict = json_decode($body, true);
+$status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+if ($status !== 200) {
+    fwrite(STDERR, "$status {$verdict['error_code']}: {$verdict['detail']}\n");
+    exit(1);
+}
+echo $verdict["band"], " ", $verdict["action"], "\n";</pre>
+          <button type="button" class="copy" data-copy="example-php">Copy</button>
+        </div>
+        <p class="small muted">Python: <a href="/developers#clients">the client</a> does this, the developer pass
+          and the errors for you.</p>
+      </div>
+    </section>
+
+    <section class="section" id="typescript" aria-labelledby="typescript-heading">
+      <div class="wrap narrow">
+        <h2 id="typescript-heading">A TypeScript reference client, to copy</h2>
+        <p>For more than a call or two in JavaScript or TypeScript: the reference client in Unfret's repository
+          does the check, the suggested policy, typed errors, checks left and the developer pass (with the proof of
+          work above). One file with no dependencies, MIT licensed: copy
+          <code>clients/typescript/src/index.ts</code> into your project. It isn't published on npm.</p>
+        <ul>
+          <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript" rel="noopener">clients/typescript</a>
+            on git.kroshtan.com</li>
+          <li><a href="https://github.com/kroshtan/unfret_backend/tree/main/clients/typescript" rel="noopener">clients/typescript</a>
+            on the GitHub mirror</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="links-heading">
+      <div class="wrap">
+        <div class="dev-links">
+          <div>
+            <h2 id="links-heading">Machine-readable</h2>
+            <ul>
+              <li><a href="/openapi.json">openapi.json</a> and the <a href="/docs">API reference</a></li>
+              <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, assets, policies and the pass</li>
+              <li><a href="/llms.txt">llms.txt</a>: the service described for language models</li>
+            </ul>
+          </div>
+          <div>
+            <h2>More for developers</h2>
+            <ul>
+              <li><a href="/developers#mcp">The MCP server</a>, remote or local</li>
+              <li><a href="/developers#clients">The Python client</a></li>
+              <li><a href="/accuracy">How often Unfret is right</a>, measured</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  {{footer}}
+</body>
+</html>

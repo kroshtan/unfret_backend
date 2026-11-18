@@ -1271,3 +1271,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - New findings `photo_other_brands` and `brand_photo_reused` (skill `reverse_image`), and features
   `reverse_image.other_brands` and `reverse_image.brand_photo_reused`.
 - `photo_reused` no longer fires for a brand that is on Wikidata (as `copied_reviews_elsewhere`).
+
+## Changes (Unfret from any language: `/developers/http`; only the Python client is published)
+
+- New page `GET /developers/http`, "Use Unfret from any language": the two ways to pay (a pass as
+  `Authorization: Bearer ufk_…`, or x402), a developer pass in code (`GET /v1/keys/challenge`, the proof of work:
+  SHA-256 of the UTF-8 bytes of `challenge + ":" + solution` with `bits` leading zero bits, then `POST /v1/keys` with
+  `"developer": true`), `POST /v1/check`'s request and the response fields a client typically reads, the clients'
+  band → action policy, errors, retries and timeouts, and examples in curl, JavaScript, Go and PHP. Numbers come from
+  the settings and `developers-measured.json`; the JavaScript examples are run in the tests against the server's own
+  proof-of-work check and models. Linked from `/developers` and the footer.
+- `/llms.txt` gains a "Clients" section: Python (`pip install unfret-client`; from the source until its first release
+  on PyPI) and `/developers/http` for every other language.
+- The TypeScript client (`clients/typescript`) is a reference to copy, not an npm package (`"private": true`); the
+  "Publish clients" workflow publishes only the Python client. No API change; the OpenAPI document is unchanged.

@@ -157,12 +157,17 @@ async def test_developers_names_both_networks_when_base_is_on(
     assert "USDC and wSOL on Solana devnet, and USDC on Base Sepolia" in page
     assert "pay in USDC on Base, next to Solana" not in page  # no longer "coming next"
     assert "base-off" not in page
+    http = (await on.get("/developers/http")).text
+    assert "USDC and wSOL on Solana devnet, and USDC on Base Sepolia" in http
+    assert "USDC on Base comes next" not in http and "base-off" not in http
 
 
 async def test_developers_says_base_is_coming_while_it_is_off(off: httpx.AsyncClient) -> None:
     page = (await off.get("/developers")).text
     assert "USDC and wSOL on Solana devnet, scheme" in page
     assert "pay in USDC on Base, next to Solana" in page
+    http = (await off.get("/developers/http")).text
+    assert "USDC and wSOL on Solana devnet, scheme" in http and "USDC on Base comes next" in http
 
 
 def _signer(proof: str, origin: str) -> str:

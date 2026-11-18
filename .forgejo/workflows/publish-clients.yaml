@@ -1,22 +1,17 @@
 name: Publish clients
 
-# Publishes the clients in clients/ at the versions in their package files: unfret-client to PyPI
-# (clients/python/pyproject.toml) and unfret-client to npm (clients/typescript/package.json). Manual only: Actions →
-# "Publish clients" → Run workflow, on main, choosing which. A version already published is skipped; each needs
-# ## [<version>] in its CHANGELOG.md, and CI must have passed for the commit. Tags clients-py-v<version> /
-# clients-ts-v<version>.
+# Publishes the Python client (clients/python) to PyPI as unfret-client, at the version in its pyproject.toml. Manual
+# only: Actions → "Publish clients" → Run workflow, on main. A version already published is skipped; it needs
+# ## [<version>] in clients/python/CHANGELOG.md, and CI must have passed for the commit. Tags clients-py-v<version>.
 #
-# Repo secrets (Settings → Actions → Secrets):
+# Only Python is published. The TypeScript client (clients/typescript) is a reference to copy into a project, not an
+# npm package (there is no NPM_TOKEN): its tests still run in CI, and /developers/http covers every other language.
+# After the first upload, set PYTHON_CLIENT_ON_PYPI in src/unfret/clients_info.py so the pages say so.
+#
+# Repo secret (Settings → Actions → Secrets):
 #   PYPI_CLIENT_TOKEN  a PyPI API token (pypi-…); account-wide for the first upload, then scoped to unfret-client
-#   NPM_TOKEN          an npm automation token (or a granular token with publish rights on unfret-client)
 on:
   workflow_dispatch:
-    inputs:
-      which:
-        description: Which client to publish
-        type: choice
-        options: [both, python, typescript]
-        default: both
 
 concurrency:
   group: publish-unfret-clients
@@ -31,10 +26,10 @@ jobs:
           ref: main
           fetch-depth: 0
       - uses: https://github.com/astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # Only to read CI's status for the commit (below).
       - uses: https://github.com/actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
       - name: Check the release
         id: release
         env:
@@ -43,18 +38,15 @@ jobs:
           set -euo pipefail
           sha="$(git rev-parse HEAD)"
           py="$(sed -nE 's/^version = "([^"]+)"$/\1/p' clients/python/pyproject.toml | head -n 1)"
-          ts="$(node -p 'require("./clients/typescript/package.json").version')"
           grep -q "^## \[$py\]" clients/python/CHANGELOG.md || { echo "::error::clients/python/CHANGELOG.md has no ## [$py]"; exit 1; }
-          grep -q "^## \[$ts\]" clients/typescript/CHANGELOG.md || { echo "::error::clients/typescript/CHANGELOG.md has no ## [$ts]"; exit 1; }
           state="$(curl -fsS "$API/commits/$sha/status" | node -e '
             let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
               const st = (JSON.parse(s).statuses || []).find((x) => x.context === "CI / check (push)");
               console.log(st ? st.status : "missing");
             });')"
           [[ "$state" == "success" ]] || { echo "::error::CI / check (push) is $state for $sha"; exit 1; }
-          { echo "sha=$sha"; echo "py=$py"; echo "ts=$ts"; } >> "$FORGEJO_OUTPUT"
+          { echo "sha=$sha"; echo "py=$py"; } >> "$FORGEJO_OUTPUT"
       - name: Python client to PyPI
-        if: inputs.which != 'typescript'
         env:
           VERSION: ${{ steps.release.outputs.py }}
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_CLIENT_TOKEN }}
@@ -69,36 +61,15 @@ jobs:
           uv build --project clients/python --out-dir clients/python/dist
           uv run --isolated --no-project --with clients/python/dist/*.whl python -c 'import unfret_client; print(unfret_client.Unfret)'
           uv publish clients/python/dist/*
-      - name: TypeScript client to npm
-        if: inputs.which != 'python'
-        working-directory: clients/typescript
+      - name: Tag the release
         env:
-          VERSION: ${{ steps.release.outputs.ts }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if npm view "unfret-client@$VERSION" version > /dev/null 2>&1; then
-            echo "unfret-client $VERSION is already on npm: skipped"; exit 0
-          fi
-          [[ -n "$NODE_AUTH_TOKEN" ]] || { echo "::error::repo secret NPM_TOKEN is not set"; exit 1; }
-          npm ci --no-audit --no-fund
-          npm test
-          npm publish --access public
-      - name: Tag the releases
-        env:
-          WHICH: ${{ inputs.which }}
           SHA: ${{ steps.release.outputs.sha }}
           PY: ${{ steps.release.outputs.py }}
-          TS: ${{ steps.release.outputs.ts }}
           TOKEN: ${{ forgejo.token }}
           API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
         run: |
           set -euo pipefail
-          tags=()
-          [[ "$WHICH" != "typescript" ]] && tags+=("clients-py-v$PY")
-          [[ "$WHICH" != "python" ]] && tags+=("clients-ts-v$TS")
-          for tag in "${tags[@]}"; do
-            curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
-              -d "{\"tag_name\": \"$tag\", \"target\": \"$SHA\"}" "$API/tags" && echo "tagged $tag" \
-              || echo "::warning::could not create tag $tag (maybe it exists)"
-          done
+          tag="clients-py-v$PY"
+          curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
+            -d "{\"tag_name\": \"$tag\", \"target\": \"$SHA\"}" "$API/tags" && echo "tagged $tag" \
+            || echo "::warning::could not create tag $tag (maybe it exists)"

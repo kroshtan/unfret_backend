@@ -1,6 +1,7 @@
 {
   "name": "unfret-client",
   "version": "0.1.0",
+  "private": true,
   "description": "Minimal client for Unfret: check a store or product page before an AI agent buys (allow, warn or block)",
   "keywords": [
     "unfret",

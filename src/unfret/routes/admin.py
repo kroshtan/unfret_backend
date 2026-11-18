@@ -6,7 +6,8 @@ contact details from the fingerprint store on request, the queue of shop owners'
 review queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits
 for a store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the count
 of invites outstanding (a gift, not revenue), intro codes (``python -m unfret.credits.codes``: make, list, switch
-off, more uses) and the review of shared results a shop owner objected to.
+off, more uses), the review of shared results a shop owner objected to, and how the photo, price and review stores
+are fed (counts only).
 """
 
 import json
@@ -17,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import ad_store, objections, reports, shares, shop_store
+from unfret import ad_store, objections, observations, recording, reports, shares, shop_store
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger, vat
@@ -184,6 +185,48 @@ async def objection_handled(objection_id: int, request: Request) -> dict[str, An
     if not await objections.remove(_pool(request), objection_id):
         raise HTTPException(404, "No such request.")
     return {"deleted": True}
+
+
+# Per store: rows, rows that count in verdicts, and rows seen in quick checks / client content / pages Unfret fetched.
+_OBSERVED = """
+SELECT {table!r} AS store, COUNT(*) AS rows,
+       COUNT(*) FILTER (WHERE provenance & $1 <> 0 OR sources >= $2) AS counting,
+       COUNT(*) FILTER (WHERE provenance & $3 <> 0) AS quick,
+       COUNT(*) FILTER (WHERE provenance & $4 <> 0) AS client,
+       COUNT(*) FILTER (WHERE provenance & $5 <> 0) AS fetched
+FROM {table}
+"""
+_OBSERVED_SQL = " UNION ALL ".join(
+    _OBSERVED.format(table=t) for t in ("image_prints", "price_observations", "market_prices", "review_fingerprints")
+)
+
+
+@router.get("/observations")
+async def observed(request: Request) -> dict[str, Any]:
+    """
+    How free checks feed the stores: counts only, nothing about a page, shop or caller.
+
+    ``stores`` has, per table, its rows, those that count in verdicts (seen on a page Unfret fetched, kept from before,
+    or corroborated by ``min_sources`` sources), and those seen in quick checks, in client-supplied content and on
+    pages Unfret fetched. ``quick_recording`` counts what this process recorded after quick checks since it started
+    (pages, photos, prices, market prices, reviews) and what it skipped (queue full, over a network's daily limit,
+    timed out, failed).
+
+    :param request: The incoming request.
+    :return: ``min_sources``, ``stores`` and ``quick_recording``.
+    """
+    rows = await _pool(request).fetch(
+        _OBSERVED_SQL,
+        *observations.trusted_params(),
+        observations.QUICK,
+        observations.CLIENT,
+        observations.FETCHED,
+    )
+    return {
+        "min_sources": settings.observation_min_sources,
+        "stores": {r["store"]: {k: r[k] for k in ("rows", "counting", "quick", "client", "fetched")} for r in rows},
+        "quick_recording": dict(recording.stats),
+    }
 
 
 @router.get("/reports")

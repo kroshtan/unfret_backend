@@ -27,6 +27,7 @@ from unfret import (
     mcp_remote,
     objections,
     price_store,
+    recording,
     reports,
     review_store,
     scoring,
@@ -112,7 +113,9 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
         source="configured" if settings.model_path or settings.model_quick_path else "baseline",
     )
     api.graph = build_graph(SKILLS)
-    api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
+    api.quick_graph = build_graph(
+        skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False, record_page=True
+    )
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
     use_postgres_stores(api.db_pool)
@@ -144,6 +147,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
             async with asyncio.timeout(5):
                 await shop_store.drain()
                 await reverse_image.drain()
+                await recording.drain()
         await second_opinion.stop()  # an unfinished one leaves its item to a person
         await api.db_pool.close()
         await api.x402.rpc.aclose()

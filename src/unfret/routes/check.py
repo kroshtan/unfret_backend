@@ -29,7 +29,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from unfret import __version__, verdict_store
+from unfret import __version__, observations, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.net import fetch_public
@@ -210,6 +210,19 @@ async def _credit(pool: Any, payer: str, usd_micros: int) -> int:
         return 0
     logger.info("x402_refunded_as_credits", usd_micros=usd_micros)
     return usd_micros
+
+
+def _provenance(request: Request, body: CheckRequest, account: str | None = None) -> observations.Provenance:
+    """
+    Where a checked page came from, for what the analysis records (:mod:`unfret.observations`).
+
+    :param request: The incoming request (its client's network, hashed with today's salt, never stored).
+    :param body: The request body: without ``page_content`` Unfret fetched the page itself.
+    :param account: The pass, for a check paid with one (never the paying wallet).
+    :return: The provenance.
+    """
+    ip = request.client.host if request.client else "unknown"
+    return observations.for_request(ip, account, fetched=not body.page_content, tier=body.tier)
 
 
 async def _page_html(body: CheckRequest) -> str:
@@ -591,7 +604,8 @@ async def _analyse_before_settling(
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
-            result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body)):
+                result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
     except Exception as exc:  # noqa: BLE001
         where = _failure_site(exc)
         logger.warning("check_analysis_failed_before_settlement", error=type(exc).__name__, where=where)
@@ -753,7 +767,8 @@ async def _paid_check(  # noqa: PLR0911
         return 200, fast.model_dump(mode="json"), paid
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
-            result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body)):
+                result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "explain": False})
     except Exception as exc:  # noqa: BLE001
         # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
         # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.

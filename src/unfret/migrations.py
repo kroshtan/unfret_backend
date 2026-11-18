@@ -674,6 +674,28 @@ MIGRATIONS: list[tuple[int, str, str]] = [
     ),
     (
         29,
+        "observation provenance",
+        """
+        -- Where each photo, price and review fingerprint was seen (unfret.observations): a bit set (1 a page Unfret
+        -- fetched, 2 client-supplied content, 4 a quick check, 8 a deep check, 16 recorded before this was kept) and
+        -- how many independent sources reported it. Only a count: nothing that names a pass, a network or a caller.
+        -- Rows already there are marked 16 and count as before; later writes always say where they came from.
+        ALTER TABLE image_prints ADD COLUMN provenance SMALLINT NOT NULL DEFAULT 16,
+            ADD COLUMN sources SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0);
+        ALTER TABLE image_prints ALTER COLUMN provenance SET DEFAULT 9;
+        ALTER TABLE price_observations ADD COLUMN provenance SMALLINT NOT NULL DEFAULT 16,
+            ADD COLUMN sources SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0);
+        ALTER TABLE price_observations ALTER COLUMN provenance SET DEFAULT 9;
+        ALTER TABLE market_prices ADD COLUMN provenance SMALLINT NOT NULL DEFAULT 16,
+            ADD COLUMN sources SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0);
+        ALTER TABLE market_prices ALTER COLUMN provenance SET DEFAULT 9;
+        ALTER TABLE review_fingerprints ADD COLUMN provenance SMALLINT NOT NULL DEFAULT 16,
+            ADD COLUMN sources SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0);
+        ALTER TABLE review_fingerprints ALTER COLUMN provenance SET DEFAULT 9;
+        """,
+    ),
+    (
+        30,
         "report values and second opinions",
         """
         -- What an open report is worth (unfret.reports.value): a full queue replaces the item worth least.

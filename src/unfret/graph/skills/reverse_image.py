@@ -12,7 +12,10 @@ van, its team): the same photo on other sites means it was copied from elsewhere
 On a peer-to-peer ad the photo is also compared with the other ads (:func:`unfret.image_store.lookup_ad`): the
 same photo in another ad is a copied ad, or someone else's photo of the item.
 
-After the lookup the photo is added to the index, in the background (off with ``fingerprints``).
+After the lookup the photo is added to the index, in the background (off with ``fingerprints``), with the
+analysis's provenance (:mod:`unfret.observations`): the index counts it in other pages' lookups once it came from a
+page Unfret fetched itself, or enough independent sources reported it. A quick check records the photo the same way
+after its answer, without the lookup (:func:`record_photo`).
 
 The test shop's pages are looked up only in the test shop's own photo index (:mod:`unfret.test_shop_photos`), where
 each finds the other's photo, and never in the real one or added to it.
@@ -26,7 +29,16 @@ from urllib.parse import urljoin
 
 import structlog
 
-from unfret import background, image_index, image_store, price_store, shop_store, shopper, test_shop_photos
+from unfret import (
+    background,
+    image_index,
+    image_store,
+    observations,
+    price_store,
+    shop_store,
+    shopper,
+    test_shop_photos,
+)
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.platforms import PLATFORMS
@@ -87,8 +99,14 @@ def _thumbnail(match: StoredPrint) -> str:
 
 async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> int | None:
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
+    provenance = observations.current()
+    if not provenance.record:
+        return None
+    vouch = observations.vouch(b"photo|" + where.domain.encode() + b"|" + where.listing_key)
     try:
-        row_id = await _store.upsert(where, fp, image_url=image_url, day=day, source="seen")
+        row_id = await _store.upsert(
+            where, fp, image_url=image_url, day=day, source="seen", bits=provenance.bits, vouch=vouch
+        )
         if _purged_on != day:
             _purged_on = day
             await _store.purge(day)
@@ -111,6 +129,45 @@ def _record_later(where: Listing, fp: ImagePrint, image_url: str, day: date) -> 
 async def drain() -> None:
     """Wait for background writes (tests and shutdown)."""
     await background.drain(_pending)
+
+
+async def _fingerprint(image_url: str, model: image_index.Embedder) -> ImagePrint:
+    """
+    Fetch a photo (at most :data:`MAX_IMAGE_BYTES`, within the fetch timeout) and fingerprint it on this server.
+
+    :param image_url: The photo.
+    :param model: The embedder.
+    :return: Its fingerprints.
+    """
+    data = await fetch_public(image_url, timeout=_FETCH_TIMEOUT_S, max_bytes=MAX_IMAGE_BYTES)
+    return await asyncio.to_thread(image_index.fingerprint, data, model)
+
+
+async def record_photo(url: str, facts: PageFacts, page_type: str) -> bool:
+    """
+    Add a product page's main photo to the index without looking it up: what a quick check records after its answer.
+
+    The same row and the same limits as the photo check (:class:`ReverseImageSkill`), with the running analysis's
+    provenance. Never the test shop, never ads (only product pages). Never raises.
+
+    :param url: The page URL.
+    :param facts: The page facts.
+    :param page_type: The classified page type.
+    :return: Whether a photo was recorded.
+    """
+    model = image_index.embedder()
+    if page_type not in PRODUCT_PAGES or is_test_shop(url) or not model.available():
+        return False
+    image_url, where = main_photo(facts, page_type), image_store.listing(url, facts)
+    if image_url is None or where is None:
+        return False
+    image_url = urljoin(url, image_url)  # a photo named by its path is on the page's site, as in the photo check
+    try:
+        fp = await _fingerprint(image_url, model)
+    except Exception as exc:  # noqa: BLE001 - optional, after the answer (unreadable or not a product photo)
+        logger.info("photo_record_skipped", error=type(exc).__name__)
+        return False
+    return await _record(where, fp, image_url, shop_store.today()) is not None
 
 
 def main_photo(facts: PageFacts, page_type: str) -> str | None:
@@ -259,8 +316,7 @@ class ReverseImageSkill(Skill):
         # A page's structured data may name its photos by path ("/images/lamp.jpg"): fetched from the page's site.
         image_url = urljoin(state.get("url", ""), image_url)
         try:
-            data = await fetch_public(image_url, timeout=_FETCH_TIMEOUT_S, max_bytes=MAX_IMAGE_BYTES)
-            fp = await asyncio.to_thread(image_index.fingerprint, data, model)
+            fp = await _fingerprint(image_url, model)
         except image_index.NotDiscriminativeError as exc:
             return self.output({"searched": False}, note=f"The main image can't identify a product ({exc}).")
         except Exception as exc:  # noqa: BLE001 - one optional signal

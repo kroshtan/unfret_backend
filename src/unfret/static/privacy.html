@@ -130,6 +130,14 @@
         photo of a private seller's ad is kept the same way, but only 90 days, and is also compared with other ads, to
         spot a photo copied from someone else's ad. Matching photos are shown as small thumbnails from our server, so
         your browser never contacts the other shop.</li>
+      <li><strong>Where those prices, reviews and photos were seen</strong>: with each price, review fingerprint and
+        photo fingerprint above, whether it came from a page our server fetched itself or from a page your browser or
+        app sent, from a quick or a deep check, and how many independent checks reported the same (a number). A quick
+        check records these too, after it has answered; it doesn't look them up. Nothing says which pass, wallet or
+        network reported what: to count each only once, the server keeps a one-way code of the pass and network for
+        each in memory, for the current day only, under a key it replaces every day and never stores (a restart clears
+        it too). In memory only, it also counts per network how many checks recorded something today, to limit
+        them.</li>
       <li><strong>Ad fingerprints</strong>: for a private seller's ad, a fingerprint of its text (a 64-bit hash of its
         words; the text can't be read back from it), the platform, a one-way hash of the ad's address and the day, to
         spot the same ad posted many times. Phone numbers and e-mail addresses written in the ad are kept only as a

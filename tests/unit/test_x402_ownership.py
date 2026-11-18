@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 import jsonschema
 import pytest
+from eth_keys.datatypes import Signature as KeysSignature
 from pydantic import SecretStr
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -21,6 +22,8 @@ from solders.signature import Signature
 from tests.unit.x402_helpers import FakeRpc, configured, make_x402
 from unfret.config import Settings, settings
 from unfret.main import app
+from unfret.x402.evm import USDC, checksum_address, keccak256
+from unfret.x402.evm_wallet import BaseHotWallet, load_hot_key
 from unfret.x402.ownership import check_origin, origin_of, ownership_proofs
 from unfret.x402.payment import decode_header
 from unfret.x402.wallet import HotWallet
@@ -187,3 +190,35 @@ async def test_no_proof_while_x402_is_off(off: httpx.AsyncClient) -> None:
     document = (await off.get("/openapi.json")).json()
     assert not any(key in document for key in FIXTURE["openapi_keys"])
     assert x402scan_reads(document) == []
+
+
+def eip191_signer(proof: str, origin: str) -> str:
+    """
+    x402scan's EVM check, from EIP-191 itself (not eth-account's message helpers): recover the signer of
+    keccak-256("\\x19Ethereum Signed Message:\\n" + len(origin) + origin), as viem's recoverMessageAddress does.
+    """
+    message = origin.encode()
+    digest = keccak256(b"\x19Ethereum Signed Message:\n" + str(len(message)).encode() + message)
+    raw = bytes.fromhex(proof.removeprefix("0x"))
+    assert len(raw) == 65 and raw[64] in (27, 28)
+    signature = KeysSignature(vrs=(raw[64] - 27, int.from_bytes(raw[:32]), int.from_bytes(raw[32:64])))
+    return checksum_address(signature.recover_public_key_from_msg_hash(digest).to_checksum_address())
+
+
+def evm_wallet() -> BaseHotWallet:
+    key = "0x" + FIXTURE["evm"]["key_hex"]
+    usdc = USDC["base-sepolia"]
+    return BaseHotWallet(load_hot_key(key), COLD_EVM, usdc, chain_id=84532, max_gas=120_000, max_fee=10**9)
+
+
+COLD_EVM = "0x" + "22" * 20
+
+
+@pytest.mark.parametrize("vector", FIXTURE["evm"]["vectors"], ids=lambda v: v["origin"])
+def test_the_base_proof_is_eip191_over_exactly_the_origin(vector: dict[str, str]) -> None:
+    wallet = evm_wallet()
+    assert wallet.address == FIXTURE["evm"]["pay_to"]
+    proof = wallet.ownership_proof(vector["origin"])
+    assert proof == vector["proof"]  # deterministic (RFC 6979), 0x-prefixed hex
+    assert eip191_signer(proof, vector["origin"]) == FIXTURE["evm"]["pay_to"]
+    assert eip191_signer(proof, vector["origin"] + "/") != FIXTURE["evm"]["pay_to"]  # only the bare origin

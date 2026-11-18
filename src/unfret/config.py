@@ -112,6 +112,17 @@ class Settings(BaseSettings):
     # Contacts are stored as keyed hashes with this key (derived from the session secret when empty; without
     # either, contacts aren't stored).
     fingerprints: bool = True
+    # Guardrails for those stores (unfret.observations). A photo, price or review fingerprint seen only in content
+    # a client supplied, or only by quick checks of such content, counts in a verdict once observation_min_sources
+    # independent sources (a pass and a network; counted in memory, per day, as salted hashes: nothing links a pass
+    # to a page) reported the same; one from a page Unfret fetched itself counts at once. Each visitor network
+    # records from at most observation_pages_per_network_per_day quick checks or client-supplied pages a day (in
+    # memory); past it a check answers as always and records nothing. After a quick check has answered, the page's
+    # photo, price and reviews are recorded in the background, at most quick_record_queue pages at a time (more are
+    # skipped), with the photo check's own size and time limits.
+    observation_min_sources: int = Field(default=3, ge=1, le=1000)
+    observation_pages_per_network_per_day: int = Field(default=300, ge=0)
+    quick_record_queue: int = Field(default=16, ge=0, le=1000)
     # Unfret's own image index (unfret.image_index): the embedding model file and its CPU threads; the photo
     # check is off while the file is missing (`python -m unfret.image_index <path>` downloads it).
     image_model_path: str = "models/dinov2-small-int8.onnx"

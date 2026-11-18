@@ -1142,7 +1142,7 @@ and clients show what is there.
   (`personal_sign`), `0x`-prefixed hex, after Solana's. x402scan recovers the signer and compares it with Base's
   `payTo`.
 
-## Changes (reports: rewards in two steps, 15 a month, a second opinion, a queue by value; backwards-compatible; migration 29)
+## Changes (reports: rewards in two steps, 15 a month, a second opinion, a queue by value; backwards-compatible; migration 30)
 
 - Limit: `reports_per_month` is **15** per account (pass, wallet or API key), up from 5; still one report per page per
   account. `POST /v1/reports` answers as before (`reports_per_month: 15`; 429 `REPORT_LIMIT` past it).

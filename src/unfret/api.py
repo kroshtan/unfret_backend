@@ -11,9 +11,14 @@ from unfret.x402.ownership import OPENAPI_KEYS, ownership_proofs
 class UnfretAPI(FastAPI):
     """Custom FastAPI application for the Unfret API."""
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Initialize the Unfret API application."""
+    def __init__(self, *args: Any, openapi_extensions: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        """
+        Initialize the Unfret API application.
+
+        :param openapi_extensions: Top-level ``x-…`` fields of the OpenAPI document.
+        """
         super().__init__(*args, **kwargs)
+        self.openapi_extensions = openapi_extensions or {}
         self.graph: CompiledStateGraph | None = None  # set during lifespan; every skill (the deep tier)
         self.quick_graph: CompiledStateGraph | None = None  # set during lifespan; the x402 quick tier
         self.db_pool: asyncpg.Pool | None = None  # set during lifespan
@@ -32,11 +37,15 @@ class UnfretAPI(FastAPI):
 
     def openapi(self) -> dict[str, Any]:
         """
-        The OpenAPI document, with the ownership proofs x402scan reads (``x-agentcash-provenance``, ``x-discovery``).
+        The OpenAPI document, with the top-level extensions and the ownership proofs x402scan reads.
+
+        The extensions are the ``openapi_extensions`` given at construction (``x-agentcash-guidance``); the proofs go
+        under ``x-agentcash-provenance`` and ``x-discovery``.
 
         :return: The document (built once; the proofs follow the payment services' keys).
         """
         schema = super().openapi()
+        schema.update(self.openapi_extensions)
         proofs = self.ownership_proofs()
         for key in OPENAPI_KEYS:
             if proofs:

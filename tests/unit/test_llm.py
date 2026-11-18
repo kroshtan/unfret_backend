@@ -153,7 +153,46 @@ async def test_structured_calls_pass_the_attempt_timeout_on(monkeypatch: pytest.
 
     assert await llm.get_structured_llm(BaseModel, attempt_timeout_s=7.0).ainvoke("page") == "parsed"
     assert await llm.get_structured_llm(BaseModel).ainvoke("page") == "parsed"
-    assert seen == [7.0, None]
+    # Without one of its own, a call gets the shared attempt timeout: classification, triage, headline, LLM judge.
+    assert seen == [7.0, settings.llm_attempt_timeout_s]
+
+
+async def test_embeddings_get_the_shared_attempt_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_attempt_timeout_s", 0.05)
+    attempts = {"n": 0}
+
+    class _Inner:
+        async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                await asyncio.sleep(3600)  # a stuck first attempt
+            return [[1.0] for _ in texts]
+
+    embeddings = llm._ThrottledEmbeddings(_Inner())  # type: ignore[arg-type]
+    assert await embeddings.aembed_documents(["a", "b"]) == [[1.0], [1.0]]
+    assert attempts["n"] == 2
+
+
+def _worst_case(attempt_timeout_s: float) -> float:
+    # With the shipped defaults: every attempt runs to its timeout, with the longest backoff between them.
+    defaults = {name: field.default for name, field in type(settings).model_fields.items()}
+    attempts = defaults["llm_max_retries"] + 1
+    assert attempts >= 2
+    backoff = sum(defaults["llm_backoff_base_s"] * 2**a for a in range(attempts - 1))
+    return float(attempts * attempt_timeout_s + backoff)
+
+
+def test_two_attempts_of_every_llm_step_fit_within_its_timeout() -> None:
+    defaults = {name: field.default for name, field in type(settings).model_fields.items()}
+    shared = _worst_case(defaults["llm_attempt_timeout_s"])
+    # Inside a skill (its own timeout): the content read, and the review embeddings.
+    assert _worst_case(defaults["content_attempt_timeout_s"]) < defaults["skill_timeout_s"]
+    assert shared < defaults["skill_timeout_s"]
+    # The graph's own steps (classification, triage, headline, LLM judge) share the analysis's timeout with the skill
+    # round: a step that runs away twice still fits next to a skill round that runs to its limit.
+    assert shared + defaults["skill_timeout_s"] < defaults["analysis_timeout_s"]
+    # Each is shorter than the client's own timeout, which would otherwise end the attempt first.
+    assert max(defaults["llm_attempt_timeout_s"], defaults["content_attempt_timeout_s"]) < defaults["llm_timeout_s"]
 
 
 async def test_calls_in_flight_are_capped(monkeypatch: pytest.MonkeyPatch) -> None:

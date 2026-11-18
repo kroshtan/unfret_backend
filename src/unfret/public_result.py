@@ -10,6 +10,7 @@ import re
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
+from unfret import card as result_card
 from unfret import shopper
 
 PublicBand = Literal["reliable", "concerns", "careful", "warning"]
@@ -88,7 +89,8 @@ def _card(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
     """
     The result card's fields of a verdict, in public wording; only those the verdict has (older results have none).
 
-    The checklist, the number of checks and the next step come from the catalogue. The same product elsewhere names
+    The checklist, the number of checks, the next step and the line about a step that didn't finish (without what
+    the check cost, which is the payer's business) come from the catalogue. The same product elsewhere names
     another shop's domain, its price and the two thumbnails; it is left out whole when any of its words is one a
     public result never uses.
     """
@@ -99,6 +101,8 @@ def _card(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
             "label": label,
             "status": i.get("status", "checked"),
             "note": _clean(i.get("note")) or "",
+            # Only when the result has them (an older one doesn't), so older results hash as before.
+            **({"checks": i["checks"]} if isinstance(i.get("checks"), int) else {}),
         }
         for i in verdict.get("checklist") or []
         if (label := _clean(i.get("label")))
@@ -110,6 +114,10 @@ def _card(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
     step = verdict.get("next_step") or {}
     if text := _clean(step.get("text")):
         card["next_step"] = {"type": str(step.get("type", "")), "text": text}
+    missing = (verdict.get("incomplete") or {}).get("steps") or []
+    if steps := [str(s) for s in missing if s in shopper.catalogue()["incomplete"]["steps"]]:
+        # Without what the check cost: whoever reads a shared result didn't pay for it.
+        card["incomplete"] = {"steps": steps, "text": result_card.incomplete_text(steps, public=True)}
     same = verdict.get("same_product") or {}
     if same:
         if any(_clean(same.get(k)) is None for k in _SAME_PRODUCT_TEXT):

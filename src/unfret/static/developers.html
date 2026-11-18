@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Unfret for developers and AI agents: an MCP server and one HTTP call per check, paid per call over x402 in USDC or SOL, or with a prepaid pass. Returns allow, warn or block with the evidence.">
+  <meta name="description" content="Unfret for developers and AI agents: one HTTP call per check, an MCP server (remote or local) and clients for Python and TypeScript. Pay per call over x402 in USDC or SOL, or with an Unfret pass; a developer pass comes with free checks. Returns allow, warn or block with the evidence.">
   <title>For developers and AI agents · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -22,21 +22,21 @@
           <p class="lead">One call per check: does this shop, listing, second-hand ad or tradesperson's site show
             signs of a scam, dropshipped generic goods, fake reviews or pressure tricks? The answer is an action,
             <code>allow</code>, <code>warn</code> or <code>block</code>, with the evidence behind it. No account:
-            pay per call over x402, or use a prepaid pass.</p>
+            pay per call over x402, or use an Unfret pass. A developer pass comes with
+            {{developer_checks}} free deep checks.</p>
           <div class="buttons">
-            <a class="button primary large" href="#mcp">Set up the MCP server</a>
-            <a class="button large" href="/docs">API reference</a>
+            <a class="button primary large" href="#start">Try it in three lines</a>
+            <a class="button large" href="#mcp">Set up the MCP server</a>
           </div>
         </div>
-        <pre class="terminal" aria-label="An example check"><span class="c"># one check, paid per call over x402</span>
-<span class="k">POST</span> {{base_url}}/v1/check
-{"url": "https://shop.example/p/42", "tier": "deep"}
+        <pre class="terminal" aria-label="An example check"><span class="c"># one check, with an Unfret pass</span>
+<span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'
 
-<span class="c"># → 402 with the price; pay it, send it again</span>
 <span class="c"># → 200</span>
-{"action": "warn", "risk_score": 0.71,
- "flags": [{"type": "timer_resets",
-            "evidence": "the countdown restarts on reload"}]}</pre>
+{"action": "{{sample_action}}", "band": "{{sample_band}}",
+ "risk_score": {{sample_risk}}, "flags": [ … ]}</pre>
       </div>
     </section>
 
@@ -48,53 +48,157 @@
         </div>
         <ul class="ways">
           <li>
+            <h3><a href="#start">HTTP</a></h3>
+            <p><code>POST /v1/check</code> with an Unfret pass as a bearer token, or paid per call over x402 in USDC
+              or wSOL. Unfret pays the network fee.</p>
+          </li>
+          <li>
             <h3><a href="#mcp">MCP server</a></h3>
-            <p>For Claude, Cursor and any MCP client. The agent pays each check from its own Solana wallet, within
-              spending caps you set.</p>
+            <p>Remote at <code>{{base_url}}/mcp</code> with a pass, or local with <code>uvx unfret-mcp</code>, paying
+              from a pass or the agent's own Solana wallet.</p>
           </li>
           <li>
-            <h3><a href="#x402">HTTP with x402</a></h3>
-            <p>Call <code>/v1/check</code>, answer its <code>402</code> with a payment in USDC or wSOL, and call
-              again. Unfret pays the network fee.</p>
-          </li>
-          <li>
-            <h3><a href="#pass">Prepaid pass</a></h3>
-            <p>No wallet: buy checks by card, iDEAL | Wero or crypto, and send the pass as a bearer token, like an
-              API key.</p>
+            <h3><a href="#clients">Clients</a></h3>
+            <p>Python and TypeScript: <code>check(url)</code> gives <code>allow</code>, <code>warn</code> or
+              <code>block</code>, from a policy you can change.</p>
           </li>
         </ul>
+      </div>
+    </section>
+
+    <section class="section" id="start" aria-labelledby="start-heading">
+      <div class="wrap narrow">
+        <h2 id="start-heading">Try it in three lines</h2>
+        <p><b>With an Unfret pass.</b> A deep check uses one of the pass's checks; <code>"tier": "quick"</code> is
+          free. The test shop below is a made-up store with every trick Unfret catches.</p>
+        <div class="code-block">
+          <pre class="terminal" id="curl-pass"><span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'</pre>
+          <button type="button" class="copy" data-copy="curl-pass">Copy</button>
+        </div>
+        <p><b>With x402.</b> Without a pass the first call answers <code>402</code>, with the price in a
+          <code>PAYMENT-REQUIRED</code> header. Pay one of its options from a wallet (any x402 client, or
+          <a href="#mcp">unfret-mcp</a>) and send the same request again with the payment:</p>
+        <div class="code-block">
+          <pre class="terminal" id="curl-x402"><span class="k">curl</span> -i {{base_url}}/v1/check -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'   <span class="c"># → 402 + PAYMENT-REQUIRED</span>
+<span class="k">curl</span> {{base_url}}/v1/check -H "PAYMENT-SIGNATURE: $PAYMENT" -H "Content-Type: application/json" -d '…'</pre>
+          <button type="button" class="copy" data-copy="curl-x402">Copy</button>
+        </div>
+
+        <div class="dev-pass" id="developer-pass">
+          <h3>Get a developer pass</h3>
+          <p>{{developer_checks}} free deep checks, to build and test your agent with: a few seconds of work in this
+            browser, no account. One per browser, and one a day per network. Quick checks are always free.</p>
+          <p class="buttons"><button type="button" id="dev-pass-make" class="primary">Make a developer pass</button></p>
+          <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>
+          <div id="dev-pass-result" hidden></div>
+          <p class="small muted">Or in code: <code>Unfret().new_developer_pass()</code> (Python),
+            <code>new Unfret().newDeveloperPass()</code> (TypeScript), or <code>GET /v1/keys/challenge</code>, then
+            <code>POST /v1/keys</code> with the solved challenge and <code>"developer": true</code>.
+            <a href="/checkout">Buy checks</a> for any pass.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="sample" aria-labelledby="sample-heading">
+      <div class="wrap narrow">
+        <h2 id="sample-heading">A full response</h2>
+        <p>Unfret's answer for the test shop: a deep check with a pass, recorded on {{sample_server}} on
+          {{measured_on}}. With x402 the body is the same without the pass's four fields (<code>charged</code>,
+          <code>free_check</code>, <code>free_checks_left</code>, <code>balance_usd_micros</code>), and comes with a
+          <code>PAYMENT-RESPONSE</code> header.</p>
+        <div class="code-block">
+          <pre class="terminal sample-json" id="sample-response">{{sample_json}}</pre>
+          <button type="button" class="copy" data-copy="sample-response">Copy</button>
+        </div>
+        <p class="small muted"><code>action</code> follows the request's <code>policy</code> (<code>strict</code>,
+          <code>balanced</code> or <code>lenient</code>); <code>band</code> is what a shopper would see:
+          <code>reliable</code> "Looks fine", <code>concerns</code> "Worth a look", <code>careful</code> "Think twice",
+          <code>junk_or_scam</code> "Serious concerns". Flags are evidence, never a verdict that a shop is a scam.</p>
       </div>
     </section>
 
     <section class="section" aria-labelledby="price-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="price-heading">Two tiers, priced per check</h2>
-          <p>In US dollars: USDC pays them exactly, wSOL at the live SOL/USD price. A page Unfret can't read costs
-            nothing, and paying twice for the same request is impossible.</p>
+          <h2 id="price-heading">Prices, speed and limits</h2>
+          <p>In US dollars: USDC pays them exactly, wSOL at the live SOL/USD price. A page Unfret can't read or assess
+            costs nothing, and paying twice for the same request is impossible.</p>
         </div>
         <div class="tiers">
           <div class="tier">
             <p class="tier-name">quick <span class="tier-price">{{quick_price}}</span></p>
             <p>{{quick_includes}}</p>
+            <p class="small"><b>Free with a pass.</b> Median time on {{latency_server}}: <b>{{quick_median}}</b>.</p>
           </div>
           <div class="tier featured">
             <p class="tier-name">deep <span class="tier-price">{{deep_price}}</span></p>
             <p>{{deep_includes}}</p>
+            <p class="small"><b>One check with a pass.</b> Median time on {{latency_server}}:
+              <b>{{deep_median}}</b>.</p>
           </div>
         </div>
-        <p class="aside-note">Choose how cautious the action is with <code>policy</code>: <code>strict</code>,
-          <code>balanced</code> or <code>lenient</code>. <code>warn</code> means: ask your human before buying.</p>
+        <p class="aside-note">Times: {{latency_note}} A check of a page Unfret looked at in the last day can come
+          back sooner (<code>"cached": true</code>), charged the same. Checks for a pass come in packs:
+          {{packs_line}} (<a href="/checkout">buy checks</a>).</p>
+        <table class="settings limits">
+          <thead><tr><th scope="col">Limit</th><th scope="col">Value</th></tr></thead>
+          <tbody>
+            <tr><td><code>/v1/check</code> requests</td><td>{{check_per_minute}} a minute per pass (with x402: per
+              network)</td></tr>
+            <tr><td>Quick checks</td><td>{{quick_per_minute}} a minute per pass</td></tr>
+            <tr><td>Pages Unfret fetches for you (no <code>page_content</code>)</td><td>{{fetch_per_minute}} a minute
+              per pass</td></tr>
+            <tr><td>Checks that ran but weren't charged (page not assessable, client hung up)</td>
+              <td>{{free_outcomes_per_hour}} an hour per pass</td></tr>
+            <tr><td><code>page_content</code></td><td>up to {{max_page_mb}} MB</td></tr>
+            <tr><td>A deep check</td><td>answers within {{x402_timeout}} s with x402 and {{analysis_timeout}} s with a
+              pass, or is free</td></tr>
+            <tr><td>Developer pass</td><td>{{developer_checks}} free deep checks; one a day per network</td></tr>
+            <tr><td>Free deep checks, everyone together</td><td>a daily budget; once it's used: <code>429
+              FREE_CHECKS_PAUSED</code> until 00:00 UTC (bought and quick checks go on)</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
     <section class="section" id="mcp" aria-labelledby="mcp-heading">
       <div class="wrap narrow">
         <h2 id="mcp-heading">The MCP server</h2>
-        <p><code>unfret-mcp</code> (on PyPI, and in the MCP registry as <code>net.unfret/mcp</code>) gives an agent
-          three tools: <code>check_store</code>, <code>explain_flag</code> and <code>get_pricing</code>. It pays each
-          check from the agent's own Solana wallet in USDC, or wSOL when that's what the wallet holds, and refuses to
-          spend beyond its caps. It needs <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>.</p>
+        <p>For Claude, Cursor and any MCP client. Every tool has a title and explicit hints: the free check is
+          read-only, the deep one spends a check, and both read a third-party page.</p>
+
+        <h3>Remote, with a pass</h3>
+        <p>Streamable HTTP at <code>{{base_url}}/mcp</code>, authenticated with an Unfret pass. It never pays from a
+          wallet. Tools: <code>check_store_quick</code> (free), <code>check_store_deep</code> (one of the pass's checks),
+          <code>get_checks_left</code> and <code>get_pricing</code>. In Claude Code:</p>
+        <div class="code-block">
+          <pre class="terminal" id="mcp-remote-cli"><span class="k">claude</span> mcp add --transport http unfret {{base_url}}/mcp \
+  --header "Authorization: Bearer $UNFRET_PASS"</pre>
+          <button type="button" class="copy" data-copy="mcp-remote-cli">Copy</button>
+        </div>
+        <p>Or in a client's JSON settings:</p>
+        <div class="code-block">
+          <pre class="terminal" id="mcp-remote">{"mcpServers": {"unfret": {
+  "type": "http", "url": "{{base_url}}/mcp",
+  "headers": {"Authorization": "Bearer ufk_…"}}}}</pre>
+          <button type="button" class="copy" data-copy="mcp-remote">Copy</button>
+        </div>
+
+        <h3>Local, with a pass or a wallet</h3>
+        <p><code>unfret-mcp</code> (on PyPI, and in the MCP registry as <code>net.unfret/mcp</code>) runs next to
+          your agent with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>. Tools: <code>check_store</code>
+          (with a <code>tier</code>), <code>explain_flag</code> and <code>get_pricing</code>. With a pass:</p>
+        <div class="code-block">
+          <pre class="terminal" id="mcp-config-pass">{"mcpServers": {"unfret": {
+  "command": "uvx", "args": ["unfret-mcp"],
+  "env": {"UNFRET_PASS": "ufk_…"}}}}</pre>
+          <button type="button" class="copy" data-copy="mcp-config-pass">Copy</button>
+        </div>
+        <p>Or paying each check from the agent's own Solana wallet, in USDC, or wSOL when that's what the wallet
+          holds, refusing to spend beyond its caps:</p>
         <div class="code-block">
           <pre class="terminal" id="mcp-config">{"mcpServers": {"unfret": {
   "command": "uvx", "args": ["unfret-mcp"],
@@ -102,10 +206,11 @@
           <button type="button" class="copy" data-copy="mcp-config">Copy</button>
         </div>
         <p class="small muted">Give the agent a wallet of its own holding only what it may spend, never your main
-          wallet.</p>
+          wallet. Paying from a pass (<code>UNFRET_PASS</code>) needs version 0.2.0 or newer.</p>
         <table class="settings">
           <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col"></th></tr></thead>
           <tbody>
+            <tr><td><code>UNFRET_PASS</code></td><td></td><td>Pay from this Unfret pass; no wallet needed</td></tr>
             <tr><td><code>UNFRET_MCP_KEYPAIR</code></td><td></td><td>The agent's Solana keypair file</td></tr>
             <tr><td><code>UNFRET_MCP_MAX_PRICE_USD</code></td><td><code>0.25</code></td><td>Refuse any single check
               worth more</td></tr>
@@ -131,9 +236,37 @@
       </div>
     </section>
 
+    <section class="section" id="clients" aria-labelledby="clients-heading">
+      <div class="wrap narrow">
+        <h2 id="clients-heading">Clients for Python and TypeScript</h2>
+        <p><code>unfret-client</code>, MIT licensed, with a pass: <code>check(url)</code> answers
+          <code>allow</code>, <code>warn</code> or <code>block</code> from the verdict a shopper would see ("Looks
+          fine" → allow, "Worth a look" → warn, "Think twice" and "Serious concerns" → block; change it with
+          <code>policy</code>).</p>
+        <div class="code-block">
+          <pre class="terminal" id="client-python"><span class="k">from</span> unfret_client <span class="k">import</span> Unfret
+
+decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
+<span class="k">if</span> decision.action == "block": ...</pre>
+          <button type="button" class="copy" data-copy="client-python">Copy</button>
+        </div>
+        <div class="code-block">
+          <pre class="terminal" id="client-ts"><span class="k">import</span> { Unfret } <span class="k">from</span> "unfret-client";
+
+<span class="k">const</span> decision = <span class="k">await</span> <span class="k">new</span> Unfret({ pass: "ufk_…" }).check("https://shop.example/p/42");</pre>
+          <button type="button" class="copy" data-copy="client-ts">Copy</button>
+        </div>
+        <p class="small muted">Coming to PyPI and npm; until then, the source:
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/python" rel="noopener">Python</a>,
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript" rel="noopener">TypeScript</a>,
+          and <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples/browser-use-checkout" rel="noopener">an
+          example agent</a> that checks the shop before checkout.</p>
+      </div>
+    </section>
+
     <section class="section" id="x402" aria-labelledby="x402-heading">
       <div class="wrap narrow">
-        <h2 id="x402-heading">HTTP with x402</h2>
+        <h2 id="x402-heading">HTTP with x402, step by step</h2>
         <ol class="howto">
           <li><b>Ask.</b> <code>POST {{base_url}}/v1/check</code> with <code>{"url", "tier", "policy"}</code>, and
             <code>page_content</code> (the page's HTML) for marketplaces such as Amazon that refuse server-side
@@ -153,19 +286,12 @@
 
     <section class="section" id="pass" aria-labelledby="pass-heading">
       <div class="wrap narrow">
-        <h2 id="pass-heading">A prepaid pass as an API key</h2>
+        <h2 id="pass-heading">An Unfret pass as an API key</h2>
         <p>No wallet needed: <a href="/checkout">buy checks</a> by card or iDEAL | Wero (or
-          <a href="/checkout?mode=crypto">with crypto</a>), and use the Unfret pass you get as a bearer token. One
-          analysis is one check; <a href="/my-checks">My checks</a> shows what's left.</p>
-        <div class="code-block">
-          <pre class="terminal" id="pass-call"><span class="k">curl</span> {{base_url}}/v1/analyze \
-  -H "Authorization: Bearer $UNFRET_PASS" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://shop.example/p/42"}'</pre>
-          <button type="button" class="copy" data-copy="pass-call">Copy</button>
-        </div>
-        <p class="small muted">The answer is the shopper's verdict (a band, a headline, reasons and what looks good)
-          with the score behind it. <code>/v1/analyze/stream</code> sends progress as server-sent events.</p>
+          <a href="/checkout?mode=crypto">with crypto</a>), and send the pass as a bearer token to
+          <code>/v1/check</code> (above) or to <code>/v1/analyze</code>, which answers with the shopper's verdict (a
+          band, a headline, reasons and what looks good) and streams progress at
+          <code>/v1/analyze/stream</code>. <a href="/my-checks">My checks</a> shows what's left.</p>
       </div>
     </section>
 
@@ -176,12 +302,12 @@
             <h2 id="links-heading">Machine-readable</h2>
             <ul>
               <li><a href="/llms.txt">llms.txt</a>: the service described for language models</li>
-              <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, assets and policies</li>
+              <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, assets, policies and the pass</li>
               <li><a href="/openapi.json">openapi.json</a> and the <a href="/docs">API reference</a></li>
               <li><a href="/static/accuracy.json">accuracy.json</a>: how often each verdict is right, from the
                 <a href="/accuracy">accuracy page</a></li>
               <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a>, MIT
-                licensed, including the trained scorers and the MCP server</li>
+                licensed, including the trained scorers, the MCP server and the clients</li>
             </ul>
           </div>
           <div>

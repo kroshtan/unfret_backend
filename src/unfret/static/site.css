@@ -1305,6 +1305,10 @@ button.copy { min-height: 2.5rem; padding: 0.45rem 0.8rem; font-size: 0.92rem; }
 .code-block .terminal { padding-right: 5.5rem; white-space: pre; overflow-x: auto; word-break: normal; }
 .code-block .copy { position: absolute; top: 0.6rem; right: 0.6rem; background: #1a2f29; color: #cfe9df; border-color: #2b4840; box-shadow: none; }
 .code-block .copy:hover { border-color: #7fdcbf; }
+.dev-pass { margin: 1.5rem 0 0; padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.dev-pass h3 { margin: 0 0 0.4rem; }
+.dev-pass #dev-pass-result { margin: 0.6rem 0; }
+.code-block .terminal.sample-json { max-height: 28rem; overflow-y: auto; }
 table.settings { width: 100%; margin: 1rem 0; border-collapse: collapse; font-size: 0.92rem; }
 table.settings th, table.settings td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 table.settings th { color: var(--muted); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; }

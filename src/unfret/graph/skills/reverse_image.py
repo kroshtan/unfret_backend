@@ -25,6 +25,7 @@ import asyncio
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import urljoin
 
 import structlog
 
@@ -160,6 +161,7 @@ async def record_photo(url: str, facts: PageFacts, page_type: str) -> bool:
     image_url, where = main_photo(facts, page_type), image_store.listing(url, facts)
     if image_url is None or where is None:
         return False
+    image_url = urljoin(url, image_url)  # a photo named by its path is on the page's site, as in the photo check
     try:
         fp = await _fingerprint(image_url, model)
     except Exception as exc:  # noqa: BLE001 - optional, after the answer (unreadable or not a product photo)

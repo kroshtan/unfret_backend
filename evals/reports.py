@@ -1,22 +1,34 @@
 """
-Work through the queue of reported results with single keypresses, labelling straight into the corpus.
+Work through the queue of reported results, labelling straight into the corpus: confident proposals in bulk.
 
-Keys: ``l`` legit, ``j`` junk, ``s`` scam, ``r`` reject (not a product page, unusable, can't tell), ``k`` skip,
-``q`` quit. The queue comes from the running service (``GET /v1/admin/reports``): the most corroborated pages first,
-then those the model was least sure about. Duplicates never reach it (they are closed when reported), so every item
-is a different page.
+After a preview, confident second opinions can be confirmed in one go; the rest are decided one by one with single
+keypresses.
+
+Every queued report carries a second opinion when the service could get one (``unfret.reports.second_opinion``): a
+proposed label, a confidence and a one-line reason. A proposal is only a suggestion; it becomes a label when you
+confirm it here, and only then is it training data or pays the reporter.
+
+1. **Summary**: open items, the queue's cap, and how the second opinions side (with the reporter, with the score,
+   neither, unsure, none yet).
+2. **Bulk**: the items whose proposal is at least ``--min-confidence`` (0.9) sure are listed (shop, title, score,
+   proposal, what it would pay). ``y`` confirms them all as your labels, ``n`` goes through them one by one.
+3. **One by one**: the rest, worth most first (``--order confidence``: the surest proposals first; ``--agreement``
+   picks one kind). Keys: ``Enter`` or ``a`` accept the proposal, ``l`` legit, ``j`` junk, ``s`` scam, ``r`` reject
+   (not a product page, unusable, can't tell), ``k`` skip, ``q`` quit.
 
 A label is written to the corpus first (``pages/report-<hash>.html`` with the scrubbed text and the product JSON-LD,
 ``pages/report-<hash>.facts.json`` with the client's facts, and a ``label_source="human"`` record in
-``labels.jsonl``), then sent to the service, which pays the reporter if the score was far off, keeps the page as a
-training sample and deletes the report (its only link to the account). Quitting halfway loses nothing; an item whose
-label didn't reach the service shows up again and overwrites the same corpus page.
+``labels.jsonl`` with the second opinion in its ``llm_*`` fields), then sent to the service, which pays the reporter
+if the score was off, keeps the page as a training sample and deletes the report (its only link to the account).
+Quitting halfway loses nothing; an item whose label didn't reach the service shows up again and overwrites the same
+corpus page.
 
-Usage: ``make reports`` (or ``uv run python -m evals.reports``). Environment: ``UNFRET_URL`` (default
-https://unfret.net) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE`` (default
-``~/kroshtan_secrets/unfret-prod-admin-token``).
+Usage: ``make reports`` (or ``uv run python -m evals.reports [--min-confidence 0.9] [--no-bulk] [--order value]
+[--agreement reporter]``). Environment: ``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKEN``, or
+``UNFRET_ADMIN_TOKEN_FILE`` (default ``~/kroshtan_secrets/unfret-prod-admin-token``).
 """
 
+import argparse
 import html
 import json
 import os
@@ -30,6 +42,8 @@ from evals.corpus import Corpus, Label, LabelRecord, dump_json, now_iso, page_id
 from evals.label import read_key
 
 KEYS: dict[str, Label | None] = {"l": "legit", "j": "junk", "s": "scam", "r": None}
+ACCEPT = {"a", "\r", "\n"}
+LABELS: frozenset[str] = frozenset({"legit", "junk", "scam"})
 _EXCERPT_CHARS = 1200
 _PLATFORMS = {"amazon": "amazon", "bol.com": "bol.com"}
 
@@ -41,13 +55,42 @@ def _token() -> str:
     return path.read_text().strip()
 
 
-def describe(item: dict[str, Any], n: int, total: int) -> str:
+def proposal(item: dict[str, Any]) -> Label | None:
+    """
+    The item's proposed label, if its second opinion has one (not unsure).
+
+    :param item: The item from ``GET /v1/admin/reports``.
+    :return: The label, or ``None``.
+    """
+    label = (item.get("second_opinion") or {}).get("label")
+    return label if label in LABELS else None
+
+
+def opinion_line(item: dict[str, Any]) -> str:
+    """
+    The second opinion in one line.
+
+    :param item: The item.
+    :return: The text.
+    """
+    opinion = item.get("second_opinion") or {}
+    if opinion.get("state") != "done":
+        return f"second opinion: none ({opinion.get('state', 'waiting')})"
+    pays = f", pays {opinion['reward_checks']}" if opinion.get("reward_checks") else ""
+    return (
+        f"second opinion: {opinion['label']} ({opinion['confidence']:.2f}) · sides with {opinion['agreement']}"
+        f"{pays} · {opinion['reason']}"
+    )
+
+
+def describe(item: dict[str, Any], n: int, total: int, in_corpus: str | None = None) -> str:
     """
     Render one queue item as a compact screen of text.
 
     :param item: The item from ``GET /v1/admin/reports``.
     :param n: Its position.
     :param total: The number of items fetched.
+    :param in_corpus: The page's label in the corpus already, if it has one.
     :return: The text to print.
     """
     payload, facts = item["payload"], item["payload"]["facts"]
@@ -61,6 +104,8 @@ def describe(item: dict[str, Any], n: int, total: int) -> str:
         ),
         f"url: {payload['url'] or '(none)'}",
         f"model score: {item['score']}  ·  {payload['explanation'][:200]}",
+        opinion_line(item),
+        f"in the corpus already as {in_corpus}" if in_corpus else "new to the corpus",
         f"title: {get('title', '')[:150]}  ·  brand: {get('brand', '')}  ·  seller: {get('seller', '')}",
         (
             f"price: {get('price')} {get('currency', '')} (was {get('list_price')})  ·  "
@@ -69,19 +114,20 @@ def describe(item: dict[str, Any], n: int, total: int) -> str:
         "",
         textwrap.fill(excerpt, 110),
         "",
-        "[l]egit  [j]unk  [s]cam  [r]eject  [k] skip  [q]uit",
+        ("[Enter/a]ccept proposal  " if proposal(item) else "")
+        + "[l]egit  [j]unk  [s]cam  [r]eject  [k] skip  [q]uit",
     ]
     return "\n".join(lines)
 
 
-def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
+def corpus_entry(item: dict[str, Any], label: Label, *, bulk: bool = False) -> tuple[LabelRecord, str]:
     """
-    Store a labelled report in the corpus, in the same layout as every other page.
+    A labelled report as a corpus record and page, in the same layout as every other page.
 
-    :param corpus: The corpus.
     :param item: The queue item.
     :param label: The human label.
-    :return: The corpus id.
+    :param bulk: Whether it is a second opinion confirmed in bulk.
+    :return: The record and the page's HTML.
     """
     payload, facts = item["payload"], item["payload"]["facts"]
     record_id = page_id("report", item["page_key"])
@@ -92,6 +138,14 @@ def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
     title = html.escape(facts.get("title", ""))
     text = html.escape(payload["text"])
     page = f"<html><head><title>{title}</title>{ld}</head><body><main><pre>{text}</pre></main></body></html>"
+    opinion = item.get("second_opinion") or {}
+    notes: dict[str, Any] = {"model_score": item["score"], "reported_as": item["reason"]}
+    # With the tier whose score was reported (reports from before the tier was kept were all deep checks); the page
+    # trains both the deep and the quick scorer either way.
+    if "tier" in payload:
+        notes["tier"] = payload["tier"]
+    if bulk:
+        notes["confirmed_in_bulk"] = True
     record = LabelRecord(
         id=record_id,
         label=label,
@@ -103,54 +157,184 @@ def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
         origin_url=payload["url"],
         origin_id=item["page_key"],
         collected_at=now_iso(),
-        # With the tier whose score was reported (reports from before the tier was kept were all deep checks); the
-        # page trains both the deep and the quick scorer either way.
-        notes=json.dumps(
-            {"model_score": item["score"], "reported_as": item["reason"]}
-            | ({"tier": payload["tier"]} if "tier" in payload else {})
-        ),
+        notes=json.dumps(notes),
+        llm_label=proposal(item),
+        llm_confidence=opinion.get("confidence") or 0.0,
+        llm_reason=opinion.get("reason") or "",
     )
+    return record, page
+
+
+def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
+    """
+    Store a labelled report in the corpus.
+
+    :param corpus: The corpus.
+    :param item: The queue item.
+    :param label: The human label.
+    :return: The corpus id.
+    """
+    record, page = corpus_entry(item, label)
     corpus.add(record, page)
-    dump_json(corpus.pages_dir / f"{record_id}.facts.json", facts)
-    return record_id
+    dump_json(corpus.pages_dir / f"{record.id}.facts.json", item["payload"]["facts"])
+    return record.id
+
+
+def confident(items: list[dict[str, Any]], min_confidence: float) -> list[dict[str, Any]]:
+    """
+    The items whose second opinion proposes a label at least this sure: the bulk candidates.
+
+    :param items: The queue.
+    :param min_confidence: The threshold.
+    :return: Those items.
+    """
+    return [i for i in items if proposal(i) and (i["second_opinion"]["confidence"] or 0) >= min_confidence]
+
+
+def preview(items: list[dict[str, Any]]) -> str:
+    """
+    The bulk candidates as a table to read before confirming.
+
+    :param items: The candidates.
+    :return: The text.
+    """
+    lines = []
+    for n, item in enumerate(items, start=1):
+        opinion, title = item["second_opinion"], item["payload"]["facts"].get("title", "")
+        pays = f" pays {opinion['reward_checks']}" if opinion.get("reward_checks") else ""
+        lines.append(
+            f"{n:>3}. {item['domain'][:24]:<24} {title[:40]:<40} score {item['score']:>3} → {opinion['label']:<5} "
+            f"{opinion['confidence']:.2f} {opinion['agreement']:<8}{pays}"
+        )
+        lines.append(f"     {textwrap.shorten(opinion['reason'], 110, placeholder=' …')}")
+    return "\n".join(lines)
+
+
+def summary(queue: dict[str, Any], items: list[dict[str, Any]]) -> str:
+    """
+    One paragraph about the queue: open items and how the second opinions side.
+
+    :param queue: The ``GET /v1/admin/reports`` response.
+    :param items: Its items.
+    :return: The text.
+    """
+    sides: dict[str, int] = {}
+    for item in items:
+        side = (item.get("second_opinion") or {}).get("agreement", "none")
+        sides[side] = sides.get(side, 0) + 1
+    states = ", ".join(f"{k} {v}" for k, v in sorted(queue.get("second_opinions", {}).items()))
+    return (
+        f"{queue['open']} open (cap {queue.get('cap', '?')}); second opinions: {states or 'none'}; "
+        f"sides with: " + ", ".join(f"{k} {v}" for k, v in sorted(sides.items()))
+    )
+
+
+def confirm_in_bulk(api: httpx.Client, corpus: Corpus, items: list[dict[str, Any]], min_confidence: float) -> int:
+    """
+    Store the previewed proposals in the corpus as your labels, then confirm them on the service.
+
+    :param api: The admin client.
+    :param corpus: The corpus.
+    :param items: The previewed candidates.
+    :param min_confidence: The preview's threshold (the service checks each item still carries it).
+    :return: How many the service labelled.
+    """
+    entries = [corpus_entry(item, proposal(item) or "legit", bulk=True) for item in items]
+    corpus.add_many(entries)
+    for item, (record, _) in zip(items, entries, strict=True):
+        dump_json(corpus.pages_dir / f"{record.id}.facts.json", item["payload"]["facts"])
+    response = api.post(
+        "/v1/admin/reports/confirm",
+        json={"min_confidence": min_confidence, "items": [{"id": i["id"], "label": proposal(i)} for i in items]},
+    )
+    response.raise_for_status()
+    outcome = response.json()
+    print(  # noqa: T201 - interactive tool
+        f"→ {outcome['labelled']} confirmed, {outcome['reward_checks']} checks paid to reporters; "
+        f"{outcome['left']} left (handled meanwhile, or not carrying that proposal)"
+    )
+    return int(outcome["labelled"])
+
+
+def _send(api: httpx.Client, item: dict[str, Any], label: Label | None) -> bool:
+    response = api.post(f"/v1/admin/reports/{item['id']}/label", json={"label": label or "reject"})
+    if response.status_code == 404:
+        print("→ already handled or expired")  # noqa: T201 - interactive tool
+        return False
+    response.raise_for_status()
+    outcome = response.json()
+    reward = f", reporter gets {outcome['reward_checks']} checks" if outcome.get("reward_checks") else ""
+    print(f"→ {label or 'rejected'} (off by {outcome['gap']}{reward})")  # noqa: T201 - interactive tool
+    return True
+
+
+def one_by_one(api: httpx.Client, corpus: Corpus, items: list[dict[str, Any]]) -> int:
+    """
+    Decide items one at a time with single keypresses.
+
+    :param api: The admin client.
+    :param corpus: The corpus.
+    :param items: The items.
+    :return: How many were labelled or rejected.
+    """
+    known = corpus.labels()
+    done = 0
+    for n, item in enumerate(items, start=1):
+        record = known.get(page_id("report", item["page_key"]))
+        print("\n" + describe(item, n, len(items), record.label if record else None))  # noqa: T201 - interactive tool
+        key = read_key().lower()
+        if key == "q":
+            break
+        if key in ACCEPT and proposal(item):
+            label: Label | None = proposal(item)
+        elif key in KEYS:
+            label = KEYS[key]
+        else:
+            continue
+        if label is not None:
+            to_corpus(corpus, item, label)
+        done += _send(api, item, label)
+    return done
 
 
 def main() -> None:
     """Command-line entry point."""
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    parser.add_argument("--min-confidence", type=float, default=0.9, help="bulk-confirm proposals at least this sure")
+    parser.add_argument("--no-bulk", action="store_true", help="go through every item one by one")
+    parser.add_argument("--order", choices=["value", "confidence"], default="value")
+    parser.add_argument("--agreement", choices=["reporter", "score", "neither", "unsure", "none"], default=None)
+    args = parser.parse_args()
     base = os.getenv("UNFRET_URL", "https://unfret.net").rstrip("/")
     corpus = Corpus()
-    with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {_token()}"}, timeout=30) as api:
-        queue = api.get("/v1/admin/reports", params={"limit": 200})
+    with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {_token()}"}, timeout=60) as api:
+        params: dict[str, Any] = {"limit": 1000, "order": args.order}
+        if args.agreement:
+            params["agreement"] = args.agreement
+        queue = api.get("/v1/admin/reports", params=params)
         queue.raise_for_status()
         items = queue.json()["items"]
+        print(summary(queue.json(), items))  # noqa: T201 - interactive tool
         if not items:
-            print("The report queue is empty.")  # noqa: T201 - interactive tool
+            print("Nothing to review.")  # noqa: T201 - interactive tool
             return
         done = 0
-        for n, item in enumerate(items, start=1):
-            print("\n" + describe(item, n, len(items)))  # noqa: T201 - interactive tool
+        bulk = [] if args.no_bulk else confident(items, args.min_confidence)
+        if bulk:
+            print(f"\n{len(bulk)} proposal(s) at least {args.min_confidence:.2f} sure:\n{preview(bulk)}")  # noqa: T201
+            print("\nConfirm all of them as your labels? [y]es, [n]o: one by one, [q]uit")  # noqa: T201
             key = read_key().lower()
             if key == "q":
-                break
-            if key not in KEYS:
-                continue
-            label = KEYS[key]
-            if label is not None:
-                to_corpus(corpus, item, label)
-            response = api.post(f"/v1/admin/reports/{item['id']}/label", json={"label": label or "reject"})
-            if response.status_code == 404:
-                print("→ already handled or expired")  # noqa: T201 - interactive tool
-                continue
-            response.raise_for_status()
-            outcome = response.json()
-            reward = (
-                f", reporter rewarded ${outcome['reward_usd_micros'] / 1e6:.2f}"
-                if outcome["reward_usd_micros"]
-                else ""
-            )
-            print(f"→ {label or 'rejected'} (off by {outcome['gap']}{reward})")  # noqa: T201 - interactive tool
-            done += 1
-    print(f"\n{done} labelled; {len(items) - done} left in this batch.")  # noqa: T201 - interactive tool
+                return
+            if key == "y":
+                done += confirm_in_bulk(api, corpus, bulk, args.min_confidence)
+                confirmed = {i["id"] for i in bulk}
+                items = [i for i in items if i["id"] not in confirmed]
+        # Pages the corpus has already go last: a new page teaches more.
+        known = corpus.labels()
+        items.sort(key=lambda i: page_id("report", i["page_key"]) in known)
+        done += one_by_one(api, corpus, items)
+    print(f"\n{done} decided this session.")  # noqa: T201 - interactive tool
 
 
 if __name__ == "__main__":

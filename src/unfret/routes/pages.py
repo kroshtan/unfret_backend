@@ -452,9 +452,8 @@ TERMS_DRAFT_NOTE = (
     '<aside class="panel notice draft-note" role="note" aria-label="Draft">\n'
     "      <p><strong>Draft, not in force.</strong> These terms are a draft, to be reviewed with a lawyer\n"
     "        before they apply. To review: the right of withdrawal for checks bought with crypto (EU consumers),\n"
-    "        the liability limit, what happens to unused checks if the service ever closes, the affiliate terms,\n"
-    "        and the details marked\n"
-    '        <mark class="placeholder">[like this]</mark>.</p>\n'
+    "        the liability limit, what happens to unused checks if the service ever closes, and the affiliate\n"
+    "        terms.</p>\n"
     "    </aside>"
 )
 

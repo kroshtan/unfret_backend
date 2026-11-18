@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from evals.corpus import Corpus
-from evals.reports import describe, to_corpus
+from evals.reports import confident, corpus_entry, describe, preview, summary, to_corpus
 from unfret.html_cleaner import clean_html
 
 ITEM = {
@@ -25,7 +25,19 @@ ITEM = {
         "explanation": "Looks legitimate.",
         "verdict": None,
     },
+    "second_opinion": {
+        "state": "done",
+        "label": "scam",
+        "confidence": 0.93,
+        "reason": "Big-brand goods at 85% off from an unknown seller.",
+        "model": "qwen3.5-397b-a17b",
+        "agreement": "reporter",
+        "gap": 42,
+        "reward_checks": 5,
+    },
 }
+UNSURE = {**ITEM, "id": 8, "second_opinion": {**ITEM["second_opinion"], "label": "unsure", "confidence": 0.95}}  # type: ignore[dict-item]
+WAITING = {**ITEM, "id": 9, "second_opinion": {"state": "waiting", "agreement": "none"}}
 
 
 def test_describe_shows_what_matters() -> None:
@@ -33,6 +45,36 @@ def test_describe_shows_what_matters() -> None:
     assert "model score: 82" in screen
     assert "+2 confirmations" in screen
     assert "85% off" in screen
+    assert "second opinion: scam (0.93) · sides with reporter, pays 5" in screen
+    assert "[Enter/a]ccept proposal" in screen
+    assert "new to the corpus" in screen
+    assert "in the corpus already as junk" in describe(ITEM, 1, 3, "junk")
+    waiting = describe(WAITING, 1, 3)
+    assert "second opinion: none (waiting)" in waiting
+    assert "accept" not in waiting
+
+
+def test_bulk_candidates_are_confident_proposals_only() -> None:
+    assert [i["id"] for i in confident([ITEM, UNSURE, WAITING], 0.9)] == [7]
+    assert confident([ITEM], 0.95) == []
+    table = preview([ITEM])
+    assert "amazon.nl" in table
+    assert "score  82 → scam  0.93 reporter pays 5" in table
+    assert "Big-brand goods" in table
+    assert summary(
+        {"open": 3, "cap": 1000, "second_opinions": {"done": 2, "waiting": 1}}, [ITEM, UNSURE, WAITING]
+    ) == ("3 open (cap 1000); second opinions: done 2, waiting 1; sides with: none 1, reporter 2")
+
+
+def test_a_confirmed_proposal_keeps_the_second_opinion_in_the_corpus_record() -> None:
+    record, _ = corpus_entry(ITEM, "scam", bulk=True)
+    assert (record.label, record.label_source) == ("scam", "human")
+    assert (record.llm_label, record.llm_confidence) == ("scam", 0.93)
+    assert record.llm_reason.startswith("Big-brand goods")
+    assert json.loads(record.notes)["confirmed_in_bulk"] is True
+    unsure, _ = corpus_entry(UNSURE, "legit")
+    assert unsure.llm_label is None  # unsure is no label, as in the corpus's own second opinions
+    assert "confirmed_in_bulk" not in json.loads(unsure.notes)
 
 
 def test_a_labelled_report_lands_in_the_corpus_layout(tmp_path: Path) -> None:

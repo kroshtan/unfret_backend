@@ -230,21 +230,44 @@ async def observed(request: Request) -> dict[str, Any]:
 
 
 @router.get("/reports")
-async def report_queue(request: Request, limit: int = 50) -> dict[str, Any]:
+async def report_queue(
+    request: Request,
+    limit: int = 50,
+    order: reports.Order = "value",
+    agreement: reports.Agreement | None = None,
+    min_confidence: float | None = None,
+) -> dict[str, Any]:
     """
-    The review queue: open reports, most corroborated and least certain first, without the reporters' accounts.
+    The review queue: open reports with their second opinions, without the reporters' accounts.
 
     :param request: The incoming request.
-    :param limit: How many items (at most 200).
-    :return: The items and how many are open.
+    :param limit: How many items (at most 1000).
+    :param order: ``value`` (worth most first) or ``confidence`` (the most confident proposals first).
+    :param agreement: Only items whose second opinion sides with the ``reporter``, the ``score``, ``neither``, is
+        ``unsure``, or has ``none`` yet.
+    :param min_confidence: Only items with a proposed label at least this confident (the preview of a bulk confirm).
+    :return: The items, how many are open, and the second opinions' states.
     """
-    pool = request.app.db_pool
+    pool = _pool(request)
     await reports.expire(pool, settings)
-    items = await reports.queue(pool, min(max(limit, 1), 200))
+    items = await reports.queue(
+        pool,
+        settings,
+        min(max(limit, 1), 1000),
+        order=order,
+        agreement_is=agreement,
+        min_confidence=min_confidence,
+    )
     for item in items:
         item["payload"] = json.loads(item["payload"])
         item["created_at"] = item["created_at"].isoformat()
-    return {"open": await pool.fetchval("SELECT COUNT(*) FROM reports"), "items": items}
+    states = await pool.fetch("SELECT opinion_state, COUNT(*) AS n FROM reports GROUP BY opinion_state")
+    return {
+        "open": await pool.fetchval("SELECT COUNT(*) FROM reports"),
+        "cap": settings.report_queue_cap,
+        "second_opinions": {row["opinion_state"]: row["n"] for row in states},
+        "items": items,
+    }
 
 
 class LabelRequest(BaseModel):
@@ -253,10 +276,20 @@ class LabelRequest(BaseModel):
     label: Literal["legit", "junk", "scam", "reject"]
 
 
+def _handled(done: reports.Handled) -> dict[str, Any]:
+    return {
+        "label": done.label,
+        "gap": done.gap,
+        "reward_checks": done.reward_checks,
+        "reward_usd_micros": done.reward_usd_micros,
+        "training": done.training,
+    }
+
+
 @router.post("/reports/{report_id}/label")
 async def label_report(report_id: int, body: LabelRequest, request: Request) -> dict[str, Any]:
     """
-    Label a reported page: pay the reporter if the score was far off, keep the page as training data, unlink it.
+    Label a reported page: pay the first reporter if the score was off, keep the page as training data, unlink it.
 
     :param report_id: The item.
     :param body: The label, or ``reject`` (not a product page, unusable, can't tell): no sample, no reward.
@@ -265,14 +298,49 @@ async def label_report(report_id: int, body: LabelRequest, request: Request) -> 
     :raises HTTPException: 404 if the item is gone (handled or expired).
     """
     label = None if body.label == "reject" else body.label
-    done = await reports.handle(request.app.db_pool, settings, report_id, label)
+    done = await reports.handle(_pool(request), settings, report_id, label)
     if done is None:
         raise HTTPException(404, "No such open report.")
+    return _handled(done)
+
+
+class ConfirmedProposal(BaseModel):
+    """One previewed second opinion the operator confirms as their label."""
+
+    id: int
+    label: reports.Label
+
+
+class ConfirmRequest(BaseModel):
+    """Second opinions confirmed in bulk, after a preview (``GET /v1/admin/reports?min_confidence=…``)."""
+
+    min_confidence: float = Field(ge=0.5, le=1, description="The confidence the preview was filtered by.")
+    items: list[ConfirmedProposal] = Field(min_length=1, max_length=500)
+
+
+@router.post("/reports/confirm")
+async def confirm_reports(body: ConfirmRequest, request: Request) -> dict[str, Any]:
+    """
+    Confirm previewed second opinions as the operator's labels, in one go.
+
+    Only items that still carry exactly the proposal shown (that label, at least ``min_confidence``) are labelled;
+    the rest stay in the queue for one-by-one review. Each label then does what a typed one does.
+
+    :param body: The confirmed ``(id, label)`` pairs and the preview's confidence.
+    :param request: The incoming request.
+    :return: Per item what happened, and the totals.
+    """
+    results = await reports.confirm_proposals(
+        _pool(request), settings, [(item.id, item.label) for item in body.items], body.min_confidence
+    )
+    out = [{"id": rid, "outcome": outcome, **(_handled(done) if done else {})} for rid, outcome, done in results]
+    labelled = [r for r in out if r["outcome"] == "labelled"]
+    logger.info("reports_confirmed", labelled=len(labelled), left=len(out) - len(labelled))
     return {
-        "label": done.label,
-        "gap": done.gap,
-        "reward_usd_micros": done.reward_usd_micros,
-        "training": done.training,
+        "labelled": len(labelled),
+        "left": len(out) - len(labelled),
+        "reward_checks": sum(r["reward_checks"] for r in labelled),
+        "items": out,
     }
 
 

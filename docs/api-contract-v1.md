@@ -940,7 +940,7 @@ client are unchanged.
   Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
 - Pages: `/about`, `/why` ("Why Unfret?": questions to ask any checker, Unfret next to free scam checkers and AI
   assistants, a Fakespot alternative), `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
-  `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
+  `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.
 

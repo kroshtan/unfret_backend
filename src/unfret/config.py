@@ -309,7 +309,7 @@ class Settings(BaseSettings):
     objections_daily_cap: int = Field(default=200, ge=1)
     objection_days: int = Field(default=90, ge=1)
 
-    # /terms shows a visible "draft" note at the top while the terms await review (on in dev).
+    # /terms shows a visible "draft" note at the top, for a new version of the terms that isn't approved yet.
     terms_draft: bool = False
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.

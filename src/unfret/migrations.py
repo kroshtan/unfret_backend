@@ -723,6 +723,20 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         """,
     ),
     (
+        31,
+        "brand with each seen photo",
+        """
+        -- The brand each listing names, kept with its photo (unfret.image_store, unfret.brands): the page's brand for
+        -- photos seen in analyses (marks and a trailing "Official Store" taken off, at most 60 characters, none when
+        -- the page names none), the catalogue's brand for seed rows as before. Rows already there have none: an
+        -- unknown brand, never a different one. A brand, never anything about who checked the page.
+        COMMENT ON COLUMN image_prints.label IS
+            'The brand the listing names: the page''s brand (seen) or the catalogue''s (abo); NULL is unknown';
+        ALTER TABLE image_prints ADD CONSTRAINT image_prints_seen_label_len
+            CHECK (source <> 'seen' OR label IS NULL OR length(label) <= 60);
+        """,
+    ),
+    (
         32,
         "shop identifier provenance",
         """

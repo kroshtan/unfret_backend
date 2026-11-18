@@ -88,6 +88,10 @@ EXCLUDED_SKILLS = {
     "review_copies",
     "brand_presence",
 }
+# Features of an excluded skill that a replay measures offline after all: the photo check's brand comparison, from the
+# corpus's photo replay (``evals.photo_brands``, passed with ``--extra-features``). On pages without it they are 0
+# (nothing found), and a feature seen on fewer than MIN_SUPPORT training pages gets no weight.
+OFFLINE_FEATURES = ("reverse_image.other_brands", "reverse_image.brand_photo_reused")
 THRESHOLDS = (30, 40, 50)
 # The direction each feature may push the risk, from what it measures: +1 towards unreliable, -1 towards reliable.
 # The fit keeps every coefficient on its side of zero (or at zero). Unconstrained, it learned what happens to separate
@@ -143,6 +147,8 @@ FEATURE_SIGNS: dict[str, int] = {
             "claims.store_without_address",
             "safety_gate.barcode_match",
             "safety_gate.model_match",
+            "reverse_image.other_brands",
+            "reverse_image.brand_photo_reused",
         ],
         1,
     ),
@@ -185,9 +191,12 @@ def feature_names() -> list[str]:
     """
     The model's feature columns: every feature the skills declare, minus skills that can't run offline.
 
+    The photo check's brand comparison (:data:`OFFLINE_FEATURES`) is in, last: a replay measures it.
+
     :return: Prefixed feature names, in registry order.
     """
-    return [f"{s.name}.{f}" for s in SKILLS if s.name not in EXCLUDED_SKILLS for f in s.features]
+    names = [f"{s.name}.{f}" for s in SKILLS if s.name not in EXCLUDED_SKILLS for f in s.features]
+    return names + [n for n in OFFLINE_FEATURES if n not in names]
 
 
 def load_features(path: Path) -> dict[str, dict[str, float]]:
@@ -679,6 +688,13 @@ def main() -> None:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--features", type=Path, default=None, help="a *-features.jsonl from evals.run")
+    parser.add_argument(
+        "--extra-features",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="features measured by other replays, merged in by page (evals.photo_brands' *-features.jsonl)",
+    )
     parser.add_argument("--ship", choices=["A", "B", "C", "none"], default="B")
     parser.add_argument("--prior", type=float, default=0.5, help="base rate of unreliable pages to calibrate to")
     parser.add_argument(
@@ -693,6 +709,10 @@ def main() -> None:
     reports = corpus.root / "reports"
     path = args.features or max(reports.glob("*-features.jsonl"), key=lambda p: p.stat().st_mtime)
     features = load_features(path)
+    for extra in args.extra_features:
+        for record_id, row in load_features(extra).items():
+            if record_id in features:
+                features[record_id] = {**features[record_id], **row}
     labelled = [r for r in corpus.labels().values() if is_product(r) and r.label and r.split in {"train", "test"}]
     names = feature_names()
     if args.quick:

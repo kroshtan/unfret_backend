@@ -10,6 +10,7 @@ from evals.train import (
     FEATURE_SIGNS,
     MAX_UNIT_LOGIT,
     MIN_SUPPORT,
+    OFFLINE_FEATURES,
     RULE_MIRRORS,
     build,
     evaluate,
@@ -39,7 +40,9 @@ def record(i: int, label: Label, split: Split, source: str = "synthetic", page_t
 def test_feature_names_cover_offline_skills_only() -> None:
     names = feature_names()
     assert "listing.discount_pct" in names
-    assert not any(n.startswith(("reverse_image.", "domain_age.")) for n in names)
+    assert not any(n.startswith("domain_age.") for n in names)
+    # Of the photo check, only its brand comparison, which a replay measures offline (evals.photo_brands).
+    assert [n for n in names if n.startswith("reverse_image.")] == list(OFFLINE_FEATURES)
     assert {c for cols in RULE_MIRRORS.values() for c in cols} <= set(names)
 
 

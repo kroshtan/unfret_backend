@@ -177,6 +177,14 @@
       "title": "No return policy found",
       "detail": "No return policy found on the page."
     },
+    "brand_photo_reused": {
+      "title": "Photo of another, known brand",
+      "detail": "The main product photo is the {catalogue_brand} brand's own photo of its product, but this page sells it as {brand}. That points to a copied listing, or a copy of the product."
+    },
+    "rebranded_photo": {
+      "title": "Same photo under other brand names",
+      "detail": "The main product photo is the same photo as on other listings that sell it under {many}: {names}. The same product under several brand names is usually generic goods, relabelled."
+    },
     "photo_reused": {
       "title": "Same photo on other shops",
       "detail": "The main product photo is the same photo as on {count} other {shops} ({names}). With the other signals, that points to a resold supplier product."
@@ -620,6 +628,8 @@
     "reverse_image.searched": "Photo looked up",
     "reverse_image.other_shops": "Same photo on other shops",
     "reverse_image.catalogue_matches": "Same photo in a product catalogue",
+    "reverse_image.other_brands": "Same photo under other brand names",
+    "reverse_image.brand_photo_reused": "A known brand's photo under another brand",
     "payment_methods.irreversible_only": "Only payments you can't get back",
     "payment_methods.irreversible": "Bank transfer or crypto mentioned",
     "payment_methods.protected": "Payment with buyer protection",
@@ -737,6 +747,8 @@
   },
   "shop_one": "shop",
   "shop_many": "shops",
+  "other_brand_one": "another brand name",
+  "other_brand_many": "{count} other brand names",
   "class_headlines": {
     "p2p_listing": {
       "reliable": "Nothing worrying stood out in this ad, and the seller has a track record on the platform.",
@@ -822,6 +834,7 @@
     "service_junk_or_scam": "Better to find another company for this job.",
     "same_product": "Compare before you buy: the same product is sold elsewhere, maybe for less.",
     "compare_elsewhere": "Search for the product under other names: the same item is often sold elsewhere, for less.",
+    "real_brand": "If you want the brand's product, buy it from the brand itself or a shop you know.",
     "compare_price": "Compare the price at a shop you know: a discount this good is rarely real.",
     "shop_reviews": "Look for reviews of the shop itself on other sites before you pay, and pay with buyer protection.",
     "find_company": "Find out which company is behind the shop (name and address) before you pay.",
@@ -841,6 +854,9 @@
     "detail": "The main photo is the same photo as on {where}{others}.",
     "detail_price": "The main photo is the same photo as on {where}{others}. Unfret saw it there for {price} on {day}.",
     "others": " and {count} other {shops}",
+    "brands_one": ", under another brand name ({names})",
+    "brands_many": ", under {count} other brand names ({names})",
+    "and_others": " and others",
     "catalogue": "an Amazon catalogue listing",
     "catalogue_brand": "an Amazon catalogue listing (brand: {brand})",
     "families": {

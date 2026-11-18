@@ -12,6 +12,18 @@ van, its team): the same photo on other sites means it was copied from elsewhere
 On a peer-to-peer ad the photo is also compared with the other ads (:func:`unfret.image_store.lookup_ad`): the
 same photo in another ad is a copied ad, or someone else's photo of the item.
 
+On a product page the brands are compared too (:mod:`unfret.brands`): the index keeps the brand each listing names,
+and the same photo under other brand names is white-label goods, relabelled (``other_brands``), however well the
+rest of the page looks. Only names that are really another brand count: a listing without a brand is unknown,
+never different; a brand the page's title names (a reseller's "Philips Hue bulb" under its own label) is the same
+brand; a brand that is only a shop's own name ("Gadgetshop" on gadgetshop.nl) isn't a product's; and on the
+brand's own shop (the page's brand is its shop's name) other shops' labels are its resellers'. With a brand the
+same photo needs one other name, without one two. The stronger case is a catalogue photo of a brand that is on
+Wikidata, on a page that names another brand (``brand_photo_reused``): a known brand's photo on someone else's
+listing, likely a copied or counterfeit listing. On a marketplace (Amazon, bol.com) the photo is compared with the
+marketplace's other listings as well (:attr:`unfret.image_store.Lookup.siblings`), where white-label goods are
+most often sold.
+
 After the lookup the photo is added to the index, in the background (off with ``fingerprints``), with the
 analysis's provenance (:mod:`unfret.observations`): the index counts it in other pages' lookups once it came from a
 page Unfret fetched itself, or enough independent sources reported it. A quick check records the photo the same way
@@ -31,6 +43,7 @@ import structlog
 
 from unfret import (
     background,
+    brands,
     image_index,
     image_store,
     observations,
@@ -43,6 +56,7 @@ from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.platforms import PLATFORMS
 from unfret.graph.skills import ANALYSED_PAGES, P2P_PAGES, PRODUCT_PAGES, Observation, Skill, SkillOutput
+from unfret.graph.skills.brand_presence import on_wikidata
 from unfret.graph.state import SERVICE_TYPES, AnalysisState
 from unfret.image_index import ImagePrint
 from unfret.image_store import ImageStore, Listing, MemoryImageStore, StoredPrint
@@ -97,7 +111,7 @@ def _thumbnail(match: StoredPrint) -> str:
     return test_shop_photos.thumbnail_url(match) or thumbnail_url(match.id)
 
 
-async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> int | None:
+async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date, brand: str | None) -> int | None:
     global _purged_on  # noqa: PLW0603 - a per-process "purged today" marker
     provenance = observations.current()
     if not provenance.record:
@@ -105,7 +119,7 @@ async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> 
     vouch = observations.vouch(b"photo|" + where.domain.encode() + b"|" + where.listing_key)
     try:
         row_id = await _store.upsert(
-            where, fp, image_url=image_url, day=day, source="seen", bits=provenance.bits, vouch=vouch
+            where, fp, image_url=image_url, day=day, source="seen", label=brand, bits=provenance.bits, vouch=vouch
         )
         if _purged_on != day:
             _purged_on = day
@@ -116,12 +130,12 @@ async def _record(where: Listing, fp: ImagePrint, image_url: str, day: date) -> 
     return row_id
 
 
-async def _record_quietly(where: Listing, fp: ImagePrint, image_url: str, day: date) -> None:
-    await _record(where, fp, image_url, day)
+async def _record_quietly(where: Listing, fp: ImagePrint, image_url: str, day: date, brand: str | None) -> None:
+    await _record(where, fp, image_url, day, brand)
 
 
-def _record_later(where: Listing, fp: ImagePrint, image_url: str, day: date) -> None:
-    task = asyncio.create_task(_record_quietly(where, fp, image_url, day))
+def _record_later(where: Listing, fp: ImagePrint, image_url: str, day: date, brand: str | None) -> None:
+    task = asyncio.create_task(_record_quietly(where, fp, image_url, day, brand))
     _pending.add(task)
     task.add_done_callback(_pending.discard)
 
@@ -148,7 +162,7 @@ async def record_photo(url: str, facts: PageFacts, page_type: str) -> bool:
     Add a product page's main photo to the index without looking it up: what a quick check records after its answer.
 
     The same row and the same limits as the photo check (:class:`ReverseImageSkill`), with the running analysis's
-    provenance. Never the test shop, never ads (only product pages). Never raises.
+    provenance and the page's brand. Never the test shop, never ads (only product pages). Never raises.
 
     :param url: The page URL.
     :param facts: The page facts.
@@ -167,7 +181,7 @@ async def record_photo(url: str, facts: PageFacts, page_type: str) -> bool:
     except Exception as exc:  # noqa: BLE001 - optional, after the answer (unreadable or not a product photo)
         logger.info("photo_record_skipped", error=type(exc).__name__)
         return False
-    return await _record(where, fp, image_url, shop_store.today()) is not None
+    return await _record(where, fp, image_url, shop_store.today(), brands.label(facts.brand)) is not None
 
 
 def main_photo(facts: PageFacts, page_type: str) -> str | None:
@@ -212,6 +226,59 @@ def _evidence(matches: list[StoredPrint], *, service: bool = False) -> list[Obse
     return observations
 
 
+def other_brands(
+    matches: list[StoredPrint], brand: str | None, title: str, where: Listing | None
+) -> list[StoredPrint]:
+    """
+    The matches that sell the photo under another brand than the page's: one per brand, when that makes 2+ brands.
+
+    See the module docstring for which names count.
+
+    :param matches: The lookup's matches (other shops, the catalogue, the marketplace's other listings).
+    :param brand: The page's brand (:func:`unfret.brands.label`), or ``None``.
+    :param title: The page's product title.
+    :param where: The page's listing.
+    :return: The matches, or none when the photo isn't under 2+ brand names.
+    """
+    if brand is not None and where is not None and brands.is_shop_name(brand, where.domain):
+        return []  # the brand's own shop (or a shop naming itself): the other names are its resellers'
+    found: dict[str, StoredPrint] = {}
+    for match in matches:
+        key = brands.brand_key(match.label)
+        if key is None or brands.same_brand(brand, match.label) or brands.named_in(match.label, title):
+            continue
+        if brands.is_shop_name(match.label, match.domain):
+            continue  # a shop's own name in the brand field (or Amazon's own label on Amazon), not another brand
+        found.setdefault(key, match)
+    return list(found.values()) if len(found) >= (1 if brand else 2) else []
+
+
+def _brand_evidence(others: list[StoredPrint], copied: StoredPrint | None, brand: str | None) -> list[Observation]:
+    if not others:
+        return []
+    labels = [str(m.label) for m in others]
+    names = ", ".join(labels[:_SHOWN]) + (" and others" if len(labels) > _SHOWN else "")
+    many = f"{len(labels)} other brand names" if len(labels) != 1 else "another brand name"
+    found = [
+        Observation(
+            type="photo_other_brands",
+            evidence=f"The same product photo is sold under {many}: {names}."[:500],
+            thumbnails=[_thumbnail(m) for m in others[:_SHOWN]],
+        )
+    ]
+    if copied is not None and brand is not None:
+        where = _CATALOGUES.get(copied.source, "a catalogue listing")
+        found.append(
+            Observation(
+                type="brand_photo_reused",
+                evidence=f'The same photo is on {where} of the brand "{copied.label}", a known brand; this page '
+                f'names the brand "{brand}".'[:500],
+                thumbnails=[_thumbnail(copied)],
+            )
+        )
+    return found
+
+
 def _money(price: float, currency: str) -> str:
     symbol = {"EUR": "€", "USD": "$", "GBP": "£"}.get(currency.upper(), "")
     return f"{symbol}{price:,.2f}" if symbol else f"{price:,.2f} {currency.upper()}".strip()
@@ -221,7 +288,9 @@ def _day(day: date) -> str:
     return f"{day.day} {day.strftime('%B')} {day.year}"
 
 
-async def same_product(matches: list[StoredPrint], own_image: str | None) -> dict[str, Any] | None:
+async def same_product(
+    matches: list[StoredPrint], own_image: str | None, brand_names: list[str] | None = None
+) -> dict[str, Any] | None:
     """
     The likely same product on another shop, for the result card (shown first, with both photos).
 
@@ -231,8 +300,11 @@ async def same_product(matches: list[StoredPrint], own_image: str | None) -> dic
     ID, in the last 90 days). Nothing else of the seed or of the other listing. A test shop page's match is the other
     test shop page, with that page's own price (:mod:`unfret.test_shop_photos`).
 
+    The other brand names the photo is sold under there (:func:`other_brands`) are named too, the names only.
+
     :param matches: The lookup's matches on shops and the catalogue (shops first).
     :param own_image: This page's own photo's thumbnail (``None`` when it isn't kept).
+    :param brand_names: The other brand names among those matches.
     :return: The fields of :class:`unfret.shopper.SameProduct`, or ``None`` without a match.
     """
     if not matches:
@@ -247,6 +319,15 @@ async def same_product(matches: list[StoredPrint], own_image: str | None) -> dic
         domain = None if first.domain in copy["families"] else first.domain
     rest = len(matches) - 1
     others = copy["others"].format(count=rest, shops=shopper.catalogue()["shop_one" if rest == 1 else "shop_many"])
+    names = list(brand_names or [])
+    if names:
+        listed = ", ".join(names[:_SHOWN]) + (copy["and_others"] if len(names) > _SHOWN else "")
+        others = (others if rest else "") + copy["brands_one" if len(names) == 1 else "brands_many"].format(
+            count=len(names), names=listed
+        )
+        rest_text = others
+    else:
+        rest_text = others if rest else ""
     if test_shop_photos.is_test_row(first):
         seen = test_shop_photos.price(first, shop_store.today())
     else:
@@ -258,7 +339,8 @@ async def same_product(matches: list[StoredPrint], own_image: str | None) -> dic
         "image": _thumbnail(first),
         "own_image": own_image,
         "title": copy["title"],
-        "detail": copy["detail"].format(where=where, others=others if rest else ""),
+        "detail": copy["detail"].format(where=where, others=rest_text),
+        **({"brands": names[:_SHOWN]} if names else {}),
     }
     if seen is not None and seen.currency:
         text = _money(seen.price, seen.currency)
@@ -268,9 +350,7 @@ async def same_product(matches: list[StoredPrint], own_image: str | None) -> dic
             "price_text": text,
             "price_seen_on": seen.day.isoformat(),
             "title": copy["title_price"].format(price=text),
-            "detail": copy["detail_price"].format(
-                where=where, others=others if rest else "", price=text, day=_day(seen.day)
-            ),
+            "detail": copy["detail_price"].format(where=where, others=rest_text, price=text, day=_day(seen.day)),
         }
     return fields
 
@@ -297,7 +377,7 @@ class ReverseImageSkill(Skill):
     description = "Looks the main product photo up in Unfret's own index of shop and catalogue photos."
     page_types = ANALYSED_PAGES
     retry = True
-    features = ("searched", "other_shops", "catalogue_matches", "other_ads")
+    features = ("searched", "other_shops", "catalogue_matches", "other_ads", "other_brands", "brand_photo_reused")
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -326,6 +406,7 @@ class ReverseImageSkill(Skill):
         url = state.get("url", "")
         page_type = state.get("page_type", "storefront")
         ad = page_type in P2P_PAGES
+        brand = brands.label(facts.brand) if page_type in PRODUCT_PAGES else None
         test_page = test_shop_photos.page_of(url)
         if is_test_shop(url):  # only ever its own index: nothing of the real one, and nothing real matches it
             index: image_store.Candidates = test_shop_photos.TestShopImages(
@@ -341,21 +422,29 @@ class ReverseImageSkill(Skill):
         own_image = test_shop_photos.photo_url(test_page) if test_page and product_match else None
         if where is not None and not is_test_shop(url):  # the test shop's photos stay out
             if product_match:  # the card shows this page's photo next to the other one: its row ID is needed now
-                own_id = await _record(where, fp, image_url, shop_store.today())
+                own_id = await _record(where, fp, image_url, shop_store.today(), brand)
                 own_image = thumbnail_url(own_id) if own_id is not None else None
             else:
-                _record_later(where, fp, image_url, shop_store.today())
+                _record_later(where, fp, image_url, shop_store.today(), brand)
         if found.stop:
             return self.output({"searched": True}, note="The photo is a stock image found on many shops.")
+        product = page_type in PRODUCT_PAGES
+        relabelled = other_brands(others + found.siblings, brand, facts.title, where) if product else []
+        catalogue = next((m for m in relabelled if m.source != "seen"), None)
+        copied = catalogue if brand and catalogue and await on_wikidata(str(catalogue.label)) else None
         output = self.output(
             {
                 "searched": True,
                 "other_shops": sum(1 for m in others if m.source == "seen"),
                 "catalogue_matches": sum(1 for m in others if m.source != "seen"),
                 **({"other_ads": len(ads)} if ad else {}),
+                **({"other_brands": len(relabelled), "brand_photo_reused": copied is not None} if product else {}),
             },
-            _ad_evidence(ads) + _evidence(others, service=page_type in SERVICE_TYPES),
+            _ad_evidence(ads)
+            + _evidence(others, service=page_type in SERVICE_TYPES)
+            + _brand_evidence(relabelled, copied, brand),
         )
-        if product_match and (match := await same_product(others, own_image)) is not None:
+        names = [str(m.label) for m in relabelled if any(m is o for o in others)]
+        if product_match and (match := await same_product(others, own_image, names)) is not None:
             output["same_product"] = match
         return output

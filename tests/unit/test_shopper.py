@@ -149,6 +149,8 @@ def _params() -> dict[str, str]:
         "evidence": "Asking €120 for an iPhone 15: honest ads for one rarely go under €250.",
         "rating": "2.5 out of 5 from 8 ratings",
         "said": "“Responds within a few days”",
+        "many": "2 other brand names",
+        "catalogue_brand": "“Philips”",
     }
 
 

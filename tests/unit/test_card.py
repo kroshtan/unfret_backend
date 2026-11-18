@@ -160,7 +160,7 @@ SAME = {
 
 def test_the_same_product_elsewhere_comes_with_the_card_on_product_pages_only() -> None:
     out = card.complete(verdict(), state(CLEAN, same_product=SAME), available=SKILLS, applicable=SKILLS)
-    assert out["same_product"] == SAME
+    assert out["same_product"] == SAME | {"brands": []}  # no other brand names known there
     assert out["next_step"]["type"] == "same_product"
     ad = card.complete(verdict(), state({}, "p2p_listing", same_product=SAME), available=SKILLS, applicable=SKILLS)
     assert ad["same_product"] is None

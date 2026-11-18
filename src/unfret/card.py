@@ -89,6 +89,8 @@ REASON_SOURCES: dict[str, str] = {
     "was_never_charged": "price_history",
     "far_below_market": "market_prices",
     "photo_reused": "image_index",
+    "rebranded_photo": "image_index",
+    "brand_photo_reused": "image_index",
     "linked_new_shops": "shop_records",
     "shared_address": "shop_records",
     "copied_reviews_elsewhere": "review_records",
@@ -242,6 +244,8 @@ REASON_AREAS: dict[str, str] = {
             "seller_not_brand",
             "ships_from_far",
             "photo_reused",
+            "rebranded_photo",
+            "brand_photo_reused",
             "brand_no_presence",
             "safety_gate_alert",
         ),
@@ -406,11 +410,13 @@ STEP_FOR_REASON: dict[str, str] = {
             "dropshipping_tools",
             "supplier_links",
             "photo_reused",
+            "rebranded_photo",
             "brand_no_presence",
             "seller_not_brand",
         ),
         "compare_elsewhere",
     ),
+    "brand_photo_reused": "real_brand",
     "irreversible_payment_only": "buyer_protection",
     "safety_gate_alert": "safety_alert",
     **dict.fromkeys(
@@ -431,6 +437,8 @@ STEP_FOR_REASON: dict[str, str] = {
         "service_quote",
     ),
 }
+# Reasons whose photos the same-product block already shows (clients drop "photo_reused"'s themselves).
+_SHOWN_WITH_SAME_PRODUCT = frozenset({"rebranded_photo", "brand_photo_reused"})
 # Findings that come before the band's own step even at "Serious concerns".
 _URGENT_STEPS = frozenset({"safety_alert"})
 
@@ -764,6 +772,14 @@ def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
     return offer.model_copy(update={"cost": text, "action": action, "action_label": label})
 
 
+def _photos_once(verdict: Verdict) -> None:
+    """With the same product shown up top (its photos, the other brand names), its reasons don't show them again."""
+    if verdict.same_product is not None:
+        for reason in verdict.reasons:
+            if reason.type in _SHOWN_WITH_SAME_PRODUCT:
+                reason.thumbnails = []
+
+
 def complete(
     verdict: dict[str, Any], state: AnalysisState, *, available: Iterable[Skill], applicable: Iterable[Skill]
 ) -> dict[str, Any]:
@@ -803,6 +819,7 @@ def complete(
             concerns.setdefault(area, title)
     found = state.get("same_product")
     parsed.same_product = SameProduct.model_validate(found) if found and kind == "shop" else None
+    _photos_once(parsed)
     ran = {s.name for s in available}
     parsed.checklist, parsed.checks_run = checklist(
         kind,

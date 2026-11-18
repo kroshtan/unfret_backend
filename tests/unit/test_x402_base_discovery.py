@@ -6,6 +6,8 @@ from collections.abc import AsyncIterator
 import httpx
 import jsonschema
 import pytest
+from eth_account import Account
+from eth_account.messages import encode_defunct
 
 from tests.unit.test_x402_route import BODY, COLD, HOT, FakeGraph
 from tests.unit.x402_base_helpers import (
@@ -20,10 +22,11 @@ from tests.unit.x402_base_helpers import (
     settled_receipt,
 )
 from tests.unit.x402_helpers import FakeRpc, configured, make_x402
-from unfret.config import Settings
+from unfret.config import Settings, settings
 from unfret.main import app
 from unfret.routes.check import VERDICT_EXAMPLE, _base_extensions
 from unfret.x402.base import BaseX402
+from unfret.x402.ownership import origin_of
 from unfret.x402.payment import decode_header
 from unfret.x402.verdict import Verdict
 
@@ -160,3 +163,35 @@ async def test_developers_says_base_is_coming_while_it_is_off(off: httpx.AsyncCl
     page = (await off.get("/developers")).text
     assert "USDC and wSOL on Solana devnet, scheme" in page
     assert "pay in USDC on Base, next to Solana" in page
+
+
+def _signer(proof: str, origin: str) -> str:
+    """x402scan's EVM check: recover the personal_sign signer of the origin (viem's recoverMessageAddress)."""
+    return str(Account.recover_message(encode_defunct(text=origin), signature=proof))
+
+
+async def test_with_base_on_a_second_ownership_proof_signed_by_base_pay_to(on: httpx.AsyncClient) -> None:
+    origin = origin_of(settings.public_base_url)
+    proofs = (await on.get("/.well-known/x402")).json()["ownershipProofs"]
+    assert len(proofs) == 2  # Solana's first, then Base's
+    accepts = decode_header((await on.post("/v1/check", json=BODY)).headers["PAYMENT-REQUIRED"])["accepts"]
+    base_pay_to = next(a["payTo"] for a in accepts if a["network"] == NETWORK)
+    assert _signer(proofs[1], origin) == base_pay_to == PAY_TO.address
+    document = (await on.get("/openapi.json")).json()
+    assert document["x-discovery"]["ownershipProofs"] == proofs
+
+
+async def test_without_base_only_solanas_proof(off: httpx.AsyncClient) -> None:
+    assert len((await off.get("/.well-known/x402")).json()["ownershipProofs"]) == 1
+
+
+def test_the_base_hot_key_signs_only_a_bare_origin(rpc: FakeBaseRpc, facilitator: FakeFacilitator) -> None:
+    base = make_base(base_settings(), rpc, facilitator)
+    proof = base.ownership_proof("https://unfret.net")
+    assert proof is not None and proof == base.ownership_proof("https://unfret.net")  # signed once
+    assert _signer(proof, "https://unfret.net") == PAY_TO.address
+    assert base.hot is not None
+    for not_an_origin in ("https://unfret.net/", "0x02f86583014a34800102", "https://unfret.net/v1/check"):
+        with pytest.raises(PermissionError):
+            base.hot.ownership_proof(not_an_origin)
+    assert BaseX402(Settings(), rpc=rpc).ownership_proof("https://unfret.net") is None

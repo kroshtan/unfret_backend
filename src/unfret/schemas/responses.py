@@ -27,10 +27,13 @@ class Healthy(BaseModel):
     x402_base: str | None = Field(default=None, description="Pay-per-check on Base: ok, off, mainnet_refused, …")
     x402_base_alert_count: int = Field(default=0, description="How many x402-on-Base alerts are raised")
     x402_base_alerts: list[str] = Field(
-        default_factory=list, description="base_sweep_due, outflow_to_non_cold, … (with the operator token only)"
+        default_factory=list, description="fee_reserve_low, outflow_to_non_cold, … (with the operator token only)"
     )
-    base_pay_to_usdc_units: int | None = Field(
-        default=None, description="USDC held by the Base receiving address (with the operator token only)"
+    base_hot_usdc_units: int | None = Field(
+        default=None, description="USDC on the Base hot wallet, not yet swept to cold (with the operator token only)"
+    )
+    base_hot_eth_wei: int | None = Field(
+        default=None, description="ETH on the Base hot wallet, for the sweeps' gas (with the operator token only)"
     )
     credits: str | None = Field(default=None, description="Credits door: off, sign_in, ok (purchases on)")
     fiat: str | None = Field(default=None, description="Card top-ups: off, or the provider (polar:production, …)")
@@ -75,8 +78,8 @@ class AnalyzeResponse(BaseModel):
     )
     report_token: str | None = Field(
         default=None,
-        description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account). "
-        "Absent for pages that couldn't be analysed, for quick checks and without an account.",
+        description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account), "
+        "for a quick check as for a deep one. Absent for pages that couldn't be analysed and without an account.",
     )
     verdict: Verdict | None = Field(
         default=None,

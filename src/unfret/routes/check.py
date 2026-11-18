@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from unfret import __version__, verdict_store
+from unfret import __version__, observations, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.net import fetch_public
@@ -45,6 +45,7 @@ from unfret.x402.base import (
     SettlementUnknownError,
 )
 from unfret.x402.facilitator import FacilitatorError, FacilitatorUnreachableError
+from unfret.x402.ownership import ownership_proofs
 from unfret.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from unfret.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
 from unfret.x402.solana import (
@@ -210,6 +211,19 @@ async def _credit(pool: Any, payer: str, usd_micros: int) -> int:
         return 0
     logger.info("x402_refunded_as_credits", usd_micros=usd_micros)
     return usd_micros
+
+
+def _provenance(request: Request, body: CheckRequest, account: str | None = None) -> observations.Provenance:
+    """
+    Where a checked page came from, for what the analysis records (:mod:`unfret.observations`).
+
+    :param request: The incoming request (its client's network, hashed with today's salt, never stored).
+    :param body: The request body: without ``page_content`` Unfret fetched the page itself.
+    :param account: The pass, for a check paid with one (never the paying wallet).
+    :return: The provenance.
+    """
+    ip = request.client.host if request.client else "unknown"
+    return observations.for_request(ip, account, fetched=not body.page_content, tier=body.tier)
 
 
 async def _page_html(body: CheckRequest) -> str:
@@ -659,7 +673,8 @@ async def _analyse_before_settling(
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
-            result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body)):
+                result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
     except Exception as exc:  # noqa: BLE001
         where = _failure_site(exc)
         logger.warning("check_analysis_failed_before_settlement", error=type(exc).__name__, where=where)
@@ -821,7 +836,8 @@ async def _paid_check(  # noqa: PLR0911
         return 200, fast.model_dump(mode="json"), paid
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
-            result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body)):
+                result = await graph.ainvoke({"page_content": html, "url": body.url, "flags": [], "explain": False})
     except Exception as exc:  # noqa: BLE001
         # The payment settled but the analysis failed: refund it as credits to the paying wallet (never an
         # outgoing transfer: the hot wallet only ever sends to cold), usable after signing in at /connect.
@@ -1061,10 +1077,13 @@ async def discovery(request: Request) -> JSONResponse:
     """
     Describe the paid endpoint, its tiers and prices for x402 directories and agents.
 
-    :param request: The incoming request (for the Base payment service).
-    :return: The discovery document.
+    :param request: The incoming request (for the payment services).
+    :return: The discovery document, with ``ownershipProofs`` (x402scan's) while a payment service holds a key.
     """
-    return JSONResponse(_discovery(get_x402_base(request)))
+    d = _discovery(get_x402_base(request))
+    if proofs := ownership_proofs(settings.public_base_url, (get_x402(request), get_x402_base(request))):
+        d["ownershipProofs"] = proofs
+    return JSONResponse(d)
 
 
 def _llms_base(d: dict[str, Any]) -> str:
@@ -1110,7 +1129,8 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 
 - quick ({quick}): {d["tiers"]["quick"]["includes"]} Use it to screen many pages; it misses what only reading
   the listing, its reviews or its photos shows, so check what matters with deep. A page without a product and a
-  price can't be assessed by quick (you are refunded).
+  price can't be assessed by quick (you are refunded). A quick answer's `deep_check.suggested` says whether deep is
+  worth it for that page, and `deep_check.adds` what it would add, so you can escalate only when it helps.
 - deep ({deep}): {d["tiers"]["deep"]["includes"]}
 
 ## Payment (x402 v2)

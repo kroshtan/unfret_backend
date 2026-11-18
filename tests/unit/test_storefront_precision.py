@@ -146,6 +146,28 @@ async def test_the_quick_judge_warns_only_on_something_concrete(monkeypatch: pyt
     assert deep["verdict"]["band"] == "junk_or_scam"  # the deep tier goes by the score alone
 
 
+async def test_a_scorer_that_says_so_needs_a_reason_for_worth_a_look(monkeypatch: pytest.MonkeyPatch) -> None:
+    data = {
+        "version": "t",
+        "features": ["eu_registry.imprint"],
+        "means": [0.5],
+        "scales": [0.5],
+        "coefficients": [-0.4],
+        "intercept": 0.0,
+    }
+    state: Any = {**_state(PageFacts(currency="EUR", price=20.0), "Shoes."), "features": {"eu_registry.imprint": 1.0}}
+    state |= {"findings": [], "skill_results": [], "explain": False}
+    bands = {}
+    for flag in (False, True):
+        model = scoring.Model.from_dict(data | ({"verdict_needs_reason": True} if flag else {}))
+        assert model.needs_reason is flag
+        monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH, m=model: m)
+        out = await nodes.make_judge_node(scoring.MODEL_PATH, llm=False)(state)
+        assert 50 <= out["score"] < 80
+        bands[flag] = out["verdict"]["band"]
+    assert bands == {False: "concerns", True: "reliable"}  # nothing to show: the open baseline still says it
+
+
 # ── The whole graph on the fetched page, with the shipped scorer ─────────────
 
 

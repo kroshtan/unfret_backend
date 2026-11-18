@@ -6,7 +6,17 @@ import random
 import pytest
 
 from evals.corpus import Label, LabelRecord, Split
-from evals.train import FEATURE_SIGNS, MIN_SUPPORT, RULE_MIRRORS, build, evaluate, feature_names, fit, source_leakage
+from evals.train import (
+    FEATURE_SIGNS,
+    MAX_UNIT_LOGIT,
+    MIN_SUPPORT,
+    RULE_MIRRORS,
+    build,
+    evaluate,
+    feature_names,
+    fit,
+    source_leakage,
+)
 
 
 def record(i: int, label: Label, split: Split, source: str = "synthetic", page_type: str = "") -> LabelRecord:
@@ -120,6 +130,22 @@ def test_features_seen_on_too_few_pages_get_no_weight() -> None:
     assert MIN_SUPPORT > 1
     assert model.coefficients[1:] == [0.0, 0.0]
     assert max(abs(c) for c in model.coefficients) < 5
+
+
+def test_a_rare_feature_that_separates_the_labels_moves_the_odds_a_bounded_step() -> None:
+    # A US street address on six legit pages and no scam page once got a step of -280 log-odds.
+    rng = random.Random(5)
+    names = ["listing.discount_pct", "us_identity.us_address"]
+    records = [record(i, "scam" if i % 2 else "legit", "train") for i in range(400)]
+    features = {
+        r.id: {"listing.discount_pct": rng.uniform(0.3, 0.9) if r.label == "scam" else rng.uniform(0.0, 0.6)}
+        for r in records
+    }
+    for r in [r for r in records if r.label == "legit"][:6]:
+        features[r.id]["us_identity.us_address"] = 1.0
+    model = fit(build(records, features, names), names, "v-test")
+    step = model.coefficients[1] / model.scales[1]  # log-odds per unit of the feature
+    assert -MAX_UNIT_LOGIT - 1e-6 <= step < 0
 
 
 def test_source_leakage_spots_a_feature_that_names_the_source() -> None:

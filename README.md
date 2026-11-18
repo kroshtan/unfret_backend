@@ -27,19 +27,19 @@ Think twice, Serious concerns), and an LLM writes the explanation from the signa
 
 ## How accurate it is
 
-Measured on Unfret's labelled corpus of **1,582 product pages** (scam shops, junk and dropshipping, and legitimate
-shops and listings), each replayed through the analysis and scored by the open baseline model in this repository.
-**ROC AUC 0.897.**
+Measured on Unfret's labelled corpus of **1,762 product pages** (scam shops, junk and dropshipping, and legitimate
+shops and listings, among them a golden set of well-known sellers' pages), each replayed through the analysis and
+scored by the open baseline model in this repository. **ROC AUC 0.917.**
 
 | Verdict | Pages | Scam or junk among them |
 | --- | --- | --- |
-| Serious concerns | 282 | 95% |
-| Think twice | 423 | 82% |
-| Worth a look | 404 | 46% |
-| Looks fine | 464 | 7% |
+| Serious concerns | 278 | 96% |
+| Think twice | 415 | 83% |
+| Worth a look | 430 | 44% |
+| Looks fine | 629 | 5% |
 
-Think twice or Serious concerns catches 74% of the scam and junk pages, and 12% of the legitimate pages get one
-(false alarms); Serious concerns alone catches 32%, with 2% false alarms. The corpus includes the pages the model was
+Think twice or Serious concerns catches 73% of the scam and junk pages, and 9% of the legitimate pages get one
+(false alarms); Serious concerns alone catches 32%, with 1% false alarms. The corpus includes the pages the model was
 trained on, so expect somewhat lower numbers on pages it has never seen. It covers product pages only (not ads or
 service providers), and the corpus itself is private (see below). The method, ads and tradespeople, false alarms per
 market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
@@ -63,7 +63,19 @@ run but not retrained from this repository alone. `/v1/health` names the scorers
 make train TRAIN_ARGS="--ship C"            # → $UNFRET_CORPUS_DIR/models/<version>/model.json and RELEASE.md
 make train TRAIN_ARGS="--ship C --quick"    # the quick tier's own scorer (optional)
 UNFRET_MODEL_PATH=…/models/<version>/model.json make accuracy   # replay your corpus with it (→ accuracy.json there)
+UNFRET_MODEL_PATH=… UNFRET_MODEL_QUICK_PATH=… make golden GOLDEN_ARGS="--replay --split test"   # false alarms
 ```
+
+`make golden` measures both tiers on the corpus's **golden set** (`evals/sources/golden.py`: product pages of
+well-known, legitimate sellers, from a seed list kept in the corpus) against a fixed rule: no "Serious concerns", and
+under 5% "Worth a look" or worse, with the reasons and flags behind each failure. Every scorer version is run
+through it before release.
+
+A retrained scorer can also say that with it, "Worth a look" needs a reason to show (`--needs-reason`, the artifact's
+`verdict_needs_reason`): a page it scores in that band with no reason, or only something missing from the page, then
+reads "Looks fine", and the quick tier's needs a concrete reason (`unfret.shopper.build`). Whether that pays is
+measured per scorer, on the golden set and the corpus replay; the open baseline doesn't set it (with its weaker
+scorer it would call too many scam pages "Looks fine").
 
 Then point the server at the files: `UNFRET_MODEL_PATH` for analyses and deep checks, `UNFRET_MODEL_QUICK_PATH` for
 the quick tier (in Docker, mount them read-only, e.g. `-v /srv/scorer:/app/private-model:ro` and
@@ -244,6 +256,23 @@ barcodes, kind of product, risk type and level, for the alerts a page can be mat
 safety-gate` adds the weekly reports it lacks (reports never change once published); the monthly "Vendored data"
 workflow runs `make safety-gate-check`, which fails once a new report is out, so the refresh lands as a PR.
 
+**What free checks record, and why a forged page can't poison it.** Unfret's own stores (the photo index, the price
+history, the market prices, the review fingerprints) grow with every check. A quick check looks nothing up, but once
+it has answered (in the background, never changing or slowing the answer) it records what a deep check would from
+the same product page, through the same record paths: the main photo's fingerprints, today's price, the review
+fingerprints (`src/unfret/recording.py`). Bounded: at most `UNFRET_QUICK_RECORD_QUEUE` pages at a time (more are
+skipped), the photo check's own size (8 MB) and time (6 s) limits, two photos fingerprinted at a time. Quick checks
+are free and anonymous, and the extension and the app send page content Unfret didn't fetch, so every row keeps its
+provenance (a page Unfret fetched, client-supplied content; quick or deep) and a count of independent sources, and
+counts in a verdict (a reused photo, a price far below market, a "was" price never charged, copied reviews) only
+when Unfret fetched a page showing it, or `UNFRET_OBSERVATION_MIN_SOURCES` sources (each a pass and a network)
+reported the same (`src/unfret/observations.py`). Which source vouched for which row is known only in memory, for
+the current UTC day, as keyed hashes under a salt that is replaced daily and never stored: the database holds a
+count, not a link from a pass or network to a page. A different value that doesn't count never overwrites one that
+does. Each network records from at most `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` quick checks or
+client-supplied pages a day. Rows from before provenance was kept count as before. `GET /v1/admin/observations`
+shows the counts.
+
 ### Adding a skill
 
 ```python
@@ -275,6 +304,13 @@ brand name and a keyword-stuffed title, and no company behind it. `/test-shop/ch
 only at checkout. A banner on every view says what it is; the pages are `noindex`, served under the site's Content
 Security Policy, and drawn (`scripts/test_shop_images.py`), with no real brand, shop, person or photo. Review dates are
 relative to the day the page is served, so the burst stays a burst.
+
+`/test-shop/sister-shop` is its sister shop (Quenvale Deals): the same made-up projector, cheaper ($17.99), under
+another made-up brand (VELUNOX), with a re-uploaded copy of the same photo. A deep check of either page finds the
+photo on the other ("Looks like the same product, sold elsewhere for $17.99", both photos side by side): test shop
+pages are looked up only in the test shop's own photo index (`unfret.test_shop_photos`, made in memory from the
+static photos, rows with negative IDs, thumbnails at `/v1/images/test-shop/<photo>`), never in the real one, and a real
+page is never looked up there, so neither can match the other.
 
 Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
 each trick raises and the verdict. Its tricks are deliberate, so the test shop (by address: `/test-shop` on
@@ -560,7 +596,7 @@ The two tiers (`QUICK_SKILLS` in `src/unfret/x402/verdict.py`; each 402 option s
 | | quick ($0.01) | deep ($0.20) |
 | --- | --- | --- |
 | What runs | The page itself, by rules: `listing`, `pricing` (on-page discount checks, no price history), `html_source_signals`, `dark_patterns`, `injection`, `eu_registry` (no VIES), `us_identity`, `shop_policies`, `shop_links` (our own fingerprint store) | Everything: the same analysis as `/v1/analyze` and the extension, adding the LLM read (`content`), `reviews`, `reverse_image`, the price history, `domain_age` and VIES |
-| LLM / image index | Never (classification by rules: a page without a product and a price is not assessed, and refunded) | Yes |
+| LLM / image index | Never (classification by rules: a page without a product and a price is not assessed, and refunded); after the answer, the page's photo, price and reviews are recorded for later checks, not looked up | Yes |
 | Scorer | `model-quick.json`, trained on the quick features only (`evals.train --quick`, variant C) | `model.json` |
 | TEST (333 pages) | AUC 0.746 (US 0.782, EU 0.673; storefronts 0.769); legit flagged 29/143; recall 0.60 | AUC 0.894 (US 0.964, EU 0.828; storefronts 0.836); legit flagged 25/143; recall 0.82 |
 
@@ -578,6 +614,17 @@ refused payment answers `402` again with `error` saying why; when the simulation
 `reason`, a short cause derived from the simulation's error and logs: `insufficient_funds`,
 `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_not_found`, `blockhash_not_found`, the
 error class in snake case (`invalid_account_data`) or `custom_program_error_<code>` for another program's own error.
+
+**Ownership proof.** x402 directories (x402scan) mark an origin as verified when its `payTo` key signed the origin.
+While x402 is on, the server signs the origin of `UNFRET_PUBLIC_BASE_URL` (`https://unfret.net`: no trailing slash,
+as a browser's `URL.origin`) with the hot wallet's key, in process, once per start (`unfret.x402.ownership`). The
+signature (ed25519 over the origin's UTF-8 bytes, base58) is published as `ownershipProofs` in the OpenAPI document
+(`x-agentcash-provenance` and `x-discovery`) and in `/.well-known/x402`, one per `payTo` key the server holds; a new
+hot key gives a new proof at the next start, and with x402 off there is none. The key signs nothing else this way:
+only a bare origin, far too short to parse as a transaction. Anyone can check it against the hot wallet's address
+(the `payTo` of the 402's Solana options). While Base is on, a second proof follows: the origin signed by the Base hot
+wallet as an EIP-191 `personal_sign` message (`0x` hex; the message prefix keeps it from ever being a transaction),
+checked against Base's `payTo`.
 
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
@@ -703,7 +750,8 @@ the cold address changes again, add that one too and move the cut-off to the new
 about x402 changes. While it is on, the 402 lists one more option after Solana's: the `exact` scheme on
 `eip155:84532` (Base Sepolia, the default `UNFRET_BASE_NETWORK`) or `eip155:8453` (Base mainnet, refused unless
 `UNFRET_X402_BASE_ALLOW_MAINNET=true`), Circle's USDC, the tier's dollar price exactly (6 decimals, the same amount as
-Solana's USDC option), `payTo` = `UNFRET_BASE_PAY_TO`, `maxTimeoutSeconds` 300, and the token's EIP-712 domain in
+Solana's USDC option), `payTo` = the Base hot wallet (the address of `UNFRET_X402_BASE_HOT_KEY`),
+`maxTimeoutSeconds` 300, and the token's EIP-712 domain in
 `extra.name` / `extra.version` (`USDC`/`2` on Sepolia, `USD Coin`/`2` on mainnet, read from the contracts). The payer
 signs an EIP-3009 `transferWithAuthorization`; a **facilitator** checks it (`/verify`) and submits it, paying the gas
 (`/settle`). Neither Unfret nor the facilitator can change the amount or recipient, which the payer signed. The
@@ -713,11 +761,35 @@ default facilitator is Coinbase's (CDP, `UNFRET_BASE_FACILITATOR_URL` =
 Base off as `misconfigured`). Any other facilitator URL is used without a key (`https://x402.org/facilitator`:
 Base Sepolia only). CDP settles 1,000 transactions a month free, then $0.001 each (verification is free).
 
-- **No hot key on Base.** The facilitator pays the gas, so nothing on Base is ever signed by the server. `payTo` is an
-  address whose key stays offline (a hardware wallet): the cold wallet itself (`UNFRET_BASE_COLD_ADDRESS` empty), or
-  a receiving address that the operator sweeps to `UNFRET_BASE_COLD_ADDRESS` by hand, with the alert
-  `base_sweep_due` once it holds more than `UNFRET_BASE_SWEEP_ALERT_UNITS` ($50). Addresses are checked at start-up
-  (EIP-55 checksum when mixed-case): a typo leaves Base `misconfigured` rather than paying into it.
+- **A hot wallet, swept to cold, as on Solana.** `payTo` is the Base hot wallet: the address of
+  `UNFRET_X402_BASE_HOT_KEY` (`0x` and 64 hex digits; a secret, never logged, never in the image or the repository).
+  `UNFRET_BASE_PAY_TO` is optional: set to the hot wallet's address, it checks that the right key is deployed (a
+  mismatch leaves Base `misconfigured`). The cold wallet, `UNFRET_BASE_COLD_ADDRESS`, is a plain public address whose
+  key the server never holds, and not tied to the hot key: a software wallet now, a hardware wallet later, swapped
+  by changing that one setting (see "Changing the Base cold address"). Addresses are checked at start-up (EIP-55
+  checksum when mixed-case): a typo leaves Base `misconfigured` rather than paying into it, and so do a hot wallet
+  that is the cold address or a former one. Base is off unless `UNFRET_X402_BASE_ENABLED`, the hot key and the cold
+  address are all set.
+- **Sweeps.** Once the hot wallet holds `UNFRET_BASE_USDC_SWEEP_THRESHOLD_UNITS` (5 USDC), or at least
+  `UNFRET_BASE_USDC_SWEEP_DUST_UNITS` (0.5 USDC) with nothing swept for `UNFRET_BASE_USDC_SWEEP_MAX_INTERVAL_S` (a
+  day), all of its USDC goes to the cold address as USDC in one transaction, `USDC.transfer(cold, balance)`, checked
+  each `sweep_interval_s`. It is the only transaction the server ever signs on Base: one function signs, and it
+  accepts only that shape, re-checked field by field (an EIP-1559 transaction on this chain to the USDC contract, no
+  ETH value, no access list, `transfer` to the cold address, gas and fee within the caps). The gas is paid from the
+  hot wallet's own ETH (a USDC transfer on Base costs a small fraction of a cent): keep a little ETH on it, about
+  0.0005 ETH lasts many sweeps; below `UNFRET_BASE_MIN_GAS_WEI` (0.00001 ETH) `fee_reserve_low` asks for more, and
+  a sweep the ETH can't pay waits. Payments go on meanwhile (the facilitator pays their gas), and USDC piling up
+  beyond three times the threshold raises `usdc_above_threshold`. (A gasless sweep, a `transferWithAuthorization`
+  the facilitator submits, isn't used: Coinbase documents its facilitator for settling x402 payments and says
+  nothing of other transfers, each settlement is billed and may list the endpoint in its Bazaar, and the treasury
+  would depend on a third party.) Fees: twice the latest base fee plus the node's suggested tip, waiting while that
+  is above `UNFRET_BASE_MAX_FEE_PER_GAS_WEI` (1 gwei); the gas limit is the estimate plus 30%, at most
+  `UNFRET_BASE_SWEEP_MAX_GAS` (120,000; the estimate itself runs the transfer against the latest state). One sweep
+  at a time, across processes too (a Postgres advisory lock), and none while a transaction from the hot wallet is
+  still unmined; each nonce can only be used once, so a retry never pays twice. The receipt is read from Base: it
+  must show the USDC `Transfer` of the whole amount from the hot wallet to cold. A failed or refused sweep is logged
+  at error level and retried after twice the interval, doubling up to an hour; three failures in a row raise
+  `sweep_failing`.
 - **Settled only when there is an answer** (x402's default `authorization` flow, unlike Solana's `upfront`): local
   checks (the option, recipient, exact value, a 32-byte nonce, `validBefore` at least the analysis timeout plus a
   minute ahead), the facilitator's `/verify` (signature, balance, simulation), fetching and analysing, then `/settle`.
@@ -733,14 +805,20 @@ Base Sepolia only). CDP settles 1,000 transactions a month free, then $0.001 eac
 - **Replays.** The same authorization (payer and nonce) gets the same answer for 15 minutes and is settled once; the
   USDC contract refuses a used nonce anyway.
 - **Outflow audit.** Every `sweep_interval_s` the USDC contract's logs are read for `Transfer` and `Approval` events
-  with `payTo` as the first address, from the last audited block to `UNFRET_BASE_AUDIT_CONFIRMATIONS` (5) behind
-  the head, in chunks of 1,000 blocks (a backlog over ten chunks is skipped and flagged). A transfer anywhere but
-  `UNFRET_BASE_COLD_ADDRESS`, or any approval, raises `outflow_to_non_cold`: Base payments pause
-  (`compromise_suspected`) until the operator clears it. With `payTo` as the cold wallet itself every outgoing transfer
-  alarms, so moving funds out of it is followed by clearing the alert. Zero-value transfers (anyone can make one
-  "from" any address: address-poisoning spam) and zero approvals (revocations) are ignored. The cursor and flags live
-  in the same tables as Solana's, keyed `<network>:<payTo>`, so an alarm survives restarts. `GET /v1/admin/x402/alerts`
-  lists them under `base`; `POST /v1/admin/x402/clear-alerts?network=base` clears them (no `network`: both).
+  with the hot wallet as the first address, from the last audited block to `UNFRET_BASE_AUDIT_CONFIRMATIONS` (5)
+  behind the head, in chunks of 1,000 blocks (a backlog over ten chunks is skipped and flagged). A transfer anywhere
+  but the cold address (or a declared former one, before its cut-off), or any approval, raises
+  `outflow_to_non_cold`: Base payments pause (`compromise_suspected`) until the operator clears it. ETH leaves an
+  account only through a transaction its key signs, so the audit also reads the hot wallet's nonce: it may grow only
+  by the sweeps to cold in those logs (and sweeps of this process that reverted); any other transaction the key
+  signed (ETH sent anywhere, a call to any contract) raises the same alarm, and so does code at the hot wallet's
+  address (an EIP-7702 delegation). Sweeping goes on while the alarm is raised: moving what is left to cold is the
+  right thing to do with a stolen key. Zero-value transfers (anyone can make one "from" any address:
+  address-poisoning spam) and zero approvals (revocations) are ignored. The cursor (block and nonce) and the flags
+  live in the same tables as Solana's, keyed `<network>:<hot wallet>`, so an alarm survives restarts.
+  `GET /v1/admin/x402/alerts` lists them under `base` (with the hot wallet, the cold address, its USDC and ETH);
+  `POST /v1/admin/x402/clear-alerts?network=base` clears them (no `network`: both). After a real compromise: move
+  what is left, deploy a new `UNFRET_X402_BASE_HOT_KEY` (a new `payTo`; the cold address stays), then clear.
 - **Discovery.** With Base on, the 402 carries the Bazaar extension (`extensions.bazaar`: the request body and an
   example verdict, with its JSON Schema) and the resource's `tags` and `iconUrl`; Unfret sends its own copy of both
   with every settlement, so Coinbase's facilitator lists `/v1/check` in its Bazaar after the first settled payment
@@ -748,16 +826,36 @@ Base Sepolia only). CDP settles 1,000 transactions a month free, then $0.001 eac
   unchanged), `/llms.txt` an "On Base" section, and `/developers` names both networks.
 
 Readiness reports `x402_base` (`off`, `ok`, `mainnet_refused`, `misconfigured`, `rpc_unavailable`,
-`compromise_suspected`) and `x402_base_alert_count`; with the operator token also the alerts and `payTo`'s USDC.
+`compromise_suspected`) and `x402_base_alert_count`; with the operator token also the alerts and the hot wallet's
+USDC and ETH (`base_hot_usdc_units`, `base_hot_eth_wei`).
+
+**Changing the Base cold address** (a new software wallet, or the move to a hardware wallet) needs no new key: the
+hot wallet and `payTo` stay the same. Sweeps to the old address are in the hot wallet's history, so declare it, as
+on Solana:
+
+1. Check that no sweep is pending (readiness with the operator token: no `sweep_failing`) and note when the last
+   sweep to the old address landed (an explorer, or `x402_base_sweep` in the log).
+2. Set `UNFRET_BASE_COLD_ADDRESS` to the new wallet, and add the old one to `UNFRET_BASE_FORMER_COLD_ADDRESSES`
+   (comma-separated) with `UNFRET_BASE_FORMER_COLD_UNTIL` (ISO 8601 with a time zone): a moment after that last
+   sweep and before the new address takes over. Both are public, so they can go in the deploy file's clear
+   environment. Start-up refuses former addresses without a cut-off, one that isn't an EVM address, and the cold
+   address (or the hot wallet) as a former one.
+3. Deploy, and check readiness with the operator token: `x402_base` is `ok`.
+
+A transfer to a former cold address counts as a sweep only if its block time is before both the cut-off and the start
+of the running process; later it is flagged like any other, marked "a former cold address, after its cut-off".
 `make e2e-base` (marker `e2e_base`, never part of the dev sweep or the production gate) checks against Base Sepolia:
 with `UNFRET_E2E_BASE_FACILITATOR_URL` (plus `UNFRET_E2E_CDP_API_KEY_ID` / `_SECRET` for CDP), that the facilitator
 takes Unfret's payment shape (a throwaway, unfunded payer gets as far as the balance check); with
 `UNFRET_E2E_BASE_PAYER_KEY` (a Base Sepolia key holding test USDC), a quick check on dev paid in USDC on Base,
-confirmed on chain and answered once for a retried payment. The MCP server (`mcp/`) pays on Solana only for now.
+confirmed on chain and answered once for a retried payment; with `UNFRET_E2E_BASE_HOT_KEY` (a throwaway Base Sepolia
+key holding a little Sepolia ETH and at least 0.5 test USDC; never a mainnet key, nor dev's own hot key) and
+`UNFRET_E2E_BASE_COLD_ADDRESS`, one real sweep of that key's USDC to the cold address, then a clean audit. The MCP
+server (`mcp/`) pays on Solana only for now.
 
 The Solana side is off (`503`, or Base alone) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet;
 the server never holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
-the sweeper isn't coordinated across processes. [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
+Solana's sweeper isn't coordinated across processes (Base's is). [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a
 spend cap, or from an Unfret pass (`UNFRET_PASS`): `uvx unfret-mcp` from PyPI, listed in the MCP Registry as
 `net.unfret/mcp`, released by the manual "Publish MCP server" workflow (`.forgejo/workflows/publish-mcp.yaml`).
 
@@ -832,6 +930,9 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
+| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
+| `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |
+| `UNFRET_QUICK_RECORD_QUEUE` | `16` | Quick checks whose photo, price and reviews are being recorded at once, after their answer; more are skipped (0: quick checks record nothing) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
 | `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH` | — (the open baseline) | A scorer of your own for analyses and deep checks / for the x402 quick tier; see [The model](#the-model) |
 | `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
@@ -864,9 +965,12 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |
 | `UNFRET_FORMER_COLD_ADDRESSES` / `UNFRET_FORMER_COLD_UNTIL` | — | Earlier cold addresses (comma-separated) whose sweeps before the cut-off (ISO 8601) the outflow audit accepts; see "Changing the cold address" |
-| `UNFRET_X402_BASE_ENABLED` / `UNFRET_BASE_PAY_TO` | `false` / — | x402 in USDC on Base (see "USDC on Base"); off unless both are set |
+| `UNFRET_X402_BASE_ENABLED` / `UNFRET_X402_BASE_HOT_KEY` / `UNFRET_BASE_COLD_ADDRESS` | `false` / — / — | x402 in USDC on Base (see "USDC on Base"): the hot wallet's key (`payTo`) and the cold wallet; off unless all three are set |
+| `UNFRET_BASE_PAY_TO` | — | Optional: the hot wallet's address, to check the deployed key (a mismatch leaves Base off) |
+| `UNFRET_BASE_FORMER_COLD_ADDRESSES` / `UNFRET_BASE_FORMER_COLD_UNTIL` | — | Earlier Base cold addresses and the cut-off before which sweeps to them are accepted; see "Changing the Base cold address" |
 | `UNFRET_BASE_NETWORK` / `UNFRET_X402_BASE_ALLOW_MAINNET` / `UNFRET_BASE_RPC_URL` | `base-sepolia` / `false` / the public RPC | Base mainnet stays refused until allowed; set a provider's RPC for production |
-| `UNFRET_BASE_COLD_ADDRESS` / `UNFRET_BASE_SWEEP_ALERT_UNITS` | — (`payTo` is cold) / `50000000` | Where a separate receiving address is swept by hand, and when to ask for that sweep |
+| `UNFRET_BASE_USDC_SWEEP_THRESHOLD_UNITS` / `_DUST_UNITS` / `_MAX_INTERVAL_S` | `5000000` / `500000` / `86400` | When the Base hot wallet's USDC is swept to cold |
+| `UNFRET_BASE_MIN_GAS_WEI` / `UNFRET_BASE_MAX_FEE_PER_GAS_WEI` / `UNFRET_BASE_SWEEP_MAX_GAS` | `10000000000000` / `1000000000` / `120000` | The hot wallet's ETH for gas below which `fee_reserve_low` alerts; the largest fee per gas and gas limit a sweep uses |
 | `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
@@ -887,6 +991,7 @@ make vat-rates-check   # vendored EU VAT rates and Cloudflare ranges vs their so
 make safety-gate       # add the EU Safety Gate's new weekly reports to the vendored index (safety-gate-check: CI, monthly)
 make run               # uvicorn with auto-reload
 make train             # retrain the scorer into the model store outside the repository (see The model)
+make golden            # false alarms on well-known sellers' pages, both tiers (the corpus's golden set; see The model)
 ```
 
 Unit tests cover the deterministic parts of every skill, the graph routing (with a stubbed LLM), SSRF protection, x402
@@ -947,11 +1052,13 @@ wallet and session secret:
 | Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
 
 **x402 on Base** is off in both environments (`UNFRET_X402_BASE_ENABLED: "false"` in dev's deploy file; production
-doesn't set it). Dev reads the optional repo secrets `DEV_BASE_PAY_TO`, `DEV_BASE_COLD_ADDRESS`, `DEV_CDP_API_KEY_ID`
-and `DEV_CDP_API_KEY_SECRET`; once they exist (or `UNFRET_BASE_FACILITATOR_URL` names a keyless testnet facilitator),
-dev is switched on in a PR that sets `UNFRET_X402_BASE_ENABLED: "true"`, on Base Sepolia only. Production needs its own
-plumbing first (`PROD_BASE_PAY_TO`, `PROD_CDP_API_KEY_ID`, `PROD_CDP_API_KEY_SECRET`, `PROD_BASE_RPC_URL`, with
-`UNFRET_BASE_NETWORK: base-mainnet` and `UNFRET_X402_BASE_ALLOW_MAINNET: "true"`), only on the owner's decision.
+doesn't set it). Dev reads the optional repo secrets `DEV_BASE_HOT_KEY` (a Base Sepolia key holding a little Sepolia
+ETH for the sweeps' gas), `DEV_BASE_COLD_ADDRESS`, `DEV_BASE_PAY_TO` (optional: the hot key's address, as a check),
+`DEV_CDP_API_KEY_ID` and `DEV_CDP_API_KEY_SECRET`; once they exist (or `UNFRET_BASE_FACILITATOR_URL` names a keyless
+testnet facilitator), dev is switched on in a PR that sets `UNFRET_X402_BASE_ENABLED: "true"`, on Base Sepolia only.
+Production needs its own plumbing first (`PROD_BASE_HOT_KEY`, `PROD_BASE_COLD_ADDRESS`, `PROD_CDP_API_KEY_ID`,
+`PROD_CDP_API_KEY_SECRET`, `PROD_BASE_RPC_URL`, with `UNFRET_BASE_NETWORK: base-mainnet` and
+`UNFRET_X402_BASE_ALLOW_MAINNET: "true"`), only on the owner's decision.
 
 The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto the app's `UNFRET_*` settings
 (`.kamal/secrets-common`, `.kamal/secrets.dev`, `.kamal/secrets.production`).

@@ -2,7 +2,8 @@
 x402 on Base for the tests: EIP-3009 authorizations signed by throwaway keys, a stub Base RPC, a stub facilitator.
 
 The keys are made per test run (``Account.create()``) and never hold anything; the facilitator's answers are those
-recorded from x402.org on Base Sepolia (``tests/fixtures/x402_base``) or shaped exactly like them.
+recorded from x402.org on Base Sepolia (``tests/fixtures/x402_base``) or shaped exactly like them, and the stub RPC's
+fees and gas estimate are those recorded from Base Sepolia's public RPC (``sepolia_rpc.json``).
 """
 
 import json
@@ -14,6 +15,8 @@ from typing import Any
 import httpx
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
+from eth_account.typed_transactions import TypedTransaction
+from hexbytes import HexBytes
 
 from unfret.config import Settings
 from unfret.x402.base import BaseX402
@@ -23,6 +26,7 @@ from unfret.x402.evm import (
     TRANSFER_TOPIC,
     USDC,
     BaseRpc,
+    keccak256,
     topic_address,
 )
 from unfret.x402.facilitator import Facilitator
@@ -31,18 +35,27 @@ from unfret.x402.solana import RpcError
 
 NETWORK = CAIP2["base-sepolia"]
 SEPOLIA_USDC = USDC["base-sepolia"]
-RECORDED = json.loads((Path(__file__).parents[1] / "fixtures" / "x402_base" / "x402_org_sepolia.json").read_text())
+FIXTURES = Path(__file__).parents[1] / "fixtures" / "x402_base"
+RECORDED = json.loads((FIXTURES / "x402_org_sepolia.json").read_text())
+RECORDED_RPC = json.loads((FIXTURES / "sepolia_rpc.json").read_text())
 
-PAY_TO: LocalAccount = Account.create()
+PAY_TO: LocalAccount = Account.create()  # the Base hot wallet (payTo); throwaway, holds nothing
 COLD: LocalAccount = Account.create()
 PAYER: LocalAccount = Account.create()
 
 
+def hot_key(account: LocalAccount = PAY_TO) -> str:
+    """A throwaway account's private key as ``UNFRET_X402_BASE_HOT_KEY`` takes it."""
+    key = account.key.hex()
+    return key if key.startswith("0x") else "0x" + key
+
+
 def base_settings(**overrides: Any) -> Settings:
-    """Base payments on Sepolia through a keyless facilitator, paying ``PAY_TO`` (also the cold wallet by default)."""
+    """Base payments on Sepolia through a keyless facilitator, into the hot wallet ``PAY_TO``, swept to ``COLD``."""
     values: dict[str, Any] = {
         "x402_base_enabled": True,
-        "base_pay_to": PAY_TO.address,
+        "x402_base_hot_key": hot_key(),
+        "base_cold_address": COLD.address,
         "base_facilitator_url": "https://facilitator.test/x402",
         "price_per_check_usd": "0.15",
     }
@@ -148,14 +161,48 @@ def outflow_log(
     }
 
 
+def sweep_receipt(
+    tx: str, amount: int, *, block: int, sender: str | None = None, to: str | None = None, status: str = "0x1"
+) -> dict[str, Any]:
+    """A receipt of the hot wallet's ``USDC.transfer(cold, amount)``, shaped like the recorded Sepolia one."""
+    recorded = RECORDED_RPC["usdc_transfer_receipt"]
+    sender = sender or PAY_TO.address
+    log = outflow_log(TRANSFER_TOPIC, sender, to or COLD.address, amount, tx=tx, blockNumber=hex(block))
+    return {
+        **{k: v for k, v in recorded.items() if k != "logs"},
+        "transactionHash": tx,
+        "blockNumber": hex(block),
+        "from": sender.lower(),
+        "status": status,
+        "logs": [log] if status == "0x1" else [],
+    }
+
+
 class FakeBaseRpc(BaseRpc):
-    """Stands in for a Base RPC: receipts, authorization states, a balance and logs by block range."""
+    """
+    Stands in for a Base RPC: receipts, authorization states, balances, the nonce, fees and logs by block range.
+
+    Broadcast sweeps are decoded and kept in ``sent``; with ``mine`` (the default) each one lands at once: its receipt,
+    its Transfer log at the head, the nonce and the balances move as on chain.
+    """
 
     def __init__(self) -> None:
         super().__init__("http://base-rpc.invalid")
         self.receipts: dict[str, dict[str, Any]] = {}
         self.used: set[tuple[str, str]] = set()
         self.balance = 0
+        self.eth = 10**15  # 0.001 ETH
+        self.nonce = 0
+        self.pending: int | None = None  # the pending nonce, when it differs (a transaction waiting to be mined)
+        self.code_value = "0x"
+        self.block_times: dict[int, int] = {}
+        self.base_fee_wei = int(RECORDED_RPC["eth_getBlockByNumber"]["baseFeePerGas"], 16)
+        self.tip_wei = int(RECORDED_RPC["eth_maxPriorityFeePerGas"], 16)
+        self.gas_estimate = int(RECORDED_RPC["eth_estimateGas_usdc_transfer"], 16)
+        self.sent: list[dict[str, Any]] = []
+        self.send_error: Exception | None = None
+        self.mine = True
+        self.revert = False
         self.head = 10_000
         self.logs_by_block: dict[int, list[dict[str, Any]]] = {}
         self.log_calls: list[tuple[int, int]] = []
@@ -180,6 +227,55 @@ class FakeBaseRpc(BaseRpc):
     async def token_balance(self, token: str, owner: str) -> int:
         self._check()
         return self.balance
+
+    async def eth_balance(self, owner: str) -> int:
+        self._check()
+        return self.eth
+
+    async def transaction_count(self, owner: str, block: int | str = "latest") -> int:
+        self._check()
+        return self.pending if block == "pending" and self.pending is not None else self.nonce
+
+    async def code(self, owner: str, block: int | str = "latest") -> str:
+        self._check()
+        return self.code_value
+
+    async def block_timestamp(self, block: int) -> int | None:
+        self._check()
+        return self.block_times.get(block)
+
+    async def base_fee(self) -> int:
+        self._check()
+        return self.base_fee_wei
+
+    async def max_priority_fee(self) -> int:
+        self._check()
+        return self.tip_wei
+
+    async def estimate_gas(self, tx: dict[str, Any]) -> int:
+        self._check()
+        assert tx["from"] == PAY_TO.address and tx["to"].lower() == SEPOLIA_USDC.lower()
+        return self.gas_estimate
+
+    async def send_raw(self, raw: str) -> str:
+        self._check()
+        if self.send_error is not None:
+            raise self.send_error
+        tx = TypedTransaction.from_bytes(HexBytes(raw)).as_dict()
+        sender = Account.recover_transaction(raw)
+        tx_hash = "0x" + keccak256(bytes.fromhex(raw[2:])).hex()
+        amount = int(tx["data"].hex()[-64:], 16)
+        self.sent.append({**tx, "from": sender, "hash": tx_hash, "amount": amount})
+        if self.mine:
+            status = "0x0" if self.revert else "0x1"
+            self.receipts[tx_hash] = sweep_receipt(tx_hash, amount, block=self.head, sender=sender, status=status)
+            if not self.revert:
+                self.logs_by_block.setdefault(self.head, []).extend(self.receipts[tx_hash]["logs"])
+                self.balance -= amount
+            self.nonce += 1
+        else:
+            self.pending = self.nonce + 1
+        return tx_hash
 
     async def logs(self, token: str, topics: list[Any], from_block: int, to_block: int) -> list[dict[str, Any]]:
         self._check()

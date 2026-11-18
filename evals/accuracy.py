@@ -57,6 +57,7 @@ LABEL_ORIGINS: dict[str, str] = {
     "mendeley-m7xtkx7g5m": "research_dataset",
     "us-established-shops": "established_business",
     "eu-legit-shops-2026": "established_business",
+    "golden-well-known-sellers": "established_business",
     "osm-established-trades": "established_business",
     "amazon-reviews-2023": "synthetic",
     "p2p-synthetic-2026": "synthetic",

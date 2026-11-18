@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from unfret import page_fetch, reports, result_cache, shares
+from unfret import card, observations, page_fetch, reports, result_cache, shares
 from unfret.auth import optional_account, require_account
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys, ledger
@@ -116,7 +116,20 @@ def _paused() -> dict[str, Any]:
 
 
 def _ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    client = getattr(request, "client", None)  # a request built by hand (in-process callers) may have none
+    return client.host if client else "unknown"
+
+
+def provenance(request: Request, body: AnalyzeRequest, account: str | None) -> observations.Provenance:
+    """
+    Where the analysed page came from, for what the analysis records (:mod:`unfret.observations`).
+
+    :param request: The FastAPI request (its client's network, hashed with today's salt, never stored).
+    :param body: The request body: a URL-only request is a page Unfret fetched itself; anything else was supplied.
+    :param account: The account, if any.
+    :return: The provenance.
+    """
+    return observations.for_request(_ip(request), account, fetched=body.url_only, tier=body.tier)
 
 
 def _key_id(account: str | None) -> str | None:
@@ -316,9 +329,10 @@ def _log_usage(usage: UsageMetadataCallbackHandler) -> None:
 
 
 def _report_token(body: AnalyzeRequest, account: str | None, result: dict[str, Any]) -> str | None:
-    # Lets this account report the result later (POST /v1/reports) without anything being stored now. Not for a
-    # quick check (rules only: the deep check is the one to report), nor without an account (reports are per account).
-    if account is None or body.tier == "quick":
+    # Lets this account report the result later (POST /v1/reports) without anything being stored now, for a quick
+    # check as for a deep one (the token binds the tier). Not without an account: reports are per account (the
+    # monthly limit, the reward), so an anonymous quick check gets none.
+    if account is None:
         return None
     return reports.issue_token(
         settings.session_secret.get_secret_value(),
@@ -376,6 +390,42 @@ def _response(
     return response
 
 
+async def deep_cost(request: Request, account: str | None, balance: int | None) -> tuple[str, card.DeepAction]:
+    """
+    What a deep check would cost this caller, for a quick result's suggestion (:func:`unfret.card.deep_check_cost`).
+
+    :param request: The FastAPI request.
+    :param account: The account, or ``None``.
+    :param balance: The account's balance (micro-dollars), or ``None``.
+    :return: The words and the action.
+    """
+    if account is None:
+        return card.deep_check_cost()
+    pool = request.app.db_pool
+    key_id = _key_id(account)
+    free_left = await free.left(pool, key_id) if key_id is not None else 0
+    paused = bool(free_left) and await free.paused(pool, settings)
+    bought = max(balance or 0, 0) // settings.analysis_price_usd_micros
+    return card.deep_check_cost(free_left=free_left, paused=paused, bought=bought)
+
+
+async def _offered(request: Request, account: str | None, response: AnalyzeResponse) -> AnalyzeResponse:
+    """
+    A quick result's suggestion of a deep check, with what one would cost this caller (it is cached without).
+
+    :param request: The FastAPI request.
+    :param account: The account, or ``None``.
+    :param response: The response.
+    :return: The response, its suggestion priced for the caller.
+    """
+    offer = response.verdict.deep_check if response.verdict is not None else None
+    if response.tier != "quick" or offer is None or not offer.suggested or response.verdict is None:
+        return response
+    cost = await deep_cost(request, account, response.balance_usd_micros)
+    response.verdict.deep_check = card.with_cost(offer, cost)
+    return response
+
+
 async def _cached(request: Request, body: AnalyzeRequest, account: str | None, key: str) -> AnalyzeResponse | None:
     """
     The same input analysed recently: its result again, paid for like a fresh check.
@@ -404,7 +454,8 @@ async def _cached(request: Request, body: AnalyzeRequest, account: str | None, k
     logger.info("analysis_cache_hit", charged=False)
     balance = None if account is None else await _balance(request, account)
     token = _report_token(body, account, cached)
-    return _response(cached, balance, charged=False, tier=body.tier, report_token=token, shared_from=body)
+    response = _response(cached, balance, charged=False, tier=body.tier, report_token=token, shared_from=body)
+    return await _offered(request, account, response)
 
 
 async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, result: dict[str, Any]) -> AnalyzeResponse:
@@ -423,7 +474,7 @@ async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, resu
     if charge.charged and charge.account is not None:
         result_cache.mark_paid(charge.account, body.url)  # its repeat within the hour is free (reopened, refreshed)
     balance = None if charge.account is None else await _balance(request, charge.account)
-    return _response(
+    response = _response(
         result,
         balance,
         charged=charge.charged,
@@ -432,6 +483,7 @@ async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, resu
         report_token=_report_token(body, charge.account, result),
         shared_from=body,
     )
+    return await _offered(request, charge.account, response)
 
 
 @router.post("", response_model=AnalyzeResponse, response_model_exclude_none=True)
@@ -489,7 +541,8 @@ async def analyze_page(
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke(state, config={"callbacks": [usage]})
+            with observations.observed_as(provenance(request, body, account)):
+                result = await graph.ainvoke(state, config={"callbacks": [usage]})
     except TimeoutError as exc:
         logger.warning("graph_timed_out", timeout_s=settings.analysis_timeout_s)
         await _refund(request, charge)
@@ -616,7 +669,10 @@ async def _live_events(
         try:
             async with asyncio.timeout(settings.analysis_timeout_s):
                 # subgraphs=True: each page class runs in its own subgraph, whose skill steps stream as they finish.
-                stream = graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates", subgraphs=True)
+                stream = observations.stream_as(
+                    provenance(request, body, charge.account),
+                    graph.astream(state, config={"callbacks": [usage]}, stream_mode="updates", subgraphs=True),
+                )
                 async for _namespace, update in stream:
                     for event in _update_events(update, final):
                         yield event

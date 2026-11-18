@@ -1,7 +1,8 @@
 """
 The hot wallet: receives x402 payments (its wSOL and USDC accounts), pays their fees, and sweeps both to cold.
 
-Every use of its key goes through one function, :meth:`HotWallet.sign`, which accepts exactly two things:
+Every use of its key for a transaction goes through one function, :meth:`HotWallet.sign`, which accepts exactly
+two things:
 
 * a :class:`~unfret.x402.payment.VerifiedPayment`, co-signed only as fee payer: the hot wallet may not appear in
   any instruction, so its signature can only pay the network fee;
@@ -14,6 +15,10 @@ Every use of its key goes through one function, :meth:`HotWallet.sign`, which ac
 The product never swaps: USDC goes to cold as USDC, and converting it is the operator's business. Credit purchases
 also pay into the hot wallet; their scanner (unfret.credits.scanner) counts only INCOMING transfers, ignoring the
 sweeps and fee payments this module signs.
+
+The only other use is :meth:`HotWallet.ownership_proof`: the public origin (``https://unfret.net``) signed as plain
+text for x402 directories (unfret.x402.ownership). It signs nothing but a bare origin, far too short to be a
+transaction.
 """
 
 import json
@@ -29,6 +34,7 @@ from solders.pubkey import Pubkey
 from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
+from unfret.x402.ownership import check_origin
 from unfret.x402.payment import VerifiedPayment, is_verified, references
 from unfret.x402.solana import (
     ASSOCIATED_TOKEN_PROGRAM,
@@ -269,7 +275,7 @@ def check_sweep(message: object, hot: Pubkey, cold: Pubkey, usdc_mint: Pubkey | 
 
 
 class HotWallet:
-    """The hot key. It never leaves this class, and :meth:`sign` is the only code path that uses it."""
+    """The hot key. It never leaves this class: :meth:`sign` signs transactions, :meth:`ownership_proof` the origin."""
 
     def __init__(self, keypair: Keypair, cold: Pubkey, usdc_mint: Pubkey | None = None) -> None:
         """
@@ -314,6 +320,15 @@ class HotWallet:
             check_sweep(item.message, self.pubkey, self.cold, self.usdc_mint)
             return bytes(VersionedTransaction(item.message, [self._keypair]))
         raise PermissionError("refusing to sign: only verified payments and sweeps to cold")
+
+    def ownership_proof(self, origin: str) -> str:
+        """
+        Sign the public origin as x402scan's ownership proof: ed25519 over its UTF-8 bytes, base58.
+
+        :param origin: A bare origin (``scheme://host[:port]``, from :func:`~unfret.x402.ownership.origin_of`).
+        :return: The signature, base58. ``check_origin`` refuses (PermissionError) anything but a bare origin.
+        """
+        return str(self._keypair.sign_message(check_origin(origin).encode()))
 
 
 def unexpected_outflows(  # noqa: C901

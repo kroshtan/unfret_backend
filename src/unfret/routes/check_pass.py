@@ -25,12 +25,12 @@ import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from unfret import result_cache, verdict_store
+from unfret import card, observations, result_cache, verdict_store
 from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys
 from unfret.routes import analyze
-from unfret.routes.check import CheckRequest, _failure_site, _rate, _readable_page, rate_limited
+from unfret.routes.check import CheckRequest, _failure_site, _provenance, _rate, _readable_page, rate_limited
 from unfret.schemas.errors import ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 from unfret.visitors import RateLimit
 from unfret.x402.verdict import Verdict, action_for, to_verdict
@@ -90,10 +90,15 @@ async def _answer(
     :param charged: Whether the check counted (``False`` when it was given back or free).
     :return: The response.
     """
+    balance = await analyze._balance(request, account)
+    if verdict.deep_check is not None and verdict.deep_check.suggested:
+        # A quick answer's suggestion, priced for this pass rather than at the x402 price.
+        cost = await analyze.deep_cost(request, account, balance)
+        verdict = verdict.model_copy(update={"deep_check": card.with_cost(verdict.deep_check, cost)})
     content: dict[str, Any] = verdict.model_dump(mode="json")
     content["charged"] = charged
     content["free_check"] = charged and charge.spent is not None
-    content["balance_usd_micros"] = await analyze._balance(request, account)
+    content["balance_usd_micros"] = balance
     content["free_checks_left"] = await free.left(request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX))
     return JSONResponse(content)
 
@@ -199,7 +204,8 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
     await affiliates.first_check(request.app.db_pool, account)
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
-            result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
+            with observations.observed_as(_provenance(request, body, account)):
+                result = await graph.ainvoke({"page_content": page, "url": body.url, "flags": [], "explain": False})
     except asyncio.CancelledError:
         analyze._count_free_outcome(charge)
         await analyze._refund(request, charge)  # the client went away before the result

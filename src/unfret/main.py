@@ -27,6 +27,7 @@ from unfret import (
     mcp_remote,
     objections,
     price_store,
+    recording,
     reports,
     review_store,
     scoring,
@@ -110,13 +111,15 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
         source="configured" if settings.model_path or settings.model_quick_path else "baseline",
     )
     api.graph = build_graph(SKILLS)
-    api.quick_graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
+    api.quick_graph = build_graph(
+        skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False, record_page=True
+    )
     api.db_pool = await create_pool()
     await init_db(api.db_pool)
     use_postgres_stores(api.db_pool)
     api.x402 = X402(settings)
     await api.x402.attach(api.db_pool)  # the outflow audit's cursor and uncleared alerts survive restarts
-    api.x402_base = BaseX402(settings)  # off unless UNFRET_X402_BASE_ENABLED and UNFRET_BASE_PAY_TO
+    api.x402_base = BaseX402(settings)  # off unless UNFRET_X402_BASE_ENABLED, its hot key and cold address are set
     await api.x402_base.attach(api.db_pool)
     # Credits are bought by paying the same hot wallet; the scanner turns finalized transfers into balance.
     api.credits = CreditsDoor(settings, api.x402.rpc, api.x402.hot.pubkey if api.x402.hot else None, api.x402.prices)
@@ -142,6 +145,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
             async with asyncio.timeout(5):
                 await shop_store.drain()
                 await reverse_image.drain()
+                await recording.drain()
         await api.db_pool.close()
         await api.x402.rpc.aclose()
         await api.x402_base.aclose()

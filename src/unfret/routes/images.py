@@ -15,6 +15,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Path, Request, Response
 from PIL import Image
 
+from unfret import test_shop_photos
 from unfret.graph.skills import reverse_image
 from unfret.image_index import load
 from unfret.net import fetch_public
@@ -46,6 +47,37 @@ def _thumbnail(data: bytes) -> bytes:
     out = io.BytesIO()
     image.save(out, format="JPEG", quality=80)
     return out.getvalue()
+
+
+def _limit(request: Request) -> None:
+    """
+    Count a thumbnail against the visitor network's limit.
+
+    :param request: The incoming request.
+    :raises TooManyRequestsError: Over the thumbnails allowed from this visitor network in a minute.
+    """
+    if (wait := _requests.retry_after(request.client.host if request.client else "unknown")) is not None:
+        raise TooManyRequestsError(
+            "Too many photos asked for; wait a moment.", metadata={"retry_after_s": int(wait) + 1}
+        )
+
+
+# Before the index's route, which would take "test-shop" for a row ID. Not part of the public API.
+@router.get("/test-shop/{photo}", response_class=Response, include_in_schema=False)
+async def test_shop_thumbnail(request: Request, photo: str) -> Response:
+    """
+    A small JPEG of a test shop product photo (the test shop's own photo index: :mod:`unfret.test_shop_photos`).
+
+    :param request: The incoming request (its visitor network, for the limit).
+    :param photo: The photo's file name.
+    :return: The JPEG, cacheable for a day.
+    :raises HTTPException: 404 for anything but the test shop's product photos.
+    """
+    _limit(request)
+    data = test_shop_photos.thumbnail(photo)
+    if data is None:
+        raise HTTPException(404, "No such photo.")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/{print_id}/thumbnail.jpg", response_class=Response, responses={200: {"content": {"image/jpeg": {}}}})

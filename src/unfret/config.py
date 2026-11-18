@@ -7,6 +7,8 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from solders.pubkey import Pubkey
 
+from unfret.x402.evm import parse_address
+
 
 def _pack_prices(value: str) -> dict[int, int]:
     """
@@ -110,6 +112,17 @@ class Settings(BaseSettings):
     # Contacts are stored as keyed hashes with this key (derived from the session secret when empty; without
     # either, contacts aren't stored).
     fingerprints: bool = True
+    # Guardrails for those stores (unfret.observations). A photo, price or review fingerprint seen only in content
+    # a client supplied, or only by quick checks of such content, counts in a verdict once observation_min_sources
+    # independent sources (a pass and a network; counted in memory, per day, as salted hashes: nothing links a pass
+    # to a page) reported the same; one from a page Unfret fetched itself counts at once. Each visitor network
+    # records from at most observation_pages_per_network_per_day quick checks or client-supplied pages a day (in
+    # memory); past it a check answers as always and records nothing. After a quick check has answered, the page's
+    # photo, price and reviews are recorded in the background, at most quick_record_queue pages at a time (more are
+    # skipped), with the photo check's own size and time limits.
+    observation_min_sources: int = Field(default=3, ge=1, le=1000)
+    observation_pages_per_network_per_day: int = Field(default=300, ge=0)
+    quick_record_queue: int = Field(default=16, ge=0, le=1000)
     # Unfret's own image index (unfret.image_index): the embedding model file and its CPU threads; the photo
     # check is off while the file is missing (`python -m unfret.image_index <path>` downloads it).
     image_model_path: str = "models/dinov2-small-int8.onnx"
@@ -336,26 +349,44 @@ class Settings(BaseSettings):
     x402_breaker_global: int = 20
 
     # x402 on Base: USDC with the `exact` scheme (EIP-3009), settled by a facilitator that pays the gas, offered
-    # next to Solana. Off until x402_base_enabled is set and base_pay_to names the receiving address; the server holds
-    # no key on Base. Base Sepolia is the default, and Base mainnet needs x402_base_allow_mainnet as well.
+    # next to Solana. Off until x402_base_enabled is set and both the Base hot key and the Base cold address are; Base
+    # Sepolia is the default, and Base mainnet needs x402_base_allow_mainnet as well.
     x402_base_enabled: bool = False
     base_network: Literal["base-sepolia", "base-mainnet"] = "base-sepolia"
     x402_base_allow_mainnet: bool = False
     base_rpc_url: str = ""  # empty: the network's public RPC (rate-limited; set a provider's for production)
-    # Where payments go (payTo): an address Unfret controls whose key is never on the server (a hardware wallet).
+    # The Base hot wallet's private key (0x and 64 hex digits): its address is payTo, and the only transactions it
+    # ever signs are USDC sweeps to the cold address, paying their gas from its own small ETH balance.
+    x402_base_hot_key: SecretStr = SecretStr("")
+    # Optional: the hot wallet's address, as a check that the right key is deployed (a mismatch leaves Base off,
+    # misconfigured). payTo is always the key's own address.
     base_pay_to: str = ""
-    # Where base_pay_to is swept by hand, if it isn't the cold wallet itself (empty: base_pay_to is the cold
-    # wallet). The outflow audit accepts USDC transfers from base_pay_to to this address only.
+    # The Base cold wallet: sweep destination only, the server never holds its key. A plain public address, not tied
+    # to the hot key: swapping it (software wallet now, hardware wallet later) needs only this setting, plus the old
+    # one in base_former_cold_addresses.
     base_cold_address: str = ""
+    # Earlier Base cold addresses (comma-separated), after base_cold_address changed: the outflow audit accepts USDC
+    # sweeps to them made before base_former_cold_until (and before this process started), as Solana's does.
+    base_former_cold_addresses: Annotated[list[str], NoDecode] = []
+    base_former_cold_until: datetime | None = None
+    # Sweep the hot wallet's USDC to cold once it holds this much ($5), or at least the dust amount ($0.50) when
+    # nothing was swept for base_usdc_sweep_max_interval_s.
+    base_usdc_sweep_threshold_units: int = Field(default=5_000_000, gt=0)
+    base_usdc_sweep_dust_units: int = Field(default=500_000, gt=0)
+    base_usdc_sweep_max_interval_s: float = Field(default=24 * 3600.0, gt=0)
+    # Gas: alert (fee_reserve_low) while the hot wallet holds less ETH than this (0.00001 ETH: several sweeps on
+    # Base); a sweep waits for gas above base_max_fee_per_gas_wei (1 gwei) and never sets a gas limit above
+    # base_sweep_max_gas.
+    base_min_gas_wei: int = Field(default=10_000_000_000_000, ge=0)
+    base_max_fee_per_gas_wei: int = Field(default=1_000_000_000, gt=0)
+    base_sweep_max_gas: int = Field(default=120_000, ge=21_000)
     base_usdc_address: str = ""  # override Circle's USDC contract for the network (tests)
     # Coinbase's facilitator (CDP) needs an API key (cdp_api_key_id and an Ed25519 cdp_api_key_secret); another
     # facilitator URL (https://x402.org/facilitator: testnet only, no key) needs none.
     base_facilitator_url: str = "https://api.cdp.coinbase.com/platform/v2/x402"
     cdp_api_key_id: str = ""
     cdp_api_key_secret: SecretStr = SecretStr("")
-    # Alert once base_pay_to holds more than this while it isn't the cold wallet (a sweep by hand is due).
-    base_sweep_alert_units: int = 50_000_000
-    # The outflow audit reads base_pay_to's USDC logs up to this many blocks behind the head (reorg margin).
+    # The outflow audit reads the hot wallet's USDC logs up to this many blocks behind the head (reorg margin).
     base_audit_confirmations: int = 5
 
     log_json: bool = True  # one JSON object per line (False: human-readable, for local development)
@@ -397,7 +428,30 @@ class Settings(BaseSettings):
                 addresses.append(item)
         return addresses
 
-    @field_validator("former_cold_until", mode="before")
+    @field_validator("base_former_cold_addresses", mode="before")
+    @classmethod
+    def _base_former_cold_addresses(cls, value: Any) -> Any:
+        """
+        Read ``UNFRET_BASE_FORMER_COLD_ADDRESSES`` as a comma-separated list, and refuse anything but EVM addresses.
+
+        :param value: The raw value: a string from the environment, or a list.
+        :return: The addresses, checksummed, without empty entries or duplicates.
+        :raises ValueError: If an entry isn't an EVM address (or its checksum is wrong).
+        """
+        items = value.split(",") if isinstance(value, str) else list(value or [])
+        addresses: list[str] = []
+        for item in (str(i).strip() for i in items):
+            if not item:
+                continue
+            try:
+                address = parse_address(item)
+            except ValueError:
+                raise ValueError(f"base_former_cold_addresses: {item[:60]!r} is not an EVM address") from None
+            if address not in addresses:
+                addresses.append(address)
+        return addresses
+
+    @field_validator("former_cold_until", "base_former_cold_until", mode="before")
     @classmethod
     def _former_cold_until_empty(cls, value: Any) -> Any:
         """
@@ -408,7 +462,7 @@ class Settings(BaseSettings):
         """
         return value or None
 
-    @field_validator("former_cold_until", mode="after")
+    @field_validator("former_cold_until", "base_former_cold_until", mode="after")
     @classmethod
     def _former_cold_until(cls, value: datetime | None) -> datetime | None:
         """
@@ -448,6 +502,25 @@ class Settings(BaseSettings):
             problems.append("former_cold_addresses needs former_cold_until (when sweeps to them stopped)")
         if self.cold_address in self.former_cold_addresses:
             problems.append("the cold address can't also be a former cold address")
+        if problems:
+            raise ValueError("inconsistent settings: " + "; ".join(problems))
+        return self
+
+    @model_validator(mode="after")
+    def _base_consistent(self) -> Self:
+        """
+        Refuse contradictory settings for x402 on Base.
+
+        :return: The settings.
+        :raises ValueError: Listing every contradiction found.
+        """
+        problems = []
+        if self.base_former_cold_addresses and self.base_former_cold_until is None:
+            problems.append("base_former_cold_addresses needs base_former_cold_until (when sweeps to them stopped)")
+        if self.base_cold_address.strip().lower() in {a.lower() for a in self.base_former_cold_addresses}:
+            problems.append("the Base cold address can't also be a former cold address")
+        if self.base_usdc_sweep_dust_units > self.base_usdc_sweep_threshold_units:
+            problems.append("need base_usdc_sweep_dust_units <= base_usdc_sweep_threshold_units")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
@@ -511,7 +584,7 @@ class Settings(BaseSettings):
             "network": self.solana_network,
             "x402": bool(self.hot_wallet_key.get_secret_value() and self.cold_address),
             "mainnet_allowed": self.x402_allow_mainnet,
-            "x402_base": self.base_network if self.x402_base_enabled and self.base_pay_to else "off",
+            "x402_base": self.base_network if self.base_configured else "off",
             "base_mainnet_allowed": self.x402_base_allow_mainnet,
             "sign_in": bool(self.session_secret.get_secret_value()),
             "admin_token": bool(self.admin_token.get_secret_value()),
@@ -524,6 +597,17 @@ class Settings(BaseSettings):
             "quote_tolerance_bps": self.quote_tolerance_bps,
             "pyth_account": self.pyth_sol_usd_account,
         }
+
+    @property
+    def base_configured(self) -> bool:
+        """
+        Whether x402 on Base is switched on with its hot key and cold address (it may still refuse to run).
+
+        :return: ``True`` if all three are set.
+        """
+        return bool(
+            self.x402_base_enabled and self.x402_base_hot_key.get_secret_value().strip() and self.base_cold_address
+        )
 
     @property
     def polar_product_ids(self) -> dict[int, str]:

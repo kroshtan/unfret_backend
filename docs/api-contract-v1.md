@@ -938,7 +938,8 @@ client are unchanged.
 - Operator (admin token): `GET /v1/admin/objections[?limit=]` → `{"open", "items": [{"id", "kind", "site",
   "message", "reply_to", "received_on"}]}` (oldest first), `DELETE /v1/admin/objections/{id}` → `{"deleted": true}`.
   Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
-- Pages: `/about`, `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
+- Pages: `/about`, `/why` ("Why Unfret?": questions to ask any checker, Unfret next to free scam checkers and AI
+  assistants, a Fakespot alternative), `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
   `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.
@@ -1116,6 +1117,80 @@ and clients show what is there.
 - The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
   before an agent buys). Clients don't parse it.
 
+## Changes (ownership proof for x402 directories; backwards-compatible)
+
+- While x402 is on, the OpenAPI document has top-level `x-agentcash-provenance: {"ownershipProofs": [...]}` and
+  `x-discovery: {"ownershipProofs": [...]}`, and `/.well-known/x402` a top-level `ownershipProofs` (its other fields
+  are unchanged). Each proof is the public origin (`https://unfret.net`, no trailing slash) signed by a `payTo` key:
+  for Solana the hot wallet's ed25519 signature over the origin's UTF-8 bytes, base58. x402scan verifies it against
+  the `payTo` of the 402's options. With x402 off the fields are absent (the OpenAPI snapshot, taken with x402 off,
+  is unchanged).
+
+## Changes (x402 on Base: a hot wallet swept to cold; behind `UNFRET_X402_BASE_ENABLED`, still off)
+
+- Base's treasury now matches Solana's: `payTo` in the Base option of the 402 and in `/.well-known/x402` `networks` is
+  the Base hot wallet (the address of `UNFRET_X402_BASE_HOT_KEY`), which the server sweeps, as USDC, to the cold
+  address (`UNFRET_BASE_COLD_ADDRESS`). Clients pay exactly as before: whatever `payTo` the 402 names. With Base off
+  nothing changes, the 402 included.
+- `GET /v1/health/ready` with the operator token: `base_pay_to_usdc_units` becomes `base_hot_usdc_units`, and
+  `base_hot_eth_wei` (the hot wallet's ETH for the sweeps' gas) is new (snapshot updated). `x402_base_alerts` drops
+  `base_sweep_due` and gains `fee_reserve_low`, `usdc_above_threshold` and `sweep_failing` (as Solana's). The public
+  fields are unchanged.
+- `GET /v1/admin/x402/alerts`: `base` gains `cold` and `eth_wei`; a flag's `signature` is a transaction hash, or the
+  nonces (`nonce 3-4`) or blocks a flag covers.
+- With Base on, `ownershipProofs` (above) gains a second proof: the origin signed by the Base hot wallet, EIP-191
+  (`personal_sign`), `0x`-prefixed hex, after Solana's. x402scan recovers the signer and compares it with Base's
+  `payTo`.
+
+## Changes (a quick result can be reported; backwards-compatible)
+
+- A `"tier": "quick"` result of `POST /v1/analyze` and `/v1/analyze/stream` now carries a `report_token` too, for an
+  account (a pass or a wallet's session); a quick check without `Authorization` still gets none, since reports are
+  per account (the monthly limit, the reward). It never carries a `share_token`.
+- `POST /v1/reports` is unchanged: send back the analysed request exactly as sent, `"tier": "quick"` included. The
+  token binds the tier, so a quick result can't be reported as a deep one (400 `BAD_REPORT_TOKEN`); deep tokens are
+  as before. The same limits apply (5 per account per month, one per page, consent, scrubbing); the queued item
+  records the tier.
+
+## Changes (a quick result says whether a deep check is worth it; backwards-compatible)
+
+Quick results (`"tier": "quick"` on `POST /v1/analyze`, its stream's `result` event, and `POST /v1/check`, with x402
+or a pass, so also the MCP tools' `verdict`) add an optional **`deep_check`**: on `/v1/analyze` inside `verdict`, on
+`/v1/check` at the top level of the verdict. It is worked out from the quick result alone and never changes it: the
+rest of a quick answer is byte for byte what it was. Deep results, pages that couldn't be assessed, cached results from
+before this change and older servers have no `deep_check` (or `null`); clients show nothing then.
+
+- `{"suggested": bool, "reason", "quiet": bool, "adds": [{"key", "area", "label"}], "text", "cost", "action",
+  "action_label"}`.
+- **When**: `concerns` ("Worth a look") or `careful` ("Think twice"): suggested, `reason: "on_the_fence"`. `reliable`
+  ("Looks fine"): suggested with `quiet: true`, `reason: "unknown_seller"` (a quick check can't see a weeks-old domain
+  or a supplier's photo), except on a big marketplace's own listing: a page the quick check classifies as
+  `aggregate_listing` (Amazon, bol.com, Walmart) that the listing skill doesn't call a reseller's (the seller is the
+  brand, the marketplace's retail arm, or not named): not suggested, `reason: "known_seller"`. Whether a web shop is a
+  known brand's own takes outside evidence (Wikidata, the AI read) that only a deep check looks up, so a web shop that
+  looks fine gets the quiet suggestion. `junk_or_scam` ("Serious concerns"): never (`reason: "serious_concerns"`; the
+  advice is already to buy elsewhere). A page where a deep check would add nothing: `reason: "nothing_to_add"`.
+- **`adds`** (at most 2): what a deep check would look at on this page that the quick one left out, an area with a
+  concern first: `shop_age` "how old this shop is" (web shops), `photo_elsewhere` "whether its product photo appears
+  on other shops" (a photo on the page), `reviews` "whether its reviews look genuine" (reviews on the page), `brand`
+  "whether the brand is known beyond this page" (a brand named), `price_history` "whether its 'was' price was ever
+  really charged" (a struck-through price), `vat_register` "whether its VAT number is in the EU register" (a VAT
+  number shown). An ad or a provider's profile on a known platform (which a quick check reads as a shop's page, and a
+  deep check, with the page classes beyond products on, as what it is): `seller_profile`, `ad_photos`, `ad_price`;
+  `provider_profile`, `service_terms`. `area` is the `checklist` key it belongs to. New keys may be added; show `label`.
+- **`text`**: "A deep check also looks at how old this shop is and whether its product photo appears on other
+  shops." (empty when not suggested).
+- **`cost`**, `action` (`run_deep` | `get_checks`) and `action_label` ("Run a deep check" | "Get checks"), only when
+  suggested, for this caller (a cached quick result is priced per request): a pass with free checks (today's not all
+  used) "Uses 1 of your N free deep checks." / "Uses your last free deep check."; bought checks "Uses 1 check (you
+  have N)."; neither "Deep checks come in packs, from $6 for 25." (the smallest pack's card price, from the settings),
+  or, with only free checks while today's are all used, "Free deep checks are back at 00:00 UTC. Deep checks also
+  come in packs, from $6 for 25." (`get_checks`). `/v1/check` paid with x402: "A deep check of this page costs $0.20."
+  (the deep tier's price). Running it is a normal deep check of the same page, charged as always.
+- Clients show it once, under the quick result, with one button (`action_label`): `run_deep` runs a deep check of the
+  same page, `get_checks` opens the checkout. Quietly when `quiet`. No timers, no colour of its own.
+- OpenAPI snapshot updated (`DeepCheck`, `DeepCheckAdd`).
+
 ## Changes (`/v1/check`: the 402 before body validation; backwards-compatible)
 
 - A `POST /v1/check` without `PAYMENT-SIGNATURE` and without `Authorization: Bearer …` now always answers the x402
@@ -1128,4 +1203,5 @@ and clients show what is there.
   settled or charged for an invalid body.
 - The OpenAPI document (snapshot updated) has `info.contact.email` (`hello@unfret.net`) and a top-level
   `x-agentcash-guidance: {"llmsTxtUrl": "<base URL>/llms.txt"}`, which x402scan reads; `POST /v1/check`'s description
-  says that the 402 comes first. Request and response schemas are unchanged.
+  says that the 402 comes first. Request and response schemas, and the ownership proofs (`x-agentcash-provenance`,
+  `x-discovery`), are unchanged.

@@ -51,6 +51,7 @@ ALL_FINDINGS = [
     Finding(skill="dark_patterns", type="preticked_addon", evidence='Pre-ticked paid add-on: "Shipping protection".'),
     Finding(skill="reviews", type="review_velocity", evidence="4,800 ratings since 2026-10-01 (120.0 per day)."),
     Finding(skill="content", type="implausible_claim", evidence="99% Minder bacterien"),
+    Finding(skill="dark_patterns", type="fee", evidence="A service fee of €2.95 is added to every order"),
 ]
 FACTS = PageFacts(
     title="INSOON Dinosaurus Museum Book Nook bouwspeelgoedset, boekenend bouwstenen kit, jongens en meisjes",
@@ -402,6 +403,32 @@ def test_a_verdict_below_looks_fine_always_names_a_reason(score: int) -> None:
     assert [r.title for r in verdict.reasons] == ["Several small signals"]
 
 
+@pytest.mark.parametrize("score", [79, 60, 50])
+def test_worth_a_look_needs_something_to_look_at_with_a_scorer_that_says_so(score: int) -> None:
+    # A score in the "Worth a look" range with no reason at all (what well-known shops got): nothing to show.
+    assert build(score, {}, confidence=0.3).band == "concerns"  # the open baseline's scorer doesn't say so
+    verdict = build(score, {}, confidence=0.3, needs_reason=True)
+    assert verdict.band == "reliable" and not verdict.reasons
+    assert build(score, {"dark_patterns.preticked_addons": 1.0}, confidence=0.3, needs_reason=True).band == "concerns"
+    # Something missing from the page is its one note, not a reason to look twice.
+    verdict = build(score, {"content.missing_trust_info": 0.8}, confidence=0.3, needs_reason=True)
+    assert verdict.band == "reliable" and [r.type for r in verdict.reasons] == ["missing_trust_info"]
+    assert build(score, {"dark_patterns.timer": 1.0}, confidence=0.3, needs_reason=True).band == "concerns"
+
+
+def test_the_quick_tier_says_worth_a_look_only_with_something_concrete() -> None:
+    absences = {"eu_registry.withdrawal_right": 0.0, "dark_patterns.timer": 1.0}
+
+    def quick(score: int, features: dict[str, float]) -> str:
+        return build(score, features, confidence=0.1, concrete_only=True, needs_reason=True).band
+
+    assert quick(44, absences) == "reliable"
+    assert quick(70, {}) == "reliable"
+    assert quick(44, absences | {"listing.discount_pct": 0.7}) != "reliable"
+    assert quick(10, absences) == "concerns"  # unless its scorer put the page among the worst
+    assert build(44, absences, confidence=0.1, concrete_only=True).band == "concerns"
+
+
 def test_service_and_ad_verdicts_below_looks_fine_always_name_a_reason() -> None:
     for page_type in ("service_site", "service_listing"):
         _, verdict = services.build(features={}, findings=[], facts=PageFacts(), page_type=page_type)
@@ -413,3 +440,12 @@ def test_service_and_ad_verdicts_below_looks_fine_always_name_a_reason() -> None
 
     _, ad = shopper_p2p.build(features={}, findings=[], facts=PageFacts())
     assert ad.band == "concerns" and [r.type for r in ad.reasons] == ["p2p_little_known"]
+
+
+def test_shipping_worked_out_at_checkout_is_not_a_late_fee() -> None:
+    # Almost every shop works out shipping at checkout; only a fee on top of the price is "costs revealed later".
+    features = {"dark_patterns.fee_mentions": 1.0}
+    shipping = [Finding(skill="dark_patterns", type="fee", evidence="Taxes and shipping calculated at checkout.")]
+    assert "late_fees" not in {r.type for r in build(40, features, findings=shipping).reasons}
+    fee = [Finding(skill="dark_patterns", type="fee", evidence="A handling fee of $4.99 applies to all orders")]
+    assert "late_fees" in {r.type for r in build(40, features, findings=fee).reasons}

@@ -167,6 +167,14 @@ _GROUPS = (
     ("returns_abroad", "return_address_withheld"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+# A fee on top of the price ("service fee", "Bearbeitungsgebühr"): "costs revealed later". Shipping costs worked out
+# at checkout ("shipping calculated at checkout", "verzendkosten", "zzgl. Versand") are how almost every shop works,
+# and said far more often by legitimate shops than by scams, so they aren't a reason on their own.
+_EXTRA_FEE_RE = re.compile(
+    r"(?:service|handling|processing|booking|convenience|admin(?:istration)?) fee|servicekosten|administratiekosten"
+    r"|bearbeitungsgebühr|servicegebühr|frais de (?:service|dossier|traitement)|gastos de gestión|spese di gestione",
+    re.IGNORECASE,
+)
 _NUMBERS_RE = re.compile(r"\d+(?:\.\d+)?")
 _QUOTED_RE = re.compile(r'"([^"]{1,150})"')
 
@@ -237,6 +245,48 @@ class SameProduct(BaseModel):
     )
 
 
+DeepCheckReason = Literal["on_the_fence", "unknown_seller", "serious_concerns", "known_seller", "nothing_to_add"]
+
+
+class DeepCheckAdd(BaseModel):
+    """One thing a deep check would look at on this page that the quick check left out."""
+
+    key: str = Field(
+        description="shop_age, photo_elsewhere, reviews, brand, price_history, vat_register (shops and marketplace "
+        "listings); seller_profile, ad_photos, ad_price (ads); provider_profile, service_terms (service platforms)."
+    )
+    area: str = Field(description="The checklist area it belongs to (a CheckItem key).")
+    label: str = Field(description='In words, to follow "A deep check also looks at": "how old this shop is".')
+
+
+class DeepCheck(BaseModel):
+    """
+    On a quick result only: whether a deep check of the same page is worth suggesting, and what it would add.
+
+    Worked out from the quick result alone; it never changes the quick verdict.
+    """
+
+    suggested: bool
+    reason: DeepCheckReason = Field(
+        description="Why (not): on_the_fence (Worth a look, Think twice), unknown_seller (Looks fine, but the quick "
+        "check can't see who is behind the page); serious_concerns (the advice is already to buy elsewhere), "
+        "known_seller (a big marketplace's own or the brand's listing), nothing_to_add."
+    )
+    quiet: bool = Field(default=False, description="Show it quietly (Looks fine): as a note, not a call to action.")
+    adds: list[DeepCheckAdd] = Field(default_factory=list, max_length=3, description="What a deep check adds here.")
+    text: str = Field(default="", description='"A deep check also looks at …" (empty when not suggested).')
+    cost: str | None = Field(
+        default=None,
+        description='What a deep check would cost this caller, in words: "Uses 1 of your 3 free deep checks.", "Uses '
+        '1 check (you have 12).", "Deep checks come in packs, from $6.00 for 25."; on /v1/check paid with x402, the '
+        "deep tier's price.",
+    )
+    action: Literal["run_deep", "get_checks"] | None = Field(
+        default=None, description="run_deep: the caller can run it now (tier deep); get_checks: it needs checks first."
+    )
+    action_label: str | None = Field(default=None, description='"Run a deep check" or "Get checks".')
+
+
 class Verdict(BaseModel):
     """The shopper-facing result of an analysis."""
 
@@ -255,6 +305,10 @@ class Verdict(BaseModel):
     next_step: NextStep | None = Field(default=None, description="One suggested next step.")
     same_product: SameProduct | None = Field(
         default=None, description="A likely same product on another shop, shown first (with both photos)."
+    )
+    deep_check: DeepCheck | None = Field(
+        default=None,
+        description="Quick results only: whether a deep check of this page is worth it and what it would add.",
     )
 
 
@@ -468,7 +522,11 @@ def _pressure(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["preticked_addon"] = {"label": _quoted(e.first("preticked_addon")) or "…"}
     if e.f("dark_patterns.checkout_markup_pct") >= 0.1:
         fired["drip_pricing"] = {"pct": _pct(e.f("dark_patterns.checkout_markup_pct"))}
-    if e.storefront and e.f("dark_patterns.fee_mentions") >= 1:
+    if (
+        e.storefront
+        and e.f("dark_patterns.fee_mentions") >= 1
+        and any(_EXTRA_FEE_RE.search(f.evidence) for f in e.findings.get("fee", []))
+    ):
         fired["late_fees"] = {}
     if e.f("content.scam_copy") >= 0.6:
         fired["pushy_copy"] = {}
@@ -518,7 +576,10 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     # so as a reason it's only said on marketplace listings, where it means white-label goods. The model still
     # weighs it everywhere.
     llm_says_generic = e.marketplace and e.f("content.generic_brand") >= settings.verdict_llm_signal_min
-    if (llm_says_generic or e.first("brand_name")) and not _brand_exists(e):
+    # A name that merely looks generated (a retailer's own label in capitals) is said on a shop's own page only
+    # with other signs of a resold supplier product: the quick tier has no content read to know the brand.
+    looks_generated = e.first("brand_name") is not None and (e.marketplace or _resale_context(e, brand_name=False))
+    if (llm_says_generic or looks_generated) and not _brand_exists(e):
         fired["generic_brand"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
     if e.f("content.generic_product") >= 0.7:
         fired["generic_product"] = {}
@@ -568,13 +629,13 @@ def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         }
 
 
-def _resale_context(e: _Evidence) -> bool:
-    """Signs that a product is a resold supplier item rather than a brand's own."""
+def _resale_context(e: _Evidence, *, brand_name: bool = True) -> bool:
+    """Signs that a product is a resold supplier item rather than a brand's own (``brand_name``: its name counts)."""
     return (
         e.f("domain_age.under_6_months") >= 1
         or e.f("content.generic_product") >= 0.5
         or e.f("content.title_word_soup") >= 0.5
-        or e.f("listing.generated_brand") >= 0.5
+        or (brand_name and e.f("listing.generated_brand") >= 0.5)
         or e.f("html_source_signals.dropship_app") >= 1
         or e.f("html_source_signals.supplier_trace") >= 1
         or e.f("shop_links.linked_young_shops") >= 1
@@ -798,6 +859,43 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     return fired
 
 
+def _with_reasons(
+    band: Band, score: int, fired: set[str], confidence: float | None, *, concrete_only: bool, needs_reason: bool
+) -> Band:
+    """
+    The band once the reasons are known: no warning on absences alone when unsure, no "Worth a look" at nothing.
+
+    :param band: The band from the score.
+    :param score: The 0–100 reliability score.
+    :param fired: The reasons that fired.
+    :param confidence: The scorer's confidence, or ``None``.
+    :param concrete_only: The quick tier.
+    :param needs_reason: "Worth a look" needs something to show (the scorer's say).
+    :return: The band (see :func:`build`).
+    """
+    unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
+    not_enough = _QUICK_NOT_ENOUGH_ALONE if concrete_only else frozenset(ABSENCE_REASONS)
+    if band in {"careful", "junk_or_scam"} and unsure and fired <= not_enough:
+        band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
+    if band == "concerns" and needs_reason and _nothing_to_show(score, fired, concrete_only=concrete_only):
+        band = "reliable"  # "Worth a look" at what? Not without something to show the shopper
+    return band
+
+
+def _nothing_to_show(score: int, fired: set[str], *, concrete_only: bool) -> bool:
+    """
+    Whether a "Worth a look" page has nothing to show for it (see :func:`build`).
+
+    :param score: The 0–100 reliability score.
+    :param fired: The reasons that fired.
+    :param concrete_only: The quick tier.
+    :return: ``True`` when the page should read "Looks fine" instead.
+    """
+    if concrete_only:
+        return score >= settings.verdict_careful_min and fired <= _QUICK_NOT_ENOUGH_ALONE
+    return score >= settings.verdict_concerns_min and fired <= set(ABSENCE_REASONS)
+
+
 def _reason(key: str, params: dict[str, str]) -> Reason:
     copy = catalogue()["reasons"][key]
     thumbnails = params.get("thumbnails", "").split()
@@ -877,6 +975,7 @@ def build(
     market: str = "eu",
     confidence: float | None = None,
     concrete_only: bool = False,
+    needs_reason: bool = False,
 ) -> Verdict:
     """
     Build the shopper verdict for an analysed page.
@@ -897,6 +996,14 @@ def build(
     The other way round, a web shop showing a VAT number that can't exist (a ``vat_fake`` finding) is "careful" at
     best, however good the rest looks.
 
+    With ``needs_reason`` (a scorer whose artifact says so, :attr:`unfret.scoring.Model.needs_reason`), "Worth a
+    look" (``concerns``) also needs something to look at: a page the scorer puts there (a score from
+    ``verdict_concerns_min``) with no reason, or only things missing from the page (:data:`ABSENCE_REASONS`, shown
+    as its one note), is "Looks fine". With ``concrete_only`` a page that is "concerns" with no concrete reason (only
+    :data:`_QUICK_NOT_ENOUGH_ALONE`) is "Looks fine" too, unless the scorer put it below ``verdict_careful_min``: the
+    quick tier's scorer reads too little to tell a well-known shop from a fake one by itself (on the corpus's golden
+    set of well-known sellers it called most pages "Worth a look").
+
     :param score: The 0–100 reliability score.
     :param features: The skill features from the graph state.
     :param findings: The skill findings.
@@ -906,6 +1013,7 @@ def build(
     :param market: The shop's market (:func:`unfret.market.shop_market`), for reasons that depend on its law.
     :param confidence: The scorer's confidence (:class:`unfret.scoring.Assessment`); ``None`` without a scorer.
     :param concrete_only: Never warn without a concrete reason, whatever the scorer's confidence.
+    :param needs_reason: "Worth a look" only with something to show for it (see above).
     :return: The verdict.
     """
     evidence = _evidence(features, findings, facts, page_type, market)
@@ -915,10 +1023,7 @@ def build(
         band = "careful"  # "Serious concerns" only when the scorer is sure; otherwise "Think twice"
 
     fired = _fired(evidence)
-    unsure = concrete_only or (confidence is not None and confidence < settings.verdict_absence_only_min_confidence)
-    not_enough = _QUICK_NOT_ENOUGH_ALONE if concrete_only else frozenset(ABSENCE_REASONS)
-    if band in {"careful", "junk_or_scam"} and unsure and set(fired) <= not_enough:
-        band = "concerns"  # nothing concrete to point at, and the scorer isn't sure: don't warn on absences alone
+    band = _with_reasons(band, score, set(fired), confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):

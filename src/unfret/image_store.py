@@ -11,6 +11,11 @@ A lookup finds rows whose pHash is close (in SQL), keeps those whose dHash, embe
 drops the photo's own shop (a shop reusing its photos is normal) and the same listing (a listing that changes is an
 update, not a duplicate). A photo found on more than :data:`STOP_DOMAINS` shops is a stock image, logo or
 placeholder, not evidence: it matches nothing. Matches are direct (photo to photo), never chained.
+
+Each analysis row also keeps where it was seen and how many independent sources reported that photo for that listing
+(:mod:`unfret.observations`). Lookups see only rows seen on a page Unfret fetched itself, or corroborated (and the
+catalogue): a forged page that puts another shop's photo on made-up shops neither matches it nor makes it a stock
+photo, and never replaces a listing's photo that counts.
 """
 
 import hashlib
@@ -21,9 +26,11 @@ from urllib.parse import urlsplit
 
 import asyncpg
 
+from unfret import observations
 from unfret.facts import PageFacts
 from unfret.image_index import THRESHOLDS, ImagePrint, Thresholds, hamming, same_photo
 from unfret.net import hostname
+from unfret.observations import Kept
 from unfret.price_store import product_id, registrable_domain
 
 Source = Literal["seen", "abo"]
@@ -86,8 +93,8 @@ def listing(url: str, facts: PageFacts) -> Listing | None:
     return Listing(domain, hashlib.sha256(f"{domain}|{pid}".encode()).digest())
 
 
-class ImageStore(Protocol):
-    """Where the index lives: Postgres in production, memory in tests."""
+class Candidates(Protocol):
+    """What a lookup needs of an index: the real one, or the test shop's (:mod:`unfret.test_shop_photos`)."""
 
     async def candidates(self, phash: int, max_distance: int) -> list[StoredPrint]:
         """
@@ -95,14 +102,30 @@ class ImageStore(Protocol):
 
         :param phash: The query hash.
         :param max_distance: The largest Hamming distance.
-        :return: Up to a few hundred rows.
+        :return: Up to a few hundred rows (catalogue rows, and analysis rows that count).
         """
 
+
+class ImageStore(Candidates, Protocol):
+    """Where the index lives: Postgres in production, memory in tests."""
+
     async def upsert(
-        self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> int:
+        self,
+        where: Listing,
+        fp: ImagePrint,
+        *,
+        image_url: str,
+        day: date,
+        source: Source,
+        label: str | None = None,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> int | None:
         """
-        Store a listing's main photo, replacing the listing's previous one.
+        Store a listing's main photo, replacing the listing's previous one as :func:`unfret.observations.merge` says.
+
+        The same photo adds the observation's provenance and source. A different photo replaces the old one, unless
+        the old one counts and the new one doesn't (then nothing changes).
 
         :param where: The listing.
         :param fp: The photo's fingerprints.
@@ -110,7 +133,9 @@ class ImageStore(Protocol):
         :param day: Today.
         :param source: ``seen`` or ``abo``.
         :param label: The catalogue brand (seed rows).
-        :return: The row's ID (for its thumbnail).
+        :param bits: The observation's provenance bits (:mod:`unfret.observations`).
+        :param vouch: 1 when a new source reports it.
+        :return: The row's ID (for its thumbnail), or ``None`` when the row kept another photo.
         """
 
     async def image_url(self, print_id: int) -> str | None:
@@ -135,7 +160,12 @@ class MemoryImageStore:
     def __init__(self) -> None:
         """Start empty."""
         self.rows: dict[tuple[str, bytes], tuple[StoredPrint, str, date, date]] = {}
+        self.kept: dict[tuple[str, bytes], Kept] = {}  # each row's provenance (rows without one count)
         self._next = 1
+
+    def _counts(self, row: StoredPrint) -> bool:
+        kept = self.kept.get((row.domain, row.listing_key))
+        return row.source != "seen" or kept is None or observations.counts(kept.bits, kept.sources)
 
     async def candidates(self, phash: int, max_distance: int) -> list[StoredPrint]:
         """
@@ -145,13 +175,23 @@ class MemoryImageStore:
         :param max_distance: The largest distance.
         :return: The rows within it.
         """
-        return [r for r, *_ in self.rows.values() if hamming(r.print.phash, phash) <= max_distance][:_CANDIDATES]
+        rows = [r for r, *_ in self.rows.values() if hamming(r.print.phash, phash) <= max_distance and self._counts(r)]
+        return rows[:_CANDIDATES]
 
     async def upsert(
-        self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> int:
+        self,
+        where: Listing,
+        fp: ImagePrint,
+        *,
+        image_url: str,
+        day: date,
+        source: Source,
+        label: str | None = None,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> int | None:
         """
-        Store or replace.
+        Store or replace, merged as the Postgres store does.
 
         :param where: The listing.
         :param fp: The fingerprints.
@@ -159,10 +199,21 @@ class MemoryImageStore:
         :param day: Today.
         :param source: The source.
         :param label: The brand.
-        :return: The row's ID.
+        :param bits: The provenance bits.
+        :param vouch: 1 for a new source.
+        :return: The row's ID, or ``None`` when it kept another photo.
         """
         key = (where.domain, where.listing_key)
         old = self.rows.get(key)
+        before = (self.kept.get(key) or Kept(observations.LEGACY, 0)) if old else None
+        same = old is not None and same_photo(fp, old[0].print)
+        action, kept = observations.merge(before, bits, vouch, same=same, newer_wins=True)
+        self.kept[key] = kept
+        if old and action == "keep":
+            return None
+        if old and action == "vouch" and not bits & observations.TRUSTED_BITS:  # the same photo: keep the row's
+            self.rows[key] = (*old[:3], day)
+            return old[0].id
         row_id = old[0].id if old else self._next
         self._next += 0 if old else 1
         stored = StoredPrint(row_id, source, where.domain, where.listing_key, fp, label)
@@ -191,6 +242,7 @@ class MemoryImageStore:
             for k, v in self.rows.items()
             if v[0].source != "seen" or v[3] >= (ad_cutoff if v[0].domain in _AD_DOMAINS else cutoff)
         }
+        self.kept = {k: v for k, v in self.kept.items() if k in self.rows}
 
 
 class PostgresImageStore:
@@ -214,10 +266,12 @@ class PostgresImageStore:
         """
         rows: list[Any] = await self.pool.fetch(
             "SELECT id, source, domain, listing_key, phash, dhash, embedding, colour, label FROM image_prints "
-            "WHERE bit_count((phash # $1)::bit(64)) <= $2 LIMIT $3",
+            "WHERE bit_count((phash # $1)::bit(64)) <= $2"
+            " AND (source <> 'seen' OR provenance & $4 <> 0 OR sources >= $5) LIMIT $3",
             phash,
             max_distance,
             _CANDIDATES,
+            *observations.trusted_params(),
         )
         return [
             StoredPrint(
@@ -232,10 +286,19 @@ class PostgresImageStore:
         ]
 
     async def upsert(
-        self, where: Listing, fp: ImagePrint, *, image_url: str, day: date, source: Source, label: str | None = None
-    ) -> int:
+        self,
+        where: Listing,
+        fp: ImagePrint,
+        *,
+        image_url: str,
+        day: date,
+        source: Source,
+        label: str | None = None,
+        bits: int = observations.DEFAULT_BITS,
+        vouch: int = 0,
+    ) -> int | None:
         """
-        Insert, or replace the listing's photo and refresh its last-seen day.
+        Insert, or merge into the listing's row (:func:`unfret.observations.merge`) and refresh its last-seen day.
 
         :param where: The listing.
         :param fp: The fingerprints.
@@ -243,26 +306,67 @@ class PostgresImageStore:
         :param day: Today.
         :param source: The source.
         :param label: The brand.
-        :return: The row's ID.
+        :param bits: The provenance bits.
+        :param vouch: 1 for a new source.
+        :return: The row's ID, or ``None`` when it kept another photo.
         """
-        row_id: int = await self.pool.fetchval(
-            "INSERT INTO image_prints (source, domain, listing_key, phash, dhash, embedding, colour, image_url,"
-            " label, first_seen, last_seen) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10) "
-            "ON CONFLICT (domain, listing_key) DO UPDATE SET phash = EXCLUDED.phash, dhash = EXCLUDED.dhash,"
-            " embedding = EXCLUDED.embedding, colour = EXCLUDED.colour, image_url = EXCLUDED.image_url,"
-            " last_seen = EXCLUDED.last_seen RETURNING id",
-            source,
-            where.domain,
-            where.listing_key,
-            fp.phash,
-            fp.dhash,
-            fp.embedding,
-            fp.colour,
-            image_url[:1000],
-            label,
-            day,
-        )
-        return row_id
+        async with self.pool.acquire() as conn, conn.transaction():
+            row_id: int | None = await conn.fetchval(
+                "INSERT INTO image_prints (source, domain, listing_key, phash, dhash, embedding, colour, image_url,"
+                " label, first_seen, last_seen, provenance, sources)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12) "
+                "ON CONFLICT (domain, listing_key) DO NOTHING RETURNING id",
+                source,
+                where.domain,
+                where.listing_key,
+                fp.phash,
+                fp.dhash,
+                fp.embedding,
+                fp.colour,
+                image_url[:1000],
+                label,
+                day,
+                bits,
+                vouch,
+            )
+            if row_id is not None:
+                return row_id
+            old: Any = await conn.fetchrow(
+                "SELECT id, phash, dhash, embedding, colour, provenance, sources FROM image_prints "
+                "WHERE domain = $1 AND listing_key = $2 FOR UPDATE",
+                where.domain,
+                where.listing_key,
+            )
+            print_ = ImagePrint(old["phash"], old["dhash"], bytes(old["embedding"]), bytes(old["colour"]))
+            action, kept = observations.merge(
+                Kept(old["provenance"], old["sources"]), bits, vouch, same=same_photo(fp, print_), newer_wins=True
+            )
+            if action == "keep":
+                return None
+            if action == "vouch" and not bits & observations.TRUSTED_BITS:  # the same photo: keep the row's
+                await conn.execute(
+                    "UPDATE image_prints SET provenance = $2, sources = $3, last_seen = GREATEST(last_seen, $4) "
+                    "WHERE id = $1",
+                    old["id"],
+                    kept.bits,
+                    kept.sources,
+                    day,
+                )
+                return int(old["id"])
+            await conn.execute(
+                "UPDATE image_prints SET phash = $2, dhash = $3, embedding = $4, colour = $5, image_url = $6,"
+                " last_seen = $7, provenance = $8, sources = $9 WHERE id = $1",
+                old["id"],
+                fp.phash,
+                fp.dhash,
+                fp.embedding,
+                fp.colour,
+                image_url[:1000],
+                day,
+                kept.bits,
+                kept.sources,
+            )
+            return int(old["id"])
 
     async def image_url(self, print_id: int) -> str | None:
         """
@@ -290,7 +394,7 @@ class PostgresImageStore:
 
 
 async def lookup(
-    store: ImageStore, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
+    store: Candidates, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
 ) -> Lookup:
     """
     The other shops and listings showing the same photo.
@@ -314,7 +418,7 @@ async def lookup(
 
 
 async def lookup_ad(
-    store: ImageStore, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
+    store: Candidates, fp: ImagePrint, where: Listing | None, thresholds: Thresholds = THRESHOLDS
 ) -> Lookup:
     """
     The other ads and shops showing the same photo as a peer-to-peer ad.

@@ -431,7 +431,13 @@ async def _judge(state: AnalysisState, model_path: Path, *, concrete_only: bool 
     assessment = scoring.score(state.get("features", {}), state.get("findings", []), model)
     if assessment is not None:
         score = round(100 * (1 - assessment.risk_score))
-        verdict = await _verdict(state, score, confidence=assessment.confidence, concrete_only=concrete_only)
+        verdict = await _verdict(
+            state,
+            score,
+            confidence=assessment.confidence,
+            concrete_only=concrete_only,
+            needs_reason=model is not None and model.needs_reason,
+        )
         details = asdict(assessment)
         details["flags"] = shopper.label_flags(details["flags"])
         return {
@@ -460,6 +466,7 @@ async def _verdict(
     confidence: float | None = None,
     *,
     concrete_only: bool = False,
+    needs_reason: bool = False,
 ) -> shopper.Verdict:
     """
     The shopper verdict, with a headline written by the LLM from the verdict's own reasons (or a band template).
@@ -471,6 +478,7 @@ async def _verdict(
     :param headline: A headline already written; skips the LLM.
     :param confidence: The scorer's confidence, when the scorer set the score.
     :param concrete_only: Warn only with a concrete reason (see :func:`shopper.build`).
+    :param needs_reason: "Worth a look" only with a reason to show (the scorer's, see :func:`shopper.build`).
     :return: The verdict.
     """
     verdict = shopper.build(
@@ -483,6 +491,7 @@ async def _verdict(
         market=shop_market(state.get("facts") or PageFacts(), state.get("url", ""), state.get("cleaned_content", "")),
         confidence=confidence,
         concrete_only=concrete_only,
+        needs_reason=needs_reason,
     )
     if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict

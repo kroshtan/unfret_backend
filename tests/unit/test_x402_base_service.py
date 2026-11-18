@@ -21,6 +21,7 @@ from tests.unit.x402_base_helpers import (
     FakeFacilitator,
     base_payload,
     base_settings,
+    hot_key,
     make_base,
     outflow_log,
     settled_receipt,
@@ -69,11 +70,12 @@ def cdp_secret() -> str:
     ("overrides", "status"),
     [
         ({}, "off"),  # the default: off
-        ({"x402_base_enabled": True}, "off"),  # enabled but no payTo
-        ({"base_pay_to": "0x" + "11" * 20}, "off"),  # payTo but not enabled
+        ({"x402_base_enabled": True}, "off"),  # enabled but no hot key
+        ({"x402_base_enabled": True, "x402_base_hot_key": hot_key()}, "off"),  # no cold address
+        ({"x402_base_hot_key": hot_key(), "base_cold_address": COLD.address}, "off"),  # not enabled
     ],
 )
-async def test_off_unless_enabled_with_a_pay_to(overrides: dict[str, Any], status: str) -> None:
+async def test_off_unless_enabled_with_a_hot_key_and_a_cold_address(overrides: dict[str, Any], status: str) -> None:
     service = BaseX402(Settings(**overrides), rpc=FakeBaseRpc())
     assert (await service.health()).status == status
     assert not service.configured
@@ -99,6 +101,12 @@ async def test_mainnet_is_refused_unless_allowed(facilitator: FakeFacilitator) -
         {"base_pay_to": "0x" + "00" * 20},
         {"base_pay_to": "not-an-address"},
         {"base_cold_address": "0x1234"},
+        {"base_cold_address": PAY_TO.address},  # the hot wallet can't be its own cold wallet
+        {"base_pay_to": THIEF},  # set as a check, and the deployed key isn't that address
+        {"x402_base_hot_key": SecretStr("not-a-key")},
+        {"x402_base_hot_key": SecretStr("0x" + "00" * 32)},  # zero isn't a key
+        {"x402_base_hot_key": SecretStr("0x" + "ff" * 32)},  # above the curve order
+        {"base_former_cold_addresses": PAY_TO.address, "base_former_cold_until": "2026-11-16T06:00:00Z"},
         # Coinbase's facilitator without a key, or with an ECDSA (PEM) key instead of Ed25519.
         {"base_facilitator_url": "https://api.cdp.coinbase.com/platform/v2/x402"},
         {
@@ -368,24 +376,25 @@ async def test_settlement_refusals_and_pending(base: BaseX402, facilitator: Fake
 # --- health and the outflow audit ----------------------------------------------------------------------------------
 
 
-async def test_health_reads_pay_tos_usdc_and_pauses_without_the_rpc(base: BaseX402, rpc: FakeBaseRpc) -> None:
+async def test_health_reads_the_hot_wallets_usdc_and_eth_and_pauses_without_the_rpc(
+    base: BaseX402, rpc: FakeBaseRpc
+) -> None:
     rpc.balance = 7_000_000
     health = await base.health()
-    assert (health.status, health.usdc_units, health.alerts) == ("ok", 7_000_000, ())
+    assert (health.status, health.usdc_units, health.eth_wei, health.alerts) == ("ok", 7_000_000, 10**15, ())
     base._balance = None
     rpc.down = True
     assert (await base.health()).status == "rpc_unavailable"
     assert await base.accepts("quick") == []
 
 
-async def test_a_receiving_address_asks_for_a_sweep_by_hand(facilitator: FakeFacilitator) -> None:
-    rpc = FakeBaseRpc()
-    rpc.balance = 60_000_000
-    separate = make_base(base_settings(base_cold_address=COLD.address), rpc, facilitator)
-    assert (await separate.health()).alerts == ("base_sweep_due",)
-    # payTo as the cold wallet itself: holding is the point, nothing to sweep.
-    same = make_base(base_settings(), rpc, facilitator)
-    assert (await same.health()).alerts == ()
+async def test_low_gas_and_piling_usdc_alert_but_dont_pause(base: BaseX402, rpc: FakeBaseRpc) -> None:
+    rpc.eth = 10**13 - 1  # under base_min_gas_wei: sweeps can't pay their gas
+    rpc.balance = 15_000_001  # more than three times the sweep threshold
+    health = await base.health()
+    assert health.alerts == ("fee_reserve_low", "usdc_above_threshold")
+    assert health.status == "ok"  # payments go on: the facilitator pays their gas
+    assert await base.accepts("quick") != []
 
 
 async def test_the_audit_flags_outflows_and_pauses_payments(base: BaseX402, rpc: FakeBaseRpc) -> None:
@@ -393,7 +402,7 @@ async def test_the_audit_flags_outflows_and_pauses_payments(base: BaseX402, rpc:
     rpc.head += 50
     rpc.logs_by_block[rpc.head - 20] = [outflow_log(TRANSFER_TOPIC, PAY_TO.address, THIEF, 5_000_000)]
     issues = await base.audit_outflows()
-    assert issues == [f"USDC transfer of 5000000 from payTo to {THIEF.lower()}"]
+    assert issues == [f"USDC transfer of 5000000 from the hot wallet to {THIEF.lower()}"]
     health = await base.health()
     assert (health.status, health.alerts) == ("compromise_suspected", ("outflow_to_non_cold",))
     assert await base.accepts("quick") == []
@@ -401,13 +410,11 @@ async def test_the_audit_flags_outflows_and_pauses_payments(base: BaseX402, rpc:
     assert (await base.health()).status == "ok"
 
 
-async def test_sweeps_to_cold_spam_and_revocations_are_not_outflows(facilitator: FakeFacilitator) -> None:
-    rpc = FakeBaseRpc()
-    base = make_base(base_settings(base_cold_address=COLD.address), rpc, facilitator)
+async def test_sweeps_to_cold_spam_and_revocations_are_not_outflows(base: BaseX402, rpc: FakeBaseRpc) -> None:
     await base.audit_outflows()
     rpc.head += 10
     rpc.logs_by_block[rpc.head - 6] = [
-        outflow_log(TRANSFER_TOPIC, PAY_TO.address, COLD.address, 40_000_000),  # the sweep by hand
+        outflow_log(TRANSFER_TOPIC, PAY_TO.address, COLD.address, 40_000_000),  # a sweep (someone else's tx)
         outflow_log(TRANSFER_TOPIC, PAY_TO.address, THIEF, 0),  # address-poisoning spam: moves nothing
         outflow_log(APPROVAL_TOPIC, PAY_TO.address, THIEF, 0),  # a revocation
         outflow_log(TRANSFER_TOPIC, PAY_TO.address, THIEF, 1, removed=True),  # reorged away
@@ -415,19 +422,17 @@ async def test_sweeps_to_cold_spam_and_revocations_are_not_outflows(facilitator:
     assert await base.audit_outflows() == []
 
 
-async def test_with_pay_to_as_cold_every_outflow_alarms_and_so_does_an_approval(
-    base: BaseX402, rpc: FakeBaseRpc
-) -> None:
+async def test_a_transfer_anywhere_but_cold_alarms_and_so_does_an_approval(base: BaseX402, rpc: FakeBaseRpc) -> None:
     await base.audit_outflows()
     rpc.head += 10
     rpc.logs_by_block[rpc.head - 6] = [
-        outflow_log(TRANSFER_TOPIC, PAY_TO.address, COLD.address, 1_000, tx="0x" + "01" * 32),
+        outflow_log(TRANSFER_TOPIC, PAY_TO.address, PAYER.address, 1_000, tx="0x" + "01" * 32),
         outflow_log(APPROVAL_TOPIC, PAY_TO.address, THIEF, 2**256 - 1, tx="0x" + "02" * 32),
     ]
     issues = await base.audit_outflows()
     assert issues == [
-        f"USDC transfer of 1000 from payTo to {COLD.address.lower()}",
-        f"USDC approval of {2**256 - 1} by payTo to spender {THIEF.lower()}",
+        f"USDC transfer of 1000 from the hot wallet to {PAYER.address.lower()}",
+        f"USDC approval of {2**256 - 1} by the hot wallet to spender {THIEF.lower()}",
     ]
     assert [flag.signature for flag in base.flagged()] == ["0x" + "01" * 32, "0x" + "02" * 32]
 

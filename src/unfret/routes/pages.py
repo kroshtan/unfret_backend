@@ -419,9 +419,9 @@ def accuracy_page() -> HTMLResponse:
     """
     How often the verdicts are right: the method, the numbers per verdict, the limits and the scorer's history.
 
-    The numbers come from ``static/accuracy.json`` (the open baseline) and ``static/accuracy-service.json`` (the
-    retrained scorer unfret.net runs), both from ``make accuracy`` (aggregates of a corpus replay, no corpus records),
-    filled into the page here so it needs no script (:mod:`unfret.accuracy`).
+    The numbers come from ``static/accuracy.json`` (the open baseline) and ``static/accuracy-history.json`` (every
+    published scorer version, the retrained one unfret.net runs included), both from ``make accuracy`` (aggregates of
+    a corpus replay, no corpus records), filled into the page here so it needs no script (:mod:`unfret.accuracy`).
 
     :return: The page.
     """

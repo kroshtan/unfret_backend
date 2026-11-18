@@ -21,9 +21,12 @@ It measures the scorer the server would run: with ``UNFRET_MODEL_PATH`` set to a
 summary goes next to it by default (``<store>/<version>/accuracy.json``, see :mod:`evals.release`) and its
 ``RELEASE.md`` is updated with the numbers; the page's ``static/accuracy.json`` stays the open baseline's.
 
-``--publish VERSION`` then puts that retrained scorer's summary on the page, as the numbers of the scorer unfret.net
-runs: it copies ``<store>/<version>/accuracy.json`` to ``static/accuracy-service.json`` after checking it again
-(:func:`check_publishable`). Only that summary leaves the model store, never the model or anything of the corpus.
+``--publish VERSION [--released DATE]`` then puts that retrained scorer's summary on the page, as the numbers of the
+scorer unfret.net runs: after checking ``<store>/<version>/accuracy.json`` again (:func:`check_publishable`), it adds
+it to ``static/accuracy-history.json`` as that version's entry, or replaces the entry it already has (keeping its
+release date unless ``--released`` gives one; a new entry's is today). The history keeps every version published,
+so the page can show the earlier ones. Only that summary leaves the model store, never the model or anything of
+the corpus. A replay of the open baseline (the default ``--out``) updates the baseline's entry the same way.
 """
 
 import argparse
@@ -43,6 +46,7 @@ from evals import release
 from evals.corpus import PRODUCT_CLASS, UNRELIABLE, Corpus, LabelRecord, page_class
 from evals.metrics import BANDS, Outcome, roc_auc
 from evals.run import DEFAULT_EXCLUDED, configure, evaluate
+from unfret.accuracy import KINDS, entry, newest_first
 from unfret.config import settings
 from unfret.facts import parse_page
 from unfret.graph import SKILLS
@@ -52,7 +56,7 @@ from unfret.scoring import MODEL_PATH, configured_path, load_model
 logger = structlog.get_logger("unfret.evals")
 
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "src" / "unfret" / "static" / "accuracy.json"
-SERVICE_OUT = DEFAULT_OUT.with_name("accuracy-service.json")
+HISTORY_OUT = DEFAULT_OUT.with_name("accuracy-history.json")
 
 # Where each dataset's labels come from, in the general terms the page uses. A new dataset must be placed here
 # before the page can count it (the script refuses unknown ones rather than mislabel them).
@@ -412,13 +416,72 @@ def check_publishable(summary: dict[str, Any], version: str) -> None:
         raise ValueError(f"the accuracy summary must hold aggregates only; found {extra[0]!r}")
 
 
-def publish(version: str, root: Path | None = None, out: Path = SERVICE_OUT) -> Path:
+ENTRY_FIELDS = frozenset({"version", "kind", "released", "measured", "corpus_pages", "metrics", "summary"})
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def check_history(history: dict[str, Any]) -> None:
+    """
+    Refuse a history for the public page unless every entry is a checked summary under the fixed fields.
+
+    Each entry has exactly :data:`ENTRY_FIELDS`, a known ``kind``, ISO dates, a summary that passes
+    :func:`check_publishable` for the entry's version, and the ``metrics``, ``corpus_pages`` and ``measured`` that
+    summary gives (they can't say anything the summary doesn't). No version twice.
+
+    :param history: The parsed ``accuracy-history.json``.
+    :raises ValueError: On anything else.
+    """
+    if set(history) != {"entries"} or not isinstance(history["entries"], list):
+        raise ValueError('the accuracy history must be {"entries": [...]}')
+    seen: set[str] = set()
+    for e in history["entries"]:
+        if not isinstance(e, dict) or set(e) != ENTRY_FIELDS:
+            raise ValueError(f"a history entry must have exactly the fields {sorted(ENTRY_FIELDS)}")
+        version = e["version"]
+        if not isinstance(version, str) or version in seen:
+            raise ValueError(f"version {version!r} is not a version or is in the history twice")
+        seen.add(version)
+        if e["kind"] not in KINDS:
+            raise ValueError(f"{version}: kind {e['kind']!r} is not one of {KINDS}")
+        if not (e["released"] is None or (isinstance(e["released"], str) and _DATE_RE.fullmatch(e["released"]))):
+            raise ValueError(f"{version}: released {e['released']!r} is not an ISO date")
+        check_publishable(e["summary"], version)
+        derived = entry(e["summary"], e["kind"], e["released"])
+        for field in ("measured", "corpus_pages", "metrics"):
+            if e[field] != derived[field]:
+                raise ValueError(f"{version}: {field} isn't what its summary gives")
+    check_aggregates_only(history)
+
+
+def record(summary: dict[str, Any], kind: str, released: str | None = None, out: Path = HISTORY_OUT) -> Path:
+    """
+    Add a version's replay summary to the history, or replace the entry that version already has.
+
+    :param summary: The checked replay summary.
+    :param kind: ``private`` (a retrained scorer) or ``public`` (an open baseline).
+    :param released: Its release date, ISO; by default the existing entry's, or today for a new one.
+    :param out: The history file.
+    :return: ``out``.
+    """
+    entries = json.loads(out.read_text(encoding="utf-8"))["entries"] if out.is_file() else []
+    version = summary.get("scorer_version")
+    previous = next((e for e in entries if e.get("version") == version), None)
+    day = released or (previous or {}).get("released") or datetime.now(UTC).date().isoformat()
+    entries = [e for e in entries if e.get("version") != version] + [entry(summary, kind, day)]
+    history = {"entries": newest_first(entries)}
+    check_history(history)
+    out.write_text(json.dumps(history, indent=2) + "\n")
+    return out
+
+
+def publish(version: str, root: Path | None = None, out: Path = HISTORY_OUT, released: str | None = None) -> Path:
     """
     Put a retrained scorer's replay numbers on the page, as those of the scorer unfret.net runs.
 
     :param version: The scorer's version, in the model store.
     :param root: The model store; :func:`evals.release.store` by default.
-    :param out: Where the page reads them.
+    :param out: The history the page reads.
+    :param released: Its release date, ISO (see :func:`record`).
     :return: ``out``.
     :raises FileNotFoundError: When the version has no replay summary yet (run ``make accuracy`` with it first).
     """
@@ -429,8 +492,7 @@ def publish(version: str, root: Path | None = None, out: Path = SERVICE_OUT) -> 
         )
     summary = json.loads(source.read_text(encoding="utf-8"))
     check_publishable(summary, version)
-    out.write_text(json.dumps(summary, indent=2) + "\n")
-    return out
+    return record(summary, "private", released, out)
 
 
 def summarise(
@@ -505,11 +567,14 @@ def main() -> None:
     parser.add_argument(
         "--publish",
         metavar="VERSION",
-        help="put a retrained scorer's replay numbers on the page (accuracy-service.json)",
+        help="put a retrained scorer's replay numbers on the page (its entry in accuracy-history.json)",
     )
+    parser.add_argument("--released", metavar="DATE", help="with --publish: its release date (default: today)")
     args = parser.parse_args()
     if args.publish:
-        print(publish(args.publish).read_text())  # noqa: T201 - command-line report
+        out = publish(args.publish, released=args.released)
+        entries = json.loads(out.read_text())["entries"]
+        print(json.dumps(next(e for e in entries if e["version"] == args.publish), indent=2))  # noqa: T201
         return
 
     corpus = Corpus()
@@ -540,6 +605,8 @@ def main() -> None:
     markets = asyncio.run(_markets(corpus, list(records.values())))
     summary = summarise(on, off, records, markets, unlabelled)
     args.out.write_text(json.dumps(summary, indent=2) + "\n")
+    if args.out.resolve() == DEFAULT_OUT.resolve():
+        record(summary, "public")  # the open baseline's entry in the page's history
     if (args.out.parent / release.ARTIFACT).exists() and args.out.name == release.ACCURACY:
         release.write_note(args.out.parent)  # a private release: its note gets the replay's numbers
     print(json.dumps(summary, indent=2))  # noqa: T201 - command-line report

@@ -45,7 +45,8 @@ service providers), and the corpus itself is private (see below). The method, ad
 market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
 `make accuracy` (aggregates only, in [`static/accuracy.json`](src/unfret/static/accuracy.json)). The page leads with
 the numbers of the retrained scorer unfret.net runs (see "The model"; in
-[`static/accuracy-service.json`](src/unfret/static/accuracy-service.json)) and shows the baseline's next to them.
+[`static/accuracy-history.json`](src/unfret/static/accuracy-history.json)), shows the baseline's next to them, and
+every earlier version below.
 
 ## The model
 
@@ -92,12 +93,17 @@ its own the quick tier keeps the baseline's. A path that is set but missing, unr
 skill produces stops the server at start-up instead of letting it score with something else. Retrained models go to
 the model store (`UNFRET_MODELS_DIR`, default `<corpus>/models`), never into `src/`: a pre-commit hook
 (`scripts/check_scorer_baseline.py`, also run by CI) refuses a changed baseline or any other scorer artifact in the
-repository. `static/accuracy.json` holds the baseline's replay numbers. The numbers of the retrained scorer
-unfret.net runs are published as aggregates only: `make accuracy ACCURACY_ARGS="--publish <version>"` copies that
-version's `accuracy.json` from the model store to `static/accuracy-service.json`, after checking that it holds
-nothing but totals and the version (never the model, a page, a shop or the golden set's seed list). The `/accuracy`
-page leads with the numbers of the scorer the server runs, shows both side by side, and says so when the server
-runs a scorer whose numbers aren't published.
+repository. `static/accuracy.json` holds the baseline's replay numbers. The numbers of the retrained scorers
+unfret.net runs are published as aggregates only, in `static/accuracy-history.json`: one entry per published
+version (`version`, `kind` `private` or `public`, `released`, `measured`, `corpus_pages`, `metrics`, and the whole
+replay `summary`). `make accuracy ACCURACY_ARGS="--publish <version> [--released YYYY-MM-DD]"` adds that version's
+`accuracy.json` from the model store as its entry (or replaces the one it has), after checking that it holds nothing
+but totals, fixed field names and that version (never the model, a page, a shop or the golden set's seed list); a
+replay of the baseline updates the baseline's entry. The `/accuracy` page leads with the numbers of the scorer the
+server runs, shows the newest retrained scorer and the baseline side by side, each with its release date and the
+number of labelled pages it was measured on, folds every earlier version below them, newest first, and says so when
+the server runs a scorer whose numbers aren't published. Each version is measured on the corpus as it was at its
+release, so versions measured on different corpus sizes aren't strictly comparable.
 
 **Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
 stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and

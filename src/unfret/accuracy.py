@@ -1,11 +1,19 @@
 """
 The ``/accuracy`` page: how often Unfret's verdicts are right, from the numbers ``make accuracy`` measured.
 
-Two summaries of a corpus replay, aggregates only (``evals/accuracy.py`` writes them; never a URL or a corpus
-record): ``static/accuracy.json`` for the open baseline scorer in this repository (what a self-hosted server runs),
-and ``static/accuracy-service.json`` for the retrained scorer unfret.net runs (``make accuracy
-ACCURACY_ARGS="--publish VERSION"``). The page shows the one this server runs (:func:`page_summary`), and both side by
-side. ``static/accuracy.html`` is the page's prose with placeholders that this module fills from it:
+Summaries of a corpus replay, aggregates only (``evals/accuracy.py`` writes them; never a URL or a corpus record):
+
+- ``static/accuracy.json``: the open baseline scorer in this repository (what a self-hosted server runs).
+- ``static/accuracy-history.json``: every published scorer version, ``{"entries": [...]}``, one entry per version
+  (:func:`entry`): ``version``, ``kind`` (``private``: a retrained scorer unfret.net runs or ran; ``public``: an open
+  baseline), ``released`` and ``measured`` (ISO dates), ``corpus_pages`` (the labelled pages it was measured on),
+  ``metrics`` (the side-by-side table's numbers, :func:`metrics`) and ``summary`` (the whole replay summary, as
+  ``accuracy.json``). ``make accuracy ACCURACY_ARGS="--publish VERSION"`` adds or updates a retrained scorer's entry
+  from the model store; ``make accuracy`` for the baseline updates the baseline's.
+
+The page leads with the summary of the scorer this server runs (:func:`page_summary`), shows the newest retrained
+scorer and the open baseline side by side, and every earlier version below them, newest first, folded.
+``static/accuracy.html`` is the page's prose with placeholders that this module fills:
 
 - ``{{num:path}}``: a count (``1,582``); ``{{pct:path}}``: a share as a percentage (``82%``, ``6.9%``);
   ``{{text:path}}``: a string; ``{{date:path}}``: an ISO date as "November 17, 2026". ``path`` is a dotted path
@@ -28,7 +36,9 @@ from unfret.scoring import load_model
 from unfret.shopper import catalogue
 
 ACCURACY_PATH = Path(__file__).resolve().parent / "static" / "accuracy.json"
-SERVICE_PATH = ACCURACY_PATH.with_name("accuracy-service.json")
+HISTORY_PATH = ACCURACY_PATH.with_name("accuracy-history.json")
+
+KINDS = ("private", "public")
 
 BANDS = ("reliable", "concerns", "careful", "junk_or_scam")
 NOT_MEASURED = "not measured"
@@ -85,17 +95,113 @@ def summary() -> dict[str, Any]:
     return data
 
 
+def metrics(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    The numbers the scorers' table shows for a replay summary, under fixed names.
+
+    :param data: A replay summary.
+    :return: Product pages that got a verdict (``products_scored``), unreliable product pages warned about
+        (``caught``), warnings right (``warning_precision``), "Serious concerns" right (``serious_right``), legitimate
+        shops warned about, at "Worth a look" and at "Serious concerns" (``legit_shops_warned``,
+        ``legit_shops_worth_a_look``, ``legit_shops_serious``) and the ROC AUC; ``None`` where not measured.
+    """
+    return {
+        "products_scored": lookup(data, "groups.products.scored"),
+        "caught": lookup(data, "groups.products.caught"),
+        "warning_precision": lookup(data, "groups.products.warning_precision"),
+        "serious_right": lookup(data, "groups.products.bands.junk_or_scam.unreliable_share"),
+        "legit_shops_warned": lookup(data, "legit_shops.all.warned_share"),
+        "legit_shops_worth_a_look": lookup(data, "legit_shops.all.worth_a_look_share"),
+        "legit_shops_serious": lookup(data, "legit_shops.all.serious_share"),
+        "roc_auc": lookup(data, "groups.products.roc_auc"),
+    }
+
+
+def entry(data: dict[str, Any], kind: str, released: str | None) -> dict[str, Any]:
+    """
+    A scorer version's entry in the history, from its replay summary.
+
+    :param data: The replay summary.
+    :param kind: ``private`` (retrained) or ``public`` (an open baseline).
+    :param released: The day it was released, ISO; ``None`` when unknown.
+    :return: The entry.
+    """
+    return {
+        "version": data.get("scorer_version"),
+        "kind": kind,
+        "released": released,
+        "measured": data.get("generated"),
+        "corpus_pages": lookup(data, "corpus.pages"),
+        "metrics": metrics(data),
+        "summary": data,
+    }
+
+
+def newest_first(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    History entries, the most recently released first.
+
+    :param entries: The entries.
+    :return: Sorted by release date, then measuring date, then version, all descending.
+    """
+    return sorted(
+        entries,
+        key=lambda e: (str(e.get("released") or ""), str(e.get("measured") or ""), str(e["version"])),
+        reverse=True,
+    )
+
+
 @cache
+def history() -> list[dict[str, Any]]:
+    """
+    Every published scorer version's numbers.
+
+    :return: ``accuracy-history.json``'s entries, newest first (none when the file is missing).
+    """
+    if not HISTORY_PATH.is_file():
+        return []
+    entries: list[dict[str, Any]] = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))["entries"]
+    return newest_first(entries)
+
+
+def service_entry() -> dict[str, Any] | None:
+    """
+    The newest retrained scorer's entry: the one unfret.net runs.
+
+    :return: The entry, or ``None`` when no retrained scorer's numbers are published.
+    """
+    return next((e for e in history() if e["kind"] == "private"), None)
+
+
 def service_summary() -> dict[str, Any] | None:
     """
     The measured numbers of the retrained scorer unfret.net runs.
 
-    :return: The parsed ``accuracy-service.json``, or ``None`` when none is published.
+    :return: The newest retrained scorer's replay summary, or ``None`` when none is published.
     """
-    if not SERVICE_PATH.is_file():
-        return None
-    data: dict[str, Any] = json.loads(SERVICE_PATH.read_text(encoding="utf-8"))
-    return data
+    service = service_entry()
+    return service["summary"] if service else None
+
+
+def baseline_entry() -> dict[str, Any]:
+    """
+    The open baseline's entry: the scorer in this repository.
+
+    :return: Its history entry, or one made from ``accuracy.json`` (release date unknown) when it has none.
+    """
+    version = summary().get("scorer_version")
+    found = next((e for e in history() if e["kind"] == "public" and e["version"] == version), None)
+    return found or entry(summary(), "public", None)
+
+
+def earlier_entries() -> list[dict[str, Any]]:
+    """
+    The versions below the side-by-side table: every one but the newest retrained scorer and the open baseline.
+
+    :return: Their entries, newest first.
+    """
+    leading = {e["version"] for e in (baseline_entry(), service_entry()) if e}
+    return [e for e in history() if e["version"] not in leading]
 
 
 def running_version() -> str | None:
@@ -112,13 +218,14 @@ def page_summary() -> dict[str, Any]:
     """
     The numbers the page leads with: those of the scorer this server runs, when published.
 
-    :return: The retrained scorer's summary on a server that runs it (unfret.net), else the open baseline's (a
-        self-hosted server, or one running a scorer whose numbers aren't published: the page then says so).
+    :return: That version's summary (a retrained scorer on unfret.net), else the open baseline's (a self-hosted
+        server, or one running a scorer whose numbers aren't published: the page then says so).
     """
-    service = service_summary()
-    if service is not None and service.get("scorer_version") == running_version():
-        return service
-    return summary()
+    running = running_version()
+    if running == summary().get("scorer_version"):
+        return summary()
+    found = next((e for e in history() if e["version"] == running), None)
+    return found["summary"] if found else summary()
 
 
 def lookup(data: dict[str, Any], path: str) -> Any:
@@ -349,14 +456,16 @@ def scorer_name(data: dict[str, Any]) -> str:
     Which scorer a summary is for, in words.
 
     :param data: A summary.
-    :return: The retrained scorer unfret.net runs, the open baseline, or just "a scorer".
+    :return: The retrained scorer unfret.net runs, an earlier one, the open baseline, or just "a scorer".
     """
     version = data.get("scorer_version")
-    service = service_summary()
-    if service is not None and version == service.get("scorer_version"):
+    service = service_entry()
+    if service is not None and version == service["version"]:
         return "the retrained scorer unfret.net runs"
     if version == summary().get("scorer_version"):
         return "the open baseline, the scorer in the source code that a self-hosted Unfret runs"
+    if any(e["version"] == version and e["kind"] == "private" for e in history()):
+        return "an earlier retrained scorer"
     return "a scorer"
 
 
@@ -373,41 +482,110 @@ def version_note(data: dict[str, Any]) -> str:
     return f"This server runs scorer <code>{html.escape(str(running))}</code>; its numbers aren't published here yet."
 
 
+def _columns() -> tuple[tuple[str, str], ...]:
+    """
+    The scorers' numbers, as (heading, :func:`metrics` field), in the side-by-side table's order.
+
+    :return: The rows.
+    """
+    careful, concerns, serious = (band_label(b) for b in ("careful", "concerns", "junk_or_scam"))
+    return (
+        ("Unreliable pages warned about", "caught"),
+        ("Warnings right", "warning_precision"),
+        (f"{serious} right", "serious_right"),
+        (f"Legitimate shops: {careful} or worse", "legit_shops_warned"),
+        (f"Legitimate shops: {concerns}", "legit_shops_worth_a_look"),
+        (f"Legitimate shops: {serious}", "legit_shops_serious"),
+        ("ROC AUC", "roc_auc"),
+    )
+
+
+def _metric(e: dict[str, Any], field: str) -> str:
+    value = e["metrics"].get(field)
+    if field == "roc_auc":
+        return f"{value:.3f}" if isinstance(value, float) else NOT_MEASURED
+    return pct(value)
+
+
+def _released(e: dict[str, Any]) -> str:
+    return f"Released {long_date(e['released'])}" if e.get("released") else "Release date not recorded"
+
+
+def _measured(e: dict[str, Any]) -> str:
+    return f"measured on {num(e.get('corpus_pages'))} labelled pages"
+
+
 def scorers_table(_: dict[str, Any] | None = None) -> str:
     """
-    The retrained scorer unfret.net runs and the open baseline, side by side, on the same replay of product pages.
+    The newest retrained scorer (the one unfret.net runs) and the open baseline, side by side: a column each.
+
+    Each column's heading names the scorer, its version, its release date and the number of labelled pages it was
+    measured on; each row is one of the numbers (:func:`_columns`).
 
     :return: The table's HTML (the baseline alone when no retrained scorer's numbers are published).
     """
     running = running_version()
-    rows = []
-    for name, data in (
-        ("Retrained, runs on unfret.net", service_summary()),
-        ("Open baseline, self-hosted", summary()),
-    ):
-        if data is None:
-            continue
-        products = lookup(data, "groups.products") or {}
-        version = str(data.get("scorer_version"))
-        here = ' <span class="muted">(this server)</span>' if version == running else ""
-        rows.append(
-            f'<tr><th scope="row">{html.escape(name)}{here}<br><code>{html.escape(version)}</code></th>'
-            f"<td>{pct(products.get('caught'))}</td><td>{pct(products.get('warning_precision'))}</td>"
-            f"<td>{pct(lookup(data, 'groups.products.bands.junk_or_scam.unreliable_share'))}</td>"
-            f"<td>{pct(lookup(data, 'legit_shops.all.warned_share'))}</td>"
-            f"<td>{pct(lookup(data, 'legit_shops.all.worth_a_look_share'))}</td>"
-            f"<td>{pct(lookup(data, 'legit_shops.all.serious_share'))}</td>"
-            f"<td>{products.get('roc_auc') if isinstance(products.get('roc_auc'), float) else NOT_MEASURED}</td></tr>"
+    shown = [
+        (name, e)
+        for name, e in (
+            ("Retrained, runs on unfret.net", service_entry()),
+            ("Open baseline, self-hosted", baseline_entry()),
         )
-    careful, concerns, serious = (html.escape(band_label(b)) for b in ("careful", "concerns", "junk_or_scam"))
-    return (
-        '<div class="acc-table-wrap"><table class="acc-table">'
-        '<thead><tr><th scope="col">Scorer</th><th scope="col">Unreliable pages warned about</th>'
-        f'<th scope="col">Warnings right</th><th scope="col">{serious} right</th>'
-        f'<th scope="col">Legitimate shops: {careful} or worse</th>'
-        f'<th scope="col">Legitimate shops: {concerns}</th><th scope="col">Legitimate shops: {serious}</th>'
-        f'<th scope="col">ROC AUC</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+        if e is not None
+    ]
+    here = ' <span class="muted">(this server)</span>'
+    heads = "".join(
+        f'<th scope="col">{html.escape(name)}{here if e["version"] == running else ""}'
+        f"<code>{html.escape(str(e['version']))}</code>"
+        f'<span class="acc-scorer-meta">{_released(e)}, {_measured(e)}</span></th>'
+        for name, e in shown
     )
+    rows = "".join(
+        f'<tr><th scope="row">{html.escape(heading)}</th>'
+        + "".join(f"<td>{_metric(e, field)}</td>" for _, e in shown)
+        + "</tr>"
+        for heading, field in _columns()
+    )
+    return (
+        '<div class="acc-table-wrap"><table class="acc-table acc-scorers">'
+        f'<thead><tr><th scope="col">Measure</th>{heads}</tr></thead><tbody>{rows}</tbody></table></div>'
+    )
+
+
+KIND_LABELS = {"private": "Retrained scorer", "public": "Open baseline"}
+
+
+def history_block(_: dict[str, Any] | None = None) -> str:
+    """
+    Every earlier scorer version, newest first, each folded under its name, version and release date.
+
+    A plain ``<details>`` per version: closed until opened, by keyboard too, with no script.
+
+    :return: The HTML, or a sentence saying there are no earlier versions yet.
+    """
+    earlier = earlier_entries()
+    if not earlier:
+        return (
+            '<p class="acc-history-empty">This is the first retrained scorer, so there are no earlier versions to '
+            "show yet. Each version it replaces will appear here, with its release date.</p>"
+        )
+    boxes = []
+    for e in earlier:
+        rows = "".join(
+            f'<tr><th scope="row">{html.escape(heading)}</th><td>{_metric(e, field)}</td></tr>'
+            for heading, field in _columns()
+        )
+        version = html.escape(str(e["version"]))
+        boxes.append(
+            f'<details class="acc-history-item" id="scorer-{version}"><summary><span>'
+            f"{KIND_LABELS.get(e['kind'], 'Scorer')} <code>{version}</code>"
+            f'<span class="acc-scorer-meta">{_released(e)}, {_measured(e)}</span></span></summary>'
+            f'<p class="small">Measured on {long_date(e.get("measured"))}, on {num(e.get("corpus_pages"))} labelled '
+            f"pages; {num(e['metrics'].get('products_scored'))} product pages got a verdict.</p>"
+            '<div class="acc-table-wrap"><table class="acc-table acc-history-table">'
+            f"<tbody>{rows}</tbody></table></div></details>"
+        )
+    return f'<div class="acc-history">{"".join(boxes)}</div>'
 
 
 BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
@@ -424,6 +602,7 @@ BLOCKS: dict[str, Callable[[dict[str, Any]], str]] = {
     "version_note": version_note,
     "scorer_name": lambda d: html.escape(scorer_name(d)),
     "scorers": scorers_table,
+    "history": history_block,
 }
 
 

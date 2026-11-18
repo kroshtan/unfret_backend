@@ -21,7 +21,7 @@
     </div>
     <p class="small muted">Measured on {{date:generated}} with scorer <code>{{text:scorer_version}}</code>,
       {{block:scorer_name}}. {{block:version_note}} Both scorers' numbers are <a href="#scorers">side by side
-      below</a>.</p>
+      below</a>, with every <a href="#history">earlier version</a>.</p>
 
     <ul class="acc-stats">
       <li>
@@ -69,11 +69,18 @@
     <h2 id="scorers">The scorer unfret.net runs, and the open baseline</h2>
     <p>The code is open source, and so is one version of the scorer, the open baseline: a self-hosted Unfret runs
       it. unfret.net runs a version retrained on more labelled pages, kept private like the pages it learnt from.
-      Both on the same replay of every labelled product page:</p>
+      Both on a replay of every labelled product page:</p>
     {{block:scorers}}
     <p class="small">The numbers above this table are those of the scorer this server runs (or the baseline's, where
       that one's aren't published); the changes from one version to the next are in the
       <a href="#changelog">changelog</a>.</p>
+
+    <h3 id="history">Earlier versions</h3>
+    <p>The other scorer versions we published, newest first, each with its release date and the same numbers as
+      the table above. Open one to see them.</p>
+    <p class="small">Each version was measured on the labelled pages we had when it was released, and we keep adding
+      pages, so numbers measured on different numbers of pages aren't strictly comparable.</p>
+    {{block:history}}
 
     <h2 id="ads">Second-hand ads</h2>
     <p>Ads on Marktplaats, 2dehands, Vinted, eBay, Craigslist and Facebook Marketplace. These verdicts come from
@@ -192,8 +199,8 @@
     </dl>
 
     <p class="small muted">The numbers on this page, as data (totals only, no pages):
-      <a href="/static/accuracy-service.json">accuracy-service.json</a> for the scorer unfret.net runs and
-      <a href="/static/accuracy.json">accuracy.json</a> for the open baseline. They are made with
+      <a href="/static/accuracy-history.json">accuracy-history.json</a> for every scorer version published, the one
+      unfret.net runs included, and <a href="/static/accuracy.json">accuracy.json</a> for the open baseline. They are made with
       <code>make accuracy</code> in the
       <a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">source code</a>; the test pages
       themselves can't be published, as they are other people's web pages.</p>

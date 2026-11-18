@@ -206,3 +206,54 @@ def test_empty_page_has_empty_facts() -> None:
 def test_client_facts_are_capped() -> None:
     with pytest.raises(ValueError, match="at most 100"):
         PageFacts(variations=["x"] * 101)
+
+
+# ── Markup names and references to other sites (unfret.facts.markup) ──────────────────────────────────────────
+
+
+def test_markup_names_are_names_only_with_data_attributes_and_ids_first() -> None:
+    html = (
+        '<body class="template-product"><div class="loox-reviews-widget x" id="looxReviews" data-loox-id="ab12">'
+        '<span class="order-123456 md:flex" data-customer="jan@example.com">Jan</span></div></body>'
+    )
+    facts, _ = parse_page(html, "https://shop.example/p")
+
+    assert facts.markup_names == [
+        "data-loox-id", "data-customer", "looxReviews", "template-product", "loox-reviews-widget",
+    ]  # fmt: skip  # never a value; "x", "md:flex" and a four-digit run are not names
+    assert "jan" not in " ".join(facts.markup_names).lower()
+
+
+def test_private_areas_give_only_their_own_names() -> None:
+    html = (
+        '<form class="buy" data-dsers-variant-sync="on"><input class="email-field" data-x-y="1"></form>'
+        '<div class="account-menu"><a class="hello-jan" href="https://social.example/jan">Hi Jan</a></div>'
+    )
+    facts, _ = parse_page(html, "https://shop.example/p")
+
+    assert facts.markup_names == ["data-dsers-variant-sync", "buy", "account-menu"]
+    assert facts.external_refs == []
+
+
+def test_external_refs_are_other_sites_without_queries() -> None:
+    html = (
+        '<img src="https://AE01.alicdn.com:443/kf/S1.jpg?x=1" srcset="//img.kwcdn.com/a.jpg 1x, /own.jpg 2x">'
+        '<a href="https://www.aliexpress.com/item/1005.html?spm=abc#r">Supplier</a>'
+        '<a href="https://shop.example/about">Own page</a><a href="/cart">Cart</a>'
+        '<link rel="stylesheet" href="https://cdn.reviews.example/w.css"><script src="https://cdn.app.example/a.js">'
+        "</script>"
+    )
+    facts, _ = parse_page(html, "https://shop.example/p")
+
+    assert facts.external_refs == [
+        "ae01.alicdn.com", "img.kwcdn.com", "www.aliexpress.com/item/1005.html", "cdn.reviews.example",
+    ]  # fmt: skip  # an image's site only, a link's path too; the script is in script_srcs
+
+
+def test_a_private_sellers_ad_sends_no_other_sites() -> None:
+    html = '<div class="ad-body"><a href="https://my-own-site.example/me">My site</a></div>'
+    facts, _ = parse_page(html, "https://www.marktplaats.nl/v/x/m123-fiets")
+
+    assert facts.platform == "marktplaats"
+    assert facts.external_refs == []
+    assert facts.markup_names == ["ad-body"]

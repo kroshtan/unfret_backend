@@ -39,7 +39,13 @@ The balance is held in **lamports** (`pubkey → balance_lamports`); the UI show
   "flags"?: [str]}` → `{"score": int 0..100 | -1, "explanation": str, "assessment"?: {"risk_score", "confidence",
   "flags": [{"type", "evidence", "weight"}], "model_version"}, "balance_lamports": int}`
   At least one of `page_facts`/`page_content` is required. The extension sends `page_facts` plus cleaned main text in
-  `page_content` (never raw logged-in HTML; strip account/header/footer/nav).
+  `page_content` (never raw logged-in HTML; strip account/header/footer/nav). In place of the HTML, `page_facts`
+  carries what the source checks (`html_source_signals`) read from it: `script_srcs`, `meta`, `markup_names` (class
+  names, ids and data-attribute names, never values) and `external_refs` (other sites: a link's host and path, any
+  other element's host, never a query), so a quick check of the same page gives the same answer whether the server
+  fetched it or the extension read it. What stays different by design: the text of inline scripts and attribute
+  values are never sent (an app named only there, or an analytics ID for `shop_links`, is found only on a fetched
+  page), and the extension reads the rendered page (scripts have run), the server the HTML as served.
   Debited `analysis_lamports` up front; refunded when the page isn't analysable (score -1) or on error.
   Insufficient balance → 402 `{"error_code": "INSUFFICIENT_CREDITS", "metadata": {"balance_lamports", "analysis_lamports"}}`.
   401 for missing/invalid/expired token.
@@ -940,7 +946,7 @@ client are unchanged.
   Removal requests are carried out with `DELETE /v1/admin/shops/{domain}` and `POST /v1/admin/contacts/forget`.
 - Pages: `/about`, `/why` ("Why Unfret?": questions to ask any checker, Unfret next to free scam checkers and AI
   assistants, a Fakespot alternative), `/money` ("How Unfret makes money"), `/press` (fact sheet, logo files, test shop screenshots in
-  `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on, as on dev) and `/objection`
+  `static/press/`), `/terms` (a visible draft note while `UNFRET_TERMS_DRAFT` is on) and `/objection`
   (what Unfret keeps about shops, and the form above), all in the footer. The link checker's result and a shared
   result's page link to `/objection`.
 
@@ -1223,6 +1229,34 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - Clients: the report consent says an AI model may suggest a label and a person decides; the website's dialog shows
   both rewards from `/v1/pricing`. The extension's own copy says "3 free checks": it should read the numbers from
   `/v1/pricing` (`reports.reward_checks`, `reports.small_reward_checks`).
+
+## Changes (`/v1/check`: the 402 before body validation; backwards-compatible)
+
+- A `POST /v1/check` without `PAYMENT-SIGNATURE` and without `Authorization: Bearer …` now always answers the x402
+  `402` with `PAYMENT-REQUIRED`, whatever the body: none, empty, not JSON, or not a valid check request (it was a
+  `422 VALIDATION_ERROR`). x402 directories (x402scan, x402-list.com) probe without a body first and read the price
+  from that 402. The tier priced is the body's `tier` when it is `quick` or `deep`, else `quick` (the default), so
+  such a 402 is byte for byte the one a valid request for that tier gets, `resource` and Base's `extensions.bazaar`
+  included. The 402 of a valid request is unchanged.
+- With a payment or a pass the body is validated first, as before (`422 VALIDATION_ERROR`); nothing is verified,
+  settled or charged for an invalid body.
+- The OpenAPI document (snapshot updated) has `info.contact.email` (`hello@unfret.net`) and a top-level
+  `x-agentcash-guidance: {"llmsTxtUrl": "<base URL>/llms.txt"}`, which x402scan reads; `POST /v1/check`'s description
+  says that the 402 comes first. Request and response schemas, and the ownership proofs (`x-agentcash-provenance`,
+  `x-discovery`), are unchanged.
+
+## Changes (a quick check reads the same app traces from the extension's facts; backwards-compatible)
+
+- `PageFacts` gains `markup_names` (up to 500: class names, ids and data-attribute names of the page's elements;
+  names only, identifier-like, without a run of four digits; inside a form, account menu or checkout area only that
+  area's own element) and `external_refs` (up to 200: the other sites the elements refer to, a link's host and path,
+  any other element's host; never a query or fragment; none on a private seller's ad). Both default to empty, so
+  older clients are unaffected (snapshot updated; the extension mirrors the extraction in `src/extract/markup.ts`).
+- `html_source_signals` matches them with the script URLs and meta tags, so the dropshipping, review-import,
+  supplier and pop-up traces in the markup reach a quick (and deep) check of a page the extension sends, as they do
+  for a page the server fetched. The test shop's quick check gives the same features and verdict both ways.
+- A scorer flag's `evidence` is the finding of the feature's own type first (`html_source_signals.review_import_app`
+  quoted the dropshipping app's finding before, as both types end in "app").
 
 ## Changes (Unfret from any language: `/developers/http`; only the Python client is published)
 

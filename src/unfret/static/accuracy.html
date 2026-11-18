@@ -39,6 +39,7 @@
     </ul>
 
     <h2 id="products">Shops and product pages</h2>
+    <p>{{block:products_scope}}</p>
     <p>For each verdict: how many test pages got it, how many of those were actually unreliable (a scam, or junk
       sold as something better), and what share of all the unreliable pages ended up with that verdict. A good
       <strong>Looks fine</strong> has few unreliable pages; a good <strong>Serious concerns</strong> has almost
@@ -76,10 +77,6 @@
       <a href="#changelog">changelog</a>.</p>
 
     <h3 id="history">Earlier versions</h3>
-    <p>The other scorer versions we published, newest first, each with its release date and the same numbers as
-      the table above. Open one to see them.</p>
-    <p class="small">Each version was measured on the labelled pages we had when it was released, and we keep adding
-      pages, so numbers measured on different numbers of pages aren't strictly comparable.</p>
     {{block:history}}
 
     <h2 id="ads">Second-hand ads</h2>
@@ -99,17 +96,15 @@
 
     <h2 id="trades">Tradespeople</h2>
     <p>Plumbers', locksmiths' and other trades' websites, and their profiles on platforms such as Werkspot and
-      Thumbtack. Also rules, not yet a trained model. The websites are real: rogue trade sites named in decisions
-      of the Dutch consumer authority, and long-established firms. The platform profiles, and a few websites, are
-      synthetic.</p>
+      Thumbtack. Also rules, not yet a trained model. The real pages are websites: rogue trade sites named in
+      decisions of the Dutch consumer authority, and long-established firms. The platform profiles and some of the
+      websites are synthetic.</p>
+    {{block:synthetic:trades}}
     {{block:bands:trades}}
     <p>Unfret warned about {{pct:groups.trades.caught}} of the unreliable trade pages it could be measured on,
       {{pct:groups.trades.warning_precision}} of its warnings were right, and it warned about
       {{pct:groups.trades.legit_warned}} of the honest ones.</p>
     {{block:coverage:trades}}
-    <p class="small">While most of the measured pages are synthetic, as now, these figures mostly show that the rules
-      recognise the patterns those pages were built from. They say little yet about real tradespeople; we'll update
-      them once the real websites are measured too.</p>
 
     <h2 id="method">How we measure</h2>
     <h3>The test set</h3>
@@ -170,15 +165,20 @@
         unreliable pages (the baseline: 73%), and called no legitimate shop <strong>Serious concerns</strong> (the
         baseline: 1.6%). Fewer legitimate shops get <strong>Worth a look</strong> (11% instead of 30%), more get
         <strong>Think twice</strong> (16% instead of 11%). On the pages held back from its training: 79% of
-        unreliable pages warned about (the baseline: 68%), 11% of legitimate pages (the baseline: 6.6%). On 180
-        product pages of well-known sellers, a deep check gave 6 <strong>Worth a look</strong> or worse and no
-        <strong>Serious concerns</strong> (the baseline: 24), a quick check 5 of 179 (the baseline: 160). With both,
-        a page they put at <strong>Worth a look</strong> without a concrete reason to show reads <strong>Looks
-        fine</strong>.</dd>
+        unreliable pages warned about (the baseline: 68%), 11% of legitimate pages (the baseline: 6.6%). On the
+        180 product pages of well-known sellers in the test set, a deep check gave 6 of them <strong>Worth a
+        look</strong> or worse and none <strong>Serious concerns</strong> (the baseline: 24 of the 180, none
+        <strong>Serious concerns</strong>). A quick check, measured on 179 of those pages, gave 5 of them
+        <strong>Worth a look</strong> or worse and none <strong>Serious concerns</strong> (the baseline's quick
+        check: 160 of the 179, one of them <strong>Serious concerns</strong>). With both, a page they put at
+        <strong>Worth a look</strong> without a concrete reason to show reads <strong>Looks fine</strong>.</dd>
       <dd><strong>Serious concerns</strong> only when the scorer is at least 60% sure; below that the same page shows
-        <strong>Think twice</strong>, still a warning. With the open baseline, the share of right <strong>Serious
-        concerns</strong> went from 94% to 95% in the replay of every labelled product page, with 15 instead of 25
-        legitimate pages called that. Checks for
+        <strong>Think twice</strong>, still a warning. We measured that with the open baseline on the 1,582 product
+        pages the test set had on November 17, 2026: its <strong>Serious concerns</strong> were right 95% of the
+        time instead of 94%, and went to 15 legitimate pages instead of 25. This release's fixes for well-known
+        sellers then brought that down to 12 pages. On the next day's test set, with 180 well-known sellers' pages
+        added (none of them got <strong>Serious concerns</strong>), that is 96% right, and the 12 are 1.6% of the 753
+        legitimate shops' pages: the baseline's numbers in the table above when this release came out. Checks for
         second-hand ads and tradespeople come to everyone. This page.</dd>
       <dt>0.12.0, November 16, 2026 <span class="muted">(scorer unchanged)</span></dt>
       <dd>More established US shops and shops on a consumer-authority warning list in the test set, so that "a US

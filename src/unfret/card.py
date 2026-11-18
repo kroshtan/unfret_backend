@@ -12,21 +12,28 @@ phone app:
   registry couldn't be reached this time);
 - **how many checks ran**, so a clean result says how much was looked at;
 - **one suggested next step**, from the strongest finding or the band;
-- **the same product sold elsewhere** (Unfret's image index), which clients show first, with both photos.
+- **the same product sold elsewhere** (Unfret's image index), which clients show first, with both photos;
+- on a quick result, **whether a deep check is worth it** (:func:`deep_check`): what it would add for this page, never
+  a change to the quick verdict. What it costs the caller is added per response (:func:`with_cost`).
 
 Everything here comes from the catalogue or from what the skills measured; nothing quotes the page, and nothing
 calls a shop names.
 """
 
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, Literal
 
 from unfret import shopper
+from unfret.config import settings
+from unfret.credits import packs
 from unfret.facts import PageFacts
+from unfret.graph import platforms
 from unfret.graph.skills import NOT_APPLICABLE, UNAVAILABLE, Skill
+from unfret.graph.skills.listing import resold
 from unfret.graph.state import P2P_TYPES, SERVICE_TYPES, AnalysisState
 from unfret.market import shop_market
-from unfret.shopper import CheckItem, NextStep, SameProduct, Verdict, catalogue
+from unfret.prices import format_usd
+from unfret.shopper import CheckItem, DeepCheck, DeepCheckAdd, NextStep, SameProduct, Verdict, catalogue
 
 # Where each finding's evidence comes from (keys of the catalogue's "sources").
 REASON_SOURCES: dict[str, str] = {
@@ -562,6 +569,201 @@ def next_step(verdict: Verdict, kind: str, same_product: bool) -> NextStep:
     return NextStep(type=step, text=steps[step])
 
 
+# What a deep check adds over a quick one, for the suggestion under a quick result: per page type the deep check would
+# treat the page as, each extra with the checklist areas it is about (an extra about an area the quick check found a
+# concern in is named first) and the skill that does it, when that skill is deep-only (the price history and the EU
+# VAT register are the deep variants of quick skills: pricing, eu_registry). Each needs something on the page to look
+# at (:func:`_has_something`). Keys of the catalogue's ``deep_check.adds``.
+DEEP_EXTRAS: dict[str, tuple[tuple[str, tuple[str, ...], str | None], ...]] = {
+    "storefront": (
+        ("shop_age", ("who",), "domain_age"),
+        ("photo_elsewhere", ("product", "tricks"), "reverse_image"),
+        ("reviews", ("reviews",), "reviews"),
+        ("brand", ("product",), "brand_presence"),
+        ("price_history", ("prices",), None),
+        ("vat_register", ("who",), None),
+    ),
+    "aggregate_listing": (
+        ("photo_elsewhere", ("product", "tricks"), "reverse_image"),
+        ("reviews", ("reviews",), "reviews"),
+        ("brand", ("product",), "brand_presence"),
+        ("price_history", ("prices",), None),
+    ),
+    # A quick check reads an ad or a provider's profile on a known platform as a shop's page (it has no page classes
+    # beyond products); a deep check, with the expansion classes on, reads it as what it is.
+    "p2p_listing": (
+        ("seller_profile", ("seller",), "seller_profile"),
+        ("ad_photos", ("photos",), "reverse_image"),
+        ("ad_price", ("price",), "price_outlier"),
+    ),
+    "service_listing": (
+        ("provider_profile", ("company", "reviews"), "platform_profile"),
+        ("service_terms", ("terms",), "service_terms"),
+    ),
+}
+DeepAction = Literal["run_deep", "get_checks"]
+# At most this many extras are named: the suggestion stays one sentence.
+MAX_DEEP_ADDS = 2
+
+
+def _was_price(facts: PageFacts) -> bool:
+    """A 'was' price above the price, which the price history can test (while price observations are on)."""
+    was = facts.list_price
+    return settings.price_observations and facts.price is not None and was is not None and was > facts.price
+
+
+# What each extra needs on the page; an extra not listed always has something to look at.
+_NEEDS: dict[str, Callable[[PageFacts], bool]] = {
+    "photo_elsewhere": lambda f: bool(f.image_urls),
+    "ad_photos": lambda f: bool(f.image_urls),
+    "reviews": lambda f: bool(f.reviews),
+    "brand": lambda f: bool(f.brand),
+    "price_history": _was_price,
+    "vat_register": lambda f: bool(f.vat_ids),
+    "ad_price": lambda f: f.price is not None,
+}
+
+
+def _has_something(extra: str, facts: PageFacts) -> bool:
+    """Whether the page gives a deep check's extra something to look at (a photo to search, reviews to read, …)."""
+    needs = _NEEDS.get(extra)
+    return needs is None or needs(facts)
+
+
+def deep_page_type(state: AnalysisState, page_type: str) -> str:
+    """
+    The page type a deep check would give the page that a quick check classified as ``page_type``.
+
+    The quick check classifies by its product rules only; a deep check (with the expansion classes on) first reads a
+    listing on a known peer-to-peer or service platform as an ad or a provider's profile (an eBay business seller's
+    listing as a marketplace listing).
+
+    :param state: The analysis state (facts, URL, page text).
+    :param page_type: The quick check's page type.
+    :return: The page type.
+    """
+    facts = state.get("facts")
+    if settings.expansion_classes and facts is not None and page_type == "storefront":
+        settled = platforms.platform_rule(facts, state.get("url", ""), state.get("cleaned_content", ""))
+        if settled is not None:
+            return settled[0]
+    return page_type
+
+
+def _known_seller(page_type: str, facts: PageFacts) -> bool:
+    """
+    A seller a quick check can tell is no unknown: a big marketplace's own listing, or the brand's own on it.
+
+    A big marketplace is one the quick check itself recognises by its rules (Amazon, bol.com, Walmart: the page type
+    ``aggregate_listing``); its own listing is one that the listing skill doesn't call a reseller's
+    (:func:`unfret.graph.skills.listing.resold`: the seller named is the brand or the marketplace's own retail arm, or
+    none is named). Whether a web shop is a known brand's own takes outside evidence (Wikidata, the AI read), which
+    only a deep check looks up: by the page alone, a three-week-old copy of a brand's shop looks the same.
+    """
+    return page_type == "aggregate_listing" and not resold(facts)
+
+
+def _joined(labels: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    word = str(catalogue()["and"])
+    return labels[0] if len(labels) == 1 else f"{', '.join(labels[:-1])} {word} {labels[-1]}"
+
+
+def deep_check(verdict: Verdict, state: AnalysisState, *, concerns: set[str], available: set[str]) -> DeepCheck | None:
+    """
+    On a quick result: whether to suggest a deep check of the same page, and what it would add for this page.
+
+    Worked out from the quick result alone, after the rest of the card, which it never changes:
+
+    - "Worth a look" or "Think twice": suggested (the result is on the fence).
+    - "Looks fine": suggested quietly, unless the seller is known to the quick check (:func:`_known_seller`): a quick
+      check can't see a three-week-old domain or a supplier's photo.
+    - "Serious concerns": not suggested; the advice is already to buy elsewhere.
+    - Nothing a deep check would add here (:data:`DEEP_EXTRAS`, :func:`_has_something`): not suggested.
+
+    :param verdict: The quick verdict, with its checklist.
+    :param state: The analysis state (page type, facts).
+    :param concerns: The checklist areas with a concern.
+    :param available: The skills the quick check could run on this page.
+    :return: The suggestion (without its cost: :func:`with_cost`), or ``None`` for a page type without one.
+    """
+    page_type = state.get("page_type", "storefront")
+    facts = state.get("facts") or PageFacts()
+    extras = DEEP_EXTRAS.get(deep_page_type(state, page_type))
+    if extras is None:
+        return None
+    if verdict.band == "junk_or_scam":
+        return DeepCheck(suggested=False, reason="serious_concerns")
+    if verdict.band == "reliable" and _known_seller(page_type, facts):
+        return DeepCheck(suggested=False, reason="known_seller")
+    copy = catalogue()["deep_check"]
+    found = [
+        (key, areas)
+        for key, areas, skill in extras
+        if (skill is None or skill not in available) and _has_something(key, facts)
+    ]
+    found.sort(key=lambda e: not concerns & set(e[1]))  # stable: about a concern first, then in the table's order
+    adds = [DeepCheckAdd(key=k, area=areas[0], label=str(copy["adds"][k])) for k, areas in found[:MAX_DEEP_ADDS]]
+    if not adds:
+        return DeepCheck(suggested=False, reason="nothing_to_add")
+    quiet = verdict.band == "reliable"
+    return DeepCheck(
+        suggested=True,
+        reason="unknown_seller" if quiet else "on_the_fence",
+        quiet=quiet,
+        adds=adds,
+        text=str(copy["text"]).format(adds=_joined([a.label for a in adds])),
+    )
+
+
+def _dollars(usd_micros: int) -> str:
+    """A price for the suggestion: "$6" for whole dollars, else as everywhere ("$0.20")."""
+    text = format_usd(usd_micros)
+    return text.removesuffix(".00")
+
+
+def deep_check_cost(
+    *, free_left: int = 0, paused: bool = False, bought: int = 0, x402_usd_micros: int | None = None
+) -> tuple[str, DeepAction]:
+    """
+    What a deep check would cost the caller, in words, and whether they can run it now.
+
+    Paid as a deep check is paid (``POST /v1/analyze``): a pass's free checks first while today's aren't all used,
+    then bought checks; otherwise the smallest pack's card price. With x402, the deep tier's price.
+
+    :param free_left: The pass's free checks left.
+    :param paused: Whether today's free deep checks are all used.
+    :param bought: The bought checks the balance covers.
+    :param x402_usd_micros: The deep tier's x402 price, for a caller paying with x402.
+    :return: The words and the action (``run_deep`` or ``get_checks``).
+    """
+    cost: dict[str, str] = catalogue()["deep_check"]["cost"]
+    if x402_usd_micros is not None:
+        return cost["x402"].format(price=_dollars(x402_usd_micros)), "run_deep"
+    if free_left > 0 and not paused:
+        return (cost["free_last"] if free_left == 1 else cost["free"].format(count=free_left)), "run_deep"
+    if bought > 0:
+        return cost["bought"].format(count=bought), "run_deep"
+    smallest = packs.packs(settings)[0]
+    text = cost["paused" if free_left > 0 else "packs"]
+    return text.format(price=_dollars(smallest.card_usd_micros), checks=smallest.checks), "get_checks"
+
+
+def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
+    """
+    A suggestion with what it costs this caller and its one button (nothing for one that isn't suggested).
+
+    :param offer: The suggestion (as the result cache keeps it, for whoever asks).
+    :param cost: :func:`deep_check_cost`.
+    :return: The suggestion for this caller.
+    """
+    if not offer.suggested:
+        return offer
+    text, action = cost
+    label = str(catalogue()["deep_check"]["actions"][action])
+    return offer.model_copy(update={"cost": text, "action": action, "action_label": label})
+
+
 def complete(
     verdict: dict[str, Any], state: AnalysisState, *, available: Iterable[Skill], applicable: Iterable[Skill]
 ) -> dict[str, Any]:
@@ -601,6 +803,7 @@ def complete(
             concerns.setdefault(area, title)
     found = state.get("same_product")
     parsed.same_product = SameProduct.model_validate(found) if found and kind == "shop" else None
+    ran = {s.name for s in available}
     parsed.checklist, parsed.checks_run = checklist(
         kind,
         features,
@@ -609,4 +812,7 @@ def complete(
         applicable={s.name for s in applicable if page_type in s.page_types},
     )
     parsed.next_step = next_step(parsed, kind, parsed.same_product is not None)
+    if {s.name for s in applicable} - ran:  # a quick check: everything above is its verdict, unchanged
+        marked = {i.key for i in parsed.checklist if i.status == "concern"}
+        parsed.deep_check = deep_check(parsed, state, concerns=marked, available=ran)
     return parsed.model_dump()

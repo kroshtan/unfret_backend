@@ -415,7 +415,7 @@ async def test_the_same_product_on_another_shop_with_its_price_and_both_photos(
         "own_image": f"https://unfret.net/v1/images/{own}/thumbnail.jpg",  # recorded at once, for its thumbnail
         "title": "Looks like the same product, sold elsewhere for $12.99",
         "detail": "The main photo is the same photo as on cheap-lamps.shop and 1 other shop. Unfret saw it there for "
-        "$12.99 on 7 November 2026.",
+        "$12.99 on November 7, 2026.",
         "price": 12.99,
         "currency": "USD",
         "price_text": "$12.99",
@@ -492,7 +492,7 @@ async def test_a_test_shop_page_finds_its_photo_on_the_sister_shop(
         "own_image": "https://unfret.net/v1/images/test-shop/projector-hero.jpg",
         "title": "Looks like the same product, sold elsewhere for $17.99",
         "detail": "The main photo is the same photo as on unfret.net/test-shop/sister-shop. Unfret saw it there for "
-        "$17.99 on 9 November 2026.",
+        "$17.99 on November 9, 2026.",
         "price": 17.99,
         "currency": "USD",
         "price_text": "$17.99",

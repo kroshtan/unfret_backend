@@ -232,6 +232,10 @@ async def test_every_page_has_the_shared_header_and_footer(
     page = (await client.get(path)).text
     assert "{{" not in page and "}}" not in page
     assert page.count('<header class="site-header">') == 1 and page.count('<footer class="site-footer">') == 1
+    footer = page.split('<footer class="site-footer">', 1)[1]
+    assert (
+        "<p>Check before you pay. Unfret reads" in footer and "Shop without the worry" not in page
+    )  # the home's line
     nav = page.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
     marked = [line.strip() for line in nav.splitlines() if 'aria-current="page"' in line]
     if current is None:

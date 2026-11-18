@@ -285,7 +285,7 @@ def _money(price: float, currency: str) -> str:
 
 
 def _day(day: date) -> str:
-    return f"{day.day} {day.strftime('%B')} {day.year}"
+    return f"{day:%B} {day.day}, {day.year}"  # US English, as the site: "November 18, 2026"
 
 
 async def same_product(

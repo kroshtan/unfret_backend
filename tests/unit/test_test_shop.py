@@ -35,7 +35,8 @@ _LOAD_MODEL = scoring.load_model
 
 URL = "https://unfret.net/test-shop"
 BANNER = "Unfret test shop — every trick here is copied from real listings, names removed"
-PAGES = ("/test-shop", "/test-shop/checkout", "/test-shop/sister-shop")
+CLEAN_BANNER = "Unfret test shop — a made-up shop with none of the tricks, to compare"
+PAGES = ("/test-shop", "/test-shop/checkout", "/test-shop/sister-shop", "/test-shop/clean-shop")
 
 # Each trick and the findings (skill, type) it must raise in both tiers.
 TRICKS: dict[str, set[tuple[str, str]]] = {
@@ -118,7 +119,8 @@ async def test_pages_are_served_like_the_site_and_kept_out_of_search(client: htt
     robots = soup.find("meta", attrs={"name": "robots"})
     assert isinstance(robots, Tag) and "noindex" in str(robots["content"])
     banner = soup.find(class_="ts-banner")
-    assert isinstance(banner, Tag) and " ".join(banner.get_text().split()) == BANNER
+    want = CLEAN_BANNER if path == "/test-shop/clean-shop" else BANNER
+    assert isinstance(banner, Tag) and " ".join(banner.get_text().split()) == want
     # Only the banner ties it to Unfret: the shop never names Unfret or uses the site's look.
     assert response.text.count("Unfret") == 1
     assert "site.css" not in response.text and "figtree" not in response.text.lower()
@@ -150,7 +152,7 @@ async def test_pages_run_no_inline_code_and_load_nothing_from_elsewhere(client: 
 
 
 async def test_the_shop_static_files_are_served(client: httpx.AsyncClient) -> None:
-    for name in ("shop.css", "shop.js", "favicon.svg", "projector-hero.jpg", "sister-hero.jpg"):
+    for name in ("shop.css", "shop.js", "favicon.svg", "projector-hero.jpg", "sister-hero.jpg", "lamp-hero.jpg"):
         response = await client.get(f"/static/{asset_tag()}/test-shop/{name}")
         assert response.status_code == 200, name
 
@@ -184,7 +186,7 @@ def local_only(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _quick(
-    monkeypatch: pytest.MonkeyPatch, page: str = "product.html", *, extension: bool = False
+    monkeypatch: pytest.MonkeyPatch, page: str = "product.html", url: str | None = None, *, extension: bool = False
 ) -> dict[str, Any]:
     """
     The quick check of one test shop page: fetched by the server (its HTML), or as the extension sends it.
@@ -197,7 +199,7 @@ async def _quick(
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: model)
     monkeypatch.setattr(llm, "get_llm", lambda: pytest.fail("the quick tier calls no LLM"))
     graph = build_graph(skills_for("quick", SKILLS), model_path=scoring.MODEL_QUICK_PATH, llm=False)
-    url = URL if page == "product.html" else f"{URL}/sister-shop"
+    url = url or (URL if page == "product.html" else f"{URL}/sister-shop")
     state: dict[str, Any] = {"page_content": render(page), "url": url, "flags": [], "explain": False}
     if extension:
         facts, text = parse_page(state["page_content"], url)
@@ -230,20 +232,49 @@ ANSWERS: dict[type[BaseModel], BaseModel] = {
 }
 
 
+# And how it reads the clean shop: a plain page that names its company and its policies.
+CLEAN_ANSWERS: dict[type[BaseModel], BaseModel] = {
+    content._Signals: content._Signals(
+        scam_copy=0.05,
+        generic_product=0.2,
+        title_word_soup=0.05,
+        generic_brand=0.2,
+        brand_recognized=False,
+        implausible_claims=0.05,
+        implausible_claim_examples=[],
+        missing_trust_info=0.1,
+        addresses_the_reader_ai=False,
+        evidence=["Brackenfold Lighting LLC, 40 Brackenfold Lane, Unit 4, Bend, OR 97701, United States."],
+    ),
+    triage._TriageAnswer: triage._TriageAnswer(run_reverse_image=False, reason="A small shop's own product."),
+    nodes._Explanation: nodes._Explanation(explanation="A small shop that names its company, address and policies."),
+}
+
+
 class FakeChatModel:
     """Every structured LLM call gets its canned answer; the page is classified by rules, never by the LLM."""
 
+    answers = ANSWERS
+
     def with_structured_output(self, schema: type[BaseModel], **_: Any) -> RunnableLambda:
-        return RunnableLambda(lambda _: ANSWERS[schema])
+        return RunnableLambda(lambda _: self.answers[schema])
 
 
-async def _deep(monkeypatch: pytest.MonkeyPatch, *, checkout: bool = False) -> dict[str, Any]:
+class CleanChatModel(FakeChatModel):
+    """The canned answers for the clean shop."""
+
+    answers = CLEAN_ANSWERS
+
+
+async def _deep(
+    monkeypatch: pytest.MonkeyPatch, *, checkout: bool = False, page: str = "product.html", url: str = URL
+) -> dict[str, Any]:
     model = _LOAD_MODEL.__wrapped__(scoring.MODEL_PATH)
     assert model is not None, "the model ships in the repo"
     monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: model)
-    monkeypatch.setattr(llm, "get_llm", FakeChatModel)
+    monkeypatch.setattr(llm, "get_llm", CleanChatModel if page == "clean.html" else FakeChatModel)
     monkeypatch.setattr(reviews, "get_embeddings", lambda: DeterministicFakeEmbedding(size=16))
-    state: dict[str, Any] = {"page_content": render("product.html"), "url": URL, "flags": [], "explain": True}
+    state: dict[str, Any] = {"page_content": render(page), "url": url, "flags": [], "explain": True}
     if checkout:
         state["checkout_content"] = render("checkout.html")
     result: dict[str, Any] = await build_graph(SKILLS).ainvoke(state)
@@ -317,6 +348,23 @@ async def test_the_checkout_page_shows_fees_added_at_the_end(monkeypatch: pytest
     drip = next(f for f in result["findings"] if f.type == "drip_pricing")
     assert drip.evidence == "Listed at 39.99, checkout total 61.88 (+55%)."
     assert _verdict(result, "deep") == DEEP_CHECKOUT_VERDICT
+
+
+@pytest.mark.usefixtures("local_only")
+async def test_the_clean_shop_has_none_of_the_tricks(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://unfret.net/test-shop/clean-shop"
+    tricks = set().union(*TRICKS.values(), *DEEP_TRICKS.values())
+    for tier, result in (
+        ("quick", await _quick(monkeypatch, "clean.html", url)),
+        ("deep", await _deep(monkeypatch, page="clean.html", url=url)),
+    ):
+        assert result["page_type"] == "storefront", tier
+        assert not _findings(result) & tricks, tier
+        assert {("us_identity", "us_address"), ("us_identity", "business_entity")} <= _findings(result), tier
+        # No warning and no reason to show. The deep tier says Looks fine; the open baseline's quick scorer stops at
+        # Worth a look on a shop this small (the retrained quick scorer the service runs says Looks fine).
+        band, flags = _verdict(result, tier)
+        assert band == ("reliable" if tier == "deep" else "concerns") and not flags, (tier, band, flags)
 
 
 # ── Known gaps (input for the scorer, pinned so a fix shows up here) ─────────────────────────────────────────────

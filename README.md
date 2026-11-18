@@ -43,7 +43,9 @@ Think twice or Serious concerns catches 73% of the scam and junk pages, and 9% o
 trained on, so expect somewhat lower numbers on pages it has never seen. It covers product pages only (not ads or
 service providers), and the corpus itself is private (see below). The method, ads and tradespeople, false alarms per
 market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
-`make accuracy` (aggregates only, in [`static/accuracy.json`](src/unfret/static/accuracy.json)).
+`make accuracy` (aggregates only, in [`static/accuracy.json`](src/unfret/static/accuracy.json)). The page leads with
+the numbers of the retrained scorer unfret.net runs (see "The model"; in
+[`static/accuracy-service.json`](src/unfret/static/accuracy-service.json)) and shows the baseline's next to them.
 
 ## The model
 
@@ -90,8 +92,12 @@ its own the quick tier keeps the baseline's. A path that is set but missing, unr
 skill produces stops the server at start-up instead of letting it score with something else. Retrained models go to
 the model store (`UNFRET_MODELS_DIR`, default `<corpus>/models`), never into `src/`: a pre-commit hook
 (`scripts/check_scorer_baseline.py`, also run by CI) refuses a changed baseline or any other scorer artifact in the
-repository. The `/accuracy` page and `static/accuracy.json` keep the baseline's numbers and say so when the server
-runs another scorer.
+repository. `static/accuracy.json` holds the baseline's replay numbers. The numbers of the retrained scorer
+unfret.net runs are published as aggregates only: `make accuracy ACCURACY_ARGS="--publish <version>"` copies that
+version's `accuracy.json` from the model store to `static/accuracy-service.json`, after checking that it holds
+nothing but totals and the version (never the model, a page, a shop or the golden set's seed list). The `/accuracy`
+page leads with the numbers of the scorer the server runs, shows both side by side, and says so when the server
+runs a scorer whose numbers aren't published.
 
 **Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
 stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and
@@ -335,6 +341,11 @@ another brand name ("Same photo under other brand names": VELUNOX on the one, LU
 pages are looked up only in the test shop's own photo index (`unfret.test_shop_photos`, made in memory from the
 static photos, rows with negative IDs, thumbnails at `/v1/images/test-shop/<photo>`), never in the real one, and a real
 page is never looked up there, so neither can match the other.
+
+`/test-shop/clean-shop` is the comparison: a made-up workshop (Brackenfold Lighting) selling a made-up oak lamp with
+none of the tricks: a plain price, company, address and phone, readable shipping and returns, a handful of ordinary
+reviews spread over months. Its banner says so. Unfret's verdict there is "Looks fine" (the open baseline's quick
+scorer says "Worth a look", with no reason).
 
 Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
 each trick raises and the verdict. Its tricks are deliberate, so the test shop (by address: `/test-shop` on
@@ -1013,7 +1024,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
-| `UNFRET_CHECK_EXAMPLES` | the test shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
+| `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
 | `UNFRET_CARD_PRICES_USD` | `25=6.00,100=20.00` | Each pack's card price in dollars (before tax), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How the card price of a pack without one in `UNFRET_CARD_PRICES_USD` is derived |
 | `UNFRET_CARD_PRICES_EUR` | `25=5.50,100=17.50` | Each pack's card price in euros (before VAT) for visitors from the euro area; one per pack on sale (others are ignored), or empty for dollars only. Each Polar product needs the same EUR price |

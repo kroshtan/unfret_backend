@@ -3762,6 +3762,9 @@
   }
  },
  "info": {
+  "contact": {
+   "email": "hello@unfret.net"
+  },
   "description": "Scam, dropshipping and dark-pattern signals for a web shop, a marketplace listing, a second-hand ad or a service provider's site. Start with the [developer guide](/developers): the MCP server, pay-per-check over x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as `Authorization: Bearer ufk_\u2026`, on `POST /v1/analyze`.",
   "title": "Unfret API",
   "version": "<version>"
@@ -4140,7 +4143,7 @@
   },
   "/v1/check": {
    "post": {
-    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an\nUnfret pass as ``Authorization: Bearer ufk_\u2026`` instead of paying: charged like ``POST /v1/analyze`` (a deep check\nuses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,\n``free_check``, ``balance_usd_micros`` and ``free_checks_left``.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header or pass, app state).\n:return: The verdict, or an x402 payment-required / error response.",
+    "description": "Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.\n\nRetrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an\nUnfret pass as ``Authorization: Bearer ufk_\u2026`` instead of paying: charged like ``POST /v1/analyze`` (a deep check\nuses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,\n``free_check``, ``balance_usd_micros`` and ``free_checks_left``. Without a payment or a pass the answer is the 402,\nwhatever the body; the body is validated (422) only with one.\n\n:param body: URL, optional page HTML, tier and policy.\n:param request: The incoming request (payment header or pass, app state).\n:return: The verdict, or an x402 payment-required / error response.",
     "operationId": "check_v1_check_post",
     "requestBody": {
      "content": {
@@ -5284,5 +5287,8 @@
     ]
    }
   }
+ },
+ "x-agentcash-guidance": {
+  "llmsTxtUrl": "https://unfret.net/llms.txt"
  }
 }

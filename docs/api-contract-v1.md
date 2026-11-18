@@ -1223,3 +1223,18 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - Clients: the report consent says an AI model may suggest a label and a person decides; the website's dialog shows
   both rewards from `/v1/pricing`. The extension's own copy says "3 free checks": it should read the numbers from
   `/v1/pricing` (`reports.reward_checks`, `reports.small_reward_checks`).
+
+## Changes (`/v1/check`: the 402 before body validation; backwards-compatible)
+
+- A `POST /v1/check` without `PAYMENT-SIGNATURE` and without `Authorization: Bearer …` now always answers the x402
+  `402` with `PAYMENT-REQUIRED`, whatever the body: none, empty, not JSON, or not a valid check request (it was a
+  `422 VALIDATION_ERROR`). x402 directories (x402scan, x402-list.com) probe without a body first and read the price
+  from that 402. The tier priced is the body's `tier` when it is `quick` or `deep`, else `quick` (the default), so
+  such a 402 is byte for byte the one a valid request for that tier gets, `resource` and Base's `extensions.bazaar`
+  included. The 402 of a valid request is unchanged.
+- With a payment or a pass the body is validated first, as before (`422 VALIDATION_ERROR`); nothing is verified,
+  settled or charged for an invalid body.
+- The OpenAPI document (snapshot updated) has `info.contact.email` (`hello@unfret.net`) and a top-level
+  `x-agentcash-guidance: {"llmsTxtUrl": "<base URL>/llms.txt"}`, which x402scan reads; `POST /v1/check`'s description
+  says that the 402 comes first. Request and response schemas, and the ownership proofs (`x-agentcash-provenance`,
+  `x-discovery`), are unchanged.

@@ -12,12 +12,12 @@
 #   scripts/private-model.sh verify URL DIR        wait until URL/v1/health reports the expected versions
 #
 # Settings (environment): MODEL_READ_TOKEN (a read-only token for the store; never printed), MODEL_STORE
-# (owner/repo, default kroshtan/unfret-corpus), MODEL_STORE_REF (default master), FORGEJO_URL (default
+# (owner/repo, default kroshtan/unfret-corpus), MODEL_STORE_REF (default main), FORGEJO_URL (default
 # https://git.kroshtan.com), MODEL_HOST (default kamal@git.kroshtan.com).
 set -euo pipefail
 
 STORE="${MODEL_STORE:-kroshtan/unfret-corpus}"
-REF="${MODEL_STORE_REF:-master}"
+REF="${MODEL_STORE_REF:-main}"
 FORGE="${FORGEJO_URL:-https://git.kroshtan.com}"
 HOST="${MODEL_HOST:-kamal@git.kroshtan.com}"
 MOUNT=/app/private-model

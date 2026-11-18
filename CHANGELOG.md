@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Features
+
+* **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
+  explain how to install it from the source.
+
 ## [0.13.0](https://github.com/kroshtan/unfret_backend/compare/0.12.0...0.13.0) (2026-11-18)
 
 ### Free checks and the Unfret pass

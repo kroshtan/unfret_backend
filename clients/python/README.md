@@ -8,9 +8,7 @@ MIT licensed.
 pip install unfret-client
 ```
 
-The first release on PyPI comes with Unfret's next release; until it's there, install it from the source:
-`pip install "unfret-client @ git+https://git.kroshtan.com/kroshtan/unfret_backend.git#subdirectory=clients/python"`.
-For other languages, see [unfret.net/developers/http](https://unfret.net/developers/http).
+It's on [PyPI](https://pypi.org/project/unfret-client/). For other languages, see [unfret.net/developers/http](https://unfret.net/developers/http).
 
 ```python
 from unfret_client import Unfret

@@ -9,7 +9,7 @@ workflow. The TypeScript client (``clients/typescript``) is a reference to copy,
 # Flip to True once unfret-client is on PyPI (https://pypi.org/project/unfret-client/), in the same change that
 # notes it in the CHANGELOG (and drops the source install from clients/python/README.md). Until then the pages say
 # how to install it from the source instead.
-PYTHON_CLIENT_ON_PYPI = False
+PYTHON_CLIENT_ON_PYPI = True
 
 PYTHON_CLIENT_SOURCE = (
     "unfret-client @ git+https://git.kroshtan.com/kroshtan/unfret_backend.git#subdirectory=clients/python"

@@ -141,7 +141,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
     _text_signals(soup, facts)
     _policy_links(soup, url, facts)
     _images(soup, url, facts)
-    _structured_data(soup, facts)
+    _main_photo_first(soup, url, facts, structured=_structured_data(soup, facts))
     if facts.platform == "amazon":
         amazon.extract(soup, facts)
     elif facts.platform == "bol.com":
@@ -365,6 +365,14 @@ def _product_rating(node: dict[str, Any]) -> dict[str, Any] | None:
     return rating if isinstance(rating, dict) and _about_a_product(rating.get("itemReviewed")) else None
 
 
+def _variant_images(product: dict[str, Any]) -> object:
+    variants = product.get("hasVariant")
+    for variant in variants if isinstance(variants, list) else [variants]:
+        if isinstance(variant, dict) and variant.get("image"):
+            return variant["image"]
+    return None
+
+
 def _variant_offers(product: dict[str, Any]) -> object:
     variants = product.get("hasVariant")
     for variant in variants if isinstance(variants, list) else [variants]:
@@ -373,9 +381,36 @@ def _variant_offers(product: dict[str, Any]) -> object:
     return None
 
 
-def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> None:
+def _main_photo_first(soup: BeautifulSoup, url: str, facts: PageFacts, *, structured: bool) -> None:
+    # The photo checks take a product page's first image as its main photo. Without one in the structured data, the
+    # page's own markup comes first in document order: on most shops the header's logo, a flag or a menu's picture
+    # of another product. A product page's Open Graph image is its product photo (Shopify, WooCommerce and most
+    # shop systems set it to the featured image), so it goes first. Pages that don't say they are about a product
+    # (a service company's site, whose Open Graph image is often its logo) keep their order.
+    image = _meta(soup, "og:image:secure_url") or _meta(soup, "og:image")
+    if structured or not image or image.startswith("data:"):
+        return
+    if _meta(soup, "og:type").strip().lower() not in {
+        "product",
+        "product.item",
+        "product.group",
+        "og:product",
+    } and not any(_about_a_product(p) for p in facts.json_ld):
+        return
+    facts.image_urls = _dedupe([urljoin(url, image), *facts.image_urls])[:50]
+
+
+def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> bool:
+    """
+    Read the product, its offer, rating, reviews and photos from the page's JSON-LD.
+
+    :param soup: The parsed page.
+    :param facts: Filled in place.
+    :return: Whether the structured data named the product's photos (they then come first in ``image_urls``).
+    """
     products, ratings = _json_ld(soup)
     facts.json_ld = [_trim(p) for p in products[:20]]
+    photos = False
     if products:
         product = products[0]
         facts.title = facts.title or str(product.get("name") or "")[:2000]
@@ -384,7 +419,8 @@ def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> None:
         _apply_offer(product.get("offers"), facts)
         _apply_rating(product.get("aggregateRating"), facts)
         _apply_reviews(product.get("review"), facts)
-        _apply_images(product.get("image"), facts)
+        # A ProductGroup (Shopify's, among others) may name its photos on its variants only.
+        photos = _apply_images(product.get("image") or _variant_images(product), facts)
     if ratings:
         _apply_rating(ratings[0], facts)
     if facts.price is None:
@@ -395,6 +431,7 @@ def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> None:
         _apply_offer(_variant_offers(products[0]), facts)
     if not facts.reviews:
         _microdata_reviews(soup, facts)
+    return bool(products) and photos
 
 
 def _apply_offer(offers: object, facts: PageFacts) -> None:
@@ -436,11 +473,13 @@ def _apply_reviews(reviews: object, facts: PageFacts) -> None:
         )
 
 
-def _apply_images(images: object, facts: PageFacts) -> None:
+def _apply_images(images: object, facts: PageFacts) -> bool:
     items = images if isinstance(images, list) else [images] if images else []
-    found = [i.get("url") if isinstance(i, dict) else i for i in items]
-    urls = [u for u in found if isinstance(u, str) and u]
+    # An ImageObject names its file as `url` or as `contentUrl` (IKEA's, among others).
+    found = [(i.get("url") or i.get("contentUrl")) if isinstance(i, dict) else i for i in items]
+    urls = [urljoin(facts.url, u) for u in found if isinstance(u, str) and u and not u.startswith("data:")]
     facts.image_urls = _dedupe([*urls, *facts.image_urls])[:50]
+    return bool(urls)
 
 
 def _microdata_reviews(soup: BeautifulSoup, facts: PageFacts) -> None:

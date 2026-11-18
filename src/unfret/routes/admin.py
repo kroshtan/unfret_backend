@@ -197,7 +197,8 @@ SELECT {table!r} AS store, COUNT(*) AS rows,
 FROM {table}
 """
 _OBSERVED_SQL = " UNION ALL ".join(
-    _OBSERVED.format(table=t) for t in ("image_prints", "price_observations", "market_prices", "review_fingerprints")
+    _OBSERVED.format(table=t)
+    for t in ("image_prints", "price_observations", "market_prices", "review_fingerprints", "shop_links")
 )
 
 

@@ -1045,7 +1045,8 @@ POST {d["endpoint"]} with JSON {{"url": "...", "page_content": "<html> (optional
 
 - quick ({quick}): {d["tiers"]["quick"]["includes"]} Use it to screen many pages; it misses what only reading
   the listing, its reviews or its photos shows, so check what matters with deep. A page without a product and a
-  price can't be assessed by quick (you are refunded).
+  price can't be assessed by quick (you are refunded). A quick answer's `deep_check.suggested` says whether deep is
+  worth it for that page, and `deep_check.adds` what it would add, so you can escalate only when it helps.
 - deep ({deep}): {d["tiers"]["deep"]["includes"]}
 
 ## Payment (x402 v2)

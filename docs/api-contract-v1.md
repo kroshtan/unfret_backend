@@ -1141,3 +1141,42 @@ and clients show what is there.
 - With Base on, `ownershipProofs` (above) gains a second proof: the origin signed by the Base hot wallet, EIP-191
   (`personal_sign`), `0x`-prefixed hex, after Solana's. x402scan recovers the signer and compares it with Base's
   `payTo`.
+
+## Changes (a quick result says whether a deep check is worth it; backwards-compatible)
+
+Quick results (`"tier": "quick"` on `POST /v1/analyze`, its stream's `result` event, and `POST /v1/check`, with x402
+or a pass, so also the MCP tools' `verdict`) add an optional **`deep_check`**: on `/v1/analyze` inside `verdict`, on
+`/v1/check` at the top level of the verdict. It is worked out from the quick result alone and never changes it: the
+rest of a quick answer is byte for byte what it was. Deep results, pages that couldn't be assessed, cached results from
+before this change and older servers have no `deep_check` (or `null`); clients show nothing then.
+
+- `{"suggested": bool, "reason", "quiet": bool, "adds": [{"key", "area", "label"}], "text", "cost", "action",
+  "action_label"}`.
+- **When**: `concerns` ("Worth a look") or `careful` ("Think twice"): suggested, `reason: "on_the_fence"`. `reliable`
+  ("Looks fine"): suggested with `quiet: true`, `reason: "unknown_seller"` (a quick check can't see a weeks-old domain
+  or a supplier's photo), except on a big marketplace's own listing: a page the quick check classifies as
+  `aggregate_listing` (Amazon, bol.com, Walmart) that the listing skill doesn't call a reseller's (the seller is the
+  brand, the marketplace's retail arm, or not named): not suggested, `reason: "known_seller"`. Whether a web shop is a
+  known brand's own takes outside evidence (Wikidata, the AI read) that only a deep check looks up, so a web shop that
+  looks fine gets the quiet suggestion. `junk_or_scam` ("Serious concerns"): never (`reason: "serious_concerns"`; the
+  advice is already to buy elsewhere). A page where a deep check would add nothing: `reason: "nothing_to_add"`.
+- **`adds`** (at most 2): what a deep check would look at on this page that the quick one left out, an area with a
+  concern first: `shop_age` "how old this shop is" (web shops), `photo_elsewhere` "whether its product photo appears
+  on other shops" (a photo on the page), `reviews` "whether its reviews look genuine" (reviews on the page), `brand`
+  "whether the brand is known beyond this page" (a brand named), `price_history` "whether its 'was' price was ever
+  really charged" (a struck-through price), `vat_register` "whether its VAT number is in the EU register" (a VAT
+  number shown). An ad or a provider's profile on a known platform (which a quick check reads as a shop's page, and a
+  deep check, with the page classes beyond products on, as what it is): `seller_profile`, `ad_photos`, `ad_price`;
+  `provider_profile`, `service_terms`. `area` is the `checklist` key it belongs to. New keys may be added; show `label`.
+- **`text`**: "A deep check also looks at how old this shop is and whether its product photo appears on other
+  shops." (empty when not suggested).
+- **`cost`**, `action` (`run_deep` | `get_checks`) and `action_label` ("Run a deep check" | "Get checks"), only when
+  suggested, for this caller (a cached quick result is priced per request): a pass with free checks (today's not all
+  used) "Uses 1 of your N free deep checks." / "Uses your last free deep check."; bought checks "Uses 1 check (you
+  have N)."; neither "Deep checks come in packs, from $6 for 25." (the smallest pack's card price, from the settings),
+  or, with only free checks while today's are all used, "Free deep checks are back at 00:00 UTC. Deep checks also
+  come in packs, from $6 for 25." (`get_checks`). `/v1/check` paid with x402: "A deep check of this page costs $0.20."
+  (the deep tier's price). Running it is a normal deep check of the same page, charged as always.
+- Clients show it once, under the quick result, with one button (`action_label`): `run_deep` runs a deep check of the
+  same page, `get_checks` opens the checkout. Quietly when `quiet`. No timers, no colour of its own.
+- OpenAPI snapshot updated (`DeepCheck`, `DeepCheckAdd`).

@@ -149,6 +149,22 @@ async def _lookup(kind: str, key: str, load: Any) -> Any:
         return _Failed()
 
 
+async def on_wikidata(brand: str) -> bool | None:
+    """
+    Whether a brand is on Wikidata as a business or brand, from the same cached lookup as the skill's.
+
+    For another brand than the page's (the photo check asks it of the catalogue brand a photo was found under).
+
+    :param brand: The brand.
+    :return: ``True`` or ``False``, or ``None`` when it isn't a brand, lookups are off or Wikidata didn't answer.
+    """
+    key = brand_key(brand)
+    if key is None or not settings.network_lookups:
+        return None
+    found = await _lookup("wikidata_brand", key, lambda: wikidata_lookup(brand))
+    return None if isinstance(found, _Failed) else isinstance(found, dict)
+
+
 class BrandPresenceSkill(Skill):
     """The brand on Wikidata and on a domain of its own."""
 

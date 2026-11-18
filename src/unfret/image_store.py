@@ -3,9 +3,10 @@ Where the image index lives, and how a photo is looked up in it.
 
 Each row is one listing's main photo: the shop (its registrable domain, or the marketplace for Amazon and bol.com
 listings), a hash of the listing (the shop and its public product ID, or the page path), the photo's fingerprints
-(:mod:`unfret.image_index`) and the photo's own address, for thumbnails. Rows come from analyses (``seen``) and
-from the public ABO catalogue (``abo``, see :mod:`unfret.image_seed`). As in the shop store: days not times, and
-no caller, page address, score or verdict.
+(:mod:`unfret.image_index`), the photo's own address, for thumbnails, and the brand the listing names (``label``:
+the page's brand for analysis rows, as :func:`unfret.brands.label` writes it, none when the page names none; the
+catalogue's brand for seed rows). Rows come from analyses (``seen``) and from the public ABO catalogue (``abo``, see
+:mod:`unfret.image_seed`). As in the shop store: days not times, and no caller, page address, score or verdict.
 
 A lookup finds rows whose pHash is close (in SQL), keeps those whose dHash, embedding and colours agree as well, and
 drops the photo's own shop (a shop reusing its photos is normal) and the same listing (a listing that changes is an
@@ -15,18 +16,24 @@ placeholder, not evidence: it matches nothing. Matches are direct (photo to phot
 Each analysis row also keeps where it was seen and how many independent sources reported that photo for that listing
 (:mod:`unfret.observations`). Lookups see only rows seen on a page Unfret fetched itself, or corroborated (and the
 catalogue): a forged page that puts another shop's photo on made-up shops neither matches it nor makes it a stock
-photo, and never replaces a listing's photo that counts.
+photo, and never replaces a listing's photo that counts. The brand follows the photo: whoever may replace the photo
+sets it, and a report that doesn't count can't change a brand a fetched page gave (two reports that disagree leave
+the brand unknown, never a third name).
+
+On a marketplace (one shop family, see :data:`_FAMILIES`) the lookup also returns the same photo on the family's
+other listings that name a brand (:attr:`Lookup.siblings`): the same photo under another brand on Amazon says
+nothing of the shop, but a lot of the product (:mod:`unfret.graph.skills.reverse_image`).
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 import asyncpg
 
-from unfret import observations
+from unfret import brands, observations
 from unfret.facts import PageFacts
 from unfret.image_index import THRESHOLDS, ImagePrint, Thresholds, hamming, same_photo
 from unfret.net import hostname
@@ -45,6 +52,7 @@ _FAMILIES = {"amazon": "amazon", "bol.com": "bol.com"}
 # matched against other ads and shops (:func:`lookup_ad`), a shop's never against ads.
 AD_FAMILIES: dict[str, str] = {p: p for p in ("ebay", "marktplaats", "2dehands", "vinted", "craigslist", "facebook")}
 _AD_DOMAINS = tuple(AD_FAMILIES.values())
+_MARKETPLACES = frozenset(_FAMILIES.values())
 
 
 @dataclass(frozen=True)
@@ -64,7 +72,7 @@ class StoredPrint:
     domain: str
     listing_key: bytes
     print: ImagePrint
-    label: str | None = None  # the catalogue brand, for seed rows
+    label: str | None = None  # the brand the listing names (seed rows: the catalogue's), when known
 
 
 @dataclass(frozen=True)
@@ -73,6 +81,38 @@ class Lookup:
 
     matches: list[StoredPrint]  # other shops' and listings' copies, one per shop, seed rows last
     stop: bool = False  # the photo is everywhere: a stock image, not evidence
+    # The same photo on other listings of the page's own marketplace that name a brand (one per brand), for
+    # comparing brands only: never counted as another shop.
+    siblings: list[StoredPrint] = field(default_factory=list)
+
+
+def label_after(
+    action: observations.Action, old: str | None, new: str | None, *, old_bits: int, bits: int
+) -> str | None:
+    """
+    The brand a row keeps after an observation (:func:`unfret.observations.merge` decided what it does to the photo).
+
+    A new or replaced photo takes the observation's brand; the same photo seen on a page Unfret fetched takes it too
+    (or keeps the row's when the page names none). A report that doesn't count never changes the brand of a row a
+    fetched page gave (nor gives it one); on a row that doesn't count either it fills in a missing brand, and when it
+    names another brand the brand becomes unknown.
+
+    :param action: What the observation does to the row.
+    :param old: The row's brand.
+    :param new: The observation's brand.
+    :param old_bits: The row's provenance before the observation.
+    :param bits: The observation's provenance.
+    :return: The brand to keep.
+    """
+    if action in {"insert", "replace"}:
+        return new
+    if action == "keep":
+        return old
+    if bits & observations.TRUSTED_BITS:
+        return new or old
+    if new is None or brands.same_brand(old, new) or old_bits & observations.TRUSTED_BITS:
+        return old
+    return new if old is None else None
 
 
 def listing(url: str, facts: PageFacts) -> Listing | None:
@@ -132,7 +172,7 @@ class ImageStore(Candidates, Protocol):
         :param image_url: The photo's address.
         :param day: Today.
         :param source: ``seen`` or ``abo``.
-        :param label: The catalogue brand (seed rows).
+        :param label: The brand the listing names (:func:`unfret.brands.label`; seed rows: the catalogue's).
         :param bits: The observation's provenance bits (:mod:`unfret.observations`).
         :param vouch: 1 when a new source reports it.
         :return: The row's ID (for its thumbnail), or ``None`` when the row kept another photo.
@@ -198,7 +238,7 @@ class MemoryImageStore:
         :param image_url: The address.
         :param day: Today.
         :param source: The source.
-        :param label: The brand.
+        :param label: The brand the listing names.
         :param bits: The provenance bits.
         :param vouch: 1 for a new source.
         :return: The row's ID, or ``None`` when it kept another photo.
@@ -211,12 +251,15 @@ class MemoryImageStore:
         self.kept[key] = kept
         if old and action == "keep":
             return None
+        brand = label_after(
+            action, old[0].label if old else None, label, old_bits=before.bits if before else 0, bits=bits
+        )
         if old and action == "vouch" and not bits & observations.TRUSTED_BITS:  # the same photo: keep the row's
-            self.rows[key] = (*old[:3], day)
+            self.rows[key] = (replace(old[0], label=brand), old[1], old[2], day)
             return old[0].id
         row_id = old[0].id if old else self._next
         self._next += 0 if old else 1
-        stored = StoredPrint(row_id, source, where.domain, where.listing_key, fp, label)
+        stored = StoredPrint(row_id, source, where.domain, where.listing_key, fp, brand)
         self.rows[key] = (stored, image_url, old[2] if old else day, day)
         return row_id
 
@@ -305,7 +348,7 @@ class PostgresImageStore:
         :param image_url: The address.
         :param day: Today.
         :param source: The source.
-        :param label: The brand.
+        :param label: The brand the listing names.
         :param bits: The provenance bits.
         :param vouch: 1 for a new source.
         :return: The row's ID, or ``None`` when it kept another photo.
@@ -332,7 +375,7 @@ class PostgresImageStore:
             if row_id is not None:
                 return row_id
             old: Any = await conn.fetchrow(
-                "SELECT id, phash, dhash, embedding, colour, provenance, sources FROM image_prints "
+                "SELECT id, phash, dhash, embedding, colour, provenance, sources, label FROM image_prints "
                 "WHERE domain = $1 AND listing_key = $2 FOR UPDATE",
                 where.domain,
                 where.listing_key,
@@ -343,19 +386,21 @@ class PostgresImageStore:
             )
             if action == "keep":
                 return None
+            brand = label_after(action, old["label"], label, old_bits=old["provenance"], bits=bits)
             if action == "vouch" and not bits & observations.TRUSTED_BITS:  # the same photo: keep the row's
                 await conn.execute(
-                    "UPDATE image_prints SET provenance = $2, sources = $3, last_seen = GREATEST(last_seen, $4) "
-                    "WHERE id = $1",
+                    "UPDATE image_prints SET provenance = $2, sources = $3, last_seen = GREATEST(last_seen, $4),"
+                    " label = $5 WHERE id = $1",
                     old["id"],
                     kept.bits,
                     kept.sources,
                     day,
+                    brand,
                 )
                 return int(old["id"])
             await conn.execute(
                 "UPDATE image_prints SET phash = $2, dhash = $3, embedding = $4, colour = $5, image_url = $6,"
-                " last_seen = $7, provenance = $8, sources = $9 WHERE id = $1",
+                " last_seen = $7, provenance = $8, sources = $9, label = $10 WHERE id = $1",
                 old["id"],
                 fp.phash,
                 fp.dhash,
@@ -365,6 +410,7 @@ class PostgresImageStore:
                 day,
                 kept.bits,
                 kept.sources,
+                brand,
             )
             return int(old["id"])
 
@@ -407,14 +453,20 @@ async def lookup(
     """
     same = [c for c in await store.candidates(fp.phash, thresholds.phash) if same_photo(fp, c.print, thresholds)]
     same = [c for c in same if c.domain not in _AD_DOMAINS]  # a shop's photo in someone's ad says nothing of the shop
+    siblings: dict[str, StoredPrint] = {}
     if where is not None:
+        if where.domain in _MARKETPLACES:  # the same photo on the marketplace's other listings, one per brand named
+            for match in sorted(same, key=lambda m: (m.source != "seen", m.id)):
+                key = brands.brand_key(match.label)
+                if match.domain == where.domain and match.listing_key != where.listing_key and key:
+                    siblings.setdefault(key, match)
         same = [c for c in same if c.domain != where.domain and c.listing_key != where.listing_key]
     per_domain: dict[str, StoredPrint] = {}
     for match in sorted(same, key=lambda m: (m.source != "seen", m.id)):
         per_domain.setdefault(match.domain, match)
-    if len(per_domain) > STOP_DOMAINS:
+    if len(per_domain) > STOP_DOMAINS or len(siblings) > STOP_DOMAINS:
         return Lookup([], stop=True)
-    return Lookup(list(per_domain.values()))
+    return Lookup(list(per_domain.values()), siblings=list(siblings.values()))
 
 
 async def lookup_ad(

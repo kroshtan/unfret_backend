@@ -1258,6 +1258,20 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - A scorer flag's `evidence` is the finding of the feature's own type first (`html_source_signals.review_import_app`
   quoted the dropshipping app's finding before, as both types end in "app").
 
+## Changes (the same photo under other brand names, backwards-compatible; migration 31)
+
+- `verdict.same_product.brands` (new, at most three strings, empty when unknown): other brand names the same photo
+  is sold under on the shops named there, names only (`detail` says it in words too: "…, under another brand name
+  (VELUNOX)."). Snapshot updated.
+- Two new reason types on product pages, source "Unfret's image index", checklist area `product`:
+  `rebranded_photo` (the same photo is sold under other brand names: white-label goods, relabelled; the band is at
+  best "Worth a look") and `brand_photo_reused` (a known brand's catalogue photo on a page naming another brand; the
+  band is at best "Think twice", next step `real_brand`). Neither makes a page "Serious concerns" by itself. When
+  `same_product` is shown their `thumbnails` are empty (the block has the photos).
+- New findings `photo_other_brands` and `brand_photo_reused` (skill `reverse_image`), and features
+  `reverse_image.other_brands` and `reverse_image.brand_photo_reused`.
+- `photo_reused` no longer fires for a brand that is on Wikidata (as `copied_reviews_elsewhere`).
+
 ## Changes (Unfret from any language: `/developers/http`; only the Python client is published)
 
 - New page `GET /developers/http`, "Use Unfret from any language": the two ways to pay (a pass as

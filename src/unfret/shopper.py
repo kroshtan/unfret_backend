@@ -36,6 +36,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "preticked_addon": "high",
     "drip_pricing": "high",
     "late_fees": "low",
+    "brand_photo_reused": "high",
+    "rebranded_photo": "medium",
     "review_velocity": "high",
     "review_shape": "medium",
     "duplicate_reviews": "medium",
@@ -161,6 +163,7 @@ _QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
     ("brand_no_presence", "generic_brand", "generic_product"),
+    ("brand_photo_reused", "rebranded_photo", "photo_reused"),
     ABSENCE_REASONS,
     ("hidden_ai_text", "ai_text"),
     ("was_never_charged", "implausible_discount", "big_discount"),
@@ -239,6 +242,11 @@ class SameProduct(BaseModel):
     currency: str | None = Field(default=None, description="ISO 4217 code of price.")
     price_text: str | None = Field(default=None, description='The price in words: "$12.99".')
     price_seen_on: str | None = Field(default=None, description="The day Unfret saw that price (YYYY-MM-DD).")
+    brands: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Other brand names the same photo is sold under there (names only), when Unfret knows them.",
+    )
     image: str = Field(description="Thumbnail URL of the other listing's photo (this server's image proxy).")
     own_image: str | None = Field(
         default=None, description="Thumbnail URL of this page's own photo, when the index keeps it."
@@ -617,9 +625,10 @@ def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if e.f("html_source_signals.supplier_trace") >= 1:
         fired["supplier_links"] = {}
     # The same photo on other shops is normal for brands and their resellers: a warning only for an unknown brand
-    # with other signs of a resold supplier product.
+    # (neither the content read nor Wikidata knows it) with other signs of a resold supplier product.
     photo = e.first("photo_on_other_shops")
-    if photo and e.f("reverse_image.other_shops") >= 1 and e.f("content.brand_recognized") < 1 and _resale_context(e):
+    unknown = e.f("content.brand_recognized") < 1 and e.f("brand_presence.wikidata") < 1
+    if photo and e.f("reverse_image.other_shops") >= 1 and unknown and _resale_context(e):
         count = int(e.f("reverse_image.other_shops"))
         fired["photo_reused"] = {
             "count": e.number(count),
@@ -627,6 +636,38 @@ def _supply(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
             "names": _listed(photo.evidence),
             "thumbnails": " ".join(photo.thumbnails),
         }
+
+
+def _photo_brands(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """
+    The same photo under other brand names (white-label goods), or a known brand's photo under another brand's name.
+
+    Unlike a reused photo, no other sign is needed: two brand names on one photo is the sign. Never for a brand that
+    exists beyond the page (:func:`_brand_exists`) or on the brand's own site, whose photo its resellers show under
+    their own labels.
+    """
+    if _brand_exists(e) or e.f("brand_presence.shop_is_brand") >= 1:
+        return
+    copied = e.first("brand_photo_reused")
+    if copied and e.f("reverse_image.brand_photo_reused") >= 1 and (m := _BRANDS_RE.search(copied.evidence)):
+        fired["brand_photo_reused"] = {
+            "catalogue_brand": _quote(m.group("known")),
+            "brand": _quote(m.group("page")),
+            "thumbnails": " ".join(copied.thumbnails),
+        }
+    relabelled = e.first("photo_other_brands")
+    if relabelled and (count := int(e.f("reverse_image.other_brands"))) >= 1:
+        many = e.phrase("other_brand_many").format(count=e.number(count)) if count > 1 else e.phrase("other_brand_one")
+        fired["rebranded_photo"] = {
+            "many": many,
+            "names": _listed(relabelled.evidence),
+            "thumbnails": " ".join(relabelled.thumbnails),
+        }
+
+
+_BRANDS_RE = re.compile(
+    r'of the brand "(?P<known>[^"]{1,120})", a known brand; this page names the brand "(?P<page>[^"]{1,120})"'
+)
 
 
 def _resale_context(e: _Evidence, *, brand_name: bool = True) -> bool:
@@ -929,6 +970,7 @@ def _fired(evidence: _Evidence) -> dict[str, dict[str, str]]:
         _reviews,
         _product,
         _supply,
+        _photo_brands,
         _network,
         _shop,
         _claims,
@@ -994,7 +1036,9 @@ def build(
     scorer's confidence is below ``verdict_absence_only_min_confidence``, the band is "concerns" instead. With
     ``concrete_only`` (the quick tier, which reads too little to be sure) that holds however sure the scorer is.
     The other way round, a web shop showing a VAT number that can't exist (a ``vat_fake`` finding) is "careful" at
-    best, however good the rest looks.
+    best, however good the rest looks; so is a page selling a known brand's own photo under another brand's name
+    (``brand_photo_reused``), and a page whose photo is sold under other brand names (``rebranded_photo``) is
+    "concerns" at best. Neither makes a page "junk_or_scam" by itself: that band is the scorer's alone.
 
     With ``needs_reason`` (a scorer whose artifact says so, :attr:`unfret.scoring.Model.needs_reason`), "Worth a
     look" (``concerns``) also needs something to look at: a page the scorer puts there (a score from
@@ -1026,6 +1070,10 @@ def build(
     band = _with_reasons(band, score, set(fired), confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
+    if band in {"reliable", "concerns"} and "brand_photo_reused" in fired:
+        band = "careful"  # a known brand's own photo sold as another brand's: a false statement about the product
+    if band == "reliable" and "rebranded_photo" in fired:
+        band = "concerns"  # relabelled generic goods: worth a look and a price comparison, not a warning by itself
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):
         # The one note on a page the scorer calls fine, from the content read's impression of a manufacturer's
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.

@@ -66,6 +66,12 @@ UNFRET_MODEL_PATH=…/models/<version>/model.json make accuracy   # replay your 
 UNFRET_MODEL_PATH=… UNFRET_MODEL_QUICK_PATH=… make golden GOLDEN_ARGS="--replay --split test"   # false alarms
 ```
 
+The photo check (`reverse_image`) is left out of corpus replays (nothing has been checked by Unfret when a corpus page
+is scored). Its brand comparison is replayed separately: `python -m evals.photo_brands --seed <abo-seed.npz>` builds
+the index from the corpus pages' own photos and brands (plus the catalogue seed), reports how often "Same photo under
+other brand names" and "Photo of another, known brand" fire, their precision and every band they change, and writes
+their features for `make train TRAIN_ARGS="--ship C --extra-features <that file>"`.
+
 `make golden` measures both tiers on the corpus's **golden set** (`evals/sources/golden.py`: product pages of
 well-known, legitimate sellers, from a seed list kept in the corpus) against a fixed rule: no "Serious concerns", and
 under 5% "Worth a look" or worse, with the reasons and flags behind each failure. Every scorer version is run
@@ -251,7 +257,7 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `off_platform` | Ads: wording that takes the deal off the platform, in Dutch and English, over the ad's own text (not the platform's safety tips): contact by WhatsApp, Telegram, phone or e-mail; payment by bank transfer or payment link (not when paid at pickup), gift cards, crypto, money transfer or payment apps; a deposit or payment up front; "shipping only, no pickup"; "I'm abroad / on a ship"; refusing the platform's payment. Payments the ad rules out ("never pay in advance") don't count. Each finding quotes the ad; the content read adds its own judgement (`content.off_platform_push`) |
 | `price_outlier` | Ads: the asking price against the same product new (an ad naming a barcode: the median shop price in `market_prices` over 90 days, at least two shops) or against a conservative floor for the goods non-delivery ads use most (recent phones, consoles, laptops, graphics cards) and rentals; accessories, broken items, swaps, wanted ads and starting bids are never compared |
 | `duplicate_ads` | Ads: the same ad text (a simhash of its words) or the same phone number or e-mail address (keyed hash) in other ads checked in the last 90 days, from the ad store (`src/unfret/ad_store.py`: hashes, the platform and the day only; no seller, text or URL) |
-| `reverse_image` | Every class (ads whenever they have a photo; service providers when their triage's rules call for it, on the first photo that isn't a logo): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue; for an ad also in other ads (a copied ad, or someone else's photo of the item). pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; not in the scorer yet |
+| `reverse_image` | Every class (ads whenever they have a photo; service providers when their triage's rules call for it, on the first photo that isn't a logo): the main photo in Unfret's own image index: the same photo on other shops, or in the ABO catalogue; for an ad also in other ads (a copied ad, or someone else's photo of the item); on a product page also the brand names the same photo is sold under (white-label goods, or a known brand's catalogue photo under another brand). pHash, dHash, a DINOv2-small embedding (run locally) and a colour grid must all agree; own shop and same listing ignored; stock images skipped. See [docs/image-index.md](docs/image-index.md). Deep tier only; in the scorer only its brand comparison, once a retrain has the photo replay (`evals.photo_brands`) |
 
 The skills from `payment_methods` on (and `domain_age`'s founding claim, `shop_links`'s shared address) report new
 features that the shipped scorer doesn't use: they reach the shopper as reasons and positives, and the scores stay
@@ -324,7 +330,8 @@ relative to the day the page is served, so the burst stays a burst.
 
 `/test-shop/sister-shop` is its sister shop (Quenvale Deals): the same made-up projector, cheaper ($17.99), under
 another made-up brand (VELUNOX), with a re-uploaded copy of the same photo. A deep check of either page finds the
-photo on the other ("Looks like the same product, sold elsewhere for $17.99", both photos side by side): test shop
+photo on the other ("Looks like the same product, sold elsewhere for $17.99", both photos side by side), there under
+another brand name ("Same photo under other brand names": VELUNOX on the one, LUMIQZEN on the other): test shop
 pages are looked up only in the test shop's own photo index (`unfret.test_shop_photos`, made in memory from the
 static photos, rows with negative IDs, thumbnails at `/v1/images/test-shop/<photo>`), never in the real one, and a real
 page is never looked up there, so neither can match the other.

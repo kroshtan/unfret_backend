@@ -276,6 +276,13 @@ only at checkout. A banner on every view says what it is; the pages are `noindex
 Security Policy, and drawn (`scripts/test_shop_images.py`), with no real brand, shop, person or photo. Review dates are
 relative to the day the page is served, so the burst stays a burst.
 
+`/test-shop/sister-shop` is its sister shop (Quenvale Deals): the same made-up projector, cheaper ($17.99), under
+another made-up brand (VELUNOX), with a re-uploaded copy of the same photo. A deep check of either page finds the
+photo on the other ("Looks like the same product, sold elsewhere for $17.99", both photos side by side): test shop
+pages are looked up only in the test shop's own photo index (`unfret.test_shop_photos`, made in memory from the
+static photos, rows with negative IDs, thumbnails at `/v1/images/test-shop/<photo>`), never in the real one, and a real
+page is never looked up there, so neither can match the other.
+
 Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
 each trick raises and the verdict. Its tricks are deliberate, so the test shop (by address: `/test-shop` on
 `unfret.net`, its subdomains or this service, `unfret.test_shop`) never reaches what Unfret keeps about shops: the

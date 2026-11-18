@@ -94,6 +94,14 @@ def test_the_retention_on_the_shop_owners_page_matches_the_store() -> None:
     assert shop_store.RETENTION_DAYS == 400 and shop_store.CONTACT_RETENTION_DAYS == 180
 
 
+async def test_the_privacy_statement_names_the_controller_with_the_terms_address(client: httpx.AsyncClient) -> None:
+    privacy = " ".join((await client.get("/privacy")).text.split())
+    terms = " ".join((await client.get("/terms")).text.split())
+    address = "Kopenhagenstraat 2a, 9723 BB Groningen"
+    assert f"Unfret is made by Kroshtan (Floris van Beers, {address}, the Netherlands)" in privacy
+    assert "(the controller, in the words of the GDPR)" in privacy and address in terms
+
+
 async def test_the_privacy_statement_names_the_shop_owners_form(client: httpx.AsyncClient) -> None:
     text = " ".join((await client.get("/privacy")).text.split())
     assert "Requests from shop owners" in text and 'href="/objection"' in text
@@ -141,7 +149,7 @@ async def test_the_terms_spell_out_the_affiliate_program_from_the_settings(clien
         "end the affiliate program",
     ):
         assert phrase in section, phrase
-    assert "<mark" not in section  # the affiliate terms are written; only the company details wait for the owner
+    assert "<mark" not in section
 
 
 def test_dev_shows_the_terms_as_a_draft_and_production_doesnt() -> None:
@@ -166,11 +174,19 @@ async def test_the_terms_cover_what_was_asked(client: httpx.AsyncClient) -> None
         "hello@unfret.net",
     ):
         assert phrase in text, phrase
-    # Company details are left for the owner to fill in, never made up.
     assert "intro code" not in text and "gift code can't be used on the buyer's own pass" in text
     assert 'href="/affiliates"' in text and "[Affiliate terms" not in text
-    for placeholder in ("[business address]", "[KvK number]", "[VAT number]", "[court]"):
-        assert f'<mark class="placeholder">{placeholder}</mark>' in text, placeholder
+    # The company details as the owner gave them, with no placeholder left.
+    assert 'class="placeholder"' not in text
+    for detail in (
+        "Unfret is run by Floris van Beers, trading as Kroshtan, in the Netherlands.",
+        "Address: Kopenhagenstraat 2a, 9723 BB Groningen",
+        "Chamber of Commerce (KvK): 42178948",
+        "VAT: NL005344159B92",
+        "Disputes go to the Rechtbank Noord-Nederland (Groningen), the Netherlands.",
+        "you keep the protection of its mandatory law and can also go to a court there",
+    ):
+        assert detail in text, detail
 
 
 async def test_money_is_paid_checks_and_nothing_else(client: httpx.AsyncClient) -> None:

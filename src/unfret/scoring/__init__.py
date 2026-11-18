@@ -275,9 +275,14 @@ def running_versions() -> ScorerVersions:
 
 
 def _evidence(name: str, skill_findings: list[Finding]) -> str:
-    # The finding whose type shares a word with the feature (listing.discount_pct ↔ "discount"); otherwise none.
-    # Never the raw value: clients show the flag's human label (unfret.shopper.label_flags) instead.
-    words = set(name.split(".", 1)[-1].split("_"))
+    # The finding of the feature's own type (html_source_signals.timer_app ↔ "timer_app"), else the first whose type
+    # shares a word with it (listing.discount_pct ↔ "discount"); otherwise none. Never the raw value: clients show
+    # the flag's human label (unfret.shopper.label_flags) instead.
+    feature = name.split(".", 1)[-1]
+    for f in skill_findings:
+        if f.type == feature:
+            return f.evidence
+    words = set(feature.split("_"))
     for f in skill_findings:
         if words & set(f.type.split("_")):
             return f.evidence

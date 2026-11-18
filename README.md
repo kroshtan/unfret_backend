@@ -586,6 +586,15 @@ refused payment answers `402` again with `error` saying why; when the simulation
 `source_token_account_missing`, `mint_mismatch`, `owner_mismatch`, `account_not_found`, `blockhash_not_found`, the
 error class in snake case (`invalid_account_data`) or `custom_program_error_<code>` for another program's own error.
 
+**Ownership proof.** x402 directories (x402scan) mark an origin as verified when its `payTo` key signed the origin.
+While x402 is on, the server signs the origin of `UNFRET_PUBLIC_BASE_URL` (`https://unfret.net`: no trailing slash,
+as a browser's `URL.origin`) with the hot wallet's key, in process, once per start (`unfret.x402.ownership`). The
+signature (ed25519 over the origin's UTF-8 bytes, base58) is published as `ownershipProofs` in the OpenAPI document
+(`x-agentcash-provenance` and `x-discovery`) and in `/.well-known/x402`, one per `payTo` key the server holds; a new
+hot key gives a new proof at the next start, and with x402 off there is none. The key signs nothing else this way:
+only a bare origin, far too short to parse as a transaction. Anyone can check it against the hot wallet's address
+(the `payTo` of the 402's Solana options).
+
 Verification is behaviour-based, so any program instructions are accepted as long as: the hot wallet appears in no
 instruction (it only pays the fee); every other required signature is present and valid; compute units and priority
 fee stay within `UNFRET_X402_MAX_COMPUTE_UNITS` / `UNFRET_X402_MAX_COMPUTE_UNIT_PRICE_MICROLAMPORTS`; there is exactly

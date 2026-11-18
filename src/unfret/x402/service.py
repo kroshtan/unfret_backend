@@ -152,6 +152,8 @@ class X402:
             ),
         )
         self.hot: HotWallet | None = None
+        # (hot wallet, origin) -> the hot wallet's ownership proof: signed once per key, so a new key gets a new one.
+        self._proofs: dict[tuple[Pubkey, str], str] = {}
         self._config_status: Status = "ok"
         self._balances: tuple[float, int, int | None, int | None] | None = None
         self._lock = asyncio.Lock()
@@ -233,6 +235,20 @@ class X402:
     def configured(self) -> bool:
         """Whether the hot wallet and cold address are set up (payments may still be paused)."""
         return self.hot is not None
+
+    def ownership_proof(self, origin: str) -> str | None:
+        """
+        The origin signed by the hot wallet (``payTo``), for x402scan's ownership check (unfret.x402.ownership).
+
+        :param origin: The public origin.
+        :return: The proof (base58), or None while x402 is off (no hot wallet).
+        """
+        if self.hot is None:
+            return None
+        key = (self.hot.pubkey, origin)
+        if (proof := self._proofs.get(key)) is None:
+            proof = self._proofs[key] = self.hot.ownership_proof(origin)
+        return proof
 
     async def price(self, tier: str, currency: Literal["SOL", "USDC"] = "SOL") -> int:
         """

@@ -244,6 +244,23 @@ barcodes, kind of product, risk type and level, for the alerts a page can be mat
 safety-gate` adds the weekly reports it lacks (reports never change once published); the monthly "Vendored data"
 workflow runs `make safety-gate-check`, which fails once a new report is out, so the refresh lands as a PR.
 
+**What free checks record, and why a forged page can't poison it.** Unfret's own stores (the photo index, the price
+history, the market prices, the review fingerprints) grow with every check. A quick check looks nothing up, but once
+it has answered (in the background, never changing or slowing the answer) it records what a deep check would from
+the same product page, through the same record paths: the main photo's fingerprints, today's price, the review
+fingerprints (`src/unfret/recording.py`). Bounded: at most `UNFRET_QUICK_RECORD_QUEUE` pages at a time (more are
+skipped), the photo check's own size (8 MB) and time (6 s) limits, two photos fingerprinted at a time. Quick checks
+are free and anonymous, and the extension and the app send page content Unfret didn't fetch, so every row keeps its
+provenance (a page Unfret fetched, client-supplied content; quick or deep) and a count of independent sources, and
+counts in a verdict (a reused photo, a price far below market, a "was" price never charged, copied reviews) only
+when Unfret fetched a page showing it, or `UNFRET_OBSERVATION_MIN_SOURCES` sources (each a pass and a network)
+reported the same (`src/unfret/observations.py`). Which source vouched for which row is known only in memory, for
+the current UTC day, as keyed hashes under a salt that is replaced daily and never stored: the database holds a
+count, not a link from a pass or network to a page. A different value that doesn't count never overwrites one that
+does. Each network records from at most `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` quick checks or
+client-supplied pages a day. Rows from before provenance was kept count as before. `GET /v1/admin/observations`
+shows the counts.
+
 ### Adding a skill
 
 ```python
@@ -567,7 +584,7 @@ The two tiers (`QUICK_SKILLS` in `src/unfret/x402/verdict.py`; each 402 option s
 | | quick ($0.01) | deep ($0.20) |
 | --- | --- | --- |
 | What runs | The page itself, by rules: `listing`, `pricing` (on-page discount checks, no price history), `html_source_signals`, `dark_patterns`, `injection`, `eu_registry` (no VIES), `us_identity`, `shop_policies`, `shop_links` (our own fingerprint store) | Everything: the same analysis as `/v1/analyze` and the extension, adding the LLM read (`content`), `reviews`, `reverse_image`, the price history, `domain_age` and VIES |
-| LLM / image index | Never (classification by rules: a page without a product and a price is not assessed, and refunded) | Yes |
+| LLM / image index | Never (classification by rules: a page without a product and a price is not assessed, and refunded); after the answer, the page's photo, price and reviews are recorded for later checks, not looked up | Yes |
 | Scorer | `model-quick.json`, trained on the quick features only (`evals.train --quick`, variant C) | `model.json` |
 | TEST (333 pages) | AUC 0.746 (US 0.782, EU 0.673; storefronts 0.769); legit flagged 29/143; recall 0.60 | AUC 0.894 (US 0.964, EU 0.828; storefronts 0.836); legit flagged 25/143; recall 0.82 |
 
@@ -838,6 +855,9 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
+| `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
+| `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |
+| `UNFRET_QUICK_RECORD_QUEUE` | `16` | Quick checks whose photo, price and reviews are being recorded at once, after their answer; more are skipped (0: quick checks record nothing) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
 | `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH` | — (the open baseline) | A scorer of your own for analyses and deep checks / for the x402 quick tier; see [The model](#the-model) |
 | `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |

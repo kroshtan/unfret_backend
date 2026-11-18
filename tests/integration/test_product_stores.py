@@ -45,7 +45,8 @@ async def test_review_fingerprints_count_other_shops(pool: asyncpg.Pool) -> None
     columns = {r["column_name"] for r in await pool.fetch(
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'review_fingerprints'"
     )}  # fmt: skip
-    assert columns == {"review_hash", "shop_key", "first_seen", "last_seen"}
+    # provenance and sources: where it was seen and how many sources reported it, never which (unfret.observations)
+    assert columns == {"review_hash", "shop_key", "first_seen", "last_seen", "provenance", "sources"}
     with pytest.raises(asyncpg.CheckViolationError):
         await store.record(b"short", reviews, TODAY)
 

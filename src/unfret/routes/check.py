@@ -44,6 +44,7 @@ from unfret.x402.base import (
     SettlementUnknownError,
 )
 from unfret.x402.facilitator import FacilitatorError, FacilitatorUnreachableError
+from unfret.x402.ownership import ownership_proofs
 from unfret.x402.payment import PaymentError, Precheck, decode_header, encode_header
 from unfret.x402.service import X402, DuplicateSettlementError, Settlement, SettlementMismatchError
 from unfret.x402.solana import (
@@ -992,10 +993,13 @@ async def discovery(request: Request) -> JSONResponse:
     """
     Describe the paid endpoint, its tiers and prices for x402 directories and agents.
 
-    :param request: The incoming request (for the Base payment service).
-    :return: The discovery document.
+    :param request: The incoming request (for the payment services).
+    :return: The discovery document, with ``ownershipProofs`` (x402scan's) while a payment service holds a key.
     """
-    return JSONResponse(_discovery(get_x402_base(request)))
+    d = _discovery(get_x402_base(request))
+    if proofs := ownership_proofs(settings.public_base_url, (get_x402(request), get_x402_base(request))):
+        d["ownershipProofs"] = proofs
+    return JSONResponse(d)
 
 
 def _llms_base(d: dict[str, Any]) -> str:

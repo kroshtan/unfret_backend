@@ -4,6 +4,7 @@
 
 ### Features
 
+* **/android offers Unfret for Android 0.1.0-beta.1**, the first signed release (a beta), for a direct install.
 * **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
   explain how to install it from the source.
 * **`/android` offers a beta as a beta**: the first Android release is `0.1.0-beta.1`. `make android-release

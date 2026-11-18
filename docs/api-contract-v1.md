@@ -1116,3 +1116,12 @@ and clients show what is there.
   agentcash discovery spec register paid calls from it; the 402 still has the exact amounts.
 - The 402's `resource.description` now says what the check is for (a store, marketplace seller or product page,
   before an agent buys). Clients don't parse it.
+
+## Changes (ownership proof for x402 directories; backwards-compatible)
+
+- While x402 is on, the OpenAPI document has top-level `x-agentcash-provenance: {"ownershipProofs": [...]}` and
+  `x-discovery: {"ownershipProofs": [...]}`, and `/.well-known/x402` a top-level `ownershipProofs` (its other fields
+  are unchanged). Each proof is the public origin (`https://unfret.net`, no trailing slash) signed by a `payTo` key:
+  for Solana the hot wallet's ed25519 signature over the origin's UTF-8 bytes, base58. x402scan verifies it against
+  the `payTo` of the 402's options. With x402 off the fields are absent (the OpenAPI snapshot, taken with x402 off,
+  is unchanged).

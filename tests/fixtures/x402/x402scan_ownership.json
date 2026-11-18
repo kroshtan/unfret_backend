@@ -1,0 +1,39 @@
+{
+ "about": "What x402scan reads and verifies as ownership proofs, taken from its source (Merit-Systems/x402scan at 5732bb83c8c4290f413f24318a838e3fee4ed2bf, and @agentcash/discovery 1.7.5, which it pins to read the OpenAPI document). The vectors were signed by unfret.x402.wallet.HotWallet.ownership_proof and verified with x402scan's own verifyAnyOwnershipProof (apps/scan/src/lib/ownership-proof.ts) under Node.",
+ "sources": {
+  "locations": "https://github.com/Merit-Systems/x402scan/blob/5732bb83c8c4290f413f24318a838e3fee4ed2bf/docs/DISCOVERY.md",
+  "verification": "https://github.com/Merit-Systems/x402scan/blob/5732bb83c8c4290f413f24318a838e3fee4ed2bf/apps/scan/src/lib/ownership-proof.ts",
+  "signed_origin": "https://github.com/Merit-Systems/x402scan/blob/5732bb83c8c4290f413f24318a838e3fee4ed2bf/apps/scan/src/lib/url.ts",
+  "openapi_reader": "@agentcash/discovery 1.7.5, dist/index.js: extractFromOpenapi"
+ },
+ "openapi_keys": ["x-agentcash-provenance", "x-discovery"],
+ "well_known_key": "ownershipProofs",
+ "container_schema": {
+  "type": "object",
+  "required": ["ownershipProofs"],
+  "properties": {"ownershipProofs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}
+ },
+ "solana": {
+  "scheme": "ed25519 over the origin's UTF-8 bytes (nacl.sign.detached.verify), signature base58 (hex is a fallback)",
+  "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "pay_to": "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF",
+  "vectors": [
+   {
+    "origin": "https://unfret.net",
+    "proof": "TAMqigF7zMbJJhZD7Bh6mGwYtvqi93GfkEDgU86SdNdDa28QK15U7kmHH9G7zbsAXGe8LaFmtcGf6WW1u5aBmSH",
+    "x402scan_verified": true
+   },
+   {
+    "origin": "https://dev.unfret.net",
+    "proof": "3SFzCtUbgcz8Qr7MfBq5i7iqfZJbr5GCKSKfCPG5WPXVt8FKbxC2F5XZVoFoKZH5AP6ZEMyrMRiNo4cxUNPnHV6i",
+    "x402scan_verified": true
+   }
+  ],
+  "x402scan_rejects": [
+   {"origin": "https://unfret.net/", "proof": "TAMqigF7zMbJJhZD7Bh6mGwYtvqi93GfkEDgU86SdNdDa28QK15U7kmHH9G7zbsAXGe8LaFmtcGf6WW1u5aBmSH"}
+  ]
+ },
+ "evm": {
+  "scheme": "EIP-191 personal_sign of the origin (viem recoverMessageAddress), 0x-prefixed hex; the recovered address must equal payTo"
+ }
+}

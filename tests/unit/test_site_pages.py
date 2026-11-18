@@ -153,10 +153,10 @@ async def test_the_terms_spell_out_the_affiliate_program_from_the_settings(clien
     assert "<mark" not in section
 
 
-def test_dev_shows_the_terms_as_a_draft_and_production_doesnt() -> None:
+def test_the_approved_terms_show_no_draft_note_on_dev_or_production() -> None:
     dev = yaml.safe_load((CONFIG / "deploy.dev.yml").read_text())["env"]["clear"]
     production = yaml.safe_load((CONFIG / "deploy.production.yml").read_text())["env"]["clear"]
-    assert dev["UNFRET_TERMS_DRAFT"] == "true"
+    assert dev.get("UNFRET_TERMS_DRAFT", "false") == "false"
     assert production.get("UNFRET_TERMS_DRAFT", "false") == "false"
 
 

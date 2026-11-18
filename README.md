@@ -985,7 +985,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
-| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (on in dev until the terms are approved) |
+| `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (for a new version of the terms that isn't approved yet) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
 | `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 

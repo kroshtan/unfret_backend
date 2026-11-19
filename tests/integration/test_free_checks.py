@@ -8,11 +8,12 @@ import asyncpg
 import httpx
 import pytest
 
-from tests.integration.conftest import FakeGraph
+from tests.integration.conftest import DROP_ALL, FakeGraph
 from tests.integration.test_keys import PAGE, PRICE, balance, bearer, solve
 from unfret.config import settings
 from unfret.credits import free
 from unfret.main import app
+from unfret.migrations import MIGRATIONS, migrate
 from unfret.routes import analyze
 
 
@@ -55,7 +56,7 @@ async def test_a_free_pass_checks_five_pages_without_a_balance(
     credits = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
     assert credits["checks_remaining"] == 5 and credits["free_checks_remaining"] == 5
     assert credits["free_checks_paused"] is False
-    assert credits["invite_eligible"] is True  # free checks are no credit: an intro code still works on this pass
+    assert credits["invite_eligible"] is True  # free checks are no credit: a gift code still works on this pass
 
     for n in range(5):
         page = {**PAGE, "url": f"https://shop.test/item-{n}"}
@@ -303,3 +304,19 @@ async def test_nothing_about_the_network_is_stored(client: httpx.AsyncClient, po
     dump = json.dumps([[dict(r) for r in await pool.fetch(f"SELECT * FROM {t}")] for t in tables], default=str)  # noqa: S608
     assert "127.0.0.1" not in dump and "testclient" not in dump
     assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'free_checks'") == 1
+
+
+async def test_passes_from_before_the_developer_flag_keep_their_free_checks(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    await pool.execute(DROP_ALL)
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 34])
+    old = await pool.fetchval(
+        "INSERT INTO api_keys (id, key_hash, recovery_hash, free_checks) VALUES ('oldpass234', $1, $2, 20) "
+        "RETURNING id",
+        b"\x00" * 32,
+        b"\x01" * 32,
+    )
+    assert 34 in await migrate(pool)
+    assert await pool.fetchval("SELECT developer FROM api_keys WHERE id = $1", old) is False
+    assert await free.left(pool, old) == 20  # counted everywhere, as before

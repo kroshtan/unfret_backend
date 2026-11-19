@@ -94,9 +94,6 @@ label:  ## Work through the review queue, one keypress per page
 reports:  ## Label reported results into the corpus: confident proposals in bulk, then one by one (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE]; REPORTS_ARGS="--min-confidence 0.9 --no-bulk --order confidence --agreement reporter")
 	uv run python -m evals.reports $(REPORTS_ARGS)
 
-codes:  ## Intro codes: ARGS="list | create CODE --uses N [--checks 5] | off CODE | on CODE | add CODE N | link CODE"
-	uv run python -m unfret.credits.codes $(ARGS)
-
 affiliates:  ## Affiliates: ARGS="list | create CODE --name NAME [--note T] | off|on CODE | note CODE T | stats-link|revoke CODE | report [--month M] | paid CODE [--note T] | reverse ID | delete CODE"
 	uv run python -m unfret.credits.affiliates_cli affiliate $(ARGS)
 

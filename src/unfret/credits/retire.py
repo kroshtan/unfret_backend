@@ -7,7 +7,7 @@ open reports and the keyed hashes behind the report limits, and the buyer hash o
 (crypto) accounts go the same way: a wallet keeps no date, so every wallet account is retired, whatever the moment.
 Rows of passes that no longer exist (a refund that landed after a pass was deleted, say) go too. What stays are
 anonymous counts: how many passes and wallets were retired on a day (``usage_counters``), and the aggregate tables that
-never named anyone (intro code uses, affiliate earnings).
+never named anyone (affiliate earnings).
 
 A retired pass is then unknown: it answers ``401 INVALID_API_KEY`` like any key the server doesn't know, and the
 clients drop it and start the free-pass flow (with the free deep checks if that browser never had them).

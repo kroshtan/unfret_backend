@@ -58,7 +58,10 @@ class CreditsResponse(BaseModel):
 
     address: str = Field(description="The account: the wallet's address, or key:<id> for an API key.")
     balance_usd_micros: int = Field(description="The balance in micro-dollars (1 USD = 1,000,000).")
-    checks_remaining: int = Field(description="Checks left: the balance in checks, plus the free checks left.")
+    checks_remaining: int = Field(
+        description="Checks left: the balance in checks, plus free_checks_remaining (never a developer pass's free "
+        "checks: those are api_free_checks_remaining)."
+    )
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
@@ -67,12 +70,20 @@ class CreditsResponse(BaseModel):
         "code works on any account but the one whose pack it came with (POST /v1/invites/redeem says so for that one)."
     )
     free_checks_remaining: int = Field(
-        default=0, description="Free deep checks left on this pass (included in checks_remaining); 0 for a wallet."
+        default=0,
+        description="Free deep checks left on this pass that work everywhere (included in checks_remaining); 0 for "
+        "a wallet and for a developer pass.",
     )
     free_checks_paused: bool = Field(
         default=False,
-        description="Today's free deep checks are all used (by everyone): free checks wait until 00:00 UTC, while "
-        "bought checks and quick checks work.",
+        description="Today's free deep checks are all used (by everyone): free checks (free_checks_remaining, "
+        "api_free_checks_remaining) wait until 00:00 UTC, while bought checks and quick checks work.",
+    )
+    api_free_checks_remaining: int = Field(
+        default=0,
+        description="A developer pass's free deep checks: they count on POST /v1/check only (the API, the MCP "
+        "server, the clients), not on /v1/analyze (the website, the extension, the phone app), so they aren't in "
+        "checks_remaining. 0 for any other pass and for a wallet.",
     )
 
 
@@ -233,12 +244,15 @@ async def get_balance(request: Request, address: str = Depends(require_account))
 
     :param request: The incoming request.
     :param address: The account (injected by require_account).
-    :return: The balance, how many analyses it covers, and whether an invite can still be redeemed onto it.
+    :return: The balance, how many analyses it covers (a developer pass's free checks apart: they are for the API),
+        and whether an invite can still be redeemed onto it.
     """
     pool = request.app.db_pool
     row = await ledger.balance(pool, address)
     balance = row or 0
-    free_left = await free.left(pool, address.removeprefix(keys.ACCOUNT_PREFIX)) if keys.is_key_account(address) else 0
+    held = await free.held(pool, address.removeprefix(keys.ACCOUNT_PREFIX)) if keys.is_key_account(address) else None
+    free_left = held.usable(api=False) if held else 0
+    api_free = held.checks if held and held.developer else 0
     return CreditsResponse(
         address=address,
         balance_usd_micros=balance,
@@ -246,7 +260,8 @@ async def get_balance(request: Request, address: str = Depends(require_account))
         balance_lamports=balance,
         invite_eligible=True,  # a gift code works on any account (but its buyer's: redeem refuses that one)
         free_checks_remaining=free_left,
-        free_checks_paused=bool(free_left) and await free.paused(pool, settings),
+        free_checks_paused=bool(free_left or api_free) and await free.paused(pool, settings),
+        api_free_checks_remaining=api_free,
     )
 
 

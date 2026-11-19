@@ -134,7 +134,7 @@ def describe(r: dict[str, Any], target: str) -> str:
         row(f"  made on {day}", r["passes_same_day"]) if r["same_day"] else None,
         row("  with a balance", r["with_balance"], f"({r['balance_checks']} checks)"),
         row("  free checks left on them", r["free_checks"]),
-        row("  redeemed an invite or intro code", r["redeemed_code"]),
+        row("  redeemed a gift code", r["redeemed_code"]),
         row("  affiliate attributions", r["affiliate_links"]),
         row("  card checkouts", r["card_checkouts"]),
         row("  crypto quotes", r["crypto_quotes"]),

@@ -459,10 +459,10 @@ most $10 a grant, with the admin token.
 **Retiring passes** (`src/unfret/credits/retire.py`, an operator command rather than a migration, so dev, the tests
 and fixtures are never touched by it): `make retire-passes ARGS="--before <ISO time> [--keep <key_id>]...
 [--keep-from <file.json>]... [--confirm]"` (or `python -m unfret.admin_cli retire-passes …`, through
-`POST /v1/admin/passes/retire` with the admin token; `UNFRET_URL` and `UNFRET_ADMIN_TOKEN[_FILE]` as for `make codes`,
+`POST /v1/admin/passes/retire` with the admin token; `UNFRET_URL` and `UNFRET_ADMIN_TOKEN[_FILE]` as for `make reports`,
 production by default). Without `--confirm` it is a dry run that changes nothing; either way it prints **counts only**,
 never a key, a key id or a wallet: the passes it would retire (made on earlier days, and on the cut-off day), their
-balances in checks and free checks left, invites or intro codes they redeemed, affiliate attributions, card checkouts,
+balances in checks and free checks left, gift codes they redeemed, affiliate attributions, card checkouts,
 crypto quotes, open reports and gift codes they bought; wallet (crypto) accounts and those with a non-zero balance;
 accounts that bought checks; what is kept. With `--confirm`, in one transaction, it **deletes** those passes and every
 row naming them (balance and flags, free checks, attribution, checkouts and quotes, open reports and the keyed hashes
@@ -594,7 +594,7 @@ People who recommend Unfret can earn from it (`src/unfret/credits/affiliates.py`
   never a pass, a buyer or a page.
 
 Operator commands, against the running service's admin API (`UNFRET_URL`, `UNFRET_ADMIN_TOKEN[_FILE]`, as for
-`make codes`):
+`make reports`):
 
 ```bash
 make affiliates ARGS="create ANNA --name 'Anna (YouTube)' --note 'IBAN …'"   # prints her link and stats link
@@ -608,7 +608,8 @@ make bonus-codes ARGS="list | off SPRING20 | on SPRING20"
 ```
 
 **Gift codes** (the invites that come with a pack) work on any pass or wallet, except the one whose purchase issued
-them, one a calendar month per pass or wallet. **Intro codes** are retired (`UNFRET_INTRO_CODES_ENABLED`).
+them, one a calendar month per pass or wallet. `GET /v1/admin/invites` also counts buyers by how they came: accounts
+that redeemed a code, how many of them bought, and buyers who never redeemed one.
 
 ### Sharing a result
 
@@ -740,7 +741,11 @@ within the hour. A page that can't be read, assessed or analysed is given back. 
 `PAYMENT-SIGNATURE` is always an x402 payment, and one without either header gets the `402` above whatever its body
 (even none, as directories probe); the body is validated (`422`) only with a payment or a pass. A
 **developer pass** (`POST /v1/keys` with `"developer": true`) comes with `UNFRET_DEVELOPER_FREE_CHECKS` (20) free deep
-checks, one a day per visitor network.
+checks, one a day per visitor network. The pass keeps a flag (`api_keys.developer`, migration 34) and its free checks
+count on `/v1/check` only (the API, the MCP server, the clients): on `/v1/analyze` (the website, the extension, the
+phone app) it is a pass without free checks, so bought checks pay there and without them it gets the `402` an empty
+pass gets. `GET /v1/credits` shows them apart, as `api_free_checks_remaining`, and leaves them out of
+`checks_remaining`. Passes made before the flag have it off and work as before.
 
 Every error from the API is JSON with `detail` and `error_code` (validation errors add `errors`). For `/v1/check`:
 
@@ -1020,15 +1025,13 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,100]` | Pack sizes in checks |
 | `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `5` | One gift code per this many checks in a pack (0: none issued), worth this many checks; a pass or wallet redeems one a month |
-| `UNFRET_INTRO_DAILY_CHECKS_CAP` | unset (no cap) | Emergency brake for intro codes (`make codes`): when set, all codes together give at most this many checks a UTC day (0 pauses them all); each code already has its own max uses |
-| `UNFRET_INTRO_CODES_ENABLED` | `false` | Intro codes are retired now that new passes get free checks: redeeming one answers `INVITE_ENDED`. `true` brings them back |
 | `UNFRET_AFFILIATE_BONUS_PCT` / `UNFRET_AFFILIATE_COMMISSION_PCT` / `UNFRET_AFFILIATE_MONTHS` | `20` / `25` / `12` | Affiliates: more checks on an attributed pass's first pack; the affiliate's share of net revenue (after VAT and payment fees) of purchases on it, for this many months after attribution |
 | `UNFRET_AFFILIATE_HOLD_DAYS` / `UNFRET_AFFILIATE_MIN_PAYOUT_CENTS` | `30` / `2500` | Commission counts as payable this many days after the purchase; a payout needs this much per currency ($25 / €25), except for an affiliate who was switched off |
 | `UNFRET_CODE_CHECKS_PER_IP_PER_DAY` | `30` | Bonus-code look-ups and attributions per visitor network a day (in memory, salted hashes) |
 | `UNFRET_AFFILIATE_RECORDS_RETENTION_DAYS` / `UNFRET_AFFILIATE_PASS_RETENTION_DAYS` | `2557` / `548` | Commission and payout records (bookkeeping: seven years); which affiliate a pass came through (eighteen months) |
 | `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
 | `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
-| `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (from the same daily budget), and how many per visitor network a day; past it a pass is made empty |
+| `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (from the same daily budget; they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |
 | `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |

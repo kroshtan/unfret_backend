@@ -55,8 +55,9 @@ class CreateKeyRequest(BaseModel):
     developer: bool = Field(
         default=False,
         description="Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and "
-        "testing an agent against /v1/check, the MCP server or the clients. One a day per network; past that the pass "
-        "is made empty. Takes the place of free.",
+        "testing an agent against /v1/check, the MCP server or the clients. Its free checks count on POST /v1/check "
+        "only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. "
+        "One a day per network; past that the pass is made empty. Takes the place of free.",
     )
     ref: str | None = Field(
         default=None,
@@ -81,6 +82,11 @@ class KeyResponse(BaseModel):
     account: str = Field(description="The ledger account, key:<id>.")
     balance_usd_micros: int
     free_checks: int = Field(default=0, description="Free deep checks on this pass (spent before its balance).")
+    developer: bool = Field(
+        default=False,
+        description="A developer pass: its free_checks count on POST /v1/check only (the API, the MCP server, the "
+        "clients), not on /v1/analyze (the website, the extension, the phone app).",
+    )
 
 
 class MoveFreeChecksRequest(BaseModel):
@@ -92,7 +98,9 @@ class MoveFreeChecksRequest(BaseModel):
 class MoveFreeChecksResponse(BaseModel):
     """What moved."""
 
-    moved: int = Field(description="Free checks moved (0 when there were none, or no such pass).")
+    moved: int = Field(
+        description="Free checks moved (0 when there were none, no such pass, or either is a developer pass)."
+    )
 
 
 def _door(request: Request) -> CreditsDoor:
@@ -142,7 +150,7 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
             given = settings.developer_free_checks
     elif body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
-    issued = await keys.create(request.app.db_pool, free_checks=given)
+    issued = await keys.create(request.app.db_pool, free_checks=given, developer=body.developer)
     # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
     referred = bool(body.ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, body.ref)
     logger.info("api_key_created", free_checks=given, developer=body.developer, referred=referred)
@@ -153,6 +161,7 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
         account=issued.account,
         balance_usd_micros=0,
         free_checks=given,
+        developer=body.developer,
     )
 
 
@@ -175,13 +184,15 @@ async def recover_key(body: RecoverRequest, request: Request) -> KeyResponse:
     except keys.ApiKeyError as exc:
         raise UnauthorizedError(str(exc), error_code="INVALID_RECOVERY_CODE") from exc
     logger.info("api_key_recovered")
+    left = await free.held(request.app.db_pool, issued.key_id)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,
         recovery_code=issued.recovery_code,
         account=issued.account,
         balance_usd_micros=await keys.balance(request.app.db_pool, issued.key_id),
-        free_checks=await free.left(request.app.db_pool, issued.key_id),
+        free_checks=left.checks,
+        developer=left.developer,
     )
 
 

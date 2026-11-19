@@ -483,7 +483,7 @@
      },
      "developer": {
       "default": false,
-      "description": "Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and testing an agent against /v1/check, the MCP server or the clients. One a day per network; past that the pass is made empty. Takes the place of free.",
+      "description": "Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and testing an agent against /v1/check, the MCP server or the clients. Its free checks count on POST /v1/check only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. One a day per network; past that the pass is made empty. Takes the place of free.",
       "title": "Developer",
       "type": "boolean"
      },
@@ -560,6 +560,12 @@
       "title": "Address",
       "type": "string"
      },
+     "api_free_checks_remaining": {
+      "default": 0,
+      "description": "A developer pass's free deep checks: they count on POST /v1/check only (the API, the MCP server, the clients), not on /v1/analyze (the website, the extension, the phone app), so they aren't in checks_remaining. 0 for any other pass and for a wallet.",
+      "title": "Api Free Checks Remaining",
+      "type": "integer"
+     },
      "balance_lamports": {
       "description": "Deprecated: the same micro-dollar balance under its old name, kept for older clients.",
       "title": "Balance Lamports",
@@ -571,19 +577,19 @@
       "type": "integer"
      },
      "checks_remaining": {
-      "description": "Checks left: the balance in checks, plus the free checks left.",
+      "description": "Checks left: the balance in checks, plus free_checks_remaining (never a developer pass's free checks: those are api_free_checks_remaining).",
       "title": "Checks Remaining",
       "type": "integer"
      },
      "free_checks_paused": {
       "default": false,
-      "description": "Today's free deep checks are all used (by everyone): free checks wait until 00:00 UTC, while bought checks and quick checks work.",
+      "description": "Today's free deep checks are all used (by everyone): free checks (free_checks_remaining, api_free_checks_remaining) wait until 00:00 UTC, while bought checks and quick checks work.",
       "title": "Free Checks Paused",
       "type": "boolean"
      },
      "free_checks_remaining": {
       "default": 0,
-      "description": "Free deep checks left on this pass (included in checks_remaining); 0 for a wallet.",
+      "description": "Free deep checks left on this pass that work everywhere (included in checks_remaining); 0 for a wallet and for a developer pass.",
       "title": "Free Checks Remaining",
       "type": "integer"
      },
@@ -1156,6 +1162,12 @@
       "title": "Balance Usd Micros",
       "type": "integer"
      },
+     "developer": {
+      "default": false,
+      "description": "A developer pass: its free_checks count on POST /v1/check only (the API, the MCP server, the clients), not on /v1/analyze (the website, the extension, the phone app).",
+      "title": "Developer",
+      "type": "boolean"
+     },
      "free_checks": {
       "default": 0,
       "description": "Free deep checks on this pass (spent before its balance).",
@@ -1385,7 +1397,7 @@
     "description": "What moved.",
     "properties": {
      "moved": {
-      "description": "Free checks moved (0 when there were none, or no such pass).",
+      "description": "Free checks moved (0 when there were none, no such pass, or either is a developer pass).",
       "title": "Moved",
       "type": "integer"
      }
@@ -4231,7 +4243,7 @@
   },
   "/v1/credits": {
    "get": {
-    "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, how many analyses it covers, and whether an invite can still be redeemed onto it.",
+    "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, how many analyses it covers (a developer pass's free checks apart: they are for the API),\n    and whether an invite can still be redeemed onto it.",
     "operationId": "get_balance_v1_credits_get",
     "responses": {
      "200": {
@@ -4739,7 +4751,7 @@
   },
   "/v1/invites/redeem": {
    "post": {
-    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nThe code is a gift code that came with a pack (``ufi_\u2026``): any account may redeem it, new or in use, except the\none whose purchase issued it; each code works once, and an account redeems one a calendar month (UTC). The account\nkeeps only the fact that it redeemed one and the month of the latest (not which). Intro codes (``FRIENDS``) are\nretired: they answer 410 ``INVITE_ENDED``. Refusals: 400 ``INVALID_INVITE`` (not a code), 404 ``UNKNOWN_INVITE``,\n409 ``INVITE_USED``, 403 ``INVITE_OWN_PACK`` (it came with this account's own pack: give it to a friend), 429\n``INVITE_MONTHLY_LIMIT`` (this account already redeemed a gift code this month; the code stays unused, and\n``metadata.next_month`` is the day it can again), 410 ``INVITE_ENDED``; while intro codes are on again, also 403\n``INVITE_NOT_FOR_THIS_ACCOUNT`` (an intro code on an account that has had checks) and 429 ``INTRO_DAILY_CAP``;\n429 ``TOO_MANY_REQUESTS`` (too many codes tried from one visitor network in ten minutes).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.\n:raises TooManyRequestsError: Over the redemptions allowed from this visitor network.",
+    "description": "Redeem an invite for the signed-in wallet or the API key: it adds ``invite_checks`` checks (``/v1/pricing``).\n\nThe code is a gift code that came with a pack (``ufi_\u2026``): any account may redeem it, new or in use, except the\none whose purchase issued it; each code works once, and an account redeems one a calendar month (UTC). The account\nkeeps only the fact that it redeemed one and the month of the latest (not which). Refusals: 400 ``INVALID_INVITE``\n(not a gift code), 404 ``UNKNOWN_INVITE``, 409 ``INVITE_USED``, 403 ``INVITE_OWN_PACK`` (it came with this\naccount's own pack: give it to a friend), 429 ``INVITE_MONTHLY_LIMIT`` (this account already redeemed a gift code\nthis month; the code stays unused, and ``metadata.next_month`` is the day it can again), 429 ``TOO_MANY_REQUESTS``\n(too many codes tried from one visitor network in ten minutes).\n\n:param body: The code.\n:param request: The incoming request.\n:param account: The redeeming account (injected by require_account).\n:return: What was added and the new balance.\n:raises ServiceUnavailableError: Without a database.\n:raises TooManyRequestsError: Over the redemptions allowed from this visitor network.",
     "operationId": "redeem_v1_invites_redeem_post",
     "requestBody": {
      "content": {

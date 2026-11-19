@@ -231,6 +231,9 @@ async def get_checks_left(ctx: Context) -> dict[str, Any]:
     """
     How many deep checks the Unfret pass has left (free and bought), and whether free deep checks are paused today.
 
+    Counted as ``/v1/check`` counts them: a developer pass's free checks (``api_free_checks_remaining`` in
+    ``/v1/credits``, which work on the API only) are in both counts.
+
     :param ctx: The MCP request context.
     :return: ``status``, ``ok``, ``checks_remaining``, ``free_checks_remaining``, ``free_checks_paused``,
         ``balance_usd_micros`` and ``buy_more_at``, or ``error``.
@@ -239,13 +242,13 @@ async def get_checks_left(ctx: Context) -> dict[str, Any]:
     if response.status_code != 200:
         return _error(response)
     credits = response.json()
+    api_free = int(credits.get("api_free_checks_remaining") or 0)
     return {
         "status": "ok",
         "ok": True,
-        **{
-            k: credits.get(k)
-            for k in ("checks_remaining", "free_checks_remaining", "free_checks_paused", "balance_usd_micros")
-        },
+        "checks_remaining": int(credits.get("checks_remaining") or 0) + api_free,
+        "free_checks_remaining": int(credits.get("free_checks_remaining") or 0) + api_free,
+        **{k: credits.get(k) for k in ("free_checks_paused", "balance_usd_micros")},
         "buy_more_at": f"{settings.public_base_url.rstrip('/')}/checkout",
     }
 

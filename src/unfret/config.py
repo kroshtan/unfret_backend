@@ -183,13 +183,6 @@ class Settings(BaseSettings):
     # redeems at most one a calendar month (UTC). 0 turns issuing off; invites already issued stay redeemable.
     invite_per_checks: int = Field(default=25, ge=0)
     invite_checks: int = Field(default=5, gt=0)
-    # Intro codes (named, operator-made, many uses each; see unfret.credits.invites): an emergency brake, off by
-    # default (each code already has its own max uses). Set, all codes together give at most this many checks a UTC
-    # day, so a code shared too widely can't run up the LLM bill; 0 pauses every code.
-    intro_daily_checks_cap: int | None = Field(default=None, ge=0)
-    # Intro codes are retired now that every new pass gets free checks: redeeming one answers "ended". True brings
-    # them back (the codes and the operator commands are still there).
-    intro_codes_enabled: bool = False
     # Affiliates and discount codes (unfret.credits.affiliates). A pass that came through an affiliate gets
     # affiliate_bonus_pct more checks on its first pack; the affiliate earns affiliate_commission_pct of the net
     # revenue (after VAT and payment fees) of every purchase on it for affiliate_months months after it was attributed.
@@ -254,8 +247,8 @@ class Settings(BaseSettings):
     key_create_per_ip_per_day: int = 5
     key_create_daily_cap: int = 500
     key_recover_per_ip_per_day: int = 10
-    # Invite and intro code redemptions per visitor network per 10 minutes (a person redeems one; this stops anyone
-    # from guessing intro codes or draining one with fresh accounts from one place).
+    # Gift code redemptions per visitor network per 10 minutes (a person redeems one; this stops anyone from trying
+    # codes in bulk from one place).
     redeem_per_ip_per_10min: int = Field(default=10, ge=1)
     # Price quotes (POST /v1/credits/purchase-tx, the Solana Pay QR) per visitor network per minute: each is stored
     # for a day and asks the RPC for a blockhash.

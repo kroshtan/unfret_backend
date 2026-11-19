@@ -5,9 +5,9 @@ For agents that have a pass rather than a wallet. The request and the verdict ar
 follows ``POST /v1/analyze`` exactly (:mod:`unfret.routes.analyze`, whose helpers this uses, so the two can't drift):
 
 - a **deep** check uses one check: the pass's free checks first (:mod:`unfret.credits.free`, the one daily budget),
-  then its balance. Without either: 402 ``INSUFFICIENT_CREDITS``; with only free checks while today's budget is
-  spent: 429 ``FREE_CHECKS_PAUSED``. A page that can't be read (422), assessed (score -1) or analysed (500/504) is
-  given back.
+  then its balance. A developer pass's free checks count here (``api=True``), and only here. Without either: 402
+  ``INSUFFICIENT_CREDITS``; with only free checks while today's budget is spent: 429 ``FREE_CHECKS_PAUSED``. A page
+  that can't be read (422), assessed (score -1) or analysed (500/504) is given back.
 - a **quick** check is free, within the per-minute limit quick checks have on ``/v1/analyze`` (shared per pass).
 - ``/v1/check``'s own per-minute limit counts per pass here, not per visitor network, so agents behind one host (a
   hosted MCP client, the remote MCP server) don't share it; bad passes count per network.
@@ -93,13 +93,15 @@ async def _answer(
     balance = await analyze._balance(request, account)
     if verdict.deep_check is not None and verdict.deep_check.suggested:
         # A quick answer's suggestion, priced for this pass rather than at the x402 price.
-        cost = await analyze.deep_cost(request, account, balance)
+        cost = await analyze.deep_cost(request, account, balance, api=True)
         verdict = verdict.model_copy(update={"deep_check": card.with_cost(verdict.deep_check, cost)})
     content: dict[str, Any] = verdict.model_dump(mode="json")
     content["charged"] = charged
     content["free_check"] = charged and charge.spent is not None
     content["balance_usd_micros"] = balance
-    content["free_checks_left"] = await free.left(request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX))
+    content["free_checks_left"] = await free.left(
+        request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX), api=True
+    )
     return JSONResponse(content)
 
 
@@ -116,9 +118,9 @@ async def _pay_for_hit(request: Request, body: CheckRequest, account: str, hit: 
     charge = analyze.Charge(account)
     if body.tier == "deep" and not result_cache.paid_for(account, body.url):
         if not hit.assessed:
-            await analyze._can_pay(request, account)  # never charged, but only for a pass that could pay
+            await analyze._can_pay(request, account, api=True)  # never charged, but only for a pass that could pay
         else:
-            charge = await analyze._debit(request, account)
+            charge = await analyze._debit(request, account, api=True)
             await affiliates.first_check(request.app.db_pool, account)
             result_cache.mark_paid(account, body.url)
     logger.info("check_pass_cache_hit", tier=body.tier, charged=charge.charged)
@@ -188,7 +190,7 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
 
     if body.tier == "deep":
         analyze._check_free_outcomes(account)
-        await analyze._can_pay(request, account)  # an empty pass gets its 402 before any fetch
+        await analyze._can_pay(request, account, api=True)  # an empty pass gets its 402 before any fetch
     if not body.page_content and (wait := analyze._fetch_rate.retry_after(account)) is not None:
         raise TooManyRequestsError(
             "Too many links checked in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
@@ -200,7 +202,7 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
-    charge = await analyze._debit(request, account) if body.tier == "deep" else analyze.Charge(account)
+    charge = await analyze._debit(request, account, api=True) if body.tier == "deep" else analyze.Charge(account)
     await affiliates.first_check(request.app.db_pool, account)
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):

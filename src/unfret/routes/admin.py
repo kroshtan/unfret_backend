@@ -5,9 +5,9 @@ Listing the transactions behind the sticky x402 alerts and clearing them after i
 contact details from the fingerprint store on request, the queue of shop owners' requests (``/objection``), the
 review queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits
 for a store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the count
-of invites outstanding (a gift, not revenue), intro codes (``python -m unfret.credits.codes``: make, list, switch
-off, more uses), the review of shared results a shop owner objected to, how the photo, price and review stores
-are fed (counts only), and retiring every pass made before a moment (``python -m unfret.admin_cli retire-passes``).
+of invites outstanding (a gift, not revenue), the review of shared results a shop owner objected to, how the photo,
+price and review stores are fed (counts only), and retiring every pass made before a moment
+(``python -m unfret.admin_cli retire-passes``).
 """
 
 import json
@@ -428,7 +428,9 @@ async def sales_export(quarter: str, request: Request) -> PlainTextResponse:
 @router.get("/invites")
 async def invites_summary(request: Request) -> dict[str, int]:
     """
-    Invites issued, redeemed and outstanding, and what the outstanding ones would credit (gifts: not in the sales).
+    Invites issued, redeemed and outstanding, and buyers by how they came.
+
+    Also what the outstanding ones would credit (gifts: not in the sales), and buyers through a code or not.
 
     :param request: The incoming request.
     :return: The counts.
@@ -472,70 +474,6 @@ async def retire_passes(body: RetireRequest, request: Request) -> dict[str, Any]
     except retire.RetireError as exc:
         raise HTTPException(422, str(exc)) from exc
     return report.as_dict()
-
-
-# ── Intro codes ────────────────────────────────────────────────────────────────────────────────────────────────
-
-
-class IntroCreate(BaseModel):
-    """A new intro code."""
-
-    code: str = Field(min_length=3, max_length=24, description="3 to 24 letters or digits (stored upper case).")
-    checks: int = Field(default=5, gt=0, le=20)
-    max_uses: int = Field(gt=0, le=10_000)
-
-
-class IntroUpdate(BaseModel):
-    """Switch a code on or off, or change its number of uses."""
-
-    active: bool | None = None
-    add_uses: int = Field(default=0, ge=-10_000, le=10_000)
-
-
-@router.get("/codes")
-async def codes_list(request: Request) -> dict[str, Any]:
-    """
-    Every intro code with its uses, today's checks given against the cap, and buyers by how they came.
-
-    :param request: The incoming request.
-    :return: The codes and counts.
-    """
-    return await invites.list_intros(_pool(request), settings)
-
-
-@router.post("/codes", status_code=201)
-async def codes_create(body: IntroCreate, request: Request) -> dict[str, Any]:
-    """
-    Make an intro code.
-
-    :param body: Its name, checks per use and number of uses.
-    :param request: The incoming request.
-    :return: The code.
-    :raises HTTPException: 400 for a malformed name, 409 if it exists.
-    """
-    try:
-        made = await invites.create_intro(_pool(request), body.code, body.checks, body.max_uses)
-    except invites.InviteError as exc:
-        raise HTTPException(400 if exc.kind == "invalid" else 409, str(exc)) from exc
-    logger.info("intro_code_created", checks=made.checks, max_uses=made.max_uses)
-    return made.__dict__
-
-
-@router.post("/codes/{code}")
-async def codes_update(code: str, body: IntroUpdate, request: Request) -> dict[str, Any]:
-    """
-    Switch an intro code on or off, or change its number of uses.
-
-    :param code: The name.
-    :param body: What to change.
-    :param request: The incoming request.
-    :return: The code.
-    :raises HTTPException: 404 for an unknown code.
-    """
-    changed = await invites.update_intro(_pool(request), code, active=body.active, add_uses=body.add_uses)
-    if changed is None:
-        raise HTTPException(404, "No such code.")
-    return changed.__dict__
 
 
 def _pool(request: Request) -> Any:

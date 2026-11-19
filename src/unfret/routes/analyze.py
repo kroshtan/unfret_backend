@@ -150,18 +150,19 @@ class Charge:
         return self.paid or self.spent is not None
 
 
-async def _can_pay(request: Request, account: str) -> None:
+async def _can_pay(request: Request, account: str, *, api: bool = False) -> None:
     """
     Make sure a deep check can be paid for before a page is fetched for it (nothing is taken here).
 
     :param request: The FastAPI request.
     :param account: The account.
+    :param api: For ``/v1/check``, where a developer pass's free checks count (:mod:`unfret.credits.free`).
     :raises InsufficientCreditsError: Without checks.
     :raises TooManyRequestsError: When only free checks are left and today's are all used (FREE_CHECKS_PAUSED).
     """
     pool = request.app.db_pool
     key_id = _key_id(account)
-    has_free = key_id is not None and await free.left(pool, key_id) > 0
+    has_free = key_id is not None and await free.left(pool, key_id, api=api) > 0
     if has_free and not await free.paused(pool, settings):
         return
     balance = await _balance(request, account)
@@ -171,12 +172,16 @@ async def _can_pay(request: Request, account: str) -> None:
         raise InsufficientCreditsError(_NOT_ENOUGH, metadata=_shortfall(balance))
 
 
-async def _debit(request: Request, account: str) -> Charge:
+async def _debit(request: Request, account: str, *, api: bool = False) -> Charge:
     """
     Pay for a deep check: a pass's free check first, then the balance.
 
+    A developer pass's free checks count only with ``api`` (``/v1/check``); here on ``/v1/analyze`` it pays from its
+    balance like a pass without free checks.
+
     :param request: The FastAPI request.
     :param account: The account (a signed-in wallet or an API key).
+    :param api: For ``/v1/check``.
     :return: What was taken, to give back on a refund.
     :raises InsufficientCreditsError: If nothing covers the analysis.
     :raises TooManyRequestsError: If only free checks would, and today's are all used (FREE_CHECKS_PAUSED).
@@ -184,7 +189,7 @@ async def _debit(request: Request, account: str) -> Charge:
     pool = request.app.db_pool
     outcome = "none"
     if (key_id := _key_id(account)) is not None:
-        outcome, spent = await free.take_for_key(pool, settings, key_id)
+        outcome, spent = await free.take_for_key(pool, settings, key_id, api=api)
         if spent is not None:
             logger.info("free_check_used")
             return Charge(account, spent=spent)
@@ -390,20 +395,23 @@ def _response(
     return response
 
 
-async def deep_cost(request: Request, account: str | None, balance: int | None) -> tuple[str, card.DeepAction]:
+async def deep_cost(
+    request: Request, account: str | None, balance: int | None, *, api: bool = False
+) -> tuple[str, card.DeepAction]:
     """
     What a deep check would cost this caller, for a quick result's suggestion (:func:`unfret.card.deep_check_cost`).
 
     :param request: The FastAPI request.
     :param account: The account, or ``None``.
     :param balance: The account's balance (micro-dollars), or ``None``.
+    :param api: For ``/v1/check``, where a developer pass's free checks count.
     :return: The words and the action.
     """
     if account is None:
         return card.deep_check_cost()
     pool = request.app.db_pool
     key_id = _key_id(account)
-    free_left = await free.left(pool, key_id) if key_id is not None else 0
+    free_left = await free.left(pool, key_id, api=api) if key_id is not None else 0
     paused = bool(free_left) and await free.paused(pool, settings)
     bought = max(balance or 0, 0) // settings.analysis_price_usd_micros
     return card.deep_check_cost(free_left=free_left, paused=paused, bought=bought)

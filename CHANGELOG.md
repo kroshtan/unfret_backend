@@ -13,6 +13,17 @@
   sentence: an early version, things may still change, and tell us what doesn't work at hello@unfret.net. The
   install steps and the certificate check are unchanged; with no release the page still says "coming soon".
 
+* **Developer passes' free checks are for the API**: a pass made with `"developer": true` is flagged as one
+  (`api_keys.developer`, migration 34; nothing about who asked), and its 20 free deep checks count on `POST /v1/check`
+  only (the API, the MCP servers, the clients). On `/v1/analyze` (the website, the extension, the phone app) it is a
+  pass without free checks: its bought checks pay as anywhere, and without them it gets the `402` an empty pass gets.
+  Its free checks don't move to another pass, and none move onto it. `GET /v1/credits` reports them apart as
+  `api_free_checks_remaining`, outside `checks_remaining` and `free_checks_remaining`, so the website and the extension
+  don't offer checks they can't spend; `/check` adds "a developer pass: its 20 free checks are for the API" next to
+  the count. `POST /v1/keys` and `/v1/keys/recover` add `developer`; the remote MCP server's `get_checks_left` counts
+  them in. `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` say where they work. Passes made
+  before have no flag and keep working as they did.
+
 ### Changes
 
 * **`/check` is a web page again, not an app to install.** On a phone, Unfret is `/check` in the browser: "Check a
@@ -23,6 +34,16 @@
   checks' "Use on your phone" no longer says to add Unfret to the home screen. Phones that installed the old web app
   drop its service worker: `/check-sw.js` is now a worker that clears any caches and unregisters itself, and `/check`
   unregisters it too. The privacy statement no longer describes the worker.
+
+### Removed
+
+* **Intro codes are gone** (retired in 0.13.0): the redeem path, the operator endpoints (`/v1/admin/codes`),
+  `make codes` and its script, and the `UNFRET_INTRO_CODES_ENABLED` and `UNFRET_INTRO_DAILY_CHECKS_CAP` settings.
+  Migration 33 drops the `intro_codes` table and its day counter. A former intro code (`FRIENDS`) at
+  `POST /v1/invites/redeem` answers like any other code that isn't a gift code: `400 INVALID_INVITE`. An old
+  `/key?code=…` link opens `/checkout?for=key`, and `/checkout?code=…` with anything but a gift code opens as if the
+  link had none (no more "free checks when you install" note). The buyer counts the codes list had (through a code or
+  not) are now in `GET /v1/admin/invites`. Gift codes, affiliates and bonus codes are unchanged.
 
 ### Fixes
 

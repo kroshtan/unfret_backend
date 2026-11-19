@@ -700,7 +700,7 @@ async def test_the_retired_showcase_is_gone(api: httpx.AsyncClient) -> None:
         ("POST", "/v1/admin/keys/aaaaaaaaaa/grant"),
         ("POST", "/v1/admin/keys/aaaaaaaaaa/debit"),
         ("GET", "/v1/admin/reports"),
-        ("GET", "/v1/admin/codes"),
+        ("GET", "/v1/admin/invites"),
         ("POST", "/v1/admin/x402/clear-alerts"),
         ("GET", "/v1/admin/x402/alerts"),
     ],

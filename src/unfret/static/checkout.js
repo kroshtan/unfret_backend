@@ -23,8 +23,8 @@
 // Bonus codes: one field under the packs, for card and crypto alike, filled in from an affiliate's link (ref.js).
 // A code adds checks, never lowers the price. It is checked before anyone is sent to pay (POST /v1/credits/codes/check:
 // "+20% checks") and goes with
-// the purchase as `code`; one code per purchase. An old intro-code link (?code=FRIENDS) shows that installing Unfret
-// gives free checks, and loses the code from the address bar: codes aren't how anyone starts any more.
+// the purchase as `code`; one code per purchase. A `?code=` that isn't a gift code (an old shared link) is dropped:
+// the page opens as if the link had none.
 import {
   INVITE_RE,
   NOT_A_CODE,
@@ -41,7 +41,6 @@ import {
   walletButton,
 } from "./wallet.js";
 import { awaitConfirmation, handOffKey, topupKeyId } from "./handoff.js";
-import { chooseButtons } from "./install-button.js";
 import { makePass } from "./new-pass.js";
 import { storedRef } from "./ref.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
@@ -1274,19 +1273,11 @@ function sendPass() {
   return true;
 }
 
-// An old intro-code link (/checkout?code=FRIENDS, ?mode=code): the code leaves the address bar, nothing is redeemed,
-// and the page says what replaced it: free checks when you install Unfret.
-function retiredCode(params) {
-  const keep = new URLSearchParams(params);
-  keep.delete("code");
-  if (keep.get("mode") === "code") keep.delete("mode");
-  history.replaceState(null, "", `${window.location.pathname}${keep.size ? `?${keep}` : ""}`);
+// A `?code=` that isn't a gift code (an old shared link): it leaves the address bar and the page goes on as if the
+// link had none. Nothing is redeemed.
+function dropCode(params) {
   params.delete("code");
-  if (params.get("mode") === "code") params.delete("mode");
-  const free = Number(pricing?.free?.checks_per_pass) || 0;
-  if (free > 0) $("free-count").textContent = String(free);
-  $("free-note").hidden = false;
-  chooseButtons();
+  history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
 }
 
 function initialMode(params) {
@@ -1319,7 +1310,7 @@ async function start() {
   const params = new URLSearchParams(window.location.search);
   const shared = params.get("code");
   if (shared && normaliseCode(shared)) $("invite-input").value = normaliseCode(shared);
-  else if (shared) retiredCode(params);
+  else if (shared) dropCode(params);
   // An affiliate's link brought this visitor: their code waits in the code field.
   const ref = storedRef();
   if (ref && !codeInput.value) {

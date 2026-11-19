@@ -1068,6 +1068,8 @@ def _discovery(base: BaseX402 | None = None) -> dict[str, Any]:
                 "create": f"{settings.public_base_url}/v1/keys",
                 "body": {"challenge": "string", "solution": "string", "developer": True},
                 "free_deep_checks": settings.developer_free_checks,
+                "free_checks_count_on": "POST /v1/check only (the API, the MCP server, the clients); bought checks "
+                "on the pass work everywhere",
             },
         },
         "request": {
@@ -1177,8 +1179,9 @@ Send `Authorization: Bearer ufk_...` (an Unfret pass) instead of PAYMENT-SIGNATU
 pass's checks (free ones first), a quick check is free (a few a minute), and the verdict adds `charged`, `free_check`,
 `balance_usd_micros` and `free_checks_left`. A developer pass (POST {d["auth"]["developer_pass"]["create"]} with
 `"developer": true`, after solving the proof of work from GET {d["auth"]["developer_pass"]["challenge"]}) comes with
-{d["auth"]["developer_pass"]["free_deep_checks"]} free deep checks. Buy more checks for a pass at
-{settings.public_base_url}/checkout.
+{d["auth"]["developer_pass"]["free_deep_checks"]} free deep checks, for the API and the MCP server: they count on
+POST /v1/check only, not on /v1/analyze (the website, the browser extension, the phone app). Buy more checks for a
+pass at {settings.public_base_url}/checkout; bought checks work everywhere.
 
 ## Response
 

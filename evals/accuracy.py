@@ -4,7 +4,7 @@ The numbers on the public ``/accuracy`` page: how often each verdict is right, f
 Usage::
 
     uv run python -m evals.accuracy [--reuse STAMP] [--out src/unfret/static/accuracy.json] [--concurrency 8]
-    uv run python -m evals.accuracy --publish VERSION
+    uv run python -m evals.accuracy --publish VERSION [--kind private|public] [--released DATE]
 
 Replays every labelled page (train and test, ``--with-url``, recorded LLM responses only, as ``evals.run --replay
 --split all --with-url``) twice: every page class with the ads and tradespeople checks on, and the product pages
@@ -27,6 +27,16 @@ it to ``static/accuracy-history.json`` as that version's entry, or replaces the 
 release date unless ``--released`` gives one; a new entry's is today). The history keeps every version published,
 so the page can show the earlier ones. Only that summary leaves the model store, never the model or anything of
 the corpus. A replay of the open baseline (the default ``--out``) updates the baseline's entry the same way.
+
+``--kind public`` publishes an earlier open model the same way: a scorer this repository shipped in an older release
+and has since replaced. Take its artifact from the git history into a directory of its own (never ``src/``), replay
+it like a retrained one, and publish it with its release date, the model store pointed at that directory::
+
+    git show <commit>:src/unfret/scoring/model.json > <dir>/<version>/model.json
+    UNFRET_MODEL_PATH=<dir>/<version>/model.json make accuracy
+    UNFRET_MODELS_DIR=<dir> make accuracy ACCURACY_ARGS="--publish <version> --kind public --released <date>"
+
+Its numbers are then measured after its release, on that day's test set, and the page says so.
 """
 
 import argparse
@@ -474,17 +484,28 @@ def record(summary: dict[str, Any], kind: str, released: str | None = None, out:
     return out
 
 
-def publish(version: str, root: Path | None = None, out: Path = HISTORY_OUT, released: str | None = None) -> Path:
+def publish(
+    version: str,
+    root: Path | None = None,
+    out: Path = HISTORY_OUT,
+    released: str | None = None,
+    kind: str = "private",
+) -> Path:
     """
-    Put a retrained scorer's replay numbers on the page, as those of the scorer unfret.net runs.
+    Put a scorer's replay numbers on the page: a retrained scorer's, or an earlier open model's.
 
     :param version: The scorer's version, in the model store.
     :param root: The model store; :func:`evals.release.store` by default.
     :param out: The history the page reads.
     :param released: Its release date, ISO (see :func:`record`).
+    :param kind: ``private`` (a retrained scorer, as the one unfret.net runs) or ``public`` (an open model this
+        repository shipped).
     :return: ``out``.
     :raises FileNotFoundError: When the version has no replay summary yet (run ``make accuracy`` with it first).
+    :raises ValueError: For an unknown kind.
     """
+    if kind not in KINDS:
+        raise ValueError(f"kind {kind!r} is not one of {KINDS}")
     source = (root or release.store()) / version / release.ACCURACY
     if not source.is_file():
         raise FileNotFoundError(
@@ -492,7 +513,7 @@ def publish(version: str, root: Path | None = None, out: Path = HISTORY_OUT, rel
         )
     summary = json.loads(source.read_text(encoding="utf-8"))
     check_publishable(summary, version)
-    return record(summary, "private", released, out)
+    return record(summary, kind, released, out)
 
 
 def summarise(
@@ -570,9 +591,15 @@ def main() -> None:
         help="put a retrained scorer's replay numbers on the page (its entry in accuracy-history.json)",
     )
     parser.add_argument("--released", metavar="DATE", help="with --publish: its release date (default: today)")
+    parser.add_argument(
+        "--kind",
+        choices=KINDS,
+        default="private",
+        help="with --publish: private (a retrained scorer, the default) or public (an earlier open model)",
+    )
     args = parser.parse_args()
     if args.publish:
-        out = publish(args.publish, released=args.released)
+        out = publish(args.publish, released=args.released, kind=args.kind)
         entries = json.loads(out.read_text())["entries"]
         print(json.dumps(next(e for e in entries if e["version"] == args.publish), indent=2))  # noqa: T201
         return

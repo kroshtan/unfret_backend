@@ -3,16 +3,19 @@ The ``/accuracy`` page: how often Unfret's verdicts are right, from the numbers 
 
 Summaries of a corpus replay, aggregates only (``evals/accuracy.py`` writes them; never a URL or a corpus record):
 
-- ``static/accuracy.json``: the open baseline scorer in this repository (what a self-hosted server runs).
+- ``static/accuracy.json``: the open model, the baseline scorer in this repository (what a self-hosted server runs).
 - ``static/accuracy-history.json``: every published scorer version, ``{"entries": [...]}``, one entry per version
-  (:func:`entry`): ``version``, ``kind`` (``private``: a retrained scorer unfret.net runs or ran; ``public``: an open
-  baseline), ``released`` and ``measured`` (ISO dates), ``corpus_pages`` (the labelled pages it was measured on),
-  ``metrics`` (the side-by-side table's numbers, :func:`metrics`) and ``summary`` (the whole replay summary, as
-  ``accuracy.json``). ``make accuracy ACCURACY_ARGS="--publish VERSION"`` adds or updates a retrained scorer's entry
-  from the model store; ``make accuracy`` for the baseline updates the baseline's.
+  (:func:`entry`): ``version``, ``kind`` (``private``: a retrained scorer unfret.net runs or ran, never published;
+  ``public``: an open model, committed in this repository now or in an earlier release), ``released`` and
+  ``measured`` (ISO dates), ``corpus_pages`` (the labelled pages it was measured on), ``metrics`` (the side-by-side
+  table's numbers, :func:`metrics`) and ``summary`` (the whole replay summary, as ``accuracy.json``).
+  ``make accuracy ACCURACY_ARGS="--publish VERSION"`` adds or updates a retrained scorer's entry from the model store
+  (``--kind public`` an earlier open model's, replayed afterwards); ``make accuracy`` for the baseline updates the
+  baseline's.
 
-The page leads with the summary of the scorer this server runs (:func:`page_summary`), shows the newest retrained
-scorer and the open baseline side by side, and every earlier version below them, newest first, folded.
+The page names the two kinds :data:`KIND_LABELS`. It leads with the summary of the scorer this server runs
+(:func:`page_summary`), shows the newest private model and the open model side by side, and every earlier version
+below them, newest first, folded.
 ``static/accuracy.html`` is the page's prose with placeholders that this module fills:
 
 - ``{{num:path}}``: a count (``1,582``); ``{{pct:path}}``: a share as a percentage (``82%``, ``6.9%``);
@@ -40,6 +43,11 @@ ACCURACY_PATH = Path(__file__).resolve().parent / "static" / "accuracy.json"
 HISTORY_PATH = ACCURACY_PATH.with_name("accuracy-history.json")
 
 KINDS = ("private", "public")
+
+# What the page calls each kind: the side-by-side table's headings and the earlier versions' boxes; the prose (the
+# page's, :func:`scorer_name`) uses the same words. ``private``: retrained, runs on unfret.net, not published;
+# ``public``: in this repository, what a self-hosted server runs.
+KIND_LABELS = {"private": "Private model (unfret.net)", "public": "Open model (in the code)"}
 
 BANDS = ("reliable", "concerns", "careful", "junk_or_scam")
 NOT_MEASURED = "not measured"
@@ -94,7 +102,7 @@ MOSTLY_SYNTHETIC = 0.5
 @cache
 def summary() -> dict[str, Any]:
     """
-    The open baseline's measured numbers.
+    The open model's measured numbers (the baseline scorer in this repository).
 
     :return: The parsed ``accuracy.json``.
     """
@@ -173,7 +181,7 @@ def history() -> list[dict[str, Any]]:
 
 def service_entry() -> dict[str, Any] | None:
     """
-    The newest retrained scorer's entry: the one unfret.net runs.
+    The newest private model's entry: the retrained scorer unfret.net runs.
 
     :return: The entry, or ``None`` when no retrained scorer's numbers are published.
     """
@@ -192,7 +200,7 @@ def service_summary() -> dict[str, Any] | None:
 
 def baseline_entry() -> dict[str, Any]:
     """
-    The open baseline's entry: the scorer in this repository.
+    The open model's entry: the baseline scorer in this repository.
 
     :return: Its history entry, or one made from ``accuracy.json`` (release date unknown) when it has none.
     """
@@ -203,7 +211,7 @@ def baseline_entry() -> dict[str, Any]:
 
 def earlier_entries() -> list[dict[str, Any]]:
     """
-    The versions below the side-by-side table: every one but the newest retrained scorer and the open baseline.
+    The versions below the side-by-side table: every one but the newest private model and the open model.
 
     :return: Their entries, newest first.
     """
@@ -511,16 +519,19 @@ def scorer_name(data: dict[str, Any]) -> str:
     Which scorer a summary is for, in words.
 
     :param data: A summary.
-    :return: The retrained scorer unfret.net runs, an earlier one, the open baseline, or just "a scorer".
+    :return: The private model unfret.net runs, the open model, an earlier one of either, or just "a scorer".
     """
     version = data.get("scorer_version")
     service = service_entry()
     if service is not None and version == service["version"]:
-        return "the retrained scorer unfret.net runs"
+        return "the private model unfret.net runs (retrained, not published)"
     if version == summary().get("scorer_version"):
-        return "the open baseline, the scorer in the source code that a self-hosted Unfret runs"
-    if any(e["version"] == version and e["kind"] == "private" for e in history()):
-        return "an earlier retrained scorer"
+        return "the open model, the scorer in the source code that a self-hosted Unfret runs"
+    kind = next((e["kind"] for e in history() if e["version"] == version), None)
+    if kind == "private":
+        return "an earlier private model"
+    if kind == "public":
+        return "an earlier open model"
     return "a scorer"
 
 
@@ -592,28 +603,32 @@ def _released(e: dict[str, Any]) -> str:
     return f"Released {long_date(e['released'])}" if e.get("released") else "Release date not recorded"
 
 
+def measured_afterwards(e: dict[str, Any]) -> bool:
+    """
+    Whether a version's numbers were measured after its release (an older open model, replayed later).
+
+    :param e: A history entry.
+    :return: Whether it was measured on a later day than it was released.
+    """
+    return bool(e.get("released") and e.get("measured") and str(e["measured"]) > str(e["released"]))
+
+
 def _measured(e: dict[str, Any]) -> str:
-    return f"measured on {num(e.get('corpus_pages'))} labelled pages"
+    after = " afterwards" if measured_afterwards(e) else ""
+    return f"measured{after} on {num(e.get('corpus_pages'))} labelled pages"
 
 
 def scorers_table(_: dict[str, Any] | None = None) -> str:
     """
-    The newest retrained scorer (the one unfret.net runs) and the open baseline, side by side: a column each.
+    The newest private model (the one unfret.net runs) and the open model, side by side: a column each.
 
-    Each column's heading names the scorer, its version, its release date and the number of labelled pages it was
-    measured on; each row is one of the numbers (:func:`_columns`).
+    Each column's heading names the model (:data:`KIND_LABELS`), its version, its release date and the number of
+    labelled pages it was measured on; each row is one of the numbers (:func:`_columns`).
 
-    :return: The table's HTML (the baseline alone when no retrained scorer's numbers are published).
+    :return: The table's HTML (the open model alone when no private model's numbers are published).
     """
     running = running_version()
-    shown = [
-        (name, e)
-        for name, e in (
-            ("Retrained, runs on unfret.net", service_entry()),
-            ("Open baseline, self-hosted", baseline_entry()),
-        )
-        if e is not None
-    ]
+    shown = [(KIND_LABELS[e["kind"]], e) for e in (service_entry(), baseline_entry()) if e is not None]
     here = ' <span class="muted">(this server)</span>'
     heads = "".join(
         f'<th scope="col">{html.escape(name)}{here if e["version"] == running else ""}'
@@ -633,31 +648,37 @@ def scorers_table(_: dict[str, Any] | None = None) -> str:
     )
 
 
-KIND_LABELS = {"private": "Retrained scorer", "public": "Open baseline"}
-
-
 def history_block(_: dict[str, Any] | None = None) -> str:
     """
-    Every earlier scorer version, newest first, each folded under its name, version and release date.
+    Every earlier version of either model, newest first, each folded under its kind, version and release date.
 
-    A plain ``<details>`` per version: closed until opened, by keyboard too, with no script.
+    A plain ``<details>`` per version: closed until opened, by keyboard too, with no script. A version measured
+    after its release (an older open model, replayed later) says so, in its box and in the intro.
 
     :return: The HTML, or a sentence saying no earlier version was measured this way yet (the changelog's older
-        scorers were replaced before this page measured each version, so only their changes are listed).
+        versions were replaced before this page measured each version, so only their changes are listed).
     """
     earlier = earlier_entries()
     if not earlier:
         return (
-            '<p class="acc-history-empty">None yet. The older scorers in the <a href="#changelog">changelog</a> were '
+            '<p class="acc-history-empty">None yet. The older versions in the <a href="#changelog">changelog</a> were '
             "replaced before we started measuring each version on this test set, so only their changes are listed "
             "there, without these numbers. From now on, each version that is replaced will appear here with its "
             "numbers and release date.</p>"
         )
+    later = (
+        " The older open models were measured afterwards, on a later day's test set: their numbers show that "
+        "scorer inside Unfret as it was on that day, not exactly what it did when it was released."
+        if any(measured_afterwards(e) for e in earlier)
+        else ""
+    )
     intro = (
-        "<p>The other scorer versions we published, newest first, each with its release date and the same numbers "
-        "as the table above. Open one to see them.</p>"
-        '<p class="small">Each version was measured on the labelled pages we had when it was released, and we keep '
-        "adding pages, so numbers measured on different numbers of pages aren't strictly comparable.</p>"
+        f"<p>The earlier versions of both models, newest first: each says whether it was the "
+        f"<strong>{html.escape(KIND_LABELS['public'])}</strong> or the "
+        f"<strong>{html.escape(KIND_LABELS['private'])}</strong>, with its release date and the same numbers as the "
+        "table above. Open one to see them.</p>"
+        f'<p class="small">Each says when it was measured and on how many labelled pages.{later} We keep adding '
+        "pages, so numbers measured on different numbers of pages aren't strictly comparable.</p>"
     )
     boxes = []
     for e in earlier:
@@ -666,12 +687,17 @@ def history_block(_: dict[str, Any] | None = None) -> str:
             for heading, field in _columns()
         )
         version = html.escape(str(e["version"]))
+        when = (
+            f"Measured afterwards, on {long_date(e.get('measured'))}: this scorer inside Unfret as it was that day, "
+            f"on the {num(e.get('corpus_pages'))} labelled pages the test set had then"
+            if measured_afterwards(e)
+            else f"Measured on {long_date(e.get('measured'))}, on {num(e.get('corpus_pages'))} labelled pages"
+        )
         boxes.append(
             f'<details class="acc-history-item" id="scorer-{version}"><summary><span>'
-            f"{KIND_LABELS.get(e['kind'], 'Scorer')} <code>{version}</code>"
+            f"{html.escape(KIND_LABELS.get(e['kind'], 'Scorer'))} <code>{version}</code>"
             f'<span class="acc-scorer-meta">{_released(e)}, {_measured(e)}</span></span></summary>'
-            f'<p class="small">Measured on {long_date(e.get("measured"))}, on {num(e.get("corpus_pages"))} labelled '
-            f"pages; {num(e['metrics'].get('products_scored'))} product pages got a verdict.</p>"
+            f'<p class="small">{when}; {num(e["metrics"].get("products_scored"))} product pages got a verdict.</p>'
             '<div class="acc-table-wrap"><table class="acc-table acc-history-table">'
             f"<tbody>{rows}</tbody></table></div></details>"
         )

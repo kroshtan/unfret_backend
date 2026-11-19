@@ -95,6 +95,17 @@
   steps show only while Base is on), and `/llms.txt`'s errors table names Base only while it is on. `/developers` says
   the TypeScript client is a reference to copy, not on npm, with its link. On `/check` the three example shops are
   links (a click still checks one), and the note under the shops that need the extension says why.
+* **`/accuracy` tells the open model from the private one**: the page calls them "Open model (in the code)" (in this
+  repository, what a self-hosted server runs) and "Private model (unfret.net)" (retrained, not published), the same
+  in the side-by-side table, the earlier versions' boxes, the prose and the changelog, where 0.6.0 and 0.7.0 are
+  marked as open-model releases (0.7.0's is still the open model). `/about`, `/developers`, the README, the API
+  contract and `/v1/health`'s `model_version` description in the OpenAPI schema use the same words; the site no
+  longer says "open baseline" or "retrained scorer". The open model has a history too: 0.6.0's scorer
+  `v1-20261108-C`, replayed on today's test set (recorded LLM answers only), is under "Earlier versions" with its
+  release date, and says it was measured afterwards: 85% of unreliable product pages warned about, 84% of warnings
+  right, 18% of legitimate shops warned about (2.8% "Serious concerns"), ROC AUC 0.918.
+  `make accuracy ACCURACY_ARGS="--publish VERSION --kind public --released DATE"` publishes such an earlier open
+  model from its replay (`evals.accuracy`'s docstring has the steps).
 
 ### Internal
 

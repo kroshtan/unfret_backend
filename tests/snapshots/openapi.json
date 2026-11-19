@@ -1067,7 +1067,7 @@
         "type": "null"
        }
       ],
-      "description": "The scorer analyses and deep checks run (the open baseline or a retrained one)",
+      "description": "The scorer analyses and deep checks run (the open model in the code, or a private one)",
       "title": "Model Version"
      },
      "quick_model_version": {

@@ -1020,7 +1020,7 @@ client are unchanged.
 
 - `GET /v1/health` and `GET /v1/health/ready` add `model_version` (the scorer analyses and deep checks run) and
   `quick_model_version` (the x402 quick tier's), the same strings as `assessment.model_version` and the x402
-  verdict's `model_version`, or `null` without a scorer. A server runs the open baseline in the repository unless its
+  verdict's `model_version`, or `null` without a scorer. A server runs the open model in the repository unless its
   operator configured another (`UNFRET_MODEL_PATH`, `UNFRET_MODEL_QUICK_PATH`).
 
 ## Changes (an Unfret pass pays `/v1/check`; developer passes; backwards-compatible)

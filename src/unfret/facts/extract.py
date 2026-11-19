@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup, Tag
 
 from unfret.facts import amazon, bolcom, business, markup, p2p, service_platforms, testimonials, walmart
 from unfret.facts._parse import parse_date, parse_number, parse_rating
+from unfret.facts.brand import clean_brand
 from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
 
@@ -150,6 +151,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         walmart.extract(soup, facts)
     elif facts.platform == "shopify":
         _shopify(html, facts, url)
+    facts.brand = clean_brand(facts.brand)  # one brand string for every check: no byline phrase, no sentence
     if not facts.title:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")
     if not facts.image_urls and (image := _meta(soup, "og:image")):

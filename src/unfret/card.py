@@ -47,6 +47,7 @@ REASON_SOURCES: dict[str, str] = {
     "reference_anchor": "page",
     "permanent_sale": "page",
     "seller_not_brand": "page",
+    "seller_lookalike": "page",
     "ships_from_far": "page",
     "drip_pricing": "checkout",
     # The page's code.
@@ -234,6 +235,7 @@ REASON_AREAS: dict[str, str] = {
             "generic_brand",
             "generic_product",
             "implausible_claims",
+            "seller_lookalike",
             "seller_not_brand",
             "ships_from_far",
             "photo_reused",
@@ -411,6 +413,7 @@ STEP_FOR_REASON: dict[str, str] = {
             "photo_reused",
             "rebranded_photo",
             "brand_no_presence",
+            "seller_lookalike",
             "seller_not_brand",
         ),
         "compare_elsewhere",

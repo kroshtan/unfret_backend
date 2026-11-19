@@ -57,6 +57,24 @@
 * Plainer words: the home page's FAQ said Unfret answers "in one of four words" (it gives one of four answers), and
   "it can be wrong, in both directions" on the home page, /about, /why and /terms now says what that means: it can
   miss a bad shop, and it can warn about a good one.
+* **The brand from a marketplace byline, in every language**: Amazon's byline is a link to the brand's store, and
+  its phrase was taken as the brand ("De Air Max Store openen" on amazon.nl), then looked up and judged twice
+  ("A brand with no presence of its own" and "Known brand" about the same phrase). The byline's phrase is now taken
+  off in en, nl, de, fr, it, es, pt, pl, se, tr and ja (`unfret.facts.brand`, ported line for line to the extension),
+  the product's structured brand comes first (JSON-LD, the overview and detail tables' brand row, the byline link's
+  brand filter), and a name that reads like a sentence or a store link is no brand at all: a quiet result instead
+  of a wrong claim. The same rule applies to the brand a client sends. Of the corpus's recorded pages, 2 get another
+  brand (one nl, one de real Amazon page) and 1 loses a trailing space; no seller changes.
+* **A seller is the brand when its name holds the brand's as whole words** ("Airmax nasal dilator", "AIRMAX-Store
+  BV", "Air Max Benelux" sell Airmax), so "Sold by another company" isn't said of them; "Nikee" no longer counts as
+  Nike by containing it. A seller named almost like a brand known elsewhere ("Nikee", "N1ke", "Nike-e") gets its own
+  reason, "Seller named like the brand" (medium), in place of "Sold by another company", when the brand is known
+  elsewhere (Wikidata, or its own domain for five years). The seller's whole name must be a slip away (a letter added,
+  dropped or swapped, a digit or lookalike character for a letter; two edits for names over six letters), not a word
+  in it, and a changed letter in a short name doesn't count ("Boss" isn't a lookalike of Bose). On the corpus no page
+  gets it (86 pages name both a brand and a seller), and `listing.seller_not_brand` changes on none.
+* **"Known brand" and "A brand with no presence of its own" are never both said**: when the content read knows the
+  brand but Wikidata and the domain lookups find nothing, neither is.
 * **`/accuracy` says what its numbers count**: the product section names its pages as the shops' and marketplaces'
   product pages, part of all the test pages, with how many of the rest are ads and tradespeople; the side-by-side
   table shows the pages behind each share ("1.6% (12 of 753)"); "Earlier versions" no longer says there are none

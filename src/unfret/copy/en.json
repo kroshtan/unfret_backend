@@ -97,6 +97,10 @@
       "title": "Never-ending sale",
       "detail": "The page says {phrase}: shops that are always closing down use this to rush you."
     },
+    "seller_lookalike": {
+      "title": "Seller named like the brand",
+      "detail": "The seller's name looks like the brand's but isn't: {seller} sells this {brand} product."
+    },
     "seller_not_brand": {
       "title": "Sold by another company",
       "detail": "Sold by {seller}, not by the brand itself."

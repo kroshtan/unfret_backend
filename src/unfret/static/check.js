@@ -7,8 +7,9 @@
 // (an API key) or, for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. A first visit gets
 // a free pass at the first tap of Check (new-pass.js: a few free deep checks, asked for once per browser); after that,
 // or without a pass, quick checks (rules only) are free and the page offers to get checks (/checkout) or to paste a
-// pass; a pass also arrives by QR code from /my-checks in another browser (/check#pass=ufk_…, read here and cleared
-// from the address bar at once). A deep check that only free checks could pay for, once they're used (402) or today's
+// pass; a pass also arrives by QR code from /my-checks in another browser (/pass#pass=ufk_…, which pass-link.js
+// forwards here as /check#pass=ufk_…, the address older codes hold; read here and cleared from the address bar at
+// once). A deep check that only free checks could pay for, once they're used (402) or today's
 // are all used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
 //
 // A pass the server no longer knows (401 INVALID_API_KEY: retired at Unfret's free start, or replaced elsewhere) is
@@ -358,9 +359,9 @@ async function useKey() {
   signedIn({ kind: "key", token: pass, address: `key:${id}` });
 }
 
-// A pass from a QR code on /my-checks (/check#pass=ufk_…): kept like a pasted one, once the visitor says so. Any site
-// can open such a link, so it always asks; and if this device already uses another pass or a wallet, it says so: the
-// one here may be the only copy of a pass with checks on it.
+// A pass from a QR code on /my-checks (/check#pass=ufk_…, by way of /pass): kept like a pasted one, once the
+// visitor says so. Any site can open such a link, so it always asks; and if this device already uses another pass or
+// a wallet, it says so: the one here may be the only copy of a pass with checks on it.
 async function receivePass(pass) {
   const id = passIdOf(pass);
   if (!id || account?.token === pass) return;

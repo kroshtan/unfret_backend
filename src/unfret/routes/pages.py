@@ -6,7 +6,8 @@ The site's pages: home, sign-in, checkout, the link checker, accuracy, and the p
 extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``,
 ``/why``, ``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer.
 ``/check`` checks a link from any browser, phones first. It is a web page, not an installable app: on a phone,
-Unfret's website is ``/check`` in the browser.
+Unfret's website is ``/check`` in the browser. ``/pass`` is where a pass's QR code points: the Android app opens it
+when installed, and the page forwards to ``/check`` otherwise.
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -730,8 +731,28 @@ def check_page() -> HTMLResponse:
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
-# The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /affiliates/stats, shared results,
-# the test shop) and the ones for a visitor's own pass or purchase (/welcome, /checkout, /my-checks) stay out.
+# /pass is a hop, never a page to find or keep: no index, no cache, and no referrer for wherever it leads.
+PASS_HEADERS = {**PAGE_HEADERS, "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"}
+
+
+@router.get("/pass", response_class=HTMLResponse)
+def pass_link_page() -> HTMLResponse:
+    """
+    Where "Use on your phone" points (``/pass#pass=<pass>``): the Unfret app when it's installed, else ``/check``.
+
+    On Android with Unfret for Android installed, the app opens the link itself (a verified App Link:
+    :mod:`unfret.android_app_links`) and this page is never asked for. Anywhere else its script forwards to
+    ``/check`` with the fragment intact (``location.replace``: the fragment never reaches the server), so
+    ``/check#pass=…`` asks before it uses the pass, as it always has. Without a script it says what the link is for
+    and links to ``/check``.
+
+    :return: The page.
+    """
+    return HTMLResponse(versioned(template("pass-link.html")), headers=PASS_HEADERS)
+
+
+# The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /pass, /affiliates/stats, shared
+# results, the test shop) and the ones for a visitor's own pass or purchase (/welcome, /checkout, /my-checks) stay out.
 SITEMAP_PATHS = (
     "/",
     "/nl",

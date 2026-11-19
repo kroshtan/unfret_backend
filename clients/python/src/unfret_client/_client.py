@@ -256,16 +256,18 @@ class Unfret:
 
     def new_developer_pass(self) -> dict[str, Any]:
         """
-        Make a developer pass (20 free deep checks; one a day per network) and use it from now on.
+        Make a developer pass and use it from now on: 20 free deep checks, for trying Unfret out.
 
-        Solves the proof of work ``POST /v1/keys`` asks for (a second or so). Keep ``key`` and ``recovery_code``:
-        they are shown only this once.
+        One per network a day. Its free checks work on the API and the MCP server (``check``), not in the browser
+        extension or the website. It asks for a developer challenge (``GET /v1/keys/challenge?developer=true``), a
+        harder proof of work than an ordinary pass's, and solves it: a few seconds. Keep ``key`` and
+        ``recovery_code``: they are shown only this once.
 
         :return: ``key_id``, ``key``, ``recovery_code``, ``free_checks`` (0 when this network already had its
             developer pass today), …
         :raises UnfretError: The call was refused.
         """
-        challenge = self._http.get(f"{self.base_url}/v1/keys/challenge")
+        challenge = self._http.get(f"{self.base_url}/v1/keys/challenge", params={"developer": "true"})
         _raise_for(challenge)
         work = challenge.json()
         body = {"challenge": work["challenge"], "solution": solve(work["challenge"], work["bits"]), "developer": True}
@@ -359,7 +361,7 @@ class AsyncUnfret:
         :return: The new pass.
         :raises UnfretError: The call was refused.
         """
-        challenge = await self._http.get(f"{self.base_url}/v1/keys/challenge")
+        challenge = await self._http.get(f"{self.base_url}/v1/keys/challenge", params={"developer": "true"})
         _raise_for(challenge)
         work = challenge.json()
         body = {"challenge": work["challenge"], "solution": solve(work["challenge"], work["bits"]), "developer": True}

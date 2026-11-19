@@ -295,6 +295,12 @@
       "title": "Challenge",
       "type": "string"
      },
+     "developer": {
+      "default": false,
+      "description": "A challenge for a developer pass (asked with ?developer=true): harder, and the only kind POST /v1/keys with \"developer\": true accepts.",
+      "title": "Developer",
+      "type": "boolean"
+     },
      "expires_at": {
       "title": "Expires At",
       "type": "number"
@@ -483,7 +489,7 @@
      },
      "developer": {
       "default": false,
-      "description": "Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and testing an agent against /v1/check, the MCP server or the clients. Its free checks count on POST /v1/check only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. One a day per network; past that the pass is made empty. Takes the place of free.",
+      "description": "Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and testing an agent against /v1/check, the MCP server or the clients. Its free checks count on POST /v1/check only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. It needs a challenge from GET /v1/keys/challenge?developer=true (a harder proof of work). For trying Unfret out: one a day per network; past that the pass is made empty. Takes the place of free.",
       "title": "Developer",
       "type": "boolean"
      },
@@ -583,7 +589,7 @@
      },
      "free_checks_paused": {
       "default": false,
-      "description": "Today's free deep checks are all used (by everyone): free checks (free_checks_remaining, api_free_checks_remaining) wait until 00:00 UTC, while bought checks and quick checks work.",
+      "description": "Today's budget for this pass's free deep checks is all used (by everyone): free checks wait until 00:00 UTC, while bought checks and quick checks work. A developer pass's free checks (api_free_checks_remaining) have a budget of their own, apart from free_checks_remaining's.",
       "title": "Free Checks Paused",
       "type": "boolean"
      },
@@ -4835,8 +4841,20 @@
   },
   "/v1/keys/challenge": {
    "get": {
-    "description": "A proof-of-work challenge for ``POST /v1/keys``: a few seconds of hashing in a browser, used once.\n\n:param request: The incoming request.\n:return: The challenge.",
+    "description": "A proof-of-work challenge for ``POST /v1/keys``: a few seconds of hashing in a browser, used once.\n\nWith ``?developer=true``, the challenge a developer pass needs: ``developer_pow_extra_bits`` harder (16 times the\nwork at the default 4). A developer pass is for trying Unfret out: one per network a day.\n\n:param request: The incoming request.\n:param developer: Ask for a developer pass's challenge.\n:return: The challenge.",
     "operationId": "challenge_v1_keys_challenge_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "developer",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Developer",
+       "type": "boolean"
+      }
+     }
+    ],
     "responses": {
      "200": {
       "content": {
@@ -4847,6 +4865,16 @@
        }
       },
       "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
      }
     },
     "summary": "Challenge",

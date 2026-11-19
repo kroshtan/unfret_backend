@@ -56,6 +56,8 @@ class CreditsDoor:
             creations=DailyLimit(settings.key_create_per_ip_per_day, settings.key_create_daily_cap),
             # Backup codes can't be guessed: per network only, so nobody can use up a global allowance for everyone.
             recoveries=DailyLimit(settings.key_recover_per_ip_per_day, _NO_DAILY_CAP),
+            # A developer pass's challenge is harder (its free checks are worth more to a script than a shopper's).
+            developer_extra_bits=settings.developer_pow_extra_bits,
         )
         # New passes that come with free checks (unfret.credits.free), per visitor network only: a global cap would let
         # one actor with many networks use them up for everyone; the day's budget for free deep checks bounds the cost.

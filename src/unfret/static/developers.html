@@ -93,8 +93,9 @@
 
         <div class="dev-pass" id="developer-pass">
           <h3>Get a developer pass</h3>
-          <p>{{developer_checks}} free deep checks, to build and test your agent with: a few seconds of work in this
-            browser, no account. One per browser, and one a day per network. Quick checks are always free.</p>
+          <p>{{developer_checks}} free deep checks, for trying Unfret out as you build and test your agent: a few
+            seconds of work in this browser, no account. One per browser, and one a day per network. Quick checks
+            are always free.</p>
           <p class="small">The free checks are for the API and the MCP server (<code>POST /v1/check</code>): they
             don't count in the Unfret extension, the phone app or the link checker on this site. Checks you buy
             for the pass work everywhere.</p>
@@ -102,7 +103,7 @@
           <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>
           <div id="dev-pass-result" hidden></div>
           <p class="small muted">Or in code: <code>Unfret().new_developer_pass()</code> (Python), or
-            <code>GET /v1/keys/challenge</code>, then <code>POST /v1/keys</code> with the solved challenge and
+            <code>GET /v1/keys/challenge?developer=true</code>, then <code>POST /v1/keys</code> with the solved challenge and
             <code>"developer": true</code> (<a href="/developers/http#developer-pass">the proof of work, step by
             step</a>). <a href="/checkout">Buy checks</a> for any pass.</p>
         </div>

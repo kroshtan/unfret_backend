@@ -111,11 +111,17 @@ test("solve finds the proof of work", async () => {
 test("a new developer pass is used from then on", async () => {
   const handler: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
-    const path = new URL(request.url).pathname;
-    if (path === "/v1/keys/challenge") return Response.json({ challenge: "c", bits: 4, expires_at: 0 });
+    const url = new URL(request.url);
+    const path = url.pathname;
+    if (path === "/v1/keys/challenge") {
+      assert.equal(url.searchParams.get("developer"), "true"); // a developer pass needs the harder challenge
+      return Response.json({ challenge: "c", bits: 12, expires_at: 0, developer: true });
+    }
     if (path === "/v1/keys") {
-      const body = (await request.json()) as { developer: boolean };
+      const body = (await request.json()) as { developer: boolean; solution: string };
       assert.equal(body.developer, true);
+      const digest = createHash("sha256").update(`c:${body.solution}`).digest();
+      assert.ok(digest[0] === 0 && (digest[1] ?? 255) < 16); // solved at the challenge's 12 bits
       return Response.json({ key: "ufk_new", key_id: "x", recovery_code: "ufr", free_checks: 20 }, { status: 201 });
     }
     assert.equal(request.headers.get("authorization"), "Bearer ufk_new");

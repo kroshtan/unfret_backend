@@ -17,7 +17,8 @@ price. Unfret pays the network fee, so the agent pays only the price. The server
 
 **No wallet? Use an Unfret pass.** Set `UNFRET_PASS` to a pass (`ufk_…`) and checks are paid from it instead: quick
 checks are free, deep checks use one of the pass's checks, and no keypair is needed or read. A **developer pass** comes
-with 20 free deep checks: [unfret.net/developers](https://unfret.net/developers).
+with 20 free deep checks, for trying Unfret out (one per network a day):
+[unfret.net/developers](https://unfret.net/developers).
 
 **Hosted (remote) server.** For clients that can't run a local process, Unfret serves the same checks over streamable
 HTTP at `https://unfret.net/mcp`, authenticated with a pass (`Authorization: Bearer ufk_…`); it never pays from a

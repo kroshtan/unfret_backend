@@ -81,9 +81,11 @@
           the server asks for a few seconds of proof of work instead. (Or press "Make a developer pass" on
           <a href="/developers#developer-pass">the developer page</a>.)</p>
         <ol class="howto">
-          <li><b>Get a challenge.</b> <code>GET /v1/keys/challenge</code> answers
-            <code>{"challenge": "…", "bits": {{pow_bits}}, "expires_at": …}</code>. It can be used once, within
-            {{pow_ttl_min}} minutes (<code>expires_at</code>, Unix seconds).</li>
+          <li><b>Get a developer challenge.</b> <code>GET /v1/keys/challenge?developer=true</code> answers
+            <code>{"challenge": "…", "bits": {{pow_bits}}, "expires_at": …, "developer": true}</code>. It can be used
+            once, within {{pow_ttl_min}} minutes (<code>expires_at</code>, Unix seconds). A developer pass is made
+            only with a developer challenge: {{pow_developer_extra}} bits harder than an ordinary pass's, a few
+            seconds of work.</li>
           <li><b>Solve it.</b> Find a <code>solution</code>: a string of 1 to 32 characters (a decimal counter
             0, 1, 2, … works) such that SHA-256 of the UTF-8 bytes of <code>challenge + ":" + solution</code>
             starts with <code>bits</code> zero bits, counted from the most significant bit of the first byte
@@ -96,12 +98,13 @@
             <code>key_id</code>, <code>account</code>, <code>balance_usd_micros</code>, <code>free_checks</code>
             and <code>developer</code> (<code>true</code>). Both secrets are shown only this once and stored only as hashes: save them.</li>
         </ol>
-        <p><b>Limits.</b> {{developer_checks}} free deep checks per developer pass, and
+        <p><b>Limits.</b> A developer pass is for trying Unfret out: {{developer_checks}} free deep checks, and
           {{developer_passes_per_day}} with free checks a day per visitor network; past that, the
           pass is made without them (<code>"free_checks": 0</code>). At most {{key_create_per_day}} new passes a
-          day per network (then <code>429</code>). Free deep checks, everyone's together, come out of one daily
-          budget; once it's used, a deep check that only free checks could pay for answers
-          <code>429 FREE_CHECKS_PAUSED</code> until 00:00 UTC. Quick checks always go on.</p>
+          day per network (then <code>429</code>). Developer passes' free checks, everyone's together, come out of
+          their own daily budget; once it's used, a deep check that only those free checks could pay for answers
+          <code>402 INSUFFICIENT_CREDITS</code>, "Today's free developer checks are used up; they're back at 00:00
+          UTC. Bought checks still work." Quick checks always go on.</p>
 
         <h3>The proof of work in JavaScript</h3>
         <p>Node 20 or newer, Deno, Bun or a browser: Web Crypto, no packages. Usually a few seconds.</p>
@@ -127,7 +130,7 @@ function leadingZeroBits(bytes) {
         <p>And the two calls around it (as an ES module, e.g. <code>pass.mjs</code>):</p>
         <div class="code-block">
           <pre class="terminal" id="pass-js">const base = "{{base_url}}";
-const { challenge, bits } = await (await fetch(`${base}/v1/keys/challenge`)).json();
+const { challenge, bits } = await (await fetch(`${base}/v1/keys/challenge?developer=true`)).json();
 const response = await fetch(`${base}/v1/keys`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -285,7 +288,8 @@ console.log(pass.key, pass.recovery_code, pass.free_checks); // save both: shown
             <tr><td><code>FREE_CHECKS_PAUSED</code></td><td>429</td><td>Only free checks left and today's are all
               used: back at 00:00 UTC (<code>metadata.retry_after_s</code>). Quick checks still work.</td></tr>
             <tr><td><code>BAD_CHALLENGE</code></td><td>400</td><td><code>POST /v1/keys</code>: the challenge is
-              wrong, expired, used or unsolved: get a new one.</td></tr>
+              wrong, expired, used or unsolved, or (for a developer pass) not a developer challenge: get a new one
+              from <code>GET /v1/keys/challenge?developer=true</code>.</td></tr>
             <tr><td><code>INTERNAL_ERROR</code>, <code>GATEWAY_TIMEOUT</code></td><td>500, 504</td><td>The analysis
               failed or ran out of time; the check was given back. Retry later.</td></tr>
             <tr><td><code>SERVICE_UNAVAILABLE</code></td><td>503</td><td>Passes, payments or the analysis are off

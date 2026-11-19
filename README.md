@@ -745,7 +745,13 @@ checks, one a day per visitor network. The pass keeps a flag (`api_keys.develope
 count on `/v1/check` only (the API, the MCP server, the clients): on `/v1/analyze` (the website, the extension, the
 phone app) it is a pass without free checks, so bought checks pay there and without them it gets the `402` an empty
 pass gets. `GET /v1/credits` shows them apart, as `api_free_checks_remaining`, and leaves them out of
-`checks_remaining`. Passes made before the flag have it off and work as before.
+`checks_remaining`. Passes made before the flag have it off and work as before. A developer pass is for trying
+Unfret out, and two things keep a script that keeps making new ones from costing shoppers anything: its free checks
+come out of their own day's budget (`UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR`, counter `developer_free_checks`), never
+the shoppers' (once it is used, a developer pass with only free checks gets `402 INSUFFICIENT_CREDITS`, "Today's free
+developer checks are used up; they're back at 00:00 UTC. Bought checks still work."), and it needs a developer
+challenge (`GET /v1/keys/challenge?developer=true`), `UNFRET_DEVELOPER_POW_EXTRA_BITS` (4) harder than an ordinary
+pass's.
 
 Every error from the API is JSON with `detail` and `error_code` (validation errors add `errors`). For `/v1/check`:
 
@@ -1031,8 +1037,10 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_AFFILIATE_RECORDS_RETENTION_DAYS` / `UNFRET_AFFILIATE_PASS_RETENTION_DAYS` | `2557` / `548` | Commission and payout records (bookkeeping: seven years); which affiliate a pass came through (eighteen months) |
 | `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
 | `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
-| `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (from the same daily budget; they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |
-| `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | All free deep checks together a UTC day, in euros of estimated cost; then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
+| `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |
+| `UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR` | `1.00` | Developer passes' free deep checks together a UTC day, in euros of estimated cost (200 checks at the default cost: ten full developer passes), apart from the shoppers' budget; then a developer pass with only free checks gets `402` until 00:00 UTC. 0 turns them off |
+| `UNFRET_DEVELOPER_POW_EXTRA_BITS` | `4` | How much harder a developer pass's proof of work is than an ordinary pass's (`UNFRET_KEY_POW_BITS`, 18): each bit doubles the work, so 4 is 16 times |
+| `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | Shoppers' free deep checks together a UTC day, in euros of estimated cost (developer passes have their own budget); then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |

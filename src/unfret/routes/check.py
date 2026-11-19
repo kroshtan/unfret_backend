@@ -1064,10 +1064,12 @@ def _discovery(base: BaseX402 | None = None) -> dict[str, Any]:
             "pass's checks (free ones first), a quick check is free; the verdict adds charged, free_check, "
             "balance_usd_micros and free_checks_left",
             "developer_pass": {
-                "challenge": f"{settings.public_base_url}/v1/keys/challenge",
+                "challenge": f"{settings.public_base_url}/v1/keys/challenge?developer=true",
                 "create": f"{settings.public_base_url}/v1/keys",
                 "body": {"challenge": "string", "solution": "string", "developer": True},
                 "free_deep_checks": settings.developer_free_checks,
+                "per_network_per_day": settings.developer_passes_per_ip_per_day,
+                "pow_bits": settings.key_pow_bits + settings.developer_pow_extra_bits,
                 "free_checks_count_on": "POST /v1/check only (the API, the MCP server, the clients); bought checks "
                 "on the pass work everywhere",
             },
@@ -1180,8 +1182,11 @@ pass's checks (free ones first), a quick check is free (a few a minute), and the
 `balance_usd_micros` and `free_checks_left`. A developer pass (POST {d["auth"]["developer_pass"]["create"]} with
 `"developer": true`, after solving the proof of work from GET {d["auth"]["developer_pass"]["challenge"]}) comes with
 {d["auth"]["developer_pass"]["free_deep_checks"]} free deep checks, for the API and the MCP server: they count on
-POST /v1/check only, not on /v1/analyze (the website, the browser extension, the phone app). Buy more checks for a
-pass at {settings.public_base_url}/checkout; bought checks work everywhere.
+POST /v1/check only, not on /v1/analyze (the website, the browser extension, the phone app). It is for trying Unfret
+out: one per network a day, its challenge is a harder proof of work ({d["auth"]["developer_pass"]["pow_bits"]} bits, a
+few seconds), and developer passes' free checks have their own daily budget: once it is used, a developer pass with
+only free checks gets 402 INSUFFICIENT_CREDITS until 00:00 UTC. Buy more checks for a pass at
+{settings.public_base_url}/checkout; bought checks work everywhere.
 
 ## Response
 

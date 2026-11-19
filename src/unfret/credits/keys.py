@@ -271,7 +271,9 @@ class KeyGuard:
     Challenges are stateless (expiry + random + difficulty + HMAC) and each is accepted once. The limits count key
     creations and recovery attempts per visitor network. In process memory only; visitor addresses are salted hashes.
     The creations' daily cap is not a wall (anyone with enough addresses could reach it and stop new keys for
-    everyone): past it, every doubling of the day's count makes the proof of work twice as hard.
+    everyone): past it, every doubling of the day's count makes the proof of work twice as hard. A challenge asked
+    for a developer pass is ``developer_extra_bits`` harder still, and a developer pass is made only with one: the
+    difficulty is part of the signed challenge, so it can't be lowered.
     """
 
     secret: str
@@ -280,6 +282,7 @@ class KeyGuard:
     creations: DailyLimit
     recoveries: DailyLimit
     clock: Callable[[], float] = time.time
+    developer_extra_bits: int = 0
     _used: dict[str, float] = field(default_factory=dict)
 
     def _now(self) -> float:
@@ -288,14 +291,24 @@ class KeyGuard:
     def _mac(self, body: str) -> str:
         return hmac.new(self.secret.encode(), ("pow:" + body).encode(), hashlib.sha256).hexdigest()[:32]
 
-    def challenge(self) -> tuple[str, int, float]:
+    @property
+    def developer_bits(self) -> int:
+        """
+        The least difficulty a developer pass's challenge has (more on a day when very many passes are made).
+
+        :return: ``bits`` + ``developer_extra_bits``.
+        """
+        return self.bits + self.developer_extra_bits
+
+    def challenge(self, *, developer: bool = False) -> tuple[str, int, float]:
         """
         Issue a challenge.
 
+        :param developer: For a developer pass: ``developer_extra_bits`` harder.
         :return: The challenge string, its difficulty in bits and its expiry.
         """
         expires = int(self._now() + self.ttl_s)
-        bits = self.bits + self._extra_bits()
+        bits = self.bits + self._extra_bits() + (self.developer_extra_bits if developer else 0)
         body = f"{expires}.{secrets.token_hex(8)}.{bits}"
         return f"{body}.{self._mac(body)}", bits, float(expires)
 
@@ -306,12 +319,14 @@ class KeyGuard:
             extra, cap = extra + 1, cap * 2
         return extra
 
-    def redeem(self, challenge: str, solution: str) -> bool:
+    def redeem(self, challenge: str, solution: str, *, min_bits: int = 0) -> bool:
         """
-        Accept a solved challenge once: authentic, unexpired, unused and solved at its own difficulty.
+        Accept a solved challenge once: authentic, unexpired, unused, at least ``min_bits`` hard and solved.
 
         :param challenge: The challenge as issued.
         :param solution: The caller's answer.
+        :param min_bits: The least difficulty it must have been issued with (:attr:`developer_bits` for a developer
+            pass).
         :return: ``True`` if it is accepted (and now used up).
         """
         body, _, mac = challenge.rpartition(".")
@@ -323,6 +338,8 @@ class KeyGuard:
         except ValueError:
             return False
         now = self._now()
+        if bits < min_bits:
+            return False
         if expires < now or challenge in self._used or not pow_ok(challenge, solution, bits):
             return False
         if len(self._used) > 10_000:

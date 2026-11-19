@@ -40,6 +40,11 @@ class ChallengeResponse(BaseModel):
         "many zero bits (solution: at most 32 characters, e.g. a decimal counter)."
     )
     expires_at: float
+    developer: bool = Field(
+        default=False,
+        description="A challenge for a developer pass (asked with ?developer=true): harder, and the only kind "
+        'POST /v1/keys with "developer": true accepts.',
+    )
 
 
 class CreateKeyRequest(BaseModel):
@@ -57,7 +62,8 @@ class CreateKeyRequest(BaseModel):
         description="Ask for a developer pass: more free deep checks (developer_free_checks, 20), for building and "
         "testing an agent against /v1/check, the MCP server or the clients. Its free checks count on POST /v1/check "
         "only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. "
-        "One a day per network; past that the pass is made empty. Takes the place of free.",
+        "It needs a challenge from GET /v1/keys/challenge?developer=true (a harder proof of work). For trying "
+        "Unfret out: one a day per network; past that the pass is made empty. Takes the place of free.",
     )
     ref: str | None = Field(
         default=None,
@@ -115,15 +121,19 @@ def _ip(request: Request) -> str:
 
 
 @router.get("/challenge", response_model=ChallengeResponse)
-def challenge(request: Request) -> ChallengeResponse:
+def challenge(request: Request, developer: bool = False) -> ChallengeResponse:
     """
     A proof-of-work challenge for ``POST /v1/keys``: a few seconds of hashing in a browser, used once.
 
+    With ``?developer=true``, the challenge a developer pass needs: ``developer_pow_extra_bits`` harder (16 times the
+    work at the default 4). A developer pass is for trying Unfret out: one per network a day.
+
     :param request: The incoming request.
+    :param developer: Ask for a developer pass's challenge.
     :return: The challenge.
     """
-    text, bits, expires = _door(request).key_guard.challenge()
-    return ChallengeResponse(challenge=text, bits=bits, expires_at=expires)
+    text, bits, expires = _door(request).key_guard.challenge(developer=developer)
+    return ChallengeResponse(challenge=text, bits=bits, expires_at=expires, developer=developer)
 
 
 @router.post("", response_model=KeyResponse, status_code=201)
@@ -138,8 +148,12 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     :raises TooManyRequestsError: If this network created too many keys today.
     """
     door = _door(request)
-    if not door.key_guard.redeem(body.challenge, body.solution):
-        raise BadRequestError("Challenge invalid, expired or unsolved; get a new one.", error_code="BAD_CHALLENGE")
+    guard = door.key_guard
+    if not guard.redeem(body.challenge, body.solution, min_bits=guard.developer_bits if body.developer else 0):
+        detail = "Challenge invalid, expired or unsolved; get a new one."
+        if body.developer:
+            detail += " A developer pass needs a developer challenge: GET /v1/keys/challenge?developer=true."
+        raise BadRequestError(detail, error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
     # Free checks only within this network's share of free (or developer) passes today; past it, the pass is simply

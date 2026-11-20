@@ -888,6 +888,18 @@ def _vouched_shop(e: _Evidence) -> bool:
     return e.storefront and (established or _trust_info_present(e))
 
 
+def _claims_off(e: _Evidence) -> bool:
+    """
+    Whether the claim audit's findings make a "Looks fine" page "Worth a look".
+
+    A claim physics, the price or an authority rules out, on a page nobody vouches for; or a piece count padded with
+    accessories or that its own parts don't add up to, which is misleading whoever sells it (a known brand or a track
+    record doesn't keep "Looks fine").
+    """
+    impossible = e.f("claim_audit.impossible") >= 1 and _unvouched_product(e)
+    return impossible or e.f("claim_audit.count_off") >= 1
+
+
 def _unvouched_product(e: _Evidence) -> bool:
     """Neither a shop with a track record nor a brand the content read or Wikidata knows: no one vouches for it."""
     known = e.f("content.brand_recognized") >= 1 or e.f("brand_presence.wikidata") >= 1
@@ -1228,8 +1240,9 @@ def build(
     (``brand_photo_reused``), and a page whose photo is sold under other brand names (``rebranded_photo``) is
     "concerns" at best, as is a page with a claim the claim audit found impossible (``claim_audit.impossible``: by
     physics, the price or what an authority approves; a page that merely contradicts itself is only told), unless a
-    track record or a known brand vouches for it. None makes a page "junk_or_scam" by itself: that band is the
-    scorer's alone.
+    track record or a known brand vouches for it, and as is a page whose piece count is padded with accessories or
+    doesn't add up (``claim_audit.count_off``), whoever sells it. None makes a page "junk_or_scam" by itself: that
+    band is the scorer's alone.
 
     With ``needs_reason`` (a scorer whose artifact says so, :attr:`unfret.scoring.Model.needs_reason`), "Worth a
     look" (``concerns``) also needs something to look at: a page the scorer puts there (a score from
@@ -1261,7 +1274,8 @@ def build(
     fired = _fired(evidence)
     # A page that only contradicts itself (a catalogue slip as often as padding) is told, but is no reason to keep a
     # warning the band would otherwise drop.
-    weighed = set(fired) - ({"claim_contradicted"} if evidence.f("claim_audit.impossible") < 1 else set())
+    moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
+    weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
@@ -1269,8 +1283,8 @@ def build(
         band = "careful"  # a known brand's own photo sold as another brand's: a false statement about the product
     if band == "reliable" and "rebranded_photo" in fired:
         band = "concerns"  # relabelled generic goods: worth a look and a price comparison, not a warning by itself
-    if band == "reliable" and evidence.f("claim_audit.impossible") >= 1 and _unvouched_product(evidence):
-        band = "concerns"  # a claim physics, the price or the authority rules out: worth a look, not a warning
+    if band == "reliable" and _claims_off(evidence):
+        band = "concerns"  # worth a look, not a warning
     if band == "reliable" and {"photo_count_mismatch", "photo_size_mismatch"} & set(fired):
         band = "concerns"  # the listing's own photos contradict its count or size: worth a look, not a warning
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):

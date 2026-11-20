@@ -20,7 +20,8 @@ can contradict them.
    product look next to it.
 3. **Only clear mismatches**, from confident answers (``settings.photo_claims_min_confidence``) and never against
    another photo that agrees with the claim: the count is at least :data:`PADDED_FACTOR` times the main items seen
-   when the other parts make up the difference (the padding), or :data:`COUNT_FACTOR` times otherwise; the size
+   on a photo of the whole set, out of its packaging, and parts that are no pieces (caps, the box, a case; not the
+   lids of containers, which honest storage and cookware sets count) make up the difference; the size
    looks at least :data:`SIZE_FACTOR` times the stated one and :data:`SIZE_MIN_GAP_CM` more, next to a reference,
    on a photo without measurements drawn on it.
 
@@ -33,6 +34,7 @@ import asyncio
 import base64
 import io
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -59,7 +61,8 @@ MAX_COUNT = 200
 # The claimed count against the main items seen: with the other parts making up the difference (caps counted as
 # pieces), or without.
 PADDED_FACTOR = 1.6
-COUNT_FACTOR = 3.0
+# A count far above what one photo shows, without the padding, is not reported: on Amazon's catalogue of branded
+# goods (evals.photo_claims) it was a photo of a few examples ("100-count" pins, "pack of 6" decanters) every time.
 # Within this share of the claim, main items plus other parts "make up" the count.
 PADDED_TOLERANCE = 0.25
 # A photo whose main items reach the claim over this factor agrees with it (no mismatch, whatever another shows).
@@ -87,6 +90,9 @@ _COUNT_RE = re.compile(
 _PAIRS_RE = re.compile(r"\d+\s*(?:pairs?|paar|paires?)\b|\d\s*\+\s*\d", re.IGNORECASE)
 _DIGITS_RE = re.compile(r"\d+(?:[.,]\d+)?")
 _WORDS_RE = re.compile(r"^[^\W\d_]+(?:[ -][^\W\d_]+){0,2}$")
+_PADDING_RE = re.compile(
+    r"\b(?:caps?|box(?:es)?|case|cases|bags?|pouch(?:es)?|packag\w*|tins?|tubes?)\b", re.IGNORECASE
+)
 _TO_CM = {"cm": 1.0, "mm": 0.1, "m": 100.0}
 
 
@@ -235,6 +241,11 @@ class PhotoAnswer(BaseModel):
         description="How many other separate parts are visible: caps, lids, boxes, cases, bags, accessories. Null "
         "if none or uncountable."
     )
+    other_parts: str = Field(description="What those other parts are, in a few words (e.g. 'caps and a box'); ''.")
+    in_packaging: bool = Field(
+        description="True if the items are (partly) inside a box, case, bottle, bag or package, so that not every "
+        "piece can be seen and counted."
+    )
     count_confidence: float = Field(ge=0, le=1, description="How sure you are of both counts (0-1).")
     scale_reference: str = Field(
         description="A person, body part or common object of known size next to the product in the photo (e.g. "
@@ -365,7 +376,6 @@ class CountMismatch:
     photo: int
     seen: int
     items: str
-    padded: bool
 
 
 @dataclass(frozen=True)
@@ -377,7 +387,7 @@ class SizeMismatch:
     reference: str
 
 
-def count_mismatch(claim: CountClaim, answers: list[PhotoAnswer | None]) -> CountMismatch | None:
+def count_mismatch(claim: CountClaim, answers: Sequence[PhotoAnswer | None]) -> CountMismatch | None:
     """
     The first photo whose confident count contradicts the claim, unless another photo agrees with it.
 
@@ -388,7 +398,7 @@ def count_mismatch(claim: CountClaim, answers: list[PhotoAnswer | None]) -> Coun
     sure = settings.photo_claims_min_confidence
     found: CountMismatch | None = None
     for index, a in enumerate(answers, start=1):
-        if a is None or a.count_confidence < sure or not a.whole_set_shown or not a.single_kind:
+        if a is None or a.count_confidence < sure or not a.whole_set_shown or not a.single_kind or a.in_packaging:
             continue
         seen = a.main_items_visible
         if seen is None or seen < 2:
@@ -396,13 +406,16 @@ def count_mismatch(claim: CountClaim, answers: list[PhotoAnswer | None]) -> Coun
         if seen * AGREES_FACTOR >= claim.count:
             return None  # one photo shows enough of them: the claim may hold
         others = a.other_parts_visible or 0
-        padded = others >= 1 and abs(seen + others - claim.count) <= PADDED_TOLERANCE * claim.count
-        if found is None and claim.count >= seen * (PADDED_FACTOR if padded else COUNT_FACTOR):
-            found = CountMismatch(index, seen, _words(a.main_items, "items"), padded)
+        # Only the padding: parts that are no pieces (caps, the box) make up the count. Lids of containers are
+        # counted as pieces by honest cookware and storage sets ("24-piece": 12 boxes, 12 lids), so they don't count.
+        padding = bool(_PADDING_RE.search(a.other_parts))
+        adds_up = abs(seen + others - claim.count) <= PADDED_TOLERANCE * claim.count
+        if found is None and padding and others >= 1 and adds_up and claim.count >= seen * PADDED_FACTOR:
+            found = CountMismatch(index, seen, _words(a.main_items, "items"))
     return found
 
 
-def size_mismatch(claim: SizeClaim, answers: list[PhotoAnswer | None]) -> SizeMismatch | None:
+def size_mismatch(claim: SizeClaim, answers: Sequence[PhotoAnswer | None]) -> SizeMismatch | None:
     """
     The first photo in which the product confidently looks far bigger than the claim, unless another agrees with it.
 
@@ -473,12 +486,11 @@ class PhotoClaimsSkill(Skill):
             features["count_mismatch"] = False
             if (c := count_mismatch(stated.count, answers)) is not None:
                 features["count_mismatch"] = True
-                padded = "; with the other parts counted the number adds up" if c.padded else ""
                 observations.append(
                     Observation(
                         type="photo_count_mismatch",
                         evidence=f'Says "{stated.count.text}"; photo {c.photo} of the whole set shows {c.seen} '
-                        f"{c.items}{padded}."[:500],
+                        f"{c.items}; with the other parts counted the number adds up."[:500],
                     )
                 )
         if stated.size is not None:

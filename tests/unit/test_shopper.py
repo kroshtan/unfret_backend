@@ -402,7 +402,7 @@ def test_an_unsure_serious_concern_on_absences_alone_is_worth_a_look() -> None:
 def test_a_verdict_below_looks_fine_always_names_a_reason(score: int) -> None:
     verdict = build(score, {})  # nothing fired
     assert verdict.band != "reliable"
-    assert [r.title for r in verdict.reasons] == ["Several small signals"]
+    assert [r.title for r in verdict.reasons] == ["Nothing clear-cut"]  # no sign to count or name
 
 
 @pytest.mark.parametrize("score", [79, 60, 50])

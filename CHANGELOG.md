@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixes
+
+* **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained
+  said "Several small signals" while every area of "What we checked" was ticked fine: the scorer's signals that set
+  the band (a discount below "big", a little pushy copy, a title full of search terms) were weighed but shown
+  nowhere. Now the reason counts and names them ("One small sign: a sizeable discount"), the template headline names
+  them, the written headline is told how many there are (never "a few" for one), and each sign marks its area as
+  something to note, with its words. Stream `step` events add `check`, so progress can count the checks the result
+  then says it ran rather than every step.
+
 ## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
 
 ### Your pass on your phone

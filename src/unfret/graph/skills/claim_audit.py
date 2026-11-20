@@ -284,6 +284,8 @@ class ClaimAudit:
     usage: Usage = field(default_factory=Usage)
     # The piece count and its parts, when the page lists them and both are on it (:func:`checked_count`).
     piece_count: PieceCount | None = None
+    # How many of the problems are about the piece count (padded, or not adding up): :func:`count_problems`.
+    count_problems: int = 0
 
 
 # ── The page, as the model reads it ────────────────────────────────────────────────────────────────────────
@@ -554,7 +556,8 @@ async def _ask(document: str) -> ClaimAudit:
         problems=len(answer.problems),
     )
     counted = checked_count(answer.piece_count, normalized(document))
-    return ClaimAudit(answer.claims, reported(answer, document), spent, counted)
+    counts = len(count_problems(counted)) if counted else 0  # reported() keeps them first, all of them
+    return ClaimAudit(answer.claims, reported(answer, document), spent, counted, counts)
 
 
 # One call per page however many steps ask (the audit itself and the photo check), and for as long as a few analyses
@@ -613,7 +616,7 @@ class ClaimAuditSkill(Skill):
     description = "Checks the listing's specific claims (specs, materials, certifications, counts) for contradictions."
     page_types = PRODUCT_PAGES
     retry = True
-    features = ("claims", "contradicted", "contradictions", "impossible")
+    features = ("claims", "contradicted", "contradictions", "impossible", "count_off")
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
@@ -632,6 +635,7 @@ class ClaimAuditSkill(Skill):
                 "contradicted": bool(audit.problems),
                 "contradictions": len(audit.problems),
                 "impossible": sum(1 for p in audit.problems if p.check in IMPOSSIBLE),
+                "count_off": audit.count_problems,
             },
             observations,
             note=f"{len(audit.claims)} checkable claims; none that contradicts itself or the facts.",

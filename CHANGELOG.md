@@ -91,6 +91,12 @@
 
 ### Website and pages
 
+* **A Play variant of the four pages the Android app's Google Play build opens**: `/privacy`, `/objection`, `/about`
+  and `/terms` with `?app=play` have no menu and no footer links, and every link in the text becomes plain text
+  except mail addresses, links among these four pages (which keep `?app=play`) and the Dutch data protection
+  authority, so nothing on them leads to `/checkout`, `/money` or anything else that sells checks (Google Play's
+  payments policy). The text is word for word the same. The variant is `noindex` (meta tag and `X-Robots-Tag`) with
+  the normal page as its canonical link; any other `app` value gets the normal page (#PR).
 * **`/accuracy` tells the open model from the private one**: the page calls them "Open model (in the code)" (in this
   repository, what a self-hosted server runs) and "Private model (unfret.net)" (retrained, not published), the same
   in the side-by-side table, the earlier versions' boxes, the prose and the changelog, where 0.6.0 and 0.7.0 are

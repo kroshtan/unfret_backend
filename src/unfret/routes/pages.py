@@ -7,7 +7,8 @@ extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliat
 ``/why``, ``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer.
 ``/check`` checks a link from any browser, phones first. It is a web page, not an installable app: on a phone,
 Unfret's website is ``/check`` in the browser. ``/pass`` is where a pass's QR code points: the Android app opens it
-when installed, and the page forwards to ``/check`` otherwise.
+when installed, and the page forwards to ``/check`` otherwise. ``/about``, ``/objection``, ``/privacy`` and ``/terms``
+have a variant for the Google Play app (``?app=play``): no menu, and no link to buying (:func:`play_variant`).
 
 Static HTML and vanilla JS from ``unfret/static``, no framework and no third-party requests; a strict Content Security
 Policy lets them load only their own scripts and talk only to this API.
@@ -16,8 +17,10 @@ Policy lets them load only their own scripts and talk only to this API.
 import html
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -85,7 +88,11 @@ _CTA_RE = re.compile(r'<a class="cta" href="[^"]*">[^<]*</a>')
 
 
 def template(
-    name: str, current: str | None = None, cta: tuple[str, str] | None = None, footer: str = "footer.html"
+    name: str,
+    current: str | None = None,
+    cta: tuple[str, str] | None = None,
+    footer: str = "footer.html",
+    header: str = "header.html",
 ) -> str:
     """
     A page's HTML with the shared header and footer in place of ``{{header}}`` and ``{{footer}}``.
@@ -98,11 +105,12 @@ def template(
     :param current: The page's own path (``/checkout``), marked ``aria-current="page"`` in the menu.
     :param cta: The menu's button as ``(href, text)``, for a page where "Get Unfret" makes no sense (``/welcome``).
     :param footer: The footer's file in ``static/partials`` (``footer-nl.html`` for ``/nl``: the same links, in Dutch).
+    :param header: The header's file in ``static/partials`` (``header-play.html`` for the Play app's variant).
     :return: The HTML.
     """
     page = (STATIC_DIR / name).read_text(encoding="utf-8")
-    header = (PARTIALS_DIR / "header.html").read_text(encoding="utf-8")
-    if current:
+    header = (PARTIALS_DIR / header).read_text(encoding="utf-8")
+    if current and "<nav" in header:
         logo, nav = header.split("<nav", 1)
         nav = re.sub(_NAV_LINK_RE.format(re.escape(current)), r'\1 aria-current="page"', nav, count=1)
         header = f"{logo}<nav{nav}"
@@ -201,6 +209,55 @@ def with_store_links(template: str) -> str:
 def _page(name: str, current: str | None = None, cta: tuple[str, str] | None = None) -> HTMLResponse:
     page = with_store_links(template(name, current, cta))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+# The Google Play build of the Android app opens only these pages, as ``<page>?app=play``: Google Play's payments
+# policy allows no link from the app to buying elsewhere. The variant has no menu and no footer links, and every link
+# in the text becomes plain text except mail addresses, links among these pages (which keep ``?app=play``) and the
+# outside sites in PLAY_LINK_HOSTS. The text itself is the same. It is noindex, with the normal page as canonical.
+PLAY_PAGES = ("/about", "/objection", "/privacy", "/terms")
+PLAY_APP = "play"
+PLAY_LINK_HOSTS = frozenset({"www.autoriteitpersoonsgegevens.nl"})
+PLAY_HEADERS = {**PAGE_HEADERS, "X-Robots-Tag": "noindex"}
+_ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.DOTALL)
+_HREF_RE = re.compile(r'\bhref="([^"]*)"')
+
+
+def _play_link(match: re.Match[str]) -> str:
+    attributes, text = match.group(1), match.group(2)
+    href = _HREF_RE.search(attributes)
+    url = urlsplit(html.unescape(href.group(1))) if href else None
+    if url is None or url.scheme == "mailto":
+        return match.group(0)
+    if not url.scheme and not url.netloc and url.path in PLAY_PAGES:
+        fragment = f"#{url.fragment}" if url.fragment else ""
+        target = html.escape(f"{url.path}?app={PLAY_APP}{fragment}")
+        return "<a" + _HREF_RE.sub(lambda _: f'href="{target}"', attributes, count=1) + f">{text}</a>"
+    if url.scheme == "https" and url.netloc in PLAY_LINK_HOSTS:
+        return match.group(0)
+    return text
+
+
+def play_variant(page: str, path: str) -> str:
+    """
+    The Play app's variant of a page: links to anything but the policy pages turned into plain text, noindex.
+
+    :param page: The page's HTML, built with the ``header-play.html`` and ``footer-play.html`` partials.
+    :param path: The page's own path (``/privacy``), for the canonical link.
+    :return: The HTML.
+    """
+    canonical = html.escape(settings.public_base_url.rstrip("/") + path)
+    head = f'  <meta name="robots" content="noindex">\n  <link rel="canonical" href="{canonical}">\n</head>'
+    return _ANCHOR_RE.sub(_play_link, page.replace("</head>", head, 1))
+
+
+def _policy_page(
+    name: str, path: str, app: str | None, fill: Callable[[str], str] = lambda page: page
+) -> HTMLResponse:
+    if app == PLAY_APP:
+        page = template(name, header="header-play.html", footer="footer-play.html")
+        return HTMLResponse(versioned(play_variant(fill(page), path)), headers=PLAY_HEADERS)
+    return HTMLResponse(versioned(with_store_links(fill(template(name, path)))), headers=PAGE_HEADERS)
 
 
 @router.get("/key", include_in_schema=False)
@@ -478,13 +535,14 @@ def my_checks() -> HTMLResponse:
 
 
 @router.get("/privacy", response_class=HTMLResponse)
-def privacy() -> HTMLResponse:
+def privacy(app: str | None = None) -> HTMLResponse:
     """
     The privacy statement the extension's consent screen links to.
 
+    :param app: ``play`` for the Google Play app's variant (:func:`play_variant`).
     :return: The page.
     """
-    return _page("privacy.html", "/privacy")
+    return _policy_page("privacy.html", "/privacy", app)
 
 
 @router.get("/affiliates", response_class=HTMLResponse)
@@ -529,13 +587,14 @@ def affiliate_stats_page() -> HTMLResponse:
 
 
 @router.get("/about", response_class=HTMLResponse)
-def about() -> HTMLResponse:
+def about(app: str | None = None) -> HTMLResponse:
     """
     About Unfret: what it does, who makes it, open source, and how it makes money in short.
 
+    :param app: ``play`` for the Google Play app's variant (:func:`play_variant`).
     :return: The page.
     """
-    return _page("about.html", "/about")
+    return _policy_page("about.html", "/about", app)
 
 
 @router.get("/why", response_class=HTMLResponse)
@@ -587,29 +646,33 @@ TERMS_DRAFT_NOTE = (
 
 
 @router.get("/terms", response_class=HTMLResponse)
-def terms() -> HTMLResponse:
+def terms(app: str | None = None) -> HTMLResponse:
     """
     The terms of use for the site, the extension, the app and the API; marked as a draft while ``terms_draft`` is on.
 
     The affiliate section's numbers come from the same settings as ``/affiliates``.
 
+    :param app: ``play`` for the Google Play app's variant (:func:`play_variant`).
     :return: The page.
     """
-    page = template("terms.html", "/terms").replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else "")
-    page = with_affiliate_numbers(page)
-    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+    def fill(page: str) -> str:
+        return with_affiliate_numbers(page.replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else ""))
+
+    return _policy_page("terms.html", "/terms", app, fill)
 
 
 @router.get("/objection", response_class=HTMLResponse)
-def objection() -> HTMLResponse:
+def objection(app: str | None = None) -> HTMLResponse:
     """
     For shop owners and sellers: what Unfret keeps about shops, and a form to object, correct or remove.
 
     The form posts to ``/v1/objections`` (:mod:`unfret.routes.objections`) from its script; the page itself is static.
 
+    :param app: ``play`` for the Google Play app's variant (:func:`play_variant`).
     :return: The page.
     """
-    return _page("objection.html", "/objection")
+    return _policy_page("objection.html", "/objection", app)
 
 
 @router.get("/checkout", response_class=HTMLResponse)

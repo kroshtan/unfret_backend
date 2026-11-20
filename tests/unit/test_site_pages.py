@@ -13,6 +13,7 @@ import unfret
 from unfret import market_prices, objections, scoring
 from unfret.config import settings
 from unfret.main import app
+from unfret.routes import pages as pages_module
 from unfret.routes.pages import SITEMAP_PATHS, STATIC_DIR, asset_tag
 from unfret.x402.verdict import QUICK_SKILLS, tier_description
 
@@ -422,3 +423,62 @@ async def test_checkout_has_no_note_for_old_intro_code_links(client: httpx.Async
     assert 'id="free-note"' not in page and "intro" not in page.lower()
     script = (STATIC_DIR / "checkout.js").read_text()
     assert "retiredCode" not in script and "intro" not in script.lower()
+
+
+PLAY_PAGES = {"/about": "about.html", "/objection": "objection.html", "/privacy": "privacy.html",
+              "/terms": "terms.html"}  # fmt: skip
+_ANCHOR = re.compile(r"<a\b[^>]*>", re.DOTALL)
+_HREF = re.compile(r'\bhref="([^"]*)"')
+
+
+def _main_text(page: str) -> str:
+    main = re.search(r"<main\b.*?</main>", page, re.DOTALL)
+    assert main
+    return " ".join(re.sub(r"<[^>]+>", "", main.group(0)).split())
+
+
+def test_the_play_app_opens_exactly_the_pages_with_a_variant() -> None:
+    assert set(PLAY_PAGES) == set(pages_module.PLAY_PAGES)
+
+
+@pytest.mark.parametrize("path", PLAY_PAGES)
+async def test_the_play_variant_has_no_menu_and_no_link_to_buying(client: httpx.AsyncClient, path: str) -> None:
+    response = await client.get(path, params={"app": "play"})
+
+    assert response.status_code == 200
+    assert response.headers["x-robots-tag"] == "noindex"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    page = response.text
+    assert "{{" not in page and "}}" not in page
+    assert "<nav" not in page and "ref.js" not in page
+    for href in (_HREF.search(tag) for tag in _ANCHOR.findall(page)):
+        assert href, "an anchor without a link"
+        url = href.group(1)
+        assert (
+            url.startswith("mailto:")
+            or url in {f"{p}?app=play" for p in PLAY_PAGES}
+            or url.startswith("https://www.autoriteitpersoonsgegevens.nl")
+        ), url
+    for purchase in ("/checkout", "/money", "/affiliates", "/extension", "/developers", "/check\"", "polar.sh",
+                     "/my-checks", 'href="/"', "kroshtan.com"):  # fmt: skip
+        assert purchase not in page, purchase
+
+
+@pytest.mark.parametrize("path", PLAY_PAGES)
+async def test_the_play_variant_keeps_the_text_and_points_to_the_normal_page(
+    client: httpx.AsyncClient, path: str
+) -> None:
+    normal = (await client.get(path)).text
+    variant = (await client.get(path, params={"app": "play"})).text
+
+    assert _main_text(variant) == _main_text(normal)
+    assert '<meta name="robots" content="noindex">' in variant
+    assert f'<link rel="canonical" href="{settings.public_base_url.rstrip("/")}{path}">' in variant
+    assert "canonical" not in normal and "noindex" not in normal
+    assert '<header class="site-header">' in normal and 'href="/checkout"' in normal
+
+
+async def test_any_other_app_gets_the_normal_page(client: httpx.AsyncClient) -> None:
+    response = await client.get("/privacy", params={"app": "other"})
+
+    assert 'href="/checkout"' in response.text and "x-robots-tag" not in response.headers

@@ -86,3 +86,22 @@ def test_ask_findings_defaults_to_unsure(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(cand, "read_key", lambda: next(keys))
     findings = [{"type": str(i)} for i in range(4)]
     assert [v for _, v in cand.ask_findings(findings)] == ["correct", "unsure", "wrong", "unsure"]
+
+
+def test_pinned_page_from_elsewhere_goes_first(tmp_path: Path) -> None:
+    corpus = Corpus(tmp_path)
+    golden = LabelRecord(
+        id="gold-1", label="legit", label_source="dataset", source="live", origin_dataset="golden", origin_url="u"
+    )
+    corpus.add_many([(golden, "<html></html>"), (_record(0), "<html></html>")])
+    rows = {
+        "gold-1": {"id": "gold-1", "score": 60, "confidence": 0.9, "fired": ["claim_audit"], "new_findings": []},
+        "dfc-000": {"id": "dfc-000", "score": 50, "confidence": 0.1, "fired": ["claim_audit"], "new_findings": []},
+    }
+    cand.write_results(corpus, rows)
+    cand.pin(corpus, ["gold-1"], "is the count finding right?")
+    queue = cand.build_queue(corpus, seed=1, random_share=0)
+    assert [i.id for i in queue] == ["gold-1", "dfc-000"]
+    assert queue[0].reason == "pinned: is the count finding right?"
+    corpus.update([golden.model_copy(update={"label_source": "human"})])
+    assert [i.id for i in cand.build_queue(corpus, seed=1, random_share=0)] == ["dfc-000"]

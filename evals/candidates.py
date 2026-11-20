@@ -21,7 +21,9 @@ claims, and the history, variation and cross-page checks as they land) should fi
    finding on the page gets one key: ``c`` correct, ``w`` wrong, ``Enter`` or ``u`` unsure. Page labels go to
    ``labels.jsonl`` (``label_source`` ``human``), finding labels to ``finding_labels.jsonl`` (one record per finding:
    page, skill, type, evidence, verdict), so each check's precision can be measured and tuned on its own. Quitting
-   halfway loses nothing.
+   halfway loses nothing. A page from elsewhere in the corpus can be put at the front of the queue to have its
+   findings judged (``check --pin ID --why TEXT``, kept in ``deep_label_pins.json``); its label then becomes a
+   human one.
 
 Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 25] [--concurrency 3] [--rerun]``,
 ``... queue [--seed 7]``, ``... label [--batch 50]`` (``make deep-check``, ``make deep-queue``, ``make deep-label``).
@@ -58,11 +60,20 @@ logger = structlog.get_logger("unfret.evals")
 REPORTS = Path("reports") / "deep-findings"
 QUEUE = "deep_label_queue.jsonl"
 FINDING_LABELS = "finding_labels.jsonl"
+# Pages from elsewhere in the corpus put at the front of the queue, with why (``check --pin ID --why TEXT``).
+PINS = "deep_label_pins.json"
 EXCLUDED = ("reverse_image", "shop_links")  # paid per search; needs the fingerprint database
 # The deep check's newer checks, by skill name (also those still being built: a name that contains one of these).
 NEW_SKILLS: tuple[str, ...] = ("claim_audit", "photo_claims", "wayback", "variation", "cross_page")
 # Feature suffixes that mean a new check found something, also without a finding (a count the photos don't show).
-FIRED_FEATURES: tuple[str, ...] = ("contradicted", "count_mismatch", "size_mismatch", "padded", "mismatch")
+FIRED_FEATURES: tuple[str, ...] = (
+    "contradicted",
+    "count_off",
+    "count_mismatch",
+    "size_mismatch",
+    "padded",
+    "mismatch",
+)
 UNSURE = 0.4  # scorer confidence below this is "unsure"
 SURE_FINE = 35  # a score below this is the scorer saying the page is fine
 _EXCERPT_CHARS = 900
@@ -188,12 +199,58 @@ def write_results(corpus: Corpus, results: dict[str, dict[str, Any]]) -> None:
     )
 
 
+def read_pins(corpus: Corpus) -> dict[str, str]:
+    """The pinned pages and why, by page id."""
+    path = corpus.root / PINS
+    return dict(json.loads(path.read_text())) if path.exists() else {}
+
+
+def pin(corpus: Corpus, ids: list[str], why: str) -> None:
+    """
+    Pin pages (any in the corpus) to the front of the labelling queue.
+
+    :param corpus: The corpus.
+    :param ids: The page ids.
+    :param why: What the label should decide, shown on the page's screen.
+    """
+    pins = read_pins(corpus) | dict.fromkeys(ids, why)
+    dump_json(corpus.root / PINS, pins)
+
+
 def candidates(corpus: Corpus) -> list[LabelRecord]:
     """The candidate pages, by id."""
     return sorted((r for r in corpus.labels().values() if r.origin_dataset == DATASET), key=lambda r: r.id)
 
 
-async def check(corpus: Corpus, limit: int | None, budget: Decimal, concurrency: int, rerun: bool) -> dict[str, Any]:
+def to_check(
+    corpus: Corpus, results: dict[str, dict[str, Any]], *, rerun: bool, ids: list[str] | None, limit: int | None
+) -> list[LabelRecord]:
+    """
+    The pages a run checks: the given ones, else the candidates without a result (all of them with ``rerun``).
+
+    :param corpus: The corpus.
+    :param results: The results so far.
+    :param rerun: Check candidates with a result again.
+    :param ids: Check these pages only.
+    :param limit: Pages at most.
+    :return: The records.
+    """
+    if ids:
+        known = corpus.labels()
+        return [known[i] for i in ids]
+    todo = [r for r in candidates(corpus) if rerun or r.id not in results or "error" in results[r.id]]
+    return todo[:limit] if limit else todo
+
+
+async def check(
+    corpus: Corpus,
+    *,
+    limit: int | None,
+    budget: Decimal,
+    concurrency: int,
+    rerun: bool = False,
+    ids: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Deep-check the candidates not checked yet, within the budget.
 
@@ -202,6 +259,7 @@ async def check(corpus: Corpus, limit: int | None, budget: Decimal, concurrency:
     :param budget: Euros at most for the whole set, earlier runs included.
     :param concurrency: Pages checked at the same time.
     :param rerun: Check pages that have a result already (cached answers cost nothing).
+    :param ids: Check only these pages (any in the corpus, checked again if they have a result).
     :return: The run's summary.
     """
     configure(corpus, replay=False)
@@ -209,11 +267,11 @@ async def check(corpus: Corpus, limit: int | None, budget: Decimal, concurrency:
     model = current_model(corpus)
     graph = build_graph([s for s in SKILLS if s.name not in EXCLUDED])
     results = read_results(corpus)
-    todo = [r for r in candidates(corpus) if rerun or r.id not in results or "error" in results[r.id]]
-    todo = todo[:limit] if limit else todo
+    todo = to_check(corpus, results, rerun=rerun, ids=ids, limit=limit)
     # The budget is for the whole set: what earlier runs spent counts (a re-run's cached answers are counted again,
     # so it errs on the safe side).
-    before = Decimal(str(sum(row.get("cost_eur", 0) for row in results.values())))
+    redo = {r.id for r in todo}
+    before = Decimal(str(sum(row.get("cost_eur", 0) for k, row in results.items() if k not in redo)))
     spent = before
     worst = Decimal("0.10")  # a page's cost at most until pages have been seen
     semaphore = asyncio.Semaphore(concurrency)
@@ -325,6 +383,10 @@ def build_queue(corpus: Corpus, seed: int, random_share: int) -> list[QueueItem]
     results = read_results(corpus)
     items: list[QueueItem] = []
     rest: list[QueueItem] = []
+    known = corpus.labels()
+    for page, why in read_pins(corpus).items():
+        if page in results and page in known and known[page].label_source != "human":
+            items.append(QueueItem(id=page, reason=f"pinned: {why}", priority=10.0))
     for record in candidates(corpus):
         row = results.get(record.id)
         if record.label is not None or row is None or "error" in row or row["score"] < 0:
@@ -391,6 +453,8 @@ def describe(record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: in
         ),
         f"scorer: {row['score']}  ·  {row.get('band', '')}  ·  confidence {conf if conf is None else round(conf, 2)}",
     ]
+    if record.label:
+        lines.insert(3, f"in the corpus as {record.label} ({record.label_source}, {record.origin_dataset})")
     if row.get("piece_count"):
         piece = row["piece_count"]
         lines.append(f"piece count: {json.dumps(piece, ensure_ascii=False)[:300]}")
@@ -452,10 +516,13 @@ def label(corpus: Corpus, batch: int) -> None:
     """
     results = read_results(corpus)
     known = corpus.labels()
+    pins = read_pins(corpus)
     queue = [
         i
         for i in read_queue(corpus)
-        if i.id in known and known[i.id].label is None and not json.loads(known[i.id].notes or "{}").get("rejected")
+        if i.id in known
+        and (known[i.id].label is None or (i.id in pins and known[i.id].label_source != "human"))
+        and not json.loads(known[i.id].notes or "{}").get("rejected")
     ]
     if not queue:
         print("Nothing to label: run `make deep-queue` after `make deep-check`.")  # noqa: T201
@@ -502,6 +569,8 @@ def main() -> None:
     run.add_argument("--budget-eur", type=Decimal, default=Decimal(25))
     run.add_argument("--concurrency", type=int, default=3)
     run.add_argument("--rerun", action="store_true", help="check pages with a result again (new checks)")
+    run.add_argument("--pin", nargs="+", default=[], metavar="ID", help="check these corpus pages, first in the queue")
+    run.add_argument("--why", default="", help="what the pinned pages' labels should decide")
     queue = sub.add_parser("queue", help="order the checked pages for labelling")
     queue.add_argument("--seed", type=int, default=7)
     queue.add_argument("--random", type=int, default=100, help="pages in the random slice")
@@ -511,7 +580,18 @@ def main() -> None:
     args = parser.parse_args()
     corpus = Corpus()
     if args.command == "check":
-        summary = asyncio.run(check(corpus, args.limit, args.budget_eur, args.concurrency, args.rerun))
+        if args.pin:
+            pin(corpus, args.pin, args.why)
+        summary = asyncio.run(
+            check(
+                corpus,
+                limit=args.limit,
+                budget=args.budget_eur,
+                concurrency=args.concurrency,
+                rerun=args.rerun,
+                ids=args.pin or None,
+            )
+        )
         print(json.dumps(summary, indent=1))  # noqa: T201 - command-line report
     elif args.command == "queue":
         items = build_queue(corpus, args.seed, args.random)

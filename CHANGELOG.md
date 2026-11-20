@@ -31,7 +31,7 @@
   is `UNFRET_PHOTO_CLAIMS_MODEL` (Scaleway's Mistral Small 3.2, the model the analysis already uses; it reads images);
   `UNFRET_PHOTO_CLAIMS=false` turns it off. Each check logs its photos, tokens and cost (`photo_claims_usage`). New
   features (`photo_claims.*`) that the shipped scorer doesn't use. `python -m evals.photo_claims` runs it live on the
-  corpus's pages that state a count or size and on Amazon Berkeley Objects listings.
+  corpus's pages that state a count or size and on Amazon Berkeley Objects listings (#275).
 
 ## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
 

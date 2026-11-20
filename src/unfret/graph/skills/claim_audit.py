@@ -123,6 +123,9 @@ without words like "scam", "fraud", "fake" or "lie".
 """
 
 
+_HONEST_RE = re.compile(r",? (?:so|and|which means|meaning) no honest (?:seller|shop|retailer)[^.;]*", re.IGNORECASE)
+
+
 def _cap(value: object, limit: int) -> object:
     return " ".join(str(value).split())[:limit] if isinstance(value, str) else value
 
@@ -183,6 +186,9 @@ class ClaimProblem(BaseModel):
     @field_validator("why", mode="before")
     @classmethod
     def _short_why(cls, value: object) -> object:
+        # The price rule's own words ("no honest seller could …") read as an accusation in the shopper's card.
+        if isinstance(value, str):
+            value = _HONEST_RE.sub("", value)
         return _cap(value, _WHY_CHARS)
 
     @field_validator("confidence", mode="before")

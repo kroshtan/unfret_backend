@@ -232,6 +232,17 @@ def test_the_model_answer_is_trimmed_rather_than_failed() -> None:
     assert answer.problems[0].confidence == 1.0 and len(answer.problems[0].why) <= 240
 
 
+def test_the_why_never_speaks_of_honest_sellers() -> None:
+    problem = POWER_BANK.model_copy()
+    problem = ClaimProblem.model_validate(
+        {
+            **problem.model_dump(),
+            "why": "A 1TB console can't cost $97, so no honest seller could offer it at that price.",
+        }
+    )
+    assert problem.why == "A 1TB console can't cost $97."
+
+
 def test_usage_cost_at_the_configured_prices(monkeypatch: pytest.MonkeyPatch) -> None:
     from decimal import Decimal  # noqa: PLC0415
 

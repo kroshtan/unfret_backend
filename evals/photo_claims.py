@@ -117,24 +117,32 @@ def _fetcher(wayback: str | None) -> Any:
 
 
 _ASK = photo_claims.ask
+_PICK = photo_claims.pick
 
 
 async def check(page: dict[str, Any]) -> dict[str, Any]:
     """
-    Run the skill on one page, with its own photo fetcher, counting the tokens its questions use.
+    Run the skill on one page, with its own photo fetcher, counting the tokens its questions and its sheet use.
 
     :param page: The page.
     :return: What it found, the tokens, the cost and the time.
     """
     tokens = [0, 0, 0]
+    sheets = [0]
 
     async def ask(photo: str, title: str) -> tuple[Any, int, int]:
         answer, given, taken = await _ASK(photo, title)
         tokens[0], tokens[1], tokens[2] = tokens[0] + 1, tokens[1] + given, tokens[2] + taken
         return answer, given, taken
 
+    async def pick(sheet: str, title: str, stated: Any) -> tuple[Any, int, int]:
+        answer, given, taken = await _PICK(sheet, title, stated)
+        sheets[0], tokens[1], tokens[2] = sheets[0] + 1, tokens[1] + given, tokens[2] + taken
+        return answer, given, taken
+
     photo_claims._fetch = _fetcher(page["wayback"])
     photo_claims.ask = ask
+    photo_claims.pick = pick
     start = time.monotonic()
     facts: PageFacts = page["facts"]
     state: Any = {"facts": facts, "url": facts.image_urls[0] if facts.image_urls else ""}
@@ -155,6 +163,7 @@ async def check(page: dict[str, Any]) -> dict[str, Any]:
         "summary": out["skill_results"][0],
         "seconds": round(time.monotonic() - start, 1),
         "images": usage.images,
+        "sheets": sheets[0],
         "cost_eur": float(usage.cost_eur()),
     }
 
@@ -187,6 +196,8 @@ async def main() -> None:
         "flagged": flagged,
         "cost_eur": round(cost, 5),
         "cost_eur_per_check": round(cost / len(checked), 6) if checked else None,
+        "photos_per_check": round(sum(r["images"] for r in checked) / len(checked), 2) if checked else None,
+        "sheets": sum(r.get("sheets", 0) for r in checked),
         "seconds_per_check": round(sum(r["seconds"] for r in checked) / len(checked), 1) if checked else None,
         "results": results,
     }

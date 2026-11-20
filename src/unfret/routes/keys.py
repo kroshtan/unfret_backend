@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from unfret import android_app_links
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import CreditsDoor, affiliates, free, keys
@@ -231,12 +232,14 @@ async def move_free_checks(
 )
 async def phone_qr(request: Request, account: str = Depends(require_account)) -> Response:
     """
-    A QR code that puts this key on a phone: it opens the link checker (``/check``) signed in with it.
+    A QR code that puts this key on a phone: in the Unfret app when it's installed, else in the link checker.
 
     For a shopper who bought checks in one browser and wants them on their phone. The code holds
-    ``<site>/check#pass=<key>``: the key is in the fragment, which a browser never sends anywhere; ``/check`` reads it,
-    keeps it like a pasted key and clears the address bar. Only for an API key (send it as ``Authorization: Bearer``);
-    anyone who scans the code can use the key's checks, so pages show it only on request.
+    ``<site>/pass#pass=<key>``: the key is in the fragment, which a browser never sends anywhere. On Android with the
+    app installed the link opens the app (a verified App Link, :mod:`unfret.android_app_links`); anywhere else
+    ``/pass`` forwards to ``/check`` with the fragment, which asks before it keeps the key like a pasted one and clears
+    the address bar. Only for an API key (send it as ``Authorization: Bearer``); anyone who scans the code can use the
+    key's checks, so pages show it only on request.
 
     :param request: The incoming request (its ``Authorization`` header is the key).
     :param account: The account (injected by require_account).
@@ -247,6 +250,6 @@ async def phone_qr(request: Request, account: str = Depends(require_account)) ->
         raise BadRequestError("Only an API key can be moved to a phone this way; sign in with the wallet there.")
     key = request.headers["authorization"].partition(" ")[2].strip()
     buffer = io.BytesIO()
-    link = f"{settings.public_base_url.rstrip('/')}/check#pass={key}"
+    link = f"{settings.public_base_url.rstrip('/')}{android_app_links.PHONE_LINK_PATH}#pass={key}"
     segno.make(link, error="m").save(buffer, kind="svg", scale=5, border=2, dark="#12302a", xmldecl=False)
     return Response(buffer.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})

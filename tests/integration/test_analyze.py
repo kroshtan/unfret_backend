@@ -40,6 +40,7 @@ async def test_analysis_is_paid_from_the_balance(
         "balance_lamports": 2 * PRICE,
         "charged": True,
         "tier": "deep",
+        "charge_note": "This check used one of your checks; 2 are left.",
     }
     assert graph.calls == [PAGE]
     assert await balance(pool, address) == 2 * PRICE
@@ -161,6 +162,7 @@ async def test_unanalysable_pages_are_refunded(
 
     assert response.status_code == 200
     assert response.json()["balance_lamports"] == PRICE
+    assert response.json()["charge_note"] == "This page couldn't be assessed, so no check was used."
     assert await balance(pool, address) == PRICE
 
 
@@ -433,6 +435,7 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
         "balance_lamports": 0,
         "charged": True,
         "tier": "deep",
+        "charge_note": "This check used one of your checks; none are left.",
     }
     assert await balance(pool, address) == 0
 

@@ -146,7 +146,9 @@ class _ThrottledEmbeddings(Embeddings):
         :param texts: The texts.
         :return: One vector per text.
         """
-        return await throttled(lambda: self.inner.aembed_documents(texts))
+        return await throttled(
+            lambda: self.inner.aembed_documents(texts), attempt_timeout_s=settings.llm_attempt_timeout_s
+        )
 
 
 def get_structured_llm[T: BaseModel](schema: type[T], *, attempt_timeout_s: float | None = None) -> Runnable:
@@ -156,15 +158,17 @@ def get_structured_llm[T: BaseModel](schema: type[T], *, attempt_timeout_s: floa
     Uses tool calling rather than ``json_schema`` response formats: on Scaleway's models the latter is enforced
     but the field descriptions do not reach the model, which then misreads fields such as the page type.
 
-    The attempt timeout is enforced around the call rather than set on the client, so the model's settings (and with
-    them the evaluation's recorded responses, keyed by those settings) stay the same.
+    Every call gets an attempt timeout: ``settings.llm_attempt_timeout_s`` unless the caller sets its own (the content
+    read, whose answer is longer). It is enforced around the call rather than set on the client, so the model's
+    settings (and with them the evaluation's recorded responses, keyed by those settings) stay the same.
 
     :param schema: Pydantic model the LLM response is parsed into.
-    :param attempt_timeout_s: Abandon and retry an attempt after this many seconds (:func:`throttled`).
+    :param attempt_timeout_s: Abandon and retry an attempt after this many seconds (:func:`throttled`); ``None``:
+        ``settings.llm_attempt_timeout_s``.
     :return: A runnable whose ``ainvoke`` returns an instance of ``schema``.
     """
     structured = get_llm().with_structured_output(schema, method="function_calling")
-    return _throttle(structured, attempt_timeout_s)
+    return _throttle(structured, settings.llm_attempt_timeout_s if attempt_timeout_s is None else attempt_timeout_s)
 
 
 _embeddings_override: Embeddings | None = None

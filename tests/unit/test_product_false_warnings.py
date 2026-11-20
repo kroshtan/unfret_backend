@@ -10,10 +10,9 @@ from typing import Any
 
 import pytest
 
-from unfret import fact_cache, shopper
+from unfret import fact_cache, shop_pages, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, bolcom, parse_page
-from unfret.graph.skills import eu_registry
 from unfret.graph.skills.eu_registry import EuRegistrySkill, legal_page_urls, shows_imprint
 from unfret.graph.state import Finding
 
@@ -107,7 +106,8 @@ def lookups(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             return b"<html><body>JD Sports Fashion B.V. Kamer van Koophandel 12345678</body></html>"
         raise TimeoutError
 
-    monkeypatch.setattr(eu_registry, "fetch_public", fetch)
+    monkeypatch.setattr(shop_pages, "fetch_public", fetch)
+    monkeypatch.setattr(shop_pages, "_READS", type(shop_pages._READS)())
     return fetched
 
 

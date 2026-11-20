@@ -67,6 +67,12 @@ _POLICY_KINDS: dict[str, re.Pattern[str]] = {
     "terms": re.compile(r"terms|conditions|voorwaarden|\bagb\b|cgv|condiciones|termini", re.IGNORECASE),
     "privacy": re.compile(r"privacy|datenschutz|confidentialit|privacidad", re.IGNORECASE),
     "contact": re.compile(r"contact|kontakt|contacto|contatti", re.IGNORECASE),
+    # The shop's own story ("About us", /pages/about, "Over ons"): where it says who it is and where it makes things.
+    "about": re.compile(
+        r"about[ -]us|/about\b|/pages/about|our[ -]story|over[ -]ons|über[ -]uns|ueber-uns|qui[ -]sommes|chi[ -]siamo"
+        r"|qui[eé]nes[ -]somos",
+        re.IGNORECASE,
+    ),
     "imprint": re.compile(
         r"impressum|imprint|legal notice|mentions légales|colofon|aviso legal|bedrijfsgegevens|company details",
         re.IGNORECASE,

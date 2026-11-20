@@ -9,10 +9,11 @@ The pass rule, per tier: **no** "Serious concerns", and fewer than :data:`MAX_FL
 look" or worse ("Think twice" counts too). The deep tier is the full analysis as :mod:`evals.accuracy` replays it
 (the URL given, recorded LLM answers, no network lookups); the quick tier is the x402 quick check (its own skills
 and scorer, no LLM). ``--lookups`` turns on the network lookups a deep check makes in production (domain age,
-brand presence, the VAT register, the shop's legal pages): the golden pages are recent captures of current shops, so
-today's answers fit them, unlike the archived corpus (those answers aren't recorded, so such a run isn't
-reproducible). Each runs the scorers the server would run (``UNFRET_MODEL_PATH``,
-``UNFRET_MODEL_QUICK_PATH``), so a retrained scorer is measured by setting them. ``--record`` (the default for the
+brand presence, the VAT register, the shop's legal, returns, shipping and about pages): the golden pages are recent
+captures of current shops, so today's answers fit them, unlike the archived corpus (those answers aren't recorded, so
+such a run isn't reproducible; :mod:`evals.shop_pages` records the shop's pages). Each runs the scorers the
+server would run (``UNFRET_MODEL_PATH``, ``UNFRET_MODEL_QUICK_PATH``), so a retrained scorer is measured by setting
+them. ``--record`` (the default for the
 deep tier, like :mod:`evals.run`) calls the LLM for pages whose answers aren't recorded yet; ``--replay`` never does.
 
 Every page that fails the rule is listed with what drove it: the verdict's reasons and the scorer's strongest flags,

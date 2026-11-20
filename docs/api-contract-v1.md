@@ -1467,3 +1467,20 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   checked" only when the listing stated a count or size and a photo could be read.
 - x402 `POST /v1/check` (deep tier) carries the reasons as flags like any other; the quick tier and the MCP tools are
   unchanged.
+
+## Changes (the claim audit reads the shop's other pages; backwards-compatible)
+
+- On a web shop's own site (`storefront`, not on a marketplace platform), the deep tier's `claim_audit` also reads the
+  shop's returns, shipping, about and contact pages (then imprint and terms; at most four, linked from the page on
+  the shop's own domain) and holds the product page's claims against them, and the pages against each other.
+  Marketplace listings and the quick tier are unchanged.
+- Findings `claim_contradicted` that quote another of the shop's pages have evidence
+  `Says "<claim>"; Its <returns page> says '<other side>'. <why>`, or, when the claim itself is on another page,
+  `Says "<claim>"; That's on the shop's <about page>; its <returns page> says '<other side>'. <why>`. The shopper
+  reason reads `The page says “<claim>”. Its returns page says '…'. <why>`. Such a contradiction is the shop
+  contradicting itself: told, the band unchanged (it never counts as `claim_audit.impossible`).
+- Two new features: `claim_audit.shop_pages` (how many of the shop's other pages were read) and
+  `claim_audit.across_pages` (how many of the findings quote one of them). Not in the scorer.
+- `page_facts.policy_links` may carry a new kind, `about` ("About us", "Our story", `/pages/about`). A client that
+  doesn't send it gets the server's reading of the page's HTML for it; other kinds are taken from the client as before.
+- `UNFRET_CLAIM_AUDIT_SHOP_PAGES=false` reads the product page only.

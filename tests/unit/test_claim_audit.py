@@ -95,6 +95,8 @@ async def test_a_contradiction_becomes_a_finding_and_the_claims_are_shared(model
         "claim_audit.contradicted": 1.0,
         "claim_audit.contradictions": 1.0,
         "claim_audit.impossible": 1.0,
+        "claim_audit.shop_pages": 0.0,
+        "claim_audit.across_pages": 0.0,
     }
     [finding] = out["findings"]
     assert finding.type == "claim_contradicted"

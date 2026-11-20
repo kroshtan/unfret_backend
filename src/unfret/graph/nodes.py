@@ -59,6 +59,10 @@ async def preprocess_node(state: AnalysisState) -> dict:
         # A client's own extractor (an older extension, the Android app's copy) may still send a byline phrase as
         # the brand ("De Airmax Store openen"): every check reads the brand the server's extractor would have read.
         supplied = supplied.model_copy(update={"brand": brand})
+    if supplied is not None and "about" not in supplied.policy_links and "about" in extracted.policy_links:
+        # A client's extractor that predates the "about" link (only the claim audit reads it): the server's reading.
+        links = {**supplied.policy_links, "about": extracted.policy_links["about"]}
+        supplied = supplied.model_copy(update={"policy_links": links})
     if supplied is not None and not cleaned:
         cleaned = _facts_text(supplied)  # facts only: give the LLM steps their text from the facts
     return {

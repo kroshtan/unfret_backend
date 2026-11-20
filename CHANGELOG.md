@@ -7,7 +7,8 @@
 * **A piece count that is padded or doesn't add up is "Worth a look", whoever sells it.** When the claim audit finds
   a set's count padded with accessories ("91 pieces" that are 80 pens and 12 clips) or its listed parts not making the
   stated total, the page is "Worth a look" at best, also for a known brand or a shop with a track record (a new
-  feature, `claim_audit.count_off`). The audit's other self-contradictions stay a note that leaves the band as it is.
+  feature, `claim_audit.count_off`). The audit's other self-contradictions stay a note that leaves the band as it is
+  (#279).
 
 ### Fixes
 

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Evaluation
+
+* **A labelling set for the deep check's new findings.** `make deep-candidates` collects unlabelled product pages
+  where padded counts and inflated specs are common (marketplace listings in categories such as marker sets, tool
+  kits, power banks, chargers, LED lights, storage and cosmetics sets; shops on the warning and 2023 scam lists that
+  are live today; established shops and well-known sellers as the counterweight), live, only where `robots.txt`
+  lets Unfret in, one request at a time per site; which shops is the private corpus's own seed file.
+  `make deep-check` runs the deep check on them with the scorer the service runs, records the LLM answers in the
+  corpus's cache and stops before a budget (`--budget-eur`, 25 by default) would be passed; `make deep-queue` orders
+  them for labelling (a new finding fired and the scorer is unsure, then a new finding against a sure answer, then
+  a random slice); `make deep-label BATCH=50` labels a batch, one key per page and one per new finding (correct,
+  wrong, unsure), the finding labels kept apart so each check's precision can be tuned on its own.
+
 ### Page facts
 
 * **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything

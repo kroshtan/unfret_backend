@@ -466,11 +466,11 @@ def test_the_four_verdicts_and_a_reason_below_looks_fine(tmp_path: Path) -> None
     )
     assert out["words"] == shopper.catalogue()["labels"]  # the site's words are the API's labels
     assert list(out["words"].values()) == ["Looks fine", "Worth a look", "Think twice", "Serious concerns"]
-    assert out["middle"] == [["Several small signals"]] * 3
-    assert out["older"] == ["Several small signals"]
+    assert out["middle"] == [["Nothing clear-cut"]] * 3
+    assert out["older"] == ["Nothing clear-cut"]
     assert out["kept"] == ["Fake countdown"]
     assert out["reliable"] == [] and out["unassessed"] == []
-    assert shopper.catalogue()["reasons"]["overall"]["title"] == "Several small signals"  # the same words
+    assert shopper.catalogue()["reasons"]["overall"]["title"] == "Nothing clear-cut"  # the same words
 
 
 # ── Card and Wero first; crypto one quiet step away ────────────────────────────────────────────────────────────
@@ -727,7 +727,7 @@ def test_the_result_card_puts_the_same_product_first_and_says_what_was_checked(t
     assert [i["status"] for i in card["checklist"]] == ["concern", "not_checked"]
     assert clean_card["clean"] == "Nothing worrying in 14 checks." and clean_card["positivesFirst"]
     # A result from before the card: its reasons as ever, and no checklist, step or same product.
-    assert older["reasons"][0]["title"] == "Several small signals"
+    assert older["reasons"][0]["title"] == "Nothing clear-cut"
     assert (older["checklist"], older["nextStep"], older["sameProduct"], older["clean"], older["incomplete"]) == (
         [], None, None, None, None,
     )  # fmt: skip

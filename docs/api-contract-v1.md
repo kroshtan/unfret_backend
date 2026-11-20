@@ -93,8 +93,9 @@ Allow origins `chrome-extension://*` and `moz-extension://*` plus the site itsel
   transaction has exactly one well-formed `unfret:credit:` memo; otherwise (none, several, malformed) the transfer's
   source. CPI (inner-instruction) System transfers from vaults count. `GET /v1/credits/solana-pay.svg` also takes
   `beneficiary`. So a Squads vault can pay with `address = vault`, `beneficiary = the member key that signs in`.
-- **Stream events:** `/v1/analyze/stream` emits `event: step` with `data: {"skill": <node>, "findings": [...]}` per
-  finished node (the classifier's step adds `"page_type"`), then `event: result` (the `/v1/analyze` body) or
+- **Stream events:** `/v1/analyze/stream` emits `event: step` with `data: {"skill": <node>, "findings": [...],
+  "check": <bool>}` per finished node (the classifier's step adds `"page_type"`; `check`: see "the answer's small
+  signs" below), then `event: result` (the `/v1/analyze` body) or
   `event: error`. The earlier `page_type` / `finding` events are gone.
 - **Connect handshake:** after posting `veridex-session`, `/connect` listens for
   `{"type": "veridex-session-received"}` (same origin, `event.source === window`) and then shows "Extension connected —
@@ -1419,3 +1420,20 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - The site's proof of work (`static/new-pass.js`, for `/check`, `/checkout` and `/developers`) computes SHA-256 in
   plain JavaScript instead of one Web Crypto call per hash: the same first counter, several times faster, so a
   developer pass's harder challenge takes seconds in a browser.
+
+## Changes (the answer's small signs on the screen; progress counts checks; backwards-compatible)
+
+- **When no single reason fired**, the verdict's one reason (type `overall`) is the scorer's small signs, counted
+  and named: `title` "One small sign" / "Two small signs" at "Worth a look" ("One sign" / "Two signs" below it),
+  `detail` "No single big problem, but together these lowered the score: a sizeable discount and some pushy sales
+  talk.". The signs are the assessment's `flags` that raised the risk, without the ones that only describe the page
+  (`kind: "context"`), each in the catalogue's words (`small_signs.signs`). Without any, `overall` reads "Nothing
+  clear-cut" (it no longer says "several"). The template headline names the (up to two) strongest signs, and the
+  written headline is told how many there are.
+- **The checklist marks each small sign's area** (`status: "concern"`, `note`: the sign's words) on any verdict below
+  "Looks fine", also next to reasons that fired: an area whose signal moved the answer off "Looks fine" is never
+  `checked`. Clients need no change.
+- **Stream `step` events add `check`** (bool): whether the step is one of the checks the result's `checks_run`
+  counts (a skill that measured something, had something to look at and belongs to the page's checklist). Reading
+  the page, classifying it and triage are steps, not checks. A client counting progress counts the `check` steps,
+  so "7 checks done" while checking is the "7 checks" the result says it ran; a cache hit streams only the result.

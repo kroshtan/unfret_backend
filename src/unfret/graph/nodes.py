@@ -414,7 +414,8 @@ The verdict is "{label}". Base the sentence only on the verdict and the points b
 Use plain everyday words: no technical terms, model names, scores or percentages. Be calm and factual, and \
 consistent with the verdict: a reliable verdict is reassuring (mention a note only lightly), a low one is a clear \
 warning. Only the lowest verdict may suggest the offer could be dishonest. The verdict's words are shown right \
-above your sentence: don't start with them or repeat them.\
+above your sentence: don't start with them or repeat them. Match the number of concerns listed: with one, say \
+one thing ("one thing"), never "several" or "a few".\
 """
 
 
@@ -436,14 +437,15 @@ async def _judge(state: AnalysisState, model_path: Path, *, concrete_only: bool 
     assessment = scoring.score(state.get("features", {}), state.get("findings", []), model)
     if assessment is not None:
         score = round(100 * (1 - assessment.risk_score))
+        details = asdict(assessment)
         verdict = await _verdict(
             state,
             score,
             confidence=assessment.confidence,
             concrete_only=concrete_only,
             needs_reason=model is not None and model.needs_reason,
+            signs=shopper.small_signs(details["flags"]),
         )
-        details = asdict(assessment)
         details["flags"] = shopper.label_flags(details["flags"])
         return {
             "score": score,
@@ -472,6 +474,7 @@ async def _verdict(
     *,
     concrete_only: bool = False,
     needs_reason: bool = False,
+    signs: list[str] | None = None,
 ) -> shopper.Verdict:
     """
     The shopper verdict, with a headline written by the LLM from the verdict's own reasons (or a band template).
@@ -484,6 +487,7 @@ async def _verdict(
     :param confidence: The scorer's confidence, when the scorer set the score.
     :param concrete_only: Warn only with a concrete reason (see :func:`shopper.build`).
     :param needs_reason: "Worth a look" only with a reason to show (the scorer's, see :func:`shopper.build`).
+    :param signs: The scorer's small signs (:func:`shopper.small_signs`), named when no reason fired.
     :return: The verdict.
     """
     verdict = shopper.build(
@@ -497,10 +501,16 @@ async def _verdict(
         confidence=confidence,
         concrete_only=concrete_only,
         needs_reason=needs_reason,
+        signs=signs,
     )
     if headline or not settings.llm_explanations or not state.get("explain", True):
         return verdict
-    points = [f"- concern: {r.title}" for r in verdict.reasons] + [f"- good: {p.title}" for p in verdict.positives]
+    if [r.type for r in verdict.reasons] == ["overall"] and signs:
+        # The small signs themselves, so the sentence names them and counts them right ("one thing", not "a few").
+        concerns = [f"- small concern: {shopper.sign_text(s)}" for s in signs]
+    else:
+        concerns = [f"- concern: {r.title}" for r in verdict.reasons]
+    points = concerns + [f"- good: {p.title}" for p in verdict.positives]
     try:
         output: _Explanation = await get_structured_llm(_Explanation).ainvoke(
             [

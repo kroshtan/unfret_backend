@@ -190,7 +190,7 @@ POSITIVE_SOURCES: dict[str, str] = {
 }
 
 # The checklist's areas per kind of page, each with the skills that look at it (a skill may serve two areas), and
-# which area each finding belongs to (a finding not listed belongs to none: "Several small signals").
+# which area each finding belongs to (a finding not listed belongs to none: the "overall" reason).
 AREAS: dict[str, dict[str, tuple[str, ...]]] = {
     "shop": {
         "who": (
@@ -567,10 +567,57 @@ def area_of(reason_type: str, kind: str) -> str | None:
 
     :param reason_type: The reason's type.
     :param kind: ``shop``, ``ad`` or ``service``.
-    :return: The area's key, or ``None`` (a finding about the whole page, such as "Several small signals").
+    :return: The area's key, or ``None`` (a finding about the whole page, such as the "overall" reason).
     """
     area = _SHARED_AREAS.get(kind, {}).get(reason_type) or REASON_AREAS.get(reason_type)
     return area if area in AREAS[kind] else None
+
+
+def small_signs(state: AnalysisState) -> list[str]:
+    """
+    The scorer's small signs on this page (:func:`unfret.shopper.small_signs`), from its assessment.
+
+    :param state: The analysis state, with the judge's assessment.
+    :return: The signs' feature names, strongest first; none without an assessment.
+    """
+    flags = (state.get("assessment") or {}).get("flags")
+    return shopper.small_signs(flags if isinstance(flags, list) else [])
+
+
+def _sign_concerns(signs: list[str], kind: str, taken: set[str]) -> dict[str, str]:
+    """
+    The areas the scorer's small signs are about, each with its signs in words ("A sizeable discount").
+
+    The small signs set the band as much as the reasons do, so no area that moved the answer off "Looks fine" is
+    ticked as fine; the verdict counts and names the same signs. An area a reason already marks keeps that note.
+
+    :param signs: :func:`small_signs`.
+    :param kind: ``shop``, ``ad`` or ``service``.
+    :param taken: The areas a reason already marks.
+    :return: The notes per area.
+    """
+    signed: dict[str, list[str]] = {}
+    for sign in signs:
+        if (area := area_of(shopper.SIGN_REASONS.get(sign, ""), kind)) is not None and area not in taken:
+            signed.setdefault(area, []).append(shopper.sign_text(sign))
+    return {area: _joined([texts[0], *(t[0].lower() + t[1:] for t in texts[1:])]) for area, texts in signed.items()}
+
+
+def is_check(skill: str, features: dict[str, float], page_type: str) -> bool:
+    """
+    Whether a finished step is one of the checks the result's checklist counts (its ``checks_run``).
+
+    A skill that counts (:func:`counted`: it measured something and had something to look at) and belongs to an area
+    of the page's checklist. The streamed progress counts these, so "7 checks done" while checking is the "7 checks"
+    the result then says it ran; reading the page, classifying it and triage are steps, not checks.
+
+    :param skill: The step's node name.
+    :param features: What the step measured.
+    :param page_type: The page's type (its checklist).
+    :return: ``True`` for a check.
+    """
+    areas = AREAS[kind_of(page_type)]
+    return any(skill in skills for skills in areas.values()) and counted(skill, features)
 
 
 def next_step(verdict: Verdict, kind: str, same_product: bool) -> NextStep:
@@ -904,6 +951,8 @@ def complete(
     for key, title in titles.items():
         if (area := area_of(key, kind)) is not None:
             concerns.setdefault(area, title)
+    if parsed.band != "reliable":
+        concerns |= _sign_concerns(small_signs(state), kind, set(concerns))
     found = state.get("same_product")
     parsed.same_product = SameProduct.model_validate(found) if found and kind == "shop" else None
     _photos_once(parsed)

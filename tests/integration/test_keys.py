@@ -155,7 +155,7 @@ async def test_a_key_moves_to_a_phone_by_qr_code_only_on_request(client: httpx.A
     assert (await client.get("/v1/keys/phone-qr", headers=bearer(forged))).status_code == 401
 
 
-async def test_the_phone_code_opens_the_checker_with_the_key_in_the_fragment(
+async def test_the_phone_code_opens_the_pass_link_with_the_key_in_the_fragment(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from unfret.routes import keys as key_routes  # noqa: PLC0415 - patched where it is used
@@ -172,4 +172,5 @@ async def test_the_phone_code_opens_the_checker_with_the_key_in_the_fragment(
 
     assert (await client.get("/v1/keys/phone-qr", headers=bearer(issued["key"]))).status_code == 200
     # After "#": a browser never sends the fragment, so the key reaches no server log on the way to the phone.
-    assert encoded == [f"{settings.public_base_url.rstrip('/')}/check#pass={issued['key']}"]
+    # /pass: the Android app's verified link when it's installed, else a page that forwards to /check#pass=….
+    assert encoded == [f"{settings.public_base_url.rstrip('/')}/pass#pass={issued['key']}"]

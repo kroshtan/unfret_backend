@@ -9,14 +9,17 @@ version, with one sentence on what that means and where to say what doesn't work
 
 Not linked from the home page, the menu or the footer yet, and ``noindex``: reachable by its address until the app is
 listed alongside the other ways to get Unfret.
+
+``/.well-known/assetlinks.json`` lets the installed app open this site's ``/pass`` links
+(:mod:`unfret.android_app_links`).
 """
 
 import html
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
-from unfret import android_release
+from unfret import android_app_links, android_release
 from unfret.android_release import AndroidRelease
 from unfret.routes.pages import PAGE_HEADERS, template, versioned
 
@@ -122,3 +125,19 @@ def android_page() -> HTMLResponse:
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", value)
     return HTMLResponse(versioned(page), headers=HEADERS)
+
+
+@router.get("/.well-known/assetlinks.json")
+def asset_links() -> JSONResponse:
+    """
+    The Digital Asset Links file that verifies the app's App Links: Unfret for Android may open ``/pass`` links.
+
+    Android's verifier wants a 200 with ``application/json`` and no redirect, so the file is served as it is, at this
+    address only, on dev as on production.
+
+    :return: :func:`unfret.android_app_links.statements`, as JSON.
+    """
+    return JSONResponse(
+        android_app_links.statements(),
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
+    )

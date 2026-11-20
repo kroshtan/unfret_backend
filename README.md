@@ -451,9 +451,18 @@ used to be); the sign-in is kept in the browser until it's removed, and there is
 code a **backup code**; "API key", `ufk_`/`ufr_` and wallets appear only where crypto buyers and developers look. A
 pass bought in one browser gets to a phone by [`/my-checks`](https://unfret.net/my-checks) ("My checks": the pass or
 wallet on this device, its checks, adding checks, a new pass from the backup code, and the wallet sign-in): "Use on
-your phone" shows a QR code (`GET /v1/keys/phone-qr`, the key as `Authorization`) for `<site>/check#pass=<key>`; the
-key sits in the fragment, which browsers never send, and `/check` keeps it and clears the address bar. A page's
-verdict headline never repeats its label, which every client shows right above it.
+your phone" shows a QR code (`GET /v1/keys/phone-qr`, the key as `Authorization`) for `<site>/pass#pass=<key>`; the
+key sits in the fragment, which browsers never send. On Android with
+[Unfret for Android](https://git.kroshtan.com/kroshtan/unfret_android) installed, the link opens the app: a verified
+Android App Link, which `/.well-known/assetlinks.json` allows for the app's package (`net.unfret.android`) and its
+release signing certificate (`src/unfret/android_app_links.py`; dev serves the same file). Anywhere else (no app, an
+iPhone, a computer) `/pass` is a tiny page (`noindex`, `no-store`, no referrer) whose script forwards to
+`/check#pass=<key>` with `location.replace`, fragment intact; without a script it explains itself and links to
+`/check`. `/check` asks "Use this pass here?" before it keeps the key, and clears the address bar; it still takes
+`/check#pass=<key>` straight from codes shown or printed before `/pass`. The app must do the same: accept
+`#pass=<key>` (the fragment as URL-encoded parameters; the pass matches `ufk_[a-z2-7]{10}_[a-z2-7]{52}`, nothing
+else is in the fragment) and ask before storing it, because any site can link to `/pass`. A page's verdict headline
+never repeats its label, which every client shows right above it.
 
 There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant an API key credit by
 hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at

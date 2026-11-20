@@ -4,6 +4,12 @@
 
 ### Features
 
+* **"Use on your phone" opens the Android app when it's installed.** The QR code on /my-checks now holds
+  `<site>/pass#pass=<pass>`, a verified Android App Link: `/.well-known/assetlinks.json` names Unfret for Android
+  (`net.unfret.android`) and its release certificate, so Android opens the link in the app. Without the app (or on an
+  iPhone or a computer) `/pass` forwards to `/check#pass=…` in the browser, fragment intact, which asks before it uses
+  the pass as before; `/pass` is `noindex`, never cached and sends no referrer. Codes that hold `/check#pass=…` still
+  work.
 * **/android offers Unfret for Android 0.1.0-beta.1**, the first signed release (a beta), for a direct install.
 * **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
   explain how to install it from the source.

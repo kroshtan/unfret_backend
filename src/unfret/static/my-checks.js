@@ -3,7 +3,8 @@
 // Checks live on an Unfret pass (an API key), or, for those who bought with a crypto wallet, on the wallet. This page
 // shares the link checker's sign-in (localStorage "unfret-account"), so what it shows is what /check uses:
 //   - a pass: how many checks are left, add checks (a top-up naming only the pass's ID), put it on a phone (a QR code
-//     holding /check#pass=…, shown only on request), send it to this browser's extension, copy it, or remove it here;
+//     holding /pass#pass=…, opened by the Android app or else /check, shown only on request), send it to this
+//     browser's extension, copy it, or remove it here;
 //   - a wallet's sign-in: its checks, add checks with crypto, sign out;
 //   - nothing: get checks (/checkout) or paste a pass.
 // Always: a lost pass comes back with its backup code (a new pass, same checks), and a wallet can sign in. A backup

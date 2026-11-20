@@ -109,6 +109,8 @@ REASON_SOURCES: dict[str, str] = {
     "copied_reviews_elsewhere": "review_records",
     "brand_no_presence": "brand_records",
     "safety_gate_alert": "safety_gate",
+    "photo_count_mismatch": "photos",
+    "photo_size_mismatch": "photos",
     "overall": "model",
     # Service providers.
     "doorway_pages": "site_pages",
@@ -202,7 +204,15 @@ AREAS: dict[str, dict[str, tuple[str, ...]]] = {
             "claims",
             "payment_methods",
         ),
-        "product": ("listing", "content", "claim_audit", "brand_presence", "safety_gate", "reverse_image"),
+        "product": (
+            "listing",
+            "content",
+            "claim_audit",
+            "brand_presence",
+            "safety_gate",
+            "reverse_image",
+            "photo_claims",
+        ),
         "reviews": ("reviews", "review_copies"),
         "prices": ("pricing", "market_price", "dark_patterns", "shop_policies"),
         "tricks": ("html_source_signals", "injection", "dark_patterns"),
@@ -256,6 +266,8 @@ REASON_AREAS: dict[str, str] = {
             "brand_photo_reused",
             "brand_no_presence",
             "safety_gate_alert",
+            "photo_count_mismatch",
+            "photo_size_mismatch",
         ),
         "product",
     ),
@@ -386,6 +398,7 @@ _HAD_NOTHING: dict[str, tuple[str, str]] = {
     "review_copies": ("review_copies.checked", "no_reviews"),
     "domain_age": ("domain_age.known", "registry_silent"),
     "reverse_image": ("reverse_image.searched", "no_photo"),
+    "photo_claims": ("photo_claims.checked", "nothing"),
 }
 
 # The next step for the strongest finding (keys of the catalogue's "next_steps"); otherwise the band's.
@@ -432,6 +445,7 @@ STEP_FOR_REASON: dict[str, str] = {
         "compare_elsewhere",
     ),
     "brand_photo_reused": "real_brand",
+    **dict.fromkeys(("photo_count_mismatch", "photo_size_mismatch"), "check_listing"),
     "irreversible_payment_only": "buyer_protection",
     "safety_gate_alert": "safety_alert",
     **dict.fromkeys(

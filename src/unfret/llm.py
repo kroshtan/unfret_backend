@@ -171,6 +171,37 @@ def get_structured_llm[T: BaseModel](schema: type[T], *, attempt_timeout_s: floa
     return _throttle(structured, settings.llm_attempt_timeout_s if attempt_timeout_s is None else attempt_timeout_s)
 
 
+@cache
+def get_vision_llm() -> BaseChatModel:
+    """
+    Return the chat model that reads product photos (``settings.photo_claims_model``), from the same provider.
+
+    :return: A deterministic (temperature 0) chat model that accepts images.
+    """
+    return ChatOpenAI(
+        model=settings.photo_claims_model,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        temperature=0,
+        timeout=settings.llm_timeout_s,
+        max_retries=0,  # retried by throttled()
+    )
+
+
+def get_structured_vision_llm[T: BaseModel](schema: type[T]) -> Runnable:
+    """
+    Return the photo model bound to a structured output schema, with the raw message kept (for its token usage).
+
+    Within the same concurrency limit and with the same attempt timeout (``settings.llm_attempt_timeout_s``) as the
+    other short LLM calls.
+
+    :param schema: Pydantic model the answer is parsed into.
+    :return: A runnable whose ``ainvoke`` returns ``{"raw": AIMessage, "parsed": schema | None, "parsing_error": …}``.
+    """
+    structured = get_vision_llm().with_structured_output(schema, method="function_calling", include_raw=True)
+    return _throttle(structured, settings.llm_attempt_timeout_s)
+
+
 _embeddings_override: Embeddings | None = None
 
 

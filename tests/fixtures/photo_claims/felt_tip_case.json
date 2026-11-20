@@ -1,0 +1,62 @@
+{
+ "note": "A real Amazon.nl listing (Nov 2026), brand and product line scrubbed: a case of felt-tip pens sold as '91-delig' whose text says 80 pens and 12 clips. The four gallery photos aren't kept (the shop's copyright); these are the vision model's recorded answers (mistral-small-3.2-24b-instruct-2506, two runs agreed). It must not be flagged: the pens are in their case, so the photos can't show a padded count.",
+ "title": "BRAND - Viltstiften set koffer, 91-delig | 80 viltstiften en 12 clips, uitwasbare viltstiften die aan elkaar kunnen worden geklikt",
+ "answers": [
+  {
+   "main_items": "pens",
+   "single_kind": true,
+   "whole_set_shown": false,
+   "main_items_visible": null,
+   "other_parts_visible": 12,
+   "other_parts": "connector clips",
+   "in_packaging": true,
+   "count_confidence": 0.8,
+   "scale_reference": "",
+   "product_largest_cm": null,
+   "size_printed_on_photo": false,
+   "size_confidence": 0.0
+  },
+  {
+   "main_items": "markers",
+   "single_kind": true,
+   "whole_set_shown": false,
+   "main_items_visible": 12,
+   "other_parts_visible": 1,
+   "other_parts": "box",
+   "in_packaging": true,
+   "count_confidence": 1.0,
+   "scale_reference": "",
+   "product_largest_cm": null,
+   "size_printed_on_photo": false,
+   "size_confidence": 0.0
+  },
+  {
+   "main_items": "markers",
+   "single_kind": true,
+   "whole_set_shown": false,
+   "main_items_visible": 48,
+   "other_parts_visible": 1,
+   "other_parts": "a case",
+   "in_packaging": true,
+   "count_confidence": 1.0,
+   "scale_reference": "",
+   "product_largest_cm": null,
+   "size_printed_on_photo": false,
+   "size_confidence": 0.0
+  },
+  {
+   "main_items": "markers",
+   "single_kind": true,
+   "whole_set_shown": false,
+   "main_items_visible": 2,
+   "other_parts_visible": 1,
+   "other_parts": "box",
+   "in_packaging": true,
+   "count_confidence": 1.0,
+   "scale_reference": "",
+   "product_largest_cm": null,
+   "size_printed_on_photo": false,
+   "size_confidence": 0.0
+  }
+ ]
+}

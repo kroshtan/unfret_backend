@@ -152,6 +152,12 @@ def _params() -> dict[str, str]:
         "said": "“Responds within a few days”",
         "many": "2 other brand names",
         "catalogue_brand": "“Philips”",
+        "photo": "2",
+        "seen": "25",
+        "items": "markers",
+        "padded": " The number only adds up if caps, lids or the box are counted as pieces too.",
+        "size": "120 cm",
+        "reference": "sofa",
     }
 
 

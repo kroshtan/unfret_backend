@@ -1451,3 +1451,19 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   piece count that doesn't add up either). It stands in for `implausible_claims` when both fire. On a page that no
   track record or known brand vouches for, a claim physics, the price or an authority rules out
   (`claim_audit.impossible`) makes "Looks fine" "Worth a look" at most; it never makes a warning by itself.
+
+## Changes (the product photos against the listing's own claims; backwards-compatible)
+
+- Two new reason types on product pages (deep checks only), severity medium, source "The listing's photos (Unfret's
+  AI read of them)" (new source key `photos`), checklist area `product`, next step `check_listing` (new):
+  `photo_count_mismatch` ("Fewer pieces in the photo than the listing says": the listing's piece count against a
+  photo of the whole set with far fewer of the main items, caps, lids and boxes not counted) and `photo_size_mismatch`
+  ("Looks bigger in the photos than its stated size": the stated size against how big the product looks next to a
+  person or a common object). `thumbnails` stay empty (the photos are the shop's own, not served by Unfret). Either
+  makes a "Looks fine" page "Worth a look"; neither makes a page worse than that by itself. Clients that map reason
+  keys should fall back to `title`/`detail`, as before.
+- New skill `photo_claims` (findings of the same names as the reasons; features `photo_claims.checked`, `.photos`,
+  `.count_claimed`, `.count_seen`, `.count_mismatch`, `.size_mismatch`, not in the scorer). It counts in "What we
+  checked" only when the listing stated a count or size and a photo could be read.
+- x402 `POST /v1/check` (deep tier) carries the reasons as flags like any other; the quick tier and the MCP tools are
+  unchanged.

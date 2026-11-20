@@ -19,10 +19,11 @@ audit:  ## Check the locked dependencies for known vulnerabilities (pip-audit)
 	uv export --project mcp --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements-mcp.txt
 	uv export --project clients/python --frozen --all-groups --no-hashes --no-emit-project > .audit-requirements-client.txt
 	@# One run per environment: both lock the MCP SDK and its dependencies, and pip-audit refuses a package twice.
+	@# Its own cache directory: platformdirs 4.14.8 refuses a ~/.cache that another user can write (the CI runner's).
 	status=0; \
-		uvx pip-audit -r .audit-requirements.txt --no-deps --disable-pip || status=1; \
-		uvx pip-audit -r .audit-requirements-mcp.txt --no-deps --disable-pip || status=1; \
-		uvx pip-audit -r .audit-requirements-client.txt --no-deps --disable-pip || status=1; \
+		uvx pip-audit -r .audit-requirements.txt --no-deps --disable-pip --cache-dir .audit-cache || status=1; \
+		uvx pip-audit -r .audit-requirements-mcp.txt --no-deps --disable-pip --cache-dir .audit-cache || status=1; \
+		uvx pip-audit -r .audit-requirements-client.txt --no-deps --disable-pip --cache-dir .audit-cache || status=1; \
 		rm -f .audit-requirements.txt .audit-requirements-mcp.txt .audit-requirements-client.txt; exit $$status
 
 vat-rates-check:  ## Compare the vendored EU VAT rates and Cloudflare ranges with their sources (monthly; exit 1 on change)

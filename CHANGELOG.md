@@ -23,6 +23,22 @@
 
 ### Deep checks
 
+* **The claim audit reads the shop's other pages too.** On a web shop's own site (not a marketplace listing), the
+  deep check's claim audit now also reads the shop's returns, shipping, about and contact pages (then imprint and
+  terms: at most four, linked from the page on the shop's own domain, never a PDF; fetched in parallel through the
+  safe fetch, 6 s each; visible text only, of a long page the lines about returns, shipping, addresses and the company,
+  at most 4,000 characters a page and 12,000 in all) and holds the product page's claims against them, and the pages
+  against each other: "Proudly made in the USA" or "family business in Ohio" against a return address in Shenzhen,
+  "30-day free returns" against "14 days, return shipping at the buyer's cost", "ships from our US warehouse" against
+  "delivery takes 10-25 business days", a company or address that differs between imprint, terms and contact page.
+  Both quotes must be on the pages they're told from, and the shopper is told which page says what ("The page says
+  “30-day free returns”. Its returns page says '…'."). A contradiction across the shop's pages is the shop
+  contradicting itself: told, the band unchanged. The VAT check's contact and terms pages are read through the same
+  fetch, once per page for both (6 s rather than 8; a bot check is now a page not read). New features `claim_audit.shop_pages` and `claim_audit.across_pages`; a page's
+  `policy_links` may name its `about` page. `UNFRET_CLAIM_AUDIT_SHOP_PAGES=false` reads the product page only.
+  `evals.shop_pages` records the shop pages of the golden set and a junk and scam sample and compares the deep check
+  with and without them. MEASURED
+
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery
   capacity and runtime, wattage, lumens, certifications and approvals, materials, origin, awards, warranties,

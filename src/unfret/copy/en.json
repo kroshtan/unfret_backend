@@ -868,6 +868,25 @@
       "bol.com": "bol.com"
     }
   },
+  "charge": {
+    "quick": "Quick checks are free.",
+    "not_assessed": "This page couldn't be assessed, so no check was used.",
+    "repeat": "You checked this page recently, so no new check was used.",
+    "free": "This check used one of your free checks.",
+    "free_left": "This check used one of your free checks; {left}.",
+    "bought": "This check used one of your checks.",
+    "bought_left": "This check used one of your checks; {left}.",
+    "left_none": "none are left",
+    "left_one": "1 is left",
+    "left_many": "{count} are left"
+  },
+  "incomplete": {
+    "text": "Part of this check didn't finish ({steps}), so this answer may be milder than it should be.",
+    "after": "It still counted as a check. Checking again after an hour may help.",
+    "steps": {
+      "content": "the AI read of the page"
+    }
+  },
   "deep_check": {
     "text": "A deep check also looks at {adds}.",
     "adds": {

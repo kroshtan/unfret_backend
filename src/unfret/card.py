@@ -14,7 +14,9 @@ phone app:
 - **one suggested next step**, from the strongest finding or the band;
 - **the same product sold elsewhere** (Unfret's image index), which clients show first, with both photos;
 - on a quick result, **whether a deep check is worth it** (:func:`deep_check`): what it would add for this page, never
-  a change to the quick verdict. What it costs the caller is added per response (:func:`with_cost`).
+  a change to the quick verdict. What it costs the caller is added per response (:func:`with_cost`);
+- when a key step didn't finish (the assessment is degraded), **one line that says so** (:func:`incomplete`): which
+  step, that the answer may be milder than it should be, and that it still counted as a check.
 
 Everything here comes from the catalogue or from what the skills measured; nothing quotes the page, and nothing
 calls a shop names.
@@ -23,7 +25,7 @@ calls a shop names.
 from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
-from unfret import shopper
+from unfret import scoring, shopper
 from unfret.config import settings
 from unfret.credits import packs
 from unfret.facts import PageFacts
@@ -33,7 +35,16 @@ from unfret.graph.skills.listing import resold
 from unfret.graph.state import P2P_TYPES, SERVICE_TYPES, AnalysisState
 from unfret.market import shop_market
 from unfret.prices import format_usd
-from unfret.shopper import CheckItem, DeepCheck, DeepCheckAdd, NextStep, SameProduct, Verdict, catalogue
+from unfret.shopper import (
+    CheckItem,
+    DeepCheck,
+    DeepCheckAdd,
+    Incomplete,
+    NextStep,
+    SameProduct,
+    Verdict,
+    catalogue,
+)
 
 # Where each finding's evidence comes from (keys of the catalogue's "sources").
 REASON_SOURCES: dict[str, str] = {
@@ -517,29 +528,37 @@ def checklist(
     """
     The card's "What we checked", and how many checks ran.
 
+    Each area carries how many checks looked at it: a check that serves two areas (the dark-pattern read: prices and
+    hidden tricks) counts once, in the first, so the areas' counts add up to the number of checks that ran.
+
     :param kind: ``shop``, ``ad`` or ``service`` (:func:`kind_of`).
     :param features: The analysis's features.
     :param concerns: The areas a finding is about, each with the strongest such finding's title (the note).
     :param available: The skills this analysis could run on this page (the quick tier runs fewer).
     :param applicable: The skills a full analysis would run on this page.
-    :return: The checklist (areas no skill applies to are left out) and the number of checks that ran.
+    :return: The checklist (areas no skill applies to are left out) and the number of checks that ran (the sum of
+        the areas' counts).
     """
     copy = catalogue()["checklist"]
     items: list[CheckItem] = []
+    seen: set[str] = set()
     for key, skills in AREAS[kind].items():
         if not any(s in applicable or s in available for s in skills):
             continue  # nothing looks at this on such a page (a marketplace has no shop of its own to look up)
         label = str(copy["areas"][kind][key])
+        ran = {s for s in skills if counted(s, features)}
+        checks = len(ran - seen)
+        seen |= ran
         if key in concerns:
-            items.append(CheckItem(key=key, label=label, status="concern", note=concerns[key]))
-        elif any(counted(s, features) for s in skills):
-            items.append(CheckItem(key=key, label=label, status="checked"))
+            items.append(CheckItem(key=key, label=label, status="concern", note=concerns[key], checks=checks))
+        elif ran:
+            items.append(CheckItem(key=key, label=label, status="checked", checks=checks))
         else:
             note = _note(skills, features, available, applicable)
-            items.append(CheckItem(key=key, label=label, status="not_checked", note=str(copy["notes"][note])))
-    area_skills = {s for skills in AREAS[kind].values() for s in skills}
-    runs = sum(1 for s in area_skills if counted(s, features))
-    return items, runs
+            items.append(
+                CheckItem(key=key, label=label, status="not_checked", note=str(copy["notes"][note]), checks=0)
+            )
+    return items, sum(i.checks or 0 for i in items)
 
 
 def area_of(reason_type: str, kind: str) -> str | None:
@@ -774,6 +793,70 @@ def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
     return offer.model_copy(update={"cost": text, "action": action, "action_label": label})
 
 
+def incomplete(features: dict[str, float]) -> Incomplete | None:
+    """
+    The card's line when a key step didn't finish: the same condition as the assessment's ``degraded``.
+
+    A key step (:data:`unfret.scoring.KEY_SKILLS`: the AI read of the page) that failed or ran out of time leaves the
+    verdict on less evidence, usually milder than it should be (its findings are among the strongest). The line names
+    the step and says what the check cost: a degraded result is charged like any other (only a page that couldn't be
+    assessed, a failed analysis or a client that hung up is given back), and the same input checked again within the
+    hour gets this result back from the result cache (:data:`unfret.result_cache.RESULT_TTL_S`).
+
+    :param features: The analysis's features.
+    :return: The line, or ``None`` when every key step finished.
+    """
+    steps = sorted(scoring.unavailable_skills(features) & scoring.KEY_SKILLS)
+    return Incomplete(steps=steps, text=incomplete_text(steps)) if steps else None
+
+
+def incomplete_text(steps: list[str], *, public: bool = False) -> str:
+    """
+    The words of :func:`incomplete`'s line.
+
+    :param steps: The steps that didn't finish (keys of the catalogue's ``incomplete.steps``).
+    :param public: For a shared result's page, whose readers didn't pay for the check: without what it cost.
+    :return: The line.
+    """
+    copy = catalogue()["incomplete"]
+    text = str(copy["text"]).format(steps=_joined([str(copy["steps"][step]) for step in steps]))
+    return text if public else f"{text} {copy['after']}"
+
+
+def charge_note(
+    *,
+    tier: str,
+    score: int,
+    charged: bool | None,
+    free_check: bool,
+    free_left: int | None = None,
+    bought_left: int | None = None,
+) -> str:
+    """
+    What this check cost the caller, as one sentence every client shows under the result.
+
+    :param tier: ``quick`` or ``deep``.
+    :param score: The score (-1: the page couldn't be assessed).
+    :param charged: Whether the check used one of the caller's checks.
+    :param free_check: Whether that was one of the free ones.
+    :param free_left: The free checks left after it, when known.
+    :param bought_left: The bought checks left after it, when known.
+    :return: The sentence: "This check used one of your free checks; 4 are left.", "Quick checks are free.", …
+    """
+    copy: dict[str, str] = catalogue()["charge"]
+    if tier == "quick":
+        return copy["quick"]
+    if score < 0:
+        return copy["not_assessed"]
+    if not charged:
+        return copy["repeat"]
+    kind, left = ("free", free_left) if free_check else ("bought", bought_left)
+    if left is None:
+        return copy[kind]
+    words = copy["left_none"] if left <= 0 else copy["left_one"] if left == 1 else copy["left_many"].format(count=left)
+    return copy[f"{kind}_left"].format(left=words)
+
+
 def _photos_once(verdict: Verdict) -> None:
     """With the same product shown up top (its photos, the other brand names), its reasons don't show them again."""
     if verdict.same_product is not None:
@@ -786,7 +869,9 @@ def complete(
     verdict: dict[str, Any], state: AnalysisState, *, available: Iterable[Skill], applicable: Iterable[Skill]
 ) -> dict[str, Any]:
     """
-    Add the card to a verdict: sources, the checklist, the number of checks, the next step and the same product.
+    Add the card to a verdict: sources, the checklist, the checks, the next step, the same product, a missing step.
+
+    The last is the line that says a key step didn't finish (:func:`incomplete`).
 
     :param verdict: The verdict as the judge returned it (:meth:`Verdict.model_dump`).
     :param state: The analysis state (features, page type, the image index's same-product match).
@@ -831,6 +916,7 @@ def complete(
         applicable={s.name for s in applicable if page_type in s.page_types},
     )
     parsed.next_step = next_step(parsed, kind, parsed.same_product is not None)
+    parsed.incomplete = incomplete(features)
     if {s.name for s in applicable} - ran:  # a quick check: everything above is its verdict, unchanged
         marked = {i.key for i in parsed.checklist if i.status == "concern"}
         parsed.deep_check = deep_check(parsed, state, concerns=marked, available=ran)

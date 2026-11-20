@@ -433,15 +433,44 @@ async def deep_cost(
     return card.deep_check_cost(free_left=free_left, paused=paused, bought=bought)
 
 
+async def _charge_note(request: Request, account: str | None, response: AnalyzeResponse) -> str:
+    """
+    What the check cost this caller, in one sentence (:func:`unfret.card.charge_note`), with the checks left.
+
+    :param request: The FastAPI request.
+    :param account: The account, or ``None``.
+    :param response: The response (tier, score, charged, free_check, balance).
+    :return: The sentence.
+    """
+    free_check = bool(response.free_check)
+    free_left: int | None = None
+    bought_left: int | None = None
+    if response.charged and free_check and (key_id := _key_id(account)) is not None:
+        free_left = await free.left(request.app.db_pool, key_id)
+    elif response.charged and not free_check and response.balance_usd_micros is not None:
+        bought_left = max(response.balance_usd_micros, 0) // settings.analysis_price_usd_micros
+    return card.charge_note(
+        tier=response.tier or "deep",
+        score=response.score,
+        charged=response.charged,
+        free_check=free_check,
+        free_left=free_left,
+        bought_left=bought_left,
+    )
+
+
 async def _offered(request: Request, account: str | None, response: AnalyzeResponse) -> AnalyzeResponse:
     """
-    A quick result's suggestion of a deep check, with what one would cost this caller (it is cached without).
+    The per-caller parts of a response, which the result cache keeps without.
+
+    What the check cost this caller, and a quick result's suggestion of a deep check, with what one would cost.
 
     :param request: The FastAPI request.
     :param account: The account, or ``None``.
     :param response: The response.
-    :return: The response, its suggestion priced for the caller.
+    :return: The response, with its charge note and its suggestion priced for the caller.
     """
+    response.charge_note = await _charge_note(request, account, response)
     offer = response.verdict.deep_check if response.verdict is not None else None
     if response.tier != "quick" or offer is None or not offer.suggested or response.verdict is None:
         return response
@@ -494,7 +523,8 @@ async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, resu
     """
     if result["score"] == -1:
         _count_free_outcome(charge)
-        return _response(result, await _refund(request, charge), charged=False, tier=body.tier)
+        response = _response(result, await _refund(request, charge), charged=False, tier=body.tier)
+        return await _offered(request, charge.account, response)
     if charge.charged and charge.account is not None:
         result_cache.mark_paid(charge.account, body.url)  # its repeat within the hour is free (reopened, refreshed)
     balance = None if charge.account is None else await _balance(request, charge.account)

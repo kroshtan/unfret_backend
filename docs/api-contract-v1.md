@@ -768,9 +768,10 @@ valid 7 days. Nothing is stored when a check runs.
   that starts with the label has it removed. Results cached or shared before this still carry the old form: clients
   may strip a leading `"<label>: "` (the site does, `headlineOf` in `static/check-render.js`).
 - `GET /v1/keys/phone-qr` (`Authorization: Bearer <key>`; API keys only, 400 for a wallet's session, 401 without a
-  valid key) → `image/svg+xml`, `Cache-Control: no-store`: a QR code for `<site>/check#pass=<key>`. `/check` reads
-  `#pass=`, checks the key against `/v1/credits`, keeps it as its sign-in (asking first when it already has another
-  pass or a wallet) and clears the address bar.
+  valid key) → `image/svg+xml`, `Cache-Control: no-store`: a QR code for `<site>/pass#pass=<key>` (it was
+  `<site>/check#pass=<key>` until the Android app's App Link; see "the pass's phone link" below). `/check` reads
+  `#pass=`, checks the key against `/v1/credits`, asks "Use this pass here?" (saying so when it already has another
+  pass or a wallet), then keeps it as its sign-in, and clears the address bar.
 - `GET /my-checks` ("My checks", in the menu instead of "Sign in"): the pass or wallet on this device (the link
   checker's `localStorage` sign-in), its checks, adding checks (`/checkout?mode=topup&key_id=`), "Use on your phone"
   (the QR code above), sending the pass to the extension, removing it, a new pass from the backup code
@@ -1020,7 +1021,7 @@ client are unchanged.
 
 - `GET /v1/health` and `GET /v1/health/ready` add `model_version` (the scorer analyses and deep checks run) and
   `quick_model_version` (the x402 quick tier's), the same strings as `assessment.model_version` and the x402
-  verdict's `model_version`, or `null` without a scorer. A server runs the open baseline in the repository unless its
+  verdict's `model_version`, or `null` without a scorer. A server runs the open model in the repository unless its
   operator configured another (`UNFRET_MODEL_PATH`, `UNFRET_MODEL_QUICK_PATH`).
 
 ## Changes (an Unfret pass pays `/v1/check`; developer passes; backwards-compatible)
@@ -1337,6 +1338,61 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   listing skill's finding of the same name carries the evidence; there is no new feature.
 - `known_brand` and `brand_no_presence` are never on one result: when the content read knows the brand but the
   lookups find it nowhere, neither is said.
+
+## Changes (the card: a step that didn't finish, checks per area, what a check cost; backwards-compatible)
+
+- `verdict.incomplete` (new, optional; `null` when every key step finished): `{"steps": ["content"], "text"}` when
+  the AI read of the page failed or ran out of time, the same condition as `assessment.degraded`. `text` is one line
+  to show under the headline: "Part of this check didn't finish (the AI read of the page), so this answer may be
+  milder than it should be. It still counted as a check. Checking again after an hour may help." Shared results carry
+  it with the first sentence only. New step keys may be added; show `text`.
+- `verdict.checklist[].checks` (new, optional int): how many checks looked at the area. A check serving two areas
+  counts in the first, so the areas' counts add up to `checks_run`; an area the page doesn't have (a marketplace
+  listing's "Who's behind the shop") no longer adds its checks to `checks_run`. Clients show "What we checked: 16
+  checks in 5 areas" (areas with a check) and "· N checks" on each area; without the field, as before.
+- `charge_note` (new, optional string) in `POST /v1/analyze` responses and the stream's `result` event: what the
+  check cost, as one sentence ("This check used one of your free checks; 4 are left.", "This check used one of your
+  checks; 23 are left.", "Quick checks are free.", "You checked this page recently, so no new check was used.", "This
+  page couldn't be assessed, so no check was used."). The count is left out when it isn't known. Charging is
+  unchanged.
+- Each LLM call's attempt is abandoned after `UNFRET_LLM_ATTEMPT_TIMEOUT_S` (15 s; the content read
+  `UNFRET_CONTENT_ATTEMPT_TIMEOUT_S`, 20 s) and tried once more. No API change.
+- x402 `POST /v1/check` and the MCP server are unchanged.
+
+## Changes (the pass's phone link opens the Android app; backwards-compatible)
+
+- `GET /v1/keys/phone-qr`'s QR code now holds `<public_base_url>/pass#pass=<key>` (production
+  `https://unfret.net/pass#pass=ufk_…`, dev `https://dev.unfret.net/pass#pass=ufk_…`) instead of
+  `<site>/check#pass=<key>`. The fragment is unchanged: exactly one parameter, `pass`, whose value is the whole pass
+  `ufk_<id>_<secret>` (`^ufk_[a-z2-7]{10}_[a-z2-7]{52}$`, `PASS_RE` in `static/pass.js`; only these characters, so
+  nothing in it is percent-encoded). Read it as URL-encoded parameters (`/check` uses
+  `new URLSearchParams(location.hash.slice(1)).get("pass")`) and ignore any other parameter; a value that doesn't
+  match is no pass.
+- **The Android app** (`net.unfret.android`) declares `https://unfret.net/pass` as a verified App Link
+  (`android:autoVerify="true"`, scheme `https`, host `unfret.net`, path `/pass`). With it installed and verified,
+  Android opens the scanned link in the app, which never sends the fragment anywhere. **The app must ask "Use this
+  pass?" before storing it**, showing the pass ID (`ABCDE-FGHIJ`) and saying so when it already has another pass,
+  exactly as `/check` does: any site can link to `/pass`, so a pass that arrives by link is never kept unasked. It
+  may check the pass with `GET /v1/credits` (`Authorization: Bearer <key>`) first, and must not log it.
+- `GET /.well-known/assetlinks.json` → 200, `Content-Type: application/json`, no redirect, `Cache-Control:
+  no-cache`:
+
+  ```json
+  [{"relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {"namespace": "android_app", "package_name": "net.unfret.android",
+               "sha256_cert_fingerprints": ["3E:71:EF:6B:76:FA:BA:49:41:97:22:AE:99:8A:42:4B:38:A7:E9:05:C6:A4:48:4A:37:F8:A9:6F:E4:5F:66:34"]}}]
+  ```
+
+  The package and certificate are constants in `src/unfret/android_app_links.py` (the certificate is
+  `unfret.android_release.SIGNING_CERT_SHA256`, the app's `docs/release-cert.sha256`). Dev serves the same file:
+  the app has no dev package, and a debug build (same package, a throwaway key per checkout) is not listed, so its
+  link is approved by hand (`adb shell pm set-app-links --package net.unfret.android 2 all`) when testing.
+- `GET /pass` (without the app, on an iPhone or a computer): a tiny page, `X-Robots-Tag: noindex, nofollow` and a
+  robots meta tag, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, the same Content Security Policy as
+  `/check`. Its script (`static/pass-link.js`) does `location.replace("/check" + location.hash)`, so
+  `/check#pass=<key>` behaves exactly as before and `/pass` stays out of the history. Without a script the page says
+  what the link is for and links to `/check`. Not in the sitemap.
+- `/check#pass=<key>` keeps working, for QR codes shown or printed before this change.
 
 ## Changes (developer passes: their own daily budget and a harder proof of work; backwards-incompatible for making one)
 

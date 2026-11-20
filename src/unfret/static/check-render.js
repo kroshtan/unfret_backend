@@ -1,5 +1,6 @@
 // How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the result card. The verdict
-// band as a word and a sign and the headline; the same product sold elsewhere, first, with both photos; the findings
+// band as a word and a sign and the headline; when part of the check didn't finish, one line that says so; the same
+// product sold elsewhere, first, with both photos; the findings
 // as cards, each with where its evidence comes from; one suggested next step; and what was checked. The extension
 // and the Android app show the same card.
 import { ownThumbnails } from "./check-core.js";
@@ -73,12 +74,31 @@ export function reasonsOf(result, band) {
 }
 
 // The checklist's marks, as words for screen readers (the marks themselves are drawn by the stylesheet).
-const CHECK_WORD = { checked: "checked", concern: "something to note", not_checked: "not checked" };
+const CHECK_WORD = { checked: "nothing to note", concern: "something to note", not_checked: "not checked" };
+
+/** "1 check", "16 checks". */
+export function countOf(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * The checklist's heading: "What we checked: 16 checks in 5 areas", the areas being those with a check (their counts
+ * add up to the number). An older result without per-area counts keeps "What we checked · 16 checks".
+ */
+export function checklistHeading(checks, items) {
+  if (!checks) return { title: "What we checked", count: "" };
+  if (items.length && items.every((i) => typeof i.checks === "number")) {
+    const areas = items.filter((i) => i.checks > 0).length;
+    return { title: `What we checked: ${countOf(checks, "check", "checks")} in ${countOf(areas, "area", "areas")}`, count: "" };
+  }
+  return { title: "What we checked", count: ` · ${countOf(checks, "check", "checks")}` };
+}
 
 /**
  * The result card as plain data (no DOM), for `resultNodes` and the tests: what comes first, the findings in order,
- * the next step and the checklist. Older results (cached, shared before the card) have no checklist, step or same
- * product: those parts are simply left out.
+ * the next step and the checklist, and the server's line when part of the check didn't finish (`incomplete`). Older
+ * results (cached, shared before the card) have no checklist, step, same product or line: those parts are simply left
+ * out.
  */
 export function cardOf(result, band, origin) {
   const verdict = result.verdict ?? {};
@@ -98,18 +118,23 @@ export function cardOf(result, band, origin) {
   // The photo of the same product is shown once, up top: not again under "Same photo on other shops".
   const thumbsOf = (r) => (sameProduct && r.type === "photo_reused" ? [] : ownThumbnails(r.thumbnails, origin));
   const checks = typeof verdict.checks_run === "number" ? verdict.checks_run : null;
+  const checklist = (verdict.checklist ?? []).map((item) => ({
+    label: item.label,
+    status: item.status in CHECK_WORD ? item.status : "checked",
+    note: item.note ?? "",
+    // How many checks looked at this area (null on an older result).
+    checks: typeof item.checks === "number" ? item.checks : null,
+  }));
   return {
+    incomplete: verdict.incomplete?.text || null,
     sameProduct,
     reasons: reasons.map((r) => ({ ...r, thumbs: thumbsOf(r) })),
     positives,
     positivesFirst: band === "reliable",
     clean: band === "reliable" && reasons.length === 0 && checks ? `Nothing worrying in ${checks} checks.` : null,
     nextStep: verdict.next_step?.text ?? null,
-    checklist: (verdict.checklist ?? []).map((item) => ({
-      label: item.label,
-      status: item.status in CHECK_WORD ? item.status : "checked",
-      note: item.note ?? "",
-    })),
+    checklist,
+    checklistHeading: checklistHeading(checks, checklist),
     checks,
   };
 }
@@ -147,6 +172,7 @@ function checklistNode(items) {
     mark.setAttribute("aria-hidden", "true");
     const text = el("span", "what");
     text.append(el("span", "area", item.label));
+    if (item.checks) text.append(el("span", "count", ` · ${countOf(item.checks, "check", "checks")}`));
     const hidden = el("span", "visually-hidden", `: ${CHECK_WORD[item.status]}`);
     text.append(hidden);
     if (item.note) text.append(el("span", "why", item.note));
@@ -170,6 +196,8 @@ export function resultNodes(result, { band, label, symbol }) {
   const nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
   const view = cardOf(result, band, location.origin);
 
+  // Right under the headline: why the verdict may be milder than it should be.
+  if (view.incomplete) nodes.push(el("p", "incomplete", view.incomplete));
   if (view.sameProduct) nodes.push(sameProductNode(view.sameProduct));
   if (view.clean) nodes.push(el("p", "clean", view.clean));
   const reasons = view.reasons.length
@@ -188,11 +216,24 @@ export function resultNodes(result, { band, label, symbol }) {
     nodes.push(step);
   }
   if (view.checklist.length) {
-    const heading = el("h2", undefined, "What we checked");
-    if (view.checks) heading.append(el("span", "count", ` · ${view.checks} checks`));
+    const heading = el("h2", undefined, view.checklistHeading.title);
+    if (view.checklistHeading.count) heading.append(el("span", "count", view.checklistHeading.count));
     nodes.push(heading, checklistNode(view.checklist));
   }
   return { nodes };
+}
+
+/**
+ * What the check cost, as one sentence under the result: the server's (`charge_note`, with the checks left), or the
+ * same words without the count from an older server's fields.
+ */
+export function chargeNoteOf(result) {
+  if (result?.charge_note) return result.charge_note;
+  if (result?.tier === "quick") return "Quick checks are free.";
+  if (result?.score < 0) return "This page couldn't be assessed, so no check was used.";
+  if (result?.charged === false) return "You checked this page recently, so no new check was used.";
+  if (result?.free_check) return "This check used one of your free checks.";
+  return result?.charged ? "This check used one of your checks." : null;
 }
 
 /**

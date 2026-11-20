@@ -199,3 +199,36 @@ async def test_preprocess_prefers_supplied_facts() -> None:
 
     assert result["facts"] is supplied
     assert result["cleaned_content"] == "Lamp"
+
+
+async def test_a_runaway_attempt_of_a_graph_step_is_tried_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The classification and the judge (here without a scorer) each get the shared attempt timeout: a first attempt
+    # that doesn't stop writing is abandoned, and the second answers, instead of the step using up the analysis's time.
+    from unfret import llm, scoring  # noqa: PLC0415
+
+    monkeypatch.setattr(settings, "llm_attempt_timeout_s", 0.05)
+    monkeypatch.setattr(settings, "llm_max_retries", 1)
+    monkeypatch.setattr(llm, "_backoff", lambda attempt: 0.0)
+    monkeypatch.setattr(scoring, "load_model", lambda path=scoring.MODEL_PATH: None)
+    answers: dict[type[BaseModel], BaseModel] = {
+        nodes._ClassifyOutput: nodes._ClassifyOutput(page_type="storefront", platform="", reasoning="r"),
+        nodes._JudgeOutput: nodes._JudgeOutput(score=70, explanation="Looks fine."),
+    }
+    attempts: dict[type[BaseModel], int] = dict.fromkeys(answers, 0)
+
+    class _Model:
+        def with_structured_output(self, schema: type[BaseModel], method: str) -> RunnableLambda:
+            async def answer(_: Any) -> BaseModel:
+                attempts[schema] += 1
+                if attempts[schema] == 1:
+                    await asyncio.sleep(3600)
+                return answers[schema]
+
+            return RunnableLambda(lambda _: None, afunc=answer)
+
+    monkeypatch.setattr(llm, "get_llm", _Model)
+    result = await build_graph([_RecordingSkill("good")]).ainvoke({"page_content": PAGE, "url": "", "flags": []})
+
+    assert result["page_type"] == "storefront"
+    assert result["score"] == 70
+    assert attempts == dict.fromkeys(answers, 2)

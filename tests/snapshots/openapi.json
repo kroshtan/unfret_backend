@@ -111,6 +111,18 @@
       "description": "The account's balance after this analysis, in micro-dollars (1 USD = 1,000,000).",
       "title": "Balance Usd Micros"
      },
+     "charge_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What this check cost, as one sentence to show under the result: \"This check used one of your free checks; 4 are left.\", \"This check used one of your checks; 23 are left.\", \"Quick checks are free.\", \"You checked this page recently, so no new check was used.\", \"This page couldn't be assessed, so no check was used.\". The count is left out when it isn't known (a free check without a pass).",
+      "title": "Charge Note"
+     },
      "charged": {
       "anyOf": [
        {
@@ -317,6 +329,19 @@
    "CheckItem": {
     "description": "One line of the result card's \"What we checked\": an area, and whether it was checked.",
     "properties": {
+     "checks": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many of the verdict's checks_run looked at this area (a check serving two areas counts in the first); the areas' counts add up to checks_run.",
+      "title": "Checks"
+     },
      "key": {
       "description": "who, product, reviews, prices, tricks (shops); seller, price, photos, payment, text (ads); company, location, reviews, terms, photos (service providers).",
       "title": "Key",
@@ -1073,7 +1098,7 @@
         "type": "null"
        }
       ],
-      "description": "The scorer analyses and deep checks run (the open baseline or a retrained one)",
+      "description": "The scorer analyses and deep checks run (the open model in the code, or a private one)",
       "title": "Model Version"
      },
      "quick_model_version": {
@@ -1154,6 +1179,30 @@
      }
     },
     "title": "Healthy",
+    "type": "object"
+   },
+   "Incomplete": {
+    "description": "Part of the check didn't finish (a key step failed or ran out of time): the verdict rests on less evidence.",
+    "properties": {
+     "steps": {
+      "description": "The steps that didn't finish, by name (\"content\": the AI read of the page).",
+      "items": {
+       "type": "string"
+      },
+      "title": "Steps",
+      "type": "array"
+     },
+     "text": {
+      "description": "One line for the shopper: what didn't finish, what that means, what it cost.",
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "steps",
+     "text"
+    ],
+    "title": "Incomplete",
     "type": "object"
    },
    "KeyResponse": {
@@ -3440,6 +3489,17 @@
       "title": "Headline",
       "type": "string"
      },
+     "incomplete": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Incomplete"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Part of the check didn't finish, so the verdict may be milder than it should be (the result's assessment is degraded)."
+     },
      "label": {
       "description": "The band in words.",
       "title": "Label",
@@ -3590,6 +3650,17 @@
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
       "type": "string"
+     },
+     "incomplete": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Incomplete"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Part of the check didn't finish, so the verdict may be milder than it should be (the result's assessment is degraded)."
      },
      "label": {
       "description": "The band in words.",
@@ -4927,7 +4998,7 @@
   },
   "/v1/keys/phone-qr": {
    "get": {
-    "description": "A QR code that puts this key on a phone: it opens the link checker (``/check``) signed in with it.\n\nFor a shopper who bought checks in one browser and wants them on their phone. The code holds\n``<site>/check#pass=<key>``: the key is in the fragment, which a browser never sends anywhere; ``/check`` reads it,\nkeeps it like a pasted key and clears the address bar. Only for an API key (send it as ``Authorization: Bearer``);\nanyone who scans the code can use the key's checks, so pages show it only on request.\n\n:param request: The incoming request (its ``Authorization`` header is the key).\n:param account: The account (injected by require_account).\n:return: The SVG, never cached.\n:raises BadRequestError: For a wallet's session: a wallet signs in on the phone itself.",
+    "description": "A QR code that puts this key on a phone: in the Unfret app when it's installed, else in the link checker.\n\nFor a shopper who bought checks in one browser and wants them on their phone. The code holds\n``<site>/pass#pass=<key>``: the key is in the fragment, which a browser never sends anywhere. On Android with the\napp installed the link opens the app (a verified App Link, :mod:`unfret.android_app_links`); anywhere else\n``/pass`` forwards to ``/check`` with the fragment, which asks before it keeps the key like a pasted one and clears\nthe address bar. Only for an API key (send it as ``Authorization: Bearer``); anyone who scans the code can use the\nkey's checks, so pages show it only on request.\n\n:param request: The incoming request (its ``Authorization`` header is the key).\n:param account: The account (injected by require_account).\n:return: The SVG, never cached.\n:raises BadRequestError: For a wallet's session: a wallet signs in on the phone itself.",
     "operationId": "phone_qr_v1_keys_phone_qr_get",
     "responses": {
      "200": {

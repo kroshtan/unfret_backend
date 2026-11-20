@@ -13,6 +13,21 @@
 
 ### Fixes
 
+* **Reference prices and reviews from the page itself, on every layout.** What a phone gets from Amazon (and the
+  Android app's WebView, whose facts the server takes) is the mobile page, where the price's offscreen copy is empty:
+  the price was missing, so a discount against Amazon's "Adviesprijs" ("List Price", "Typical price", "RRP", "UVP")
+  went unseen and the app's check said "Worth a look" where the server's own read said "Think twice". The price to
+  pay now comes from its accessibility label or its visible parts, before the older selectors (which also caught a
+  sponsored product's price); the reference price is the price box's basis price or struck price above the price
+  (not a price per unit). The mobile page's rating, review count, seller row and top reviews are read too, and on
+  both layouts the reviews' titles and texts under Amazon's current hooks (they were empty). bol.com: the offer's
+  price and reference price ("Adviesprijs", "Meestal") from its screen-reader sentence, a partner seller's name and
+  score, the star distribution and the reviews on the page ("Meestal" joins bol.com's own labels for the pricing
+  check). Any shop: a `StrikethroughPrice`/`ListPrice` price specification in its JSON-LD, a microdata rating;
+  WooCommerce's sale price, rating and reviews; Judge.me's average, count, histogram and reviews; Loox and Stamped
+  badges; eBay's struck "List price". Nine new fixture pages (`tests/fixtures/pages`), which the extension's parity
+  test reads too.
+
 * **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained
   said "Several small signals" while every area of "What we checked" was ticked fine: the scorer's signals that set
   the band (a discount below "big", a little pushy copy, a title full of search terms) were weighed but shown

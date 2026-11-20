@@ -6,6 +6,7 @@ Amazon's markup varies by locale and layout generation, so each fact tries the k
 the fact empty when none match.
 """
 
+import json
 import re
 from urllib.parse import parse_qs, urlsplit
 
@@ -63,6 +64,22 @@ _OFFER_BLOCK_SELECTORS = (
     '[offer-display-feature-name$="-fulfiller-info"], [offer-display-feature-name$="-merchant-info"]'
 )
 _VARIATION_SELECTORS = "#twister li, #variation_color_name li, #variation_size_name li, #inline-twister li"
+# The product gallery, in its order. The desktop page names it in its image block's script
+# (``'colorImages': { 'initial': [{"hiRes": …, "large": …, "main": {url: [w, h]}, "variant": "MAIN"}, …] }``, as
+# JSON or as a JSON string to ``parseJSON``); the mobile page puts each photo's large copy on its carousel slide
+# (``data-a-hires``); the desktop thumbnails (``#altImages``) are the last resort, made large. Only Amazon's product
+# images (``/images/I/``): no banners, sprites or pixels (``/images/G/``), no video thumbnails or badges.
+GALLERY_MAX = 12
+_GALLERY_INITIAL_RE = re.compile(
+    r"""['"]colorImages['"]\s*:\s*\{\s*['"]initial['"]\s*:\s*(?:[\w$.]*parseJSON\(\s*')?"""
+)
+_GALLERY_MOBILE_SELECTORS = "#image-block .media-block-image-tag[data-a-hires]"
+_GALLERY_THUMB_SELECTORS = "#altImages li.imageThumbnail img"
+_PRODUCT_IMAGE_RE = re.compile(
+    r"^https://[A-Za-z0-9.-]*(?:media-amazon\.com|images-amazon\.com)/images/I/([A-Za-z0-9_%+-]+)\.(?:[^/?#]*\.)?(?:jpe?g|png|webp)$",
+    re.IGNORECASE,
+)
+_SIZE_MODIFIER_RE = re.compile(r"\._[^/]*_\.(jpe?g|png|webp)$", re.IGNORECASE)
 _REVIEW_STAR_SELECTORS = '[data-hook="review-star-rating"], [data-hook="cmps-review-star-rating"], .a-icon-alt'
 
 
@@ -175,11 +192,67 @@ def _variations_and_images(soup: BeautifulSoup, facts: PageFacts) -> None:
         str(li.get("title") or _text(li)).removeprefix("Click to select ") for li in soup.select(_VARIATION_SELECTORS)
     ]
     facts.variations = [v[:200] for v in variations if v][:100] or facts.variations
+    if gallery := _gallery(soup):
+        facts.image_urls = gallery  # the product's own photos, not the page's banners and pixels
+        return
     image = soup.find(id="landingImage")
     if isinstance(image, Tag):
         src = image.get("data-old-hires") or image.get("src")
         if isinstance(src, str) and src:
             facts.image_urls = [src, *[u for u in facts.image_urls if u != src]][:50]
+
+
+def _gallery(soup: BeautifulSoup) -> list[str]:
+    """
+    The product gallery's photos, large, in order: the first of the page's three ways of naming them that does.
+
+    :param soup: The parsed page.
+    :return: Up to :data:`GALLERY_MAX` photo URLs, one per photo (empty when the page names none).
+    """
+    for found in (_gallery_script(soup), _gallery_mobile(soup), _gallery_thumbnails(soup)):
+        photos: dict[str, str] = {}
+        for url in found:
+            if (m := _PRODUCT_IMAGE_RE.match(url)) and m.group(1) not in photos:
+                photos[m.group(1)] = url
+        if photos:
+            return list(photos.values())[:GALLERY_MAX]
+    return []
+
+
+def _gallery_script(soup: BeautifulSoup) -> list[str]:
+    for script in soup.find_all("script"):
+        text = script.string or ""
+        if "colorImages" not in text or (m := _GALLERY_INITIAL_RE.search(text)) is None:
+            continue
+        try:
+            items, _ = json.JSONDecoder().raw_decode(text, m.end())
+        except ValueError:
+            return []
+        return [_gallery_url(i) for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+    return []
+
+
+def _gallery_url(item: dict[str, object]) -> str:
+    # The high-resolution copy, else the large one, else the largest the page shows.
+    for key in ("hiRes", "large"):
+        if isinstance(value := item.get(key), str) and value:
+            return value
+    main = item.get("main")
+    sizes = {
+        url: int(size[0])
+        for url, size in (main.items() if isinstance(main, dict) else [])
+        if isinstance(size, list) and size and str(size[0]).isdigit()
+    }
+    return max(sizes, key=lambda url: sizes[url]) if sizes else ""
+
+
+def _gallery_mobile(soup: BeautifulSoup) -> list[str]:
+    return [str(tag.get("data-a-hires")) for tag in soup.select(_GALLERY_MOBILE_SELECTORS)]
+
+
+def _gallery_thumbnails(soup: BeautifulSoup) -> list[str]:
+    urls = (img.get("src") for img in soup.select(_GALLERY_THUMB_SELECTORS))
+    return [_SIZE_MODIFIER_RE.sub(r"._AC_SL1500_.\1", url) for url in urls if isinstance(url, str)]
 
 
 def _histogram(soup: BeautifulSoup) -> dict[int, float]:

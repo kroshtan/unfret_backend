@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Page facts
+
+* **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything
+  else the page showed (thumbnails 40 px wide, banners, sprites, tracking pixels), so the steps that look at photos
+  saw one product photo. Now an Amazon page on any locale gives its gallery, large and in its order: from the image
+  block's data (`colorImages`), else the mobile page's carousel (`data-a-hires`), else the thumbnails made large;
+  Amazon's product images only (no banners, pixels, video thumbnails or badges), one per photo, at most 12. Other
+  platforms are as before.
+
 ### Fixes
 
 * **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained

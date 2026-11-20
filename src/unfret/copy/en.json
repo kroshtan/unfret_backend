@@ -69,6 +69,10 @@
       "title": "Generic product",
       "detail": "This looks like a generic product that's also sold elsewhere under other names, often for less."
     },
+    "claim_contradicted": {
+      "title": "A claim that doesn't add up",
+      "detail": "The page says {claim}. {why}"
+    },
     "implausible_claims": {
       "title": "Hard-to-believe claims",
       "detail": "The page makes claims that are hard to believe for this product: {claim}."
@@ -593,6 +597,10 @@
     "content.generic_product": "Generic product",
     "content.brand_recognized": "Known brand",
     "content.implausible_claims": "Hard-to-believe claims",
+    "claim_audit.claims": "Checkable claims on the page",
+    "claim_audit.contradicted": "A claim that doesn't add up",
+    "claim_audit.contradictions": "Claims that don't add up",
+    "claim_audit.impossible": "A claim that can't be true",
     "content.missing_trust_info": "Little shop information",
     "content.addresses_ai": "Text aimed at AI",
     "content.title_word_soup": "Title full of search terms",

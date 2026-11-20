@@ -225,10 +225,12 @@ def configure(corpus: Corpus, *, replay: bool) -> None:
     # turning them into "skill unavailable" findings or failed pages.
     settings.llm_max_retries = max(settings.llm_max_retries, 6)
     llm.get_llm.cache_clear()
+    llm.get_claims_llm.cache_clear()
     if replay and not settings.llm_api_key.get_secret_value():
         # The client refuses to start without a key; in replay mode it never sends one.
         settings.llm_api_key = SecretStr("replay")
         llm.get_llm.cache_clear()
+        llm.get_claims_llm.cache_clear()
     llm.use_embeddings(
         CachedEmbeddings(
             llm.get_embeddings(), settings.embedding_model, corpus.root / "llm_cache.sqlite", strict=replay

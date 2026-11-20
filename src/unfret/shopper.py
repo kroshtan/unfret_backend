@@ -47,6 +47,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "word_soup": "medium",
     "generic_brand": "medium",
     "generic_product": "medium",
+    "claim_contradicted": "medium",
     "implausible_claims": "medium",
     "pushy_copy": "medium",
     "big_discount": "medium",
@@ -171,6 +172,8 @@ _GROUPS = (
     ("hidden_ai_text", "ai_text"),
     ("was_never_charged", "implausible_discount", "big_discount"),
     ("returns_abroad", "return_address_withheld"),
+    # The claim audit's quoted contradiction says what the content read's impression of "hard to believe" says, better.
+    ("claim_contradicted", "implausible_claims"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 # A fee on top of the price ("service fee", "Bearbeitungsgebühr"): "costs revealed later". Shipping costs worked out
@@ -718,6 +721,11 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     claim = e.first("implausible_claim")
     if e.f("content.implausible_claims") >= 0.6 and claim:
         fired["implausible_claims"] = {"claim": _quote(claim.evidence)}
+    said = [m for f in e.findings.get("claim_contradicted", []) if (m := _SAYS_RE.match(f.evidence))]
+    if e.f("claim_audit.contradicted") >= 1 and said:
+        # What else doesn't add up about the same claim (a padded piece count that doesn't add up either) goes with it.
+        whys = [m.group("fact") for m in said if m.group("claim") == said[0].group("claim")][:2]
+        fired["claim_contradicted"] = {"claim": _quote(said[0].group("claim")), "why": " ".join(whys)[:480]}
     if e.marketplace and e.f("listing.seller_not_brand") >= 1 and e.facts.seller:
         fired["seller_not_brand"] = {"seller": _quote(e.facts.seller)}
         # A seller named almost like a brand known elsewhere ("Nikee" for Nike): a stronger sign than another seller.
@@ -876,6 +884,12 @@ def _vouched_shop(e: _Evidence) -> bool:
     """A web shop with a track record: its address has existed for years, or it shows its return policy and company."""
     established = e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS
     return e.storefront and (established or _trust_info_present(e))
+
+
+def _unvouched_product(e: _Evidence) -> bool:
+    """Neither a shop with a track record nor a brand the content read or Wikidata knows: no one vouches for it."""
+    known = e.f("content.brand_recognized") >= 1 or e.f("brand_presence.wikidata") >= 1
+    return not _vouched_shop(e) and not known
 
 
 # A shop address older than this is no fly-by-night shop: its company is not in doubt for want of an imprint.
@@ -1175,7 +1189,10 @@ def build(
     The other way round, a web shop showing a VAT number that can't exist (a ``vat_fake`` finding) is "careful" at
     best, however good the rest looks; so is a page selling a known brand's own photo under another brand's name
     (``brand_photo_reused``), and a page whose photo is sold under other brand names (``rebranded_photo``) is
-    "concerns" at best. Neither makes a page "junk_or_scam" by itself: that band is the scorer's alone.
+    "concerns" at best, as is a page with a claim the claim audit found impossible (``claim_audit.impossible``: by
+    physics, the price or what an authority approves; a page that merely contradicts itself is only told), unless a
+    track record or a known brand vouches for it. None makes a page "junk_or_scam" by itself: that band is the
+    scorer's alone.
 
     With ``needs_reason`` (a scorer whose artifact says so, :attr:`unfret.scoring.Model.needs_reason`), "Worth a
     look" (``concerns``) also needs something to look at: a page the scorer puts there (a score from
@@ -1205,13 +1222,18 @@ def build(
         band = "careful"  # "Serious concerns" only when the scorer is sure; otherwise "Think twice"
 
     fired = _fired(evidence)
-    band = _with_reasons(band, score, set(fired), confidence, concrete_only=concrete_only, needs_reason=needs_reason)
+    # A page that only contradicts itself (a catalogue slip as often as padding) is told, but is no reason to keep a
+    # warning the band would otherwise drop.
+    weighed = set(fired) - ({"claim_contradicted"} if evidence.f("claim_audit.impossible") < 1 else set())
+    band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
     if band in {"reliable", "concerns"} and "brand_photo_reused" in fired:
         band = "careful"  # a known brand's own photo sold as another brand's: a false statement about the product
     if band == "reliable" and "rebranded_photo" in fired:
         band = "concerns"  # relabelled generic goods: worth a look and a price comparison, not a warning by itself
+    if band == "reliable" and evidence.f("claim_audit.impossible") >= 1 and _unvouched_product(evidence):
+        band = "concerns"  # a claim physics, the price or the authority rules out: worth a look, not a warning
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):
         # The one note on a page the scorer calls fine, from the content read's impression of a manufacturer's
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.

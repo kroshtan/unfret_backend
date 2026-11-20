@@ -124,6 +124,7 @@ def _params() -> dict[str, str]:
         "age": "6 weeks",
         "brand": "“INSOON”",
         "claim": "“99%”",
+        "why": "The FDA does not approve phone cases.",
         "seller": "“HUAXINGDA”",
         "place": "China",
         "sites": "aliexpress.com",

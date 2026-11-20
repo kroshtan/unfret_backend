@@ -26,8 +26,20 @@ _BRAND_ONLY_RE = re.compile(r"(?:brand|marke|marque|merk|marca|marka|märke|varu
 # The byline link's search filter by brand (``field-brandtextbin=Duracell``); a store link's path is the store's
 # name, which isn't always the brand's ("AmazonBasics" for Amazon Basics).
 _BYLINE_BRAND_PARAMS = ("field-brandtextbin", "field-brand")
-_SHIPS_FROM_RE = re.compile(r"ships from|versand|expédié par|verzonden door|enviado desde|spedizione", re.IGNORECASE)
-_SOLD_BY_RE = re.compile(r"sold by|verkäufer|vendu par|verkocht door|vendido por|venduto da", re.IGNORECASE)
+# The buybox's labels for who ships and who sells, in Amazon's languages. The current offer box names both in one
+# label when one company does both ("Shipper / Seller", "Verzender / Verkoper", "Versender / Verkäufer",
+# "Expéditeur / Vendeur"): such a row fills both facts.
+_SHIPS_FROM_RE = re.compile(
+    r"ships from|shipper|dispatches from|versand|versender|expédié par|expéditeur|verzonden door|verzender"
+    r"|enviado desde|enviado por|remitente|spedizion|spedito da|mittente|wysyłka|nadawca|skickas från|avsändare"
+    r"|gönderici",
+    re.IGNORECASE,
+)
+_SOLD_BY_RE = re.compile(
+    r"sold by|seller|verkäufer|verkauf durch|vendu par|vendeur|verkocht door|verkoper|vendido por|vendedor"
+    r"|venduto da|venditore|sprzedawca|sprzedawane przez|säljs av|säljare|satıcı",
+    re.IGNORECASE,
+)
 _STAR_ROW_RE = re.compile(r"([1-5])\s*(?:star|stern|étoile|ster|estrella|stell)", re.IGNORECASE)
 _PERCENT_RE = re.compile(r"(\d{1,3})\s*%")
 _ARIA_HISTOGRAM_RE = re.compile(
@@ -138,7 +150,7 @@ def _seller(soup: BeautifulSoup, facts: PageFacts) -> None:
     for key, value in _buybox_rows(soup).items():
         if _SHIPS_FROM_RE.search(key):
             facts.ships_from = value[:300]
-        elif _SOLD_BY_RE.search(key):
+        if _SOLD_BY_RE.search(key):
             facts.seller = value[:300]
     if not facts.seller:
         facts.seller = _text(soup.find(id="sellerProfileTriggerId") or soup.select_one("#merchant-info a"))[:300]

@@ -74,6 +74,14 @@
   check used one of your free checks; 4 are left.", "This check used one of your checks; 23 are left.", "Quick checks
   are free.", "You checked this page recently, so no new check was used.", "This page couldn't be assessed, so no
   check was used." `/check` shows it instead of the lone "One of your free checks.".
+* **The seller on Amazon's current offer box, in every language**: the offer box names shipper and seller in one
+  label when one company does both ("Verzender / Verkoper" on amazon.nl, "Shipper / Seller", "Expéditeur /
+  Vendeur"), and amazon.nl's wasn't recognised at all, so those listings had no seller. Such a row now fills both the
+  seller and where it ships from, and the labels of the other Amazon languages are known too (de "Verkauf durch",
+  fr "Vendeur", it "Venditore", es "Vendedor", pl "Sprzedawca", se "Säljs av" / "Säljare", tr "Satıcı", and their
+  shipper words). A page without a seller label still has no seller. On the corpus's recorded pages, 2 get a seller
+  (both amazon.nl) and 5 a "ships from" (amazon.nl and amazon.de); no other fact changes. Facts a client sends
+  can't be re-read (the server doesn't get the page's markup with them): the extension extracts them the same way.
 * **A runaway content read no longer degrades the check**: now and then (about 1 in 20 reads of the test shop)
   the model quotes the page's text, gets lost in its own JSON and keeps writing whitespace until it is cut off. That
   used up the content step's whole 45 s, so the check came back degraded (no hard-to-believe claims, pushy sales

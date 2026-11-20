@@ -1,10 +1,12 @@
 import re
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from unfret.facts import PageFacts, parse_page
 from unfret.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
+from unfret.facts.amazon import GALLERY_MAX
 from unfret.facts.extract import _FEE_RE, _LEGAL_RE, shopify_compare_at
 
 
@@ -129,6 +131,78 @@ SHOPIFY_PAGE = """
 </footer>
 </body></html>
 """
+
+
+PAGES = Path(__file__).parents[1] / "fixtures" / "pages"
+GALLERY_NL = [
+    "https://m.media-amazon.com/images/I/91GalMainL._AC_SL1500_.jpg",
+    "https://m.media-amazon.com/images/I/81GalPt01L._AC_SL1500_.jpg",
+    "https://m.media-amazon.com/images/I/51ThumbPt02._AC_.jpg",  # no high-resolution copy: the large one
+    "https://m.media-amazon.com/images/I/71GalPt03L._AC_SL1500_.jpg",
+]
+
+
+@pytest.mark.parametrize(
+    ("page", "url", "expected"),
+    [
+        # The image block's script, as a JSON string to parseJSON; banners, sprites, pixels, a badge, the A+
+        # content and the video's thumbnail are left out, and the main photo named twice counts once.
+        ("amazon-nl-gallery.html", "https://www.amazon.nl/dp/B0GALLERY1", GALLERY_NL),
+        # The script as a JSON literal (an entry that is a pixel is dropped).
+        (
+            "amazon-com-gallery-json.html",
+            "https://www.amazon.com/dp/B0GALLERY2",
+            [
+                "https://m.media-amazon.com/images/I/81ArtMainL._AC_SL1500_.jpg",
+                "https://m.media-amazon.com/images/I/81ArtRoomL._AC_SL1500_.jpg",
+                "https://m.media-amazon.com/images/I/71ArtSizeL._AC_SL1500_.jpg",
+            ],
+        ),
+        # The mobile page: each carousel slide's large copy, no video.
+        (
+            "amazon-nl-gallery-mobile.html",
+            "https://www.amazon.nl/dp/B0GALLERY1",
+            [
+                "https://m.media-amazon.com/images/I/91GalMainL._AC_UF1000,1000_QL80_.jpg",
+                "https://m.media-amazon.com/images/I/81GalPt01L._AC_UF1000,1000_QL80_.jpg",
+                "https://m.media-amazon.com/images/I/71GalPt03L._AC_UF1000,1000_QL80_.jpg",
+            ],
+        ),
+        # Only the thumbnails: made large; no pixel, 360° icon or video.
+        (
+            "amazon-de-gallery-thumbnails.html",
+            "https://www.amazon.de/dp/B0GALLERY3",
+            [
+                "https://m.media-amazon.com/images/I/41PlushMnL._AC_SL1500_.jpg",
+                "https://m.media-amazon.com/images/I/41PlushKdL._AC_SL1500_.jpg",
+            ],
+        ),
+    ],
+)
+def test_amazon_gallery(page: str, url: str, expected: list[str]) -> None:
+    facts, _ = parse_page((PAGES / page).read_text(), url)
+
+    assert facts.platform == "amazon"
+    assert facts.image_urls == expected
+
+
+def test_amazon_gallery_is_capped() -> None:
+    html = (PAGES / "amazon-com-gallery-json.html").read_text()
+    items = ",".join(
+        f'{{"hiRes":"https://m.media-amazon.com/images/I/7{i:02d}TestL._AC_SL1500_.jpg"}}' for i in range(30)
+    )
+    html = re.sub(r"'initial': \[.*?\]\}", f"'initial': [{items}]}}", html, flags=re.DOTALL)
+
+    facts, _ = parse_page(html, "https://www.amazon.com/dp/B0GALLERY2")
+
+    assert len(facts.image_urls) == GALLERY_MAX
+    assert facts.image_urls[0].endswith("/700TestL._AC_SL1500_.jpg")
+
+
+def test_amazon_without_a_gallery_keeps_the_landing_image_first() -> None:
+    facts, _ = parse_page(AMAZON_PAGE, "https://www.amazon.de/dp/B0TEST1234")
+
+    assert facts.image_urls == ["https://m.media-amazon.com/images/I/big.jpg"]
 
 
 def test_shopify_compare_at_is_bound_to_the_variant_on_show() -> None:

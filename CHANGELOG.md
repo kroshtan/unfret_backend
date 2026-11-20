@@ -30,6 +30,19 @@
   them in. `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` say where they work. Passes made
   before have no flag and keep working as they did.
 
+* **Developer passes can't use up the shoppers' free checks**: a developer pass's free deep checks come out of their
+  own day's budget (`UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR`, 1.00: 200 checks, ten full developer passes; counter
+  `developer_free_checks`), never the shoppers' `UNFRET_FREE_DAILY_BUDGET_EUR`, and the other way round. Once it is
+  used, a developer pass with only free checks gets `402 INSUFFICIENT_CREDITS` on `/v1/check`: "Today's free developer
+  checks are used up; they're back at 00:00 UTC. Bought checks still work." A given-back free check goes back to the
+  budget it came from. Making a developer pass needs a developer challenge (`GET /v1/keys/challenge?developer=true`),
+  `UNFRET_DEVELOPER_POW_EXTRA_BITS` (4) bits harder than an ordinary pass's (16 times the work; about 1.5 s on average
+  in Python on a laptop); ordinary passes keep their difficulty. `POST /v1/keys` with `"developer": true` and an
+  ordinary challenge answers `400 BAD_CHALLENGE`. `unfret-client` 0.1.1, the TypeScript reference client,
+  `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` follow, and say a developer pass is for
+  trying Unfret out: one per network a day. The site's proof of work (`/check`, `/checkout`, `/developers`) now
+  hashes in plain JavaScript, several times faster than one Web Crypto call per hash, with the same answer.
+
 ### Changes
 
 * **`/check` is a web page again, not an app to install.** On a phone, Unfret is `/check` in the browser: "Check a

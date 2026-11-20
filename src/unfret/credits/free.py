@@ -12,18 +12,24 @@ pass of the same holder (:func:`move`) but are never turned into balance.
 
 **Developer passes.** ``"developer": true`` instead makes a pass with ``developer_free_checks`` (20) free deep
 checks, for building an agent against ``/v1/check`` (which takes a pass like ``/v1/analyze`` does), the MCP server or
-the clients; at most ``developer_passes_per_ip_per_day`` per visitor network, under the same proof of work. The
-``/developers`` page asks for one once per browser. They are the same free checks, from the same daily budget, but
-they count **only on** ``/v1/check`` (``api=True`` below): the pass keeps a flag (``api_keys.developer``, nothing
-about who asked), and on ``/v1/analyze`` (the website, the extension, the phone app) a developer pass is a pass
-without free checks: its bought checks work there as anywhere, and without them it answers as an empty pass does.
-Its free checks never move to another pass, and none move onto it. Passes made before the flag have none set.
+the clients; at most ``developer_passes_per_ip_per_day`` per visitor network, under a proof of work
+``developer_pow_extra_bits`` harder (:class:`unfret.credits.keys.KeyGuard`). The ``/developers`` page asks for one
+once per browser. They count **only on** ``/v1/check`` (``api=True`` below): the pass keeps a flag
+(``api_keys.developer``, nothing about who asked), and on ``/v1/analyze`` (the website, the extension, the phone
+app) a developer pass is a pass without free checks: its bought checks work there as anywhere, and without them it
+answers as an empty pass does. Its free checks never move to another pass, and none move onto it. Passes made before
+the flag have none set.
 
-**One budget.** Every free deep check counts towards one global counter a UTC day (``usage_counters``, name
-``free_checks``: a number per day, nothing about anyone), capped at
-:attr:`unfret.config.Settings.free_daily_checks_cap`: the day's budget in euros over the estimated cost of one deep
-check. Once it is reached, free deep checks are "back tomorrow" (00:00 UTC) while bought checks and quick checks go
-on. A free check whose analysis fails or can't be done is given back, to the pass and to the day's budget.
+**Two budgets.** Every free deep check counts towards a global counter a UTC day (``usage_counters``: a number per
+day, nothing about anyone). A shopper's pass counts under ``free_checks``, capped at
+:attr:`unfret.config.Settings.free_daily_checks_cap` (the day's budget in euros over the estimated cost of one deep
+check); a developer pass counts under ``developer_free_checks``, capped at
+:attr:`unfret.config.Settings.developer_free_daily_checks_cap` in the same way. Neither touches the other: a script
+that keeps making developer passes from many networks can use up the developers' day, never the shoppers'. Once
+the shoppers' budget is reached, their free deep checks are "back tomorrow" (00:00 UTC, ``paused``); once the
+developers' is, a developer pass with only free checks is answered as an empty pass is, saying they are back at
+00:00 UTC (``developer_paused``). Bought checks and quick checks go on either way. A free check whose analysis fails
+or can't be done is given back, to the pass and to the budget it came from.
 
 **Quick checks** (rules only, no LLM: the x402 quick tier) cost nothing to run and are free for everyone, with or
 without a pass, within a per-minute rate limit (:mod:`unfret.routes.analyze`).
@@ -43,8 +49,9 @@ from unfret.config import Settings
 type Executor = asyncpg.Pool | asyncpg.Connection
 
 COUNTER = "free_checks"
+DEVELOPER_COUNTER = "developer_free_checks"
 
-Taken = Literal["taken", "none", "paused"]
+Taken = Literal["taken", "none", "paused", "developer_paused"]
 
 
 def today() -> str:
@@ -74,44 +81,54 @@ class Spent:
 
     period: str
     key_id: str
+    counter: str = COUNTER  # the budget it came from: the shoppers' or the developers'
 
 
-async def used_today(db: Executor) -> int:
+def _budget(settings: Settings, *, developer: bool) -> tuple[str, int]:
+    if developer:
+        return DEVELOPER_COUNTER, settings.developer_free_daily_checks_cap
+    return COUNTER, settings.free_daily_checks_cap
+
+
+async def used_today(db: Executor, *, developer: bool = False) -> int:
     """
-    The free deep checks used today, from every pass.
+    The free deep checks used today from one budget, by every pass that counts in it.
 
     :param db: A pool or connection.
+    :param developer: The developer passes' budget; otherwise the shoppers'.
     :return: The count.
     """
-    count = await db.fetchval("SELECT count FROM usage_counters WHERE name = $1 AND period = $2", COUNTER, today())
+    counter = DEVELOPER_COUNTER if developer else COUNTER
+    count = await db.fetchval("SELECT count FROM usage_counters WHERE name = $1 AND period = $2", counter, today())
     return int(count or 0)
 
 
-async def paused(db: Executor, settings: Settings) -> bool:
+async def paused(db: Executor, settings: Settings, *, developer: bool = False) -> bool:
     """
     Whether today's budget for free deep checks is spent.
 
     :param db: A pool or connection.
     :param settings: The service settings.
+    :param developer: The developer passes' budget; otherwise the shoppers'.
     :return: ``True`` until 00:00 UTC once it is.
     """
-    cap = settings.free_daily_checks_cap
-    return cap <= 0 or await used_today(db) >= cap
+    _, cap = _budget(settings, developer=developer)
+    return cap <= 0 or await used_today(db, developer=developer) >= cap
 
 
-async def _take_budget(conn: Executor, settings: Settings, period: str) -> bool:
-    cap = settings.free_daily_checks_cap
+async def _take_budget(conn: Executor, settings: Settings, period: str, *, developer: bool) -> str | None:
+    counter, cap = _budget(settings, developer=developer)
     if cap <= 0:
-        return False
+        return None
     # One statement: concurrent checks can't both take the budget's last check.
     taken = await conn.fetchval(
         "INSERT INTO usage_counters (name, period, count) VALUES ($1, $2, 1) ON CONFLICT (name, period) "
         "DO UPDATE SET count = usage_counters.count + 1 WHERE usage_counters.count < $3 RETURNING count",
-        COUNTER,
+        counter,
         period,
         cap,
     )
-    return taken is not None
+    return counter if taken is not None else None
 
 
 async def take_for_key(
@@ -125,29 +142,32 @@ async def take_for_key(
     :param key_id: The pass's id.
     :param api: The check is on ``/v1/check``, where a developer pass's free checks count too.
     :return: ``("taken", spent)``; ``("none", None)`` without free checks left (or a developer pass off the API);
-        ``("paused", None)`` when the pass has some but today's budget is spent (nothing is taken then).
+        ``("paused", None)`` when the pass has some but the shoppers' budget is spent today, ``("developer_paused",
+        None)`` when it is a developer pass and the developers' budget is (nothing is taken then).
     """
     period = today()
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow("SELECT free_checks, developer FROM api_keys WHERE id = $1 FOR UPDATE", key_id)
         if row is None or not row["free_checks"] or (row["developer"] and not api):
             return "none", None
-        if not await _take_budget(conn, settings, period):
-            return "paused", None
+        developer = bool(row["developer"])
+        counter = await _take_budget(conn, settings, period, developer=developer)
+        if counter is None:
+            return ("developer_paused" if developer else "paused"), None
         await conn.execute("UPDATE api_keys SET free_checks = free_checks - 1 WHERE id = $1", key_id)
-    return "taken", Spent(period, key_id)
+    return "taken", Spent(period, key_id, counter)
 
 
 async def give_back(db: Executor, spent: Spent) -> None:
     """
-    Undo a free deep check that didn't happen (a failed or unreadable analysis): back to the pass and the budget.
+    Undo a free deep check that didn't happen (a failed or unreadable analysis): back to the pass and its budget.
 
     :param db: A pool or connection.
     :param spent: What was taken.
     """
     await db.execute(
         "UPDATE usage_counters SET count = GREATEST(count - 1, 0) WHERE name = $1 AND period = $2",
-        COUNTER,
+        spent.counter,
         spent.period,
     )
     await db.execute("UPDATE api_keys SET free_checks = free_checks + 1 WHERE id = $1", spent.key_id)

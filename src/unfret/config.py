@@ -214,10 +214,16 @@ class Settings(BaseSettings):
     free_checks_per_pass: int = Field(default=5, ge=0)
     free_passes_per_ip_per_day: int = Field(default=2, ge=0)
     # Developer passes ("developer": true on POST /v1/keys, for building against /v1/check, the MCP server or the
-    # clients): developer_free_checks free deep checks instead, for at most developer_passes_per_ip_per_day per visitor
-    # network (in memory, salted hashes, like the free passes), from the same daily budget.
+    # clients): developer_free_checks free deep checks instead (they count on /v1/check only), for at most
+    # developer_passes_per_ip_per_day per visitor network (in memory, salted hashes, like the free passes). Their free
+    # checks come out of their own budget a UTC day, developer_free_daily_budget_eur over free_check_cost_eur (200
+    # checks by default: ten full developer passes), never the shoppers' free_daily_budget_eur, so a script that
+    # keeps making developer passes can't use up the shoppers' free checks. Their proof of work is
+    # developer_pow_extra_bits harder than an ordinary pass's (16 times the work at 4).
     developer_free_checks: int = Field(default=20, ge=0)
     developer_passes_per_ip_per_day: int = Field(default=1, ge=0)
+    developer_free_daily_budget_eur: Decimal = Field(default=Decimal("1.00"), ge=0, decimal_places=2)
+    developer_pow_extra_bits: int = Field(default=4, ge=0, le=8)
     free_daily_budget_eur: Decimal = Field(default=Decimal("5.00"), ge=0, decimal_places=2)
     free_check_cost_eur: Decimal = Field(default=Decimal("0.005"), gt=0, decimal_places=6)
     quick_checks_per_minute: int = Field(default=10, ge=1)
@@ -717,6 +723,15 @@ class Settings(BaseSettings):
         :return: The budget over the estimated cost of one deep check, rounded down.
         """
         return int(self.free_daily_budget_eur // self.free_check_cost_eur)
+
+    @property
+    def developer_free_daily_checks_cap(self) -> int:
+        """
+        How many developer passes' free deep checks fit in a UTC day (from :attr:`developer_free_daily_budget_eur`).
+
+        :return: That budget over the estimated cost of one deep check, rounded down.
+        """
+        return int(self.developer_free_daily_budget_eur // self.free_check_cost_eur)
 
     @property
     def analysis_price_lamports(self) -> int:

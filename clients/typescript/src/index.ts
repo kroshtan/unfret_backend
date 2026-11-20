@@ -231,11 +231,13 @@ export class Unfret {
   }
 
   /**
-   * Make a developer pass (20 free deep checks; one a day per network) and use it from now on. Solves the proof of
-   * work POST /v1/keys asks for (a few seconds). Keep `key` and `recovery_code`: they are shown only this once.
+   * Make a developer pass and use it from now on: 20 free deep checks, for trying Unfret out; one per network a day.
+   * Its free checks work on the API and the MCP server, not in the extension or on the website. Asks for a developer
+   * challenge (GET /v1/keys/challenge?developer=true, a harder proof of work) and solves it: a few seconds. Keep `key`
+   * and `recovery_code`: they are shown only this once.
    */
   async newDeveloperPass(): Promise<{ key: string; key_id: string; recovery_code: string; free_checks: number }> {
-    const challenge = await this.request("/v1/keys/challenge");
+    const challenge = await this.request("/v1/keys/challenge?developer=true");
     await raiseFor(challenge);
     const work = (await challenge.json()) as { challenge: string; bits: number };
     const response = await this.request("/v1/keys", {

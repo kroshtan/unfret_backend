@@ -129,10 +129,13 @@ def test_solve_finds_the_proof_of_work() -> None:
 def test_a_new_developer_pass_is_used_from_then_on() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/keys/challenge":
-            return httpx.Response(200, json={"challenge": "c", "bits": 4, "expires_at": 0})
+            assert request.url.params["developer"] == "true"  # a developer pass needs the harder challenge
+            return httpx.Response(200, json={"challenge": "c", "bits": 12, "expires_at": 0, "developer": True})
         if request.url.path == "/v1/keys":
             body = json.loads(request.content)
             assert body["developer"] is True and body["challenge"] == "c"
+            digest = hashlib.sha256(f"c:{body['solution']}".encode()).digest()
+            assert digest[0] == 0 and digest[1] < 16  # solved at the challenge's 12 bits
             return httpx.Response(201, json={"key": "ufk_new", "key_id": "x", "free_checks": 20})
         assert request.headers["Authorization"] == "Bearer ufk_new"
         return httpx.Response(200, json=VERDICT)

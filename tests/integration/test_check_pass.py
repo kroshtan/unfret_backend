@@ -33,7 +33,9 @@ def quick(monkeypatch: pytest.MonkeyPatch) -> FakeGraph:
 
 
 async def new_pass(client: httpx.AsyncClient, **options: bool) -> dict[str, Any]:
-    challenge = (await client.get("/v1/keys/challenge")).json()
+    # A developer pass needs a developer challenge (harder); any other pass the ordinary one.
+    query = {"developer": "true"} if options.get("developer") else {}
+    challenge = (await client.get("/v1/keys/challenge", params=query)).json()
     body = {"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], challenge["bits"])}
     response = await client.post("/v1/keys", json={**body, **options})
     assert response.status_code == 201
@@ -236,7 +238,8 @@ async def test_the_days_budget_pauses_free_checks_on_check_too(
 ) -> None:
     monkeypatch.setattr(settings, "free_check_cost_eur", Decimal("0.01"))
     monkeypatch.setattr(settings, "free_daily_budget_eur", Decimal("0.01"))  # one free deep check today
-    first, second = await new_pass(client, developer=True), await new_pass(client, free=True)
+    # Two shoppers' passes (a developer pass's free checks have a budget of their own, tested below).
+    first, second = await new_pass(client, free=True), await new_pass(client, free=True)
     assert (await client.post("/v1/check", json=CHECK, headers=bearer(first["key"]))).status_code == 200
 
     paused = await client.post(
@@ -362,3 +365,137 @@ async def test_a_recovered_developer_pass_stays_one(client: httpx.AsyncClient) -
     developer = await new_pass(client, developer=True)
     recovered = await client.post("/v1/keys/recover", json={"recovery_code": developer["recovery_code"]})
     assert recovered.json()["developer"] is True and recovered.json()["free_checks"] == 20
+
+
+# ── Developer passes have their own day's budget and a harder proof of work ──────────────────────────────────
+
+
+def budgets(monkeypatch: pytest.MonkeyPatch, *, shoppers: int, developers: int) -> None:
+    """Set each day's budget to exactly that many free deep checks."""
+    monkeypatch.setattr(settings, "free_check_cost_eur", Decimal("0.01"))
+    monkeypatch.setattr(settings, "free_daily_budget_eur", Decimal(shoppers) / 100)
+    monkeypatch.setattr(settings, "developer_free_daily_budget_eur", Decimal(developers) / 100)
+
+
+async def counters(pool: asyncpg.Pool) -> dict[str, int]:
+    rows = await pool.fetch("SELECT name, count FROM usage_counters WHERE period = $1", free.today())
+    return {row["name"]: int(row["count"]) for row in rows if row["name"] in {free.COUNTER, free.DEVELOPER_COUNTER}}
+
+
+async def test_developer_and_shopper_free_checks_count_apart(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets(monkeypatch, shoppers=10, developers=10)
+    developer, shopper = await new_pass(client, developer=True), await new_pass(client, free=True)
+
+    await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))
+    await client.post("/v1/check", json={**CHECK, "url": "https://shop.test/2"}, headers=bearer(developer["key"]))
+    await client.post("/v1/analyze", json={**PAGE, "url": "https://shop.test/3"}, headers=bearer(shopper["key"]))
+
+    assert await counters(pool) == {free.DEVELOPER_COUNTER: 2, free.COUNTER: 1}
+    assert await free.used_today(pool, developer=True) == 2 and await free.used_today(pool) == 1
+
+
+async def test_the_developers_budget_used_up_answers_like_an_empty_pass(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets(monkeypatch, shoppers=10, developers=1)
+    developer, shopper = await new_pass(client, developer=True), await new_pass(client, free=True)
+    assert (await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))).status_code == 200
+
+    refused = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/2"}, headers=bearer(developer["key"])
+    )
+
+    assert refused.status_code == 402 and refused.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert refused.json()["detail"] == (
+        "Today's free developer checks are used up; they're back at 00:00 UTC. Bought checks still work."
+    )
+    assert (
+        refused.json()["metadata"]["analysis_usd_micros"] == PRICE and refused.json()["metadata"]["retry_after_s"] > 0
+    )
+    assert len(graph.calls) == 1  # refused before any work
+    assert await free.left(pool, developer["key_id"], api=True) == 19  # nothing taken
+    credits = (await client.get("/v1/credits", headers=bearer(developer["key"]))).json()
+    assert credits["api_free_checks_remaining"] == 19 and credits["free_checks_paused"] is True
+    # The shoppers' budget is untouched: their free checks go on.
+    shopped = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/3"}, headers=bearer(shopper["key"])
+    )
+    assert shopped.json()["free_check"] is True
+    shopper_credits = (await client.get("/v1/credits", headers=bearer(shopper["key"]))).json()
+    assert shopper_credits["free_checks_paused"] is False
+    # Bought checks still work on the developer pass.
+    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", developer["account"], PRICE)
+    paid = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/4"}, headers=bearer(developer["key"])
+    )
+    assert paid.status_code == 200 and paid.json()["free_check"] is False and paid.json()["charged"] is True
+
+
+async def test_the_shoppers_budget_used_up_leaves_developers_alone(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets(monkeypatch, shoppers=1, developers=10)
+    developer, shopper = await new_pass(client, developer=True), await new_pass(client, free=True)
+    assert (await client.post("/v1/analyze", json=PAGE, headers=bearer(shopper["key"]))).json()["free_check"] is True
+
+    paused = await client.post(
+        "/v1/analyze", json={**PAGE, "url": "https://shop.test/2"}, headers=bearer(shopper["key"])
+    )
+    checked = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/3"}, headers=bearer(developer["key"])
+    )
+
+    assert paused.status_code == 429 and paused.json()["error_code"] == "FREE_CHECKS_PAUSED"
+    assert checked.status_code == 200 and checked.json()["free_check"] is True
+    assert (await client.get("/v1/credits", headers=bearer(developer["key"]))).json()["free_checks_paused"] is False
+
+
+@pytest.mark.parametrize("developer", [True, False])
+async def test_a_given_back_free_check_goes_to_its_own_budget(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch, developer: bool
+) -> None:
+    budgets(monkeypatch, shoppers=10, developers=10)
+    issued = await new_pass(client, developer=True) if developer else await new_pass(client, free=True)
+    other = await new_pass(client, free=True) if developer else await new_pass(client, developer=True)
+    # The other kind of pass has spent one from its own budget: a give-back must not touch it.
+    other_kind_check = "/v1/analyze" if developer else "/v1/check"
+    body = PAGE if developer else CHECK
+    assert (await client.post(other_kind_check, json=body, headers=bearer(other["key"]))).json()["free_check"] is True
+    graph.error = RuntimeError("boom")
+
+    failed = await client.post(
+        "/v1/check", json={**CHECK, "url": "https://shop.test/2"}, headers=bearer(issued["key"])
+    )
+
+    assert failed.status_code == 500
+    mine, theirs = (free.DEVELOPER_COUNTER, free.COUNTER) if developer else (free.COUNTER, free.DEVELOPER_COUNTER)
+    assert (await counters(pool)).get(mine, 0) == 0 and (await counters(pool))[theirs] == 1
+    assert await free.left(pool, issued["key_id"], api=True) == (20 if developer else 5)
+
+
+async def test_a_developer_pass_needs_the_harder_challenge(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    normal = (await client.get("/v1/keys/challenge")).json()
+    harder = (await client.get("/v1/keys/challenge", params={"developer": "true"})).json()
+    assert normal["bits"] == settings.key_pow_bits and normal["developer"] is False
+    assert harder["bits"] == settings.key_pow_bits + settings.developer_pow_extra_bits and harder["developer"] is True
+
+    solved = {"challenge": normal["challenge"], "solution": solve(normal["challenge"], normal["bits"])}
+    refused = await client.post("/v1/keys", json={**solved, "developer": True})
+
+    assert refused.status_code == 400 and refused.json()["error_code"] == "BAD_CHALLENGE"
+    assert "GET /v1/keys/challenge?developer=true" in refused.json()["detail"]
+    assert await pool.fetchval("SELECT COUNT(*) FROM api_keys") == 0
+    # The ordinary challenge still makes an ordinary pass (it wasn't used up by the refusal) ...
+    assert (await client.post("/v1/keys", json={**solved, "free": True})).status_code == 201
+    # ... and a developer challenge makes a developer pass.
+    made = await client.post(
+        "/v1/keys",
+        json={
+            "challenge": harder["challenge"],
+            "solution": solve(harder["challenge"], harder["bits"]),
+            "developer": True,
+        },
+    )
+    assert made.status_code == 201 and made.json()["developer"] is True and made.json()["free_checks"] == 20

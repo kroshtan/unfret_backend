@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "unfret-client"
 description = "Minimal client for Unfret: check a store or product page before an AI agent buys (allow, warn or block)"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "Floris van Beers", email = "hello@unfret.net" }]
 readme = "README.md"
 license = "MIT"

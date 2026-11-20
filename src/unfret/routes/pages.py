@@ -424,7 +424,9 @@ def developers_http(request: Request) -> HTMLResponse:
     """
     options, base_on = _payment_options(request)
     warn, block = POLICY_THRESHOLDS["balanced"]
-    bits, passes = settings.key_pow_bits, settings.developer_passes_per_ip_per_day
+    # The page makes a developer pass in code: its challenge is developer_pow_extra_bits harder than an ordinary one.
+    bits = settings.key_pow_bits + settings.developer_pow_extra_bits
+    passes = settings.developer_passes_per_ip_per_day
     fields = {
         **developer_fields(),
         **_limits_and_measurements(),
@@ -433,6 +435,7 @@ def developers_http(request: Request) -> HTMLResponse:
         "pow_example": _pow_example(bits),
         "pow_hashes": f"{2**bits:,}",
         "pow_extra_max": str(MAX_EXTRA_BITS),
+        "pow_developer_extra": str(settings.developer_pow_extra_bits),
         "pow_ttl_min": f"{settings.key_pow_ttl_s / 60:g}",
         "developer_passes_per_day": _count(passes) + (" developer pass" if passes == 1 else " developer passes"),
         "key_create_per_day": str(settings.key_create_per_ip_per_day),

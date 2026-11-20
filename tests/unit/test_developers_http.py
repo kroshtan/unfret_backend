@@ -105,18 +105,21 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self) -> None:
-        if self.path != "/v1/keys/challenge":
+        if self.path not in {"/v1/keys/challenge", "/v1/keys/challenge?developer=true"}:
             self._answer(404, {"detail": "Not found", "error_code": "NOT_FOUND"})
             return
-        text, bits, expires = self.server.guard.challenge()
-        self._answer(200, ChallengeResponse(challenge=text, bits=bits, expires_at=expires).model_dump())
+        developer = self.path.endswith("?developer=true")
+        text, bits, expires = self.server.guard.challenge(developer=developer)
+        challenge = ChallengeResponse(challenge=text, bits=bits, expires_at=expires, developer=developer)
+        self._answer(200, challenge.model_dump())
 
     def do_POST(self) -> None:
         raw = self.rfile.read(int(self.headers["Content-Length"])).decode()
         self.server.requests.append((self.path, self.headers.get("Authorization", ""), json.loads(raw)))
         if self.path == "/v1/keys":
             body = CreateKeyRequest.model_validate_json(raw)
-            if not self.server.guard.redeem(body.challenge, body.solution):
+            guard = self.server.guard
+            if not guard.redeem(body.challenge, body.solution, min_bits=guard.developer_bits if body.developer else 0):
                 self._answer(400, {"detail": "Challenge invalid.", "error_code": "BAD_CHALLENGE"})
                 return
             made = KeyResponse(
@@ -144,7 +147,12 @@ class _Handler(BaseHTTPRequestHandler):
 def stand_in() -> Iterator[_Server]:
     server = _Server(("127.0.0.1", 0), _Handler)
     server.guard = KeyGuard(
-        secret="test", bits=12, ttl_s=60, creations=DailyLimit(5, 500), recoveries=DailyLimit(5, 500)
+        secret="test",
+        bits=10,
+        ttl_s=60,
+        creations=DailyLimit(5, 500),
+        recoveries=DailyLimit(5, 500),
+        developer_extra_bits=2,  # as the server: a developer pass needs a harder challenge
     )
     server.requests = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -173,6 +181,28 @@ async def test_the_proof_of_work_in_javascript_is_the_one_the_server_checks(
     first = next(str(n) for n in range(1 << 22) if pow_ok(challenge, str(n), bits))
     assert solution == first
     assert guard.redeem(challenge, solution)
+
+
+def test_the_sites_proof_of_work_finds_the_servers_first_counter(tmp_path: Path) -> None:
+    # The site's solver (new-pass.js: SHA-256 in plain JavaScript, for /check, /checkout and /developers) must give the
+    # first counter the server's own check accepts: challenges of many lengths, so the counter falls in the first or
+    # the second block, after a challenge of more than one block too.
+    for name in ("new-pass.js", "ref.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text(encoding="utf-8"), encoding="utf-8")
+    challenges = [f"{'x' * length}.{n}" for length in range(40, 140, 7) for n in range(3)]
+    guard = KeyGuard(secret="s", bits=10, ttl_s=60, creations=DailyLimit(5, 500), recoveries=DailyLimit(5, 500),
+                     developer_extra_bits=2)  # fmt: skip
+    issued, bits, _ = guard.challenge(developer=True)
+    cases = [(c, 9) for c in challenges] + [(issued, bits)]
+    code = (
+        'import { solve } from "./new-pass.js";\n'
+        f"for (const [challenge, bits] of {json.dumps(cases)}) console.log(await solve(challenge, bits));"
+    )
+    solutions = _run_js(code, tmp_path).split("\n")
+    for (challenge, difficulty), solution in zip(cases, solutions, strict=True):
+        first = next(str(n) for n in range(1 << 22) if pow_ok(challenge, str(n), difficulty))
+        assert solution == first, challenge
+    assert guard.redeem(issued, solutions[-1], min_bits=guard.developer_bits)
 
 
 async def test_the_javascript_examples_make_a_pass_and_check_a_page(
@@ -351,8 +381,11 @@ async def test_the_numbers_come_from_the_settings(client: httpx.AsyncClient) -> 
     page = response.text
     assert "{{" not in page and "<script>" not in page and " style=" not in page and " on" + "click=" not in page
     text = _text(page)
-    bits = settings.key_pow_bits
+    bits = settings.key_pow_bits + settings.developer_pow_extra_bits  # the page makes a developer pass
     assert f'"bits": {bits}' in text and f"about {2**bits:,} hashes" in text
+    assert (
+        "GET /v1/keys/challenge?developer=true" in text and f"{settings.developer_pow_extra_bits} bits harder" in text
+    )
     assert f"within {settings.key_pow_ttl_s / 60:g} minutes" in text
     assert f"{settings.developer_free_checks} free deep checks" in text
     assert f"At most {settings.key_create_per_ip_per_day} new passes a day per network" in text

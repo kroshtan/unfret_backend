@@ -1393,3 +1393,29 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `/check#pass=<key>` behaves exactly as before and `/pass` stays out of the history. Without a script the page says
   what the link is for and links to `/check`. Not in the sitemap.
 - `/check#pass=<key>` keeps working, for QR codes shown or printed before this change.
+
+## Changes (developer passes: their own daily budget and a harder proof of work; backwards-incompatible for making one)
+
+- **A developer challenge**: `GET /v1/keys/challenge?developer=true` answers a challenge `UNFRET_DEVELOPER_POW_EXTRA_BITS`
+  (4) bits harder than an ordinary one (`bits` says how hard, as before; the difficulty is under the challenge's HMAC),
+  and the response adds `developer` (bool). `POST /v1/keys` with `"developer": true` accepts only such a challenge:
+  an ordinary one answers `400 BAD_CHALLENGE` ("… A developer pass needs a developer challenge: GET
+  /v1/keys/challenge?developer=true.") and stays usable for an ordinary pass. Ordinary passes keep their difficulty.
+  **Breaking** for clients that make developer passes with the ordinary challenge: `unfret-client` 0.1.0's
+  `new_developer_pass()` is refused; 0.1.1 asks for the developer challenge. `/developers` and the TypeScript
+  reference client are updated.
+- **Their own daily budget**: a developer pass's free deep checks count towards `usage_counters` `developer_free_checks`
+  (a number per UTC day), capped at `UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR` (1.00) over `UNFRET_FREE_CHECK_COST_EUR`
+  (200 checks a day by default); shoppers' free checks count towards `free_checks` as before, and neither touches the
+  other. Once the developers' budget is used, a deep check on `/v1/check` that only a developer pass's free checks
+  could pay for answers **`402 INSUFFICIENT_CREDITS`**, as an empty pass does, with `detail` "Today's free developer
+  checks are used up; they're back at 00:00 UTC. Bought checks still work." and `metadata.retry_after_s` beside the
+  usual shortfall. A free check that is given back (failed, unassessable) goes back to the budget it came from.
+- `GET /v1/credits`: `free_checks_paused` is about the budget this pass's free checks come from (the developers' for
+  a developer pass); `api_free_checks_remaining` is unchanged.
+- `/.well-known/x402`: `auth.developer_pass.challenge` is the developer challenge's address, and it adds
+  `per_network_per_day` and `pow_bits`. `/llms.txt`, `/developers` and `/developers/http` say a developer pass is
+  for trying Unfret out (one per network a day), with its harder challenge and its own budget.
+- The site's proof of work (`static/new-pass.js`, for `/check`, `/checkout` and `/developers`) computes SHA-256 in
+  plain JavaScript instead of one Web Crypto call per hash: the same first counter, several times faster, so a
+  developer pass's harder challenge takes seconds in a browser.

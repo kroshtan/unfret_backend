@@ -266,6 +266,38 @@ def test_past_the_daily_cap_keys_get_harder_to_make_not_impossible() -> None:
     assert not g.creations.allow("10.0.0.1", daily_cap=False)  # the per-network limit stays
 
 
+def test_a_developer_challenge_needs_the_extra_bits_and_a_normal_one_doesnt() -> None:
+    now = [1000.0]
+    g = KeyGuard(secret="s", bits=6, ttl_s=60, creations=DailyLimit(5, 100), recoveries=DailyLimit(5, 100),
+                 clock=lambda: now[0], developer_extra_bits=4)  # fmt: skip
+    normal, normal_bits, _ = g.challenge()
+    developer, developer_bits, _ = g.challenge(developer=True)
+    assert (normal_bits, developer_bits, g.developer_bits) == (6, 10, 10)
+
+    # A normal challenge doesn't make a developer pass, however it is solved, and isn't used up by trying.
+    assert not g.redeem(normal, solve(normal, normal_bits), min_bits=g.developer_bits)
+    assert g.redeem(normal, solve(normal, normal_bits))  # still good for an ordinary pass
+    # A developer challenge, solved at its own difficulty, does; a solution at the ordinary difficulty doesn't.
+    weak = next(
+        str(n)
+        for n in range(1_000_000)
+        if keys.pow_ok(developer, str(n), 6) and not keys.pow_ok(developer, str(n), 10)
+    )
+    assert not g.redeem(developer, weak, min_bits=g.developer_bits)
+    assert g.redeem(developer, solve(developer, developer_bits), min_bits=g.developer_bits)
+
+
+def test_the_developer_extra_bits_come_from_the_settings() -> None:
+    from pydantic import SecretStr  # noqa: PLC0415
+
+    from unfret.credits import CreditsDoor  # noqa: PLC0415
+    from unfret.x402.solana import SolanaRpc  # noqa: PLC0415
+
+    door = CreditsDoor(Settings(session_secret=SecretStr("s")), SolanaRpc("http://rpc.invalid"), None)
+    assert door.key_guard.developer_bits == door.settings.key_pow_bits + 4
+    assert door.settings.developer_free_daily_checks_cap == 200  # €1.00 a day at €0.005 a deep check
+
+
 def test_recovery_attempts_have_no_global_cap() -> None:
     # Backup codes are 256 random bits: only the per-network limit matters, and a global one could be used up by a
     # stranger to keep everyone from recovering (or picking up a card purchase) for the day.

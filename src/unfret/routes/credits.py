@@ -76,8 +76,9 @@ class CreditsResponse(BaseModel):
     )
     free_checks_paused: bool = Field(
         default=False,
-        description="Today's free deep checks are all used (by everyone): free checks (free_checks_remaining, "
-        "api_free_checks_remaining) wait until 00:00 UTC, while bought checks and quick checks work.",
+        description="Today's budget for this pass's free deep checks is all used (by everyone): free checks wait "
+        "until 00:00 UTC, while bought checks and quick checks work. A developer pass's free checks "
+        "(api_free_checks_remaining) have a budget of their own, apart from free_checks_remaining's.",
     )
     api_free_checks_remaining: int = Field(
         default=0,
@@ -260,7 +261,8 @@ async def get_balance(request: Request, address: str = Depends(require_account))
         balance_lamports=balance,
         invite_eligible=True,  # a gift code works on any account (but its buyer's: redeem refuses that one)
         free_checks_remaining=free_left,
-        free_checks_paused=bool(free_left or api_free) and await free.paused(pool, settings),
+        free_checks_paused=(bool(free_left) and await free.paused(pool, settings))
+        or (bool(api_free) and await free.paused(pool, settings, developer=True)),
         api_free_checks_remaining=api_free,
     )
 

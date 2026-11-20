@@ -25,8 +25,11 @@ its reviews and photos) uses one of the pass's checks; `tier="quick"` (rules on 
 **developer pass with 20 free deep checks** at [unfret.net/developers](https://unfret.net/developers), or in code:
 
 ```python
-issued = Unfret().new_developer_pass()  # solves a short proof of work; keep issued["key"] and issued["recovery_code"]
+issued = Unfret().new_developer_pass()  # solves a proof of work (a few seconds); keep issued["key"] and issued["recovery_code"]
 ```
+
+A developer pass is for trying Unfret out: one per network a day. Its free checks work on the API and the MCP server,
+not in the browser extension or on the website; checks you buy for it work everywhere.
 
 Buy more checks for a pass at [unfret.net/checkout](https://unfret.net/checkout). (Agents with a Solana wallet can
 also pay per check over x402 without a pass; see [unfret.net/developers](https://unfret.net/developers).)

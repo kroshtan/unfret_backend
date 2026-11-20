@@ -712,6 +712,9 @@ async def test_the_p2p_skills_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     for skill in ("seller_profile", "off_platform", "price_outlier", "duplicate_ads", "reverse_image"):
         assert f'"skill": "{skill}"' in steps, skill
     assert final["verdict"]["band"] == "reliable"
+    # Progress counts the checks the result then says it ran: "N checks done" is the checklist's N.
+    done = sum(json.loads(e.split("data: ", 1)[1])["check"] for e in events if e.startswith("event: step"))
+    assert done == final["verdict"]["checks_run"] > 0
 
 
 # ── The content read ────────────────────────────────────────────────────────────────────────────────────────

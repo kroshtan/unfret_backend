@@ -11,6 +11,7 @@ judge's LLM, or taken from the catalogue's template for the band).
 
 import json
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
@@ -458,6 +459,107 @@ def label_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return labelled
+
+
+# The scorer's signals that are about a reason's subject: a sign of it below the reason's own threshold (a discount of
+# 30 % is no "big discount", but the scorer weighs it). A sign's checklist area is its reason's (:mod:`unfret.card`).
+SIGN_REASONS: dict[str, str] = {
+    "content.scam_copy": "pushy_copy",
+    "content.generic_product": "generic_product",
+    "content.implausible_claims": "implausible_claims",
+    "content.missing_trust_info": "missing_trust_info",
+    "content.addresses_ai": "ai_text",
+    "content.title_word_soup": "word_soup",
+    "content.generic_brand": "generic_brand",
+    "listing.discount_pct": "big_discount",
+    "listing.seller_not_brand": "seller_not_brand",
+    "listing.ships_from_china": "ships_from_far",
+    "reviews.off_topic_share": "off_topic_reviews",
+    "reviews.duplicate_share": "duplicate_reviews",
+    "reviews.j_shaped": "review_shape",
+    "html_source_signals.review_import_app": "review_import_app",
+    "html_source_signals.timer_app": "fake_urgency_app",
+    "html_source_signals.supplier_trace": "supplier_links",
+    "html_source_signals.dropship_app": "dropshipping_tools",
+    "dark_patterns.timer": "countdown",
+    "dark_patterns.timer_resets": "timer_resets",
+    "dark_patterns.preticked_addons": "preticked_addon",
+    "dark_patterns.fee_mentions": "late_fees",
+    "dark_patterns.checkout_markup_pct": "drip_pricing",
+    "injection.hidden_chars": "hidden_ai_text",
+    "injection.instruction_hidden": "hidden_ai_text",
+    "injection.instruction_visible": "ai_text",
+    "payment_methods.irreversible_only": "irreversible_payment_only",
+    "shop_policies.long_delivery": "long_delivery",
+    "shop_policies.returns_abroad": "returns_abroad",
+    "shop_policies.return_address_withheld": "return_address_withheld",
+    "shop_policies.restocking_fee_high": "restocking_fee",
+    "shop_policies.origin_doubt": "origin_doubt",
+    "us_identity.mailbox_only": "mailbox_address",
+}
+
+
+def small_signs(flags: Iterable[Mapping[str, Any]]) -> list[str]:
+    """
+    The scorer's signals a shopper can be shown: what moved the score towards unreliable, strongest first.
+
+    The scorer's flags (:class:`unfret.scoring.Assessment`) without the ones that only describe the page
+    (:data:`CONTEXT_FEATURES`: "a marketplace listing" is no concern), each with the catalogue's words for it as a
+    concern (``small_signs.signs``; every signal a shipped scorer weighs towards unreliable has them). The verdict
+    names them when no reason fired (:func:`build`), and the result card marks their areas
+    (:func:`unfret.card.complete`), so the same signals drive the band, the sentence and the checklist.
+
+    :param flags: The assessment's flags (``type`` and ``weight``), strongest first.
+    :return: Their feature names.
+    """
+    words: dict[str, str] = catalogue()["small_signs"]["signs"]
+    signs: list[str] = []
+    for flag in flags:
+        name = str(flag.get("type", ""))
+        if float(flag.get("weight", 0)) > 0 and name not in CONTEXT_FEATURES and name in words and name not in signs:
+            signs.append(name)
+    return signs
+
+
+def sign_text(name: str) -> str:
+    """
+    A small sign in words, as a concern ("A sizeable discount").
+
+    :param name: The feature's name.
+    :return: The words.
+    """
+    words: dict[str, str] = catalogue()["small_signs"]["signs"]
+    return words.get(name) or feature_label(name)  # (small_signs only returns signs with words)
+
+
+def _lower(text: str) -> str:
+    return text[0].lower() + text[1:] if text else text
+
+
+def _joined_words(texts: list[str]) -> str:
+    word = str(catalogue()["and"])
+    return texts[0] if len(texts) == 1 else f"{', '.join(texts[:-1])} {word} {texts[-1]}"
+
+
+def _small_signs_reason(band: Band, signs: list[str]) -> Reason:
+    """
+    The reason when no single reason fired: the scorer's small signs, counted and named (or the plain "overall").
+
+    :param band: The verdict band ("small" only at "Worth a look").
+    :param signs: :func:`small_signs`.
+    :return: The reason (type ``overall``).
+    """
+    if not signs:
+        return _reason("overall", {})
+    copy = catalogue()["small_signs"]
+    count = len(signs)
+    numbers: list[str] = copy["numbers"]
+    number = numbers[count - 1] if count <= len(numbers) else str(count)
+    one = count == 1
+    title = str(copy["title_small" if band == "concerns" else "title"]["one" if one else "many"]).format(count=number)
+    named = _joined_words([_lower(sign_text(s)) for s in signs])
+    detail = str(copy["detail"]["one" if one else "many"]).format(signs=named)
+    return Reason(type="overall", title=title[0].upper() + title[1:], detail=detail, severity="low")
 
 
 def band_for(score: int) -> Band:
@@ -1087,13 +1189,16 @@ def build(
     confidence: float | None = None,
     concrete_only: bool = False,
     needs_reason: bool = False,
+    signs: list[str] | None = None,
 ) -> Verdict:
     """
     Build the shopper verdict for an analysed page.
 
     Reliable pages lead with what looks good and show at most one note; the other bands show up to three reasons,
-    strongest first, and at most two positives. When the score is low but no single reason fired, an honest
-    "several small signals" reason stands in.
+    strongest first, and at most two positives. When the score is low but no single reason fired, the scorer's small
+    signs stand in as one reason that counts and names them ("Two small signs": a sizeable discount and some pushy
+    sales talk), so what set the band is on the screen; the headline names them too. Without any (the score rests on
+    what the page doesn't show), the catalogue's plain "overall" reason does.
 
     "Serious concerns" (``junk_or_scam``) only at high confidence: when the scorer set the score and its confidence
     is below ``verdict_serious_min_confidence`` (``verdict_serious_min_confidence_quick`` with ``concrete_only``, the
@@ -1127,6 +1232,7 @@ def build(
     :param confidence: The scorer's confidence (:class:`unfret.scoring.Assessment`); ``None`` without a scorer.
     :param concrete_only: Never warn without a concrete reason, whatever the scorer's confidence.
     :param needs_reason: "Worth a look" only with something to show for it (see above).
+    :param signs: The scorer's small signs (:func:`small_signs`), strongest first.
     :return: The verdict.
     """
     evidence = _evidence(features, findings, facts, page_type, market)
@@ -1154,20 +1260,29 @@ def build(
     reasons = [_reason(k, fired[k]) for k in keys]
     positives = [_positive(k, v) for k, v in _positive_params(evidence).items()]
 
+    named: list[Reason] = []  # what the headline names: the strongest reasons, or the small signs standing in
     if band == "reliable":
         reasons = reasons[:1]
         # "No warning signs" only when there is truly nothing to note: next to a reason it would contradict it.
         positives = positives[:3] or ([] if reasons else [_positive("nothing_found", {})])
-    else:
-        reasons = reasons[:3] or [_reason("overall", {})]
+        named = reasons
+    elif reasons:
+        reasons = reasons[:3]
         positives = positives[: 2 if band == "concerns" else 1]
+        named = reasons
+    else:
+        # Nothing fired: the scorer's signs are the reason, counted and named, and the headline names them.
+        reasons = [_small_signs_reason(band, signs or [])]
+        positives = positives[: 2 if band == "concerns" else 1]
+        keys = list(signs or [])
+        named = [Reason(type=n, title=sign_text(n), detail="", severity="low") for n in keys]
 
     copy = catalogue()
     return Verdict(
         band=band,
         label=copy["labels"][band],
         headline=(without_label(headline, copy["labels"][band]) if headline else "")
-        or template_headline(band, keys[:2], reasons, copy),
+        or template_headline(band, keys[:2], named, copy),
         reasons=reasons,
         positives=positives,
     )

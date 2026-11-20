@@ -150,8 +150,8 @@
       "detail": "The page contains text that addresses AI tools or rating systems."
     },
     "overall": {
-      "title": "Several small signals",
-      "detail": "No single big problem, but several smaller signals together lowered the score."
+      "title": "Nothing clear-cut",
+      "detail": "Nothing on the page stands out by itself, but taken together it scored lower than most."
     },
     "returns_abroad": {
       "title": "Returns go abroad",
@@ -562,6 +562,40 @@
   "imprint_where_legal_pages": "on the page or on the shop's contact and terms pages",
   "this_brand": "This brand",
   "an_urgency_tool": "an urgency tool",
+  "small_signs": {
+    "numbers": ["one", "two", "three", "four", "five", "six"],
+    "title_small": {"one": "One small sign", "many": "{count} small signs"},
+    "title": {"one": "One sign", "many": "{count} signs"},
+    "detail": {
+      "one": "Not a big problem by itself, but it lowered the score: {signs}.",
+      "many": "No single big problem, but together these lowered the score: {signs}."
+    },
+    "signs": {
+      "content.scam_copy": "Some pushy sales talk",
+      "content.generic_product": "A product that looks generic",
+      "content.implausible_claims": "Some hard-to-believe claims",
+      "content.missing_trust_info": "Little information about the seller",
+      "content.addresses_ai": "Text aimed at AI tools",
+      "content.title_word_soup": "A title full of search terms",
+      "content.generic_brand": "A brand we don't know",
+      "listing.discount_pct": "A sizeable discount",
+      "listing.seller_not_brand": "Sold by another company than the brand",
+      "listing.ships_from_china": "Ships from far away",
+      "reviews.off_topic_share": "Some reviews are about something else",
+      "reviews.duplicate_share": "Some reviews look alike",
+      "html_source_signals.review_import_app": "Reviews brought in by a tool",
+      "html_source_signals.timer_app": "An urgency tool in the page's code",
+      "html_source_signals.supplier_trace": "Traces of a supplier in the page's code",
+      "html_source_signals.dropship_app": "Dropshipping tools in the page's code",
+      "payment_methods.irreversible_only": "Only payments you can't get back",
+      "shop_policies.long_delivery": "A long delivery time",
+      "shop_policies.returns_abroad": "Returns go abroad",
+      "shop_policies.return_address_withheld": "No return address",
+      "shop_policies.restocking_fee_high": "Costly returns",
+      "shop_policies.origin_doubt": "A doubtful 'Made in USA'",
+      "us_identity.mailbox_only": "A mailbox address only"
+    }
+  },
   "features": {
     "content.scam_copy": "Pushy sales talk",
     "content.generic_product": "Generic product",

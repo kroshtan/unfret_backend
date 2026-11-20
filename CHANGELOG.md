@@ -28,7 +28,8 @@
   turns it off. A claim physics, the price or an authority rules out makes an unvouched page "Worth a look" at most; a
   page that only contradicts itself is told and keeps its band. On the golden set of well-known sellers it adds no
   "Worth a look" or worse. The claims and the piece count are shared with other steps in one call per page
-  (`claim_audit.listing_claims`). The golden report now counts every reason shown, notes on "Looks fine" included.
+  (`claim_audit.listing_claims`). The golden report now counts every reason shown, notes on "Looks fine" included
+  (#274).
 
 ## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
 

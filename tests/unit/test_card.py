@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from unfret import card, public_result, shares, shopper
+from unfret import card, public_result, result_cache, scoring, shares, shopper
 from unfret.facts import PageFacts
 from unfret.graph import SKILLS, services
 from unfret.graph.skills import NOT_APPLICABLE, UNAVAILABLE
@@ -202,7 +202,9 @@ def test_a_shared_result_keeps_the_card_and_an_older_result_hashes_as_before() -
     assert set(public_result.public_result({"score": 90, "verdict": older})["verdict"]) == {
         "band", "label", "symbol", "headline", "reasons", "positives",
     }  # fmt: skip
-    empty = older | {"checklist": [], "checks_run": None, "next_step": None, "same_product": None}
+    empty = older | {
+        "checklist": [], "checks_run": None, "next_step": None, "same_product": None, "incomplete": None,
+    }  # fmt: skip
     assert shares.result_hash({"score": 90, "verdict": empty}) == shares.result_hash({"score": 90, "verdict": older})
 
 
@@ -212,3 +214,111 @@ def test_a_same_product_naming_a_forbidden_word_is_left_out_of_a_share() -> None
     notes: list[str] = []
     shown = public_result.public_result({"score": 90, "verdict": full}, notes)["verdict"]
     assert "same_product" not in shown and notes == ["same product"]
+
+
+def _degraded(features: dict[str, float]) -> bool:
+    model = scoring.Model.from_dict(
+        {"version": "t", "features": ["content.scam_copy"], "means": [0.0], "scales": [1.0], "coefficients": [1.0],
+         "intercept": 0.0, "calibration": []}
+    )  # fmt: skip
+    assessment = scoring.score(features, model=model)
+    assert assessment is not None
+    return assessment.degraded
+
+
+def test_a_result_whose_ai_read_did_not_finish_says_so() -> None:
+    # The content read failed or ran out of time: the assessment is degraded, and the card says so in one line.
+    features = CLEAN | {f"content.{UNAVAILABLE}": 1.0}
+    out = card.complete(verdict("concerns", ("new_domain",)), state(features), available=SKILLS, applicable=SKILLS)
+    assert out["incomplete"]["steps"] == ["content"]
+    assert out["incomplete"]["text"] == (
+        "Part of this check didn't finish (the AI read of the page), so this answer may be milder than it should be. "
+        "It still counted as a check. Checking again after an hour may help."
+    )
+    shopper.Verdict.model_validate(out)
+    assert _degraded(features)  # the same condition as the assessment's
+
+
+@pytest.mark.parametrize(
+    "features",
+    [CLEAN, CLEAN | {f"reviews.{UNAVAILABLE}": 1.0}],  # another check that couldn't run doesn't degrade the result
+    ids=["all finished", "a minor check failed"],
+)
+def test_a_result_with_every_key_step_finished_has_no_such_line(features: dict[str, float]) -> None:
+    out = card.complete(verdict(), state(features), available=SKILLS, applicable=SKILLS)
+    assert out["incomplete"] is None
+    assert not _degraded(features)  # the same condition as the assessment's
+
+
+def test_every_key_step_has_a_name_in_words() -> None:
+    assert set(COPY["incomplete"]["steps"]) >= scoring.KEY_SKILLS
+
+
+def test_the_line_says_how_long_a_repeat_gets_the_same_result() -> None:
+    # "after an hour": the same input checked again within the hour gets this result back from the result cache.
+    assert result_cache.RESULT_TTL_S == 3600
+    assert "after an hour" in COPY["incomplete"]["after"]
+
+
+def test_a_shared_result_says_a_step_did_not_finish_without_what_it_cost() -> None:
+    features = CLEAN | {f"content.{UNAVAILABLE}": 1.0}
+    full = card.complete(verdict("concerns", ("new_domain",)), state(features), available=SKILLS, applicable=SKILLS)
+    shown = public_result.public_result({"score": 60, "verdict": full})["verdict"]
+    assert shown["incomplete"] == {
+        "steps": ["content"],
+        "text": "Part of this check didn't finish (the AI read of the page), so this answer may be milder than it "
+        "should be.",
+    }
+    # An unknown step (a newer server's) is left out rather than shown by its internal name.
+    odd = full | {"incomplete": {"steps": ["something_new"], "text": "…"}}
+    assert "incomplete" not in public_result.public_result({"score": 60, "verdict": odd})["verdict"]
+
+
+def test_each_area_says_how_many_checks_looked_at_it_and_they_add_up() -> None:
+    # The header's number is the sum of the areas' counts; a check serving two areas (dark patterns: prices and
+    # hidden tricks) counts once, in the first.
+    features = CLEAN | {"dark_patterns.timer": 1.0, "html_source_signals.dropship_app": 1.0}
+    out = card.complete(verdict("careful", ("countdown",)), state(features), available=SKILLS, applicable=SKILLS)
+    counts = {i["key"]: i["checks"] for i in out["checklist"]}
+    assert sum(counts.values()) == out["checks_run"] == 10
+    assert counts == {"who": 2, "product": 3, "reviews": 1, "prices": 2, "tricks": 2}
+    assert next(i for i in out["checklist"] if i["key"] == "tricks")["status"] == "concern"
+
+
+@pytest.mark.parametrize("page_type", ["storefront", "aggregate_listing", "p2p_listing", "service_site"])
+def test_the_areas_add_up_to_the_checks_on_every_kind_of_page(page_type: str) -> None:
+    # Every skill that measured something, on any kind of page: the counts never miss one or count one twice.
+    features = {f"{s.name}.{f}": 1.0 for s in SKILLS for f in s.features}
+    out = card.complete(verdict(), state(features, page_type), available=SKILLS, applicable=SKILLS)
+    assert out["checks_run"] == sum(i["checks"] for i in out["checklist"]) > 0
+    # Each skill of a listed area counts once (a marketplace listing has no "Who's behind the shop": its checks
+    # aren't counted either).
+    listed = {i["key"] for i in out["checklist"]}
+    kind = card.kind_of(page_type)
+    assert out["checks_run"] == len({s for key in listed for s in card.AREAS[kind][key]})
+
+
+def test_a_shared_result_keeps_the_areas_counts() -> None:
+    full = card.complete(verdict(), state(CLEAN), available=SKILLS, applicable=SKILLS)
+    shown = public_result.public_result({"score": 90, "verdict": full})["verdict"]
+    assert sum(i["checks"] for i in shown["checklist"]) == shown["checks_run"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "sentence"),
+    [
+        ({"free_check": True, "free_left": 4}, "This check used one of your free checks; 4 are left."),
+        ({"free_check": True, "free_left": 1}, "This check used one of your free checks; 1 is left."),
+        ({"free_check": True, "free_left": 0}, "This check used one of your free checks; none are left."),
+        ({"free_check": True}, "This check used one of your free checks."),  # a free check without a pass
+        ({"bought_left": 23}, "This check used one of your checks; 23 are left."),
+        ({}, "This check used one of your checks."),
+        ({"tier": "quick", "charged": False}, "Quick checks are free."),
+        ({"charged": False}, "You checked this page recently, so no new check was used."),
+        ({"score": -1, "charged": False}, "This page couldn't be assessed, so no check was used."),
+    ],
+)
+def test_each_charge_line_is_a_sentence(kwargs: dict[str, Any], sentence: str) -> None:
+    args: dict[str, Any] = {"tier": "deep", "score": 70, "charged": True, "free_check": False} | kwargs
+    assert card.charge_note(**args) == sentence
+    assert sentence[0].isupper() and sentence.endswith(".") and len(sentence.split()) >= 4

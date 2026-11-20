@@ -1429,6 +1429,8 @@ mark.placeholder { padding: 0 0.2rem; border-radius: 4px; background: var(--note
 .same-product figcaption { margin-top: 0.25rem; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
 .same-product .detail { margin: 0; }
 .clean { margin: 0.8rem 0 0; font-weight: 600; color: var(--good); }
+/* Part of the check didn't finish: a plain note under the headline, not a warning of its own. */
+.incomplete { margin: 0.8rem 0 0; padding: 0.6rem 0.8rem; border-left: 3px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-size: 0.95rem; }
 .card .source { margin: 0.3rem 0 0; font-size: 0.85rem; color: var(--muted); }
 .next-step { margin-top: 1rem; padding: 0.8rem 0.95rem; border-radius: var(--radius-sm); background: var(--surface-2); }
 /* "Why Unfret?": questions to ask any checker, then the alternatives and Unfret side by side. */
@@ -1481,6 +1483,7 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .checked-list .concern .mark { --sym: var(--i-bang); border-color: var(--care); background: var(--care-soft); color: var(--care); }
 .checked-list .not_checked { color: var(--muted); }
 .checked-list .why { display: block; font-size: 0.88rem; color: var(--muted); }
+.checked-list .count { color: var(--muted); font-size: 0.9em; }
 .result-links button.link { font-size: inherit; }
 #report-area { margin-top: 1rem; }
 

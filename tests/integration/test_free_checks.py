@@ -63,6 +63,8 @@ async def test_a_free_pass_checks_five_pages_without_a_balance(
         checked = await client.post("/v1/analyze", json=page, headers=bearer(issued["key"]))
         assert checked.status_code == 200
         assert checked.json()["charged"] is True and checked.json()["free_check"] is True
+        left = {3: "1 is left", 4: "none are left"}.get(n, f"{4 - n} are left")
+        assert checked.json()["charge_note"] == f"This check used one of your free checks; {left}."
     assert await free.left(pool, issued["key_id"]) == 0
     assert await balance(pool, issued["account"]) is None  # never touched the ledger
 
@@ -216,12 +218,14 @@ async def test_a_quick_check_is_free_for_everyone_and_never_charged(
         "explanation": "A quick look.",
         "charged": False,
         "tier": "quick",
+        "charge_note": "Quick checks are free.",
     }
     assert quick.calls and not graph.calls  # the rules-only graph, never the LLM one
 
     issued = await free_pass(client)
     with_pass = await client.post("/v1/analyze/stream", json={**PAGE, "tier": "quick"}, headers=bearer(issued["key"]))
     assert '"tier": "quick"' in with_pass.text and '"charged": false' in with_pass.text
+    assert '"charge_note": "Quick checks are free."' in with_pass.text
     # A pass can report a quick result (the token binds the tier); a quick result is never shared.
     assert '"report_token"' in with_pass.text and "share_token" not in with_pass.text
     assert await free.left(pool, issued["key_id"]) == 5
@@ -239,6 +243,8 @@ async def test_a_cached_result_uses_a_free_check(
 
     assert cached.json()["charged"] is True and cached.json()["free_check"] is True
     assert repeat.json()["charged"] is False and "free_check" not in repeat.json()
+    assert cached.json()["charge_note"] == "This check used one of your free checks; 4 are left."
+    assert repeat.json()["charge_note"] == "You checked this page recently, so no new check was used."
     assert len(graph.calls) == 1
     assert await free.left(pool, second["key_id"]) == 4
     assert await free.used_today(pool) == 2

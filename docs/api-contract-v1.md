@@ -1337,3 +1337,23 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   listing skill's finding of the same name carries the evidence; there is no new feature.
 - `known_brand` and `brand_no_presence` are never on one result: when the content read knows the brand but the
   lookups find it nowhere, neither is said.
+
+## Changes (the card: a step that didn't finish, checks per area, what a check cost; backwards-compatible)
+
+- `verdict.incomplete` (new, optional; `null` when every key step finished): `{"steps": ["content"], "text"}` when
+  the AI read of the page failed or ran out of time, the same condition as `assessment.degraded`. `text` is one line
+  to show under the headline: "Part of this check didn't finish (the AI read of the page), so this answer may be
+  milder than it should be. It still counted as a check. Checking again after an hour may help." Shared results carry
+  it with the first sentence only. New step keys may be added; show `text`.
+- `verdict.checklist[].checks` (new, optional int): how many checks looked at the area. A check serving two areas
+  counts in the first, so the areas' counts add up to `checks_run`; an area the page doesn't have (a marketplace
+  listing's "Who's behind the shop") no longer adds its checks to `checks_run`. Clients show "What we checked: 16
+  checks in 5 areas" (areas with a check) and "· N checks" on each area; without the field, as before.
+- `charge_note` (new, optional string) in `POST /v1/analyze` responses and the stream's `result` event: what the
+  check cost, as one sentence ("This check used one of your free checks; 4 are left.", "This check used one of your
+  checks; 23 are left.", "Quick checks are free.", "You checked this page recently, so no new check was used.", "This
+  page couldn't be assessed, so no check was used."). The count is left out when it isn't known. Charging is
+  unchanged.
+- Each LLM call's attempt is abandoned after `UNFRET_LLM_ATTEMPT_TIMEOUT_S` (15 s; the content read
+  `UNFRET_CONTENT_ATTEMPT_TIMEOUT_S`, 20 s) and tried once more. No API change.
+- x402 `POST /v1/check` and the MCP server are unchanged.

@@ -12,8 +12,9 @@
   iPhone or a computer) `/pass` forwards to `/check#pass=…` in the browser, fragment intact, which asks before it uses
   the pass as before; `/pass` is `noindex`, never cached and sends no referrer. Codes that hold `/check#pass=…` still
   work (#264).
-* **/android offers Unfret for Android 0.1.0-beta.1**, the first signed release, as a beta, for a direct install
-  (#258).
+* **/android offers Unfret for Android 0.1.0-beta.2**, as a beta, for a direct install (#258): 5 free deep checks on
+  a new install, "Use on your phone" opens the app, and the free quick check always on offer. Signed with the same
+  release key as 0.1.0-beta.1, so it installs over it.
 * **`/android` offers a beta as a beta**: `make android-release TAG=v0.1.0-beta.1` takes a pre-release tag, and
   `release.json`'s `"prerelease": true` (written by the app's release workflow) must agree with the version. For a
   beta the page shows a "Beta" label next to the version and one sentence: an early version, things may still change,

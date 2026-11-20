@@ -66,7 +66,8 @@ def tier_summary(
     :param records: The golden records, by id.
     :param results: Each page's ``verdict`` and ``assessment``, by id.
     :return: ``pages``, ``bands``, ``serious``, ``flagged`` (Worth a look or worse) and its share, ``passed``,
-        ``failures`` (one entry per flagged page) and the reasons and flags counted over the failures.
+        ``failures`` (one entry per flagged page), the reasons and flags counted over the failures, and the reasons
+        shown on any page (``reasons_shown``).
     """
     scored = [o for o in outcomes if o.band in BANDS]
     bands = Counter(o.band for o in scored)
@@ -105,6 +106,12 @@ def tier_summary(
         "flagged_share": round(share, 3) if share is not None else None,
         "passed": bool(scored) and bands["junk_or_scam"] == 0 and share is not None and share < MAX_FLAGGED_SHARE,
         "failure_reasons": dict(Counter(r for f in failures for r in f["reasons"]).most_common()),
+        # Every reason shown on any page, "Looks fine" included (its one note): a note is a false alarm too.
+        "reasons_shown": dict(
+            Counter(
+                r["type"] for result in results.values() for r in (result.get("verdict") or {}).get("reasons", [])
+            ).most_common()
+        ),
         "failure_flags": dict(Counter(name for f in failures for name, _ in f["flags"]).most_common()),
         "failures": failures,
     }
@@ -138,6 +145,7 @@ def to_markdown(report: dict[str, Any]) -> str:
     for tier, t in report["tiers"].items():
         lines += ["", f"## {tier}: what drives the failures", ""]
         lines.append(f"Reasons: {t['failure_reasons']}")
+        lines += ["", f"Reasons shown on any page (notes on Looks fine included): {t.get('reasons_shown', {})}"]
         lines.append("")
         lines.append(f"Flags: {t['failure_flags']}")
         lines += ["", "| seller | market | split | band | score | reasons | flags |", "|---|---|---|---|---|---|---|"]

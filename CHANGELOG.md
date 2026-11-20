@@ -12,6 +12,25 @@
   something to note, with its words. Stream `step` events add `check`, so progress can count the checks the result
   then says it ran rather than every step.
 
+### Deep checks
+
+* **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
+  A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery
+  capacity and runtime, wattage, lumens, certifications and approvals, materials, origin, awards, warranties,
+  reference prices, sales claims) and checks them against physics (a 20,000 mAh power bank of 80 g), the rest of the
+  page (128 GB in the title, 64 GB in the spec table), the price (100% mulberry silk at $8.99) and what an authority
+  approves (an "FDA approved" phone case). A piece count and the parts the page lists it as are checked by arithmetic:
+  "91-delig | 80 felt-tip pens and 12 clips" is told as "That count includes 12 clips: the set has 80 felt-tip pens.
+  The parts it lists, 80 felt-tip pens and 12 clips, make 92, not 91." Only clear contradictions are told, quoted and
+  explained plainly ("A claim that doesn't add up"), and only when the claim (and the line it contradicts) is really
+  on the page and not in text addressed to a checker. The model is GLM-5.3 on the same provider
+  (`UNFRET_CLAIM_AUDIT_MODEL`, without its reasoning step: 1-5 s), about €0.01 a check; `UNFRET_CLAIM_AUDIT=false`
+  turns it off. A claim physics, the price or an authority rules out makes an unvouched page "Worth a look" at most; a
+  page that only contradicts itself is told and keeps its band. On the golden set of well-known sellers it adds no
+  "Worth a look" or worse. The claims and the piece count are shared with other steps in one call per page
+  (`claim_audit.listing_claims`). The golden report now counts every reason shown, notes on "Looks fine" included
+  (#274).
+
 ### The product photos against the listing's own claims
 
 * **A deep check compares the listing's piece count and size with its own photos** (new skill `photo_claims`). When

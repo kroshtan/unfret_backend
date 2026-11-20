@@ -69,6 +69,22 @@ class Settings(BaseSettings):
     # alongside a skill round that runs to its own limit.
     llm_attempt_timeout_s: float = Field(default=15.0, gt=0)
     analysis_timeout_s: float = 90.0
+    # The claim audit (unfret.graph.skills.claim_audit), deep checks only: every checkable claim on a product page
+    # (specs, counts, materials, certifications, origin, reference prices) and the ones that clearly don't add up, read
+    # by a stronger model than llm_model from the same OpenAI-compatible provider. Off: the skill reports nothing and
+    # costs nothing. A problem the model is less sure of (0-1) than claim_audit_min_confidence is dropped. One attempt
+    # may take claim_audit_attempt_timeout_s and is tried once more (llm_max_retries) within skill_timeout_s. The
+    # prices (euros per million tokens, the provider's list prices for the model) are only for the cost it logs.
+    claim_audit: bool = True
+    claim_audit_model: str = "glm-5.3"
+    claim_audit_min_confidence: float = Field(default=0.85, ge=0, le=1)
+    claim_audit_attempt_timeout_s: float = Field(default=20.0, gt=0)
+    claim_audit_max_output_tokens: int = Field(default=3_000, ge=256)
+    # Sent as the OpenAI "reasoning_effort" for a model that reasons before it answers: "none" (GLM-5.3 then answers
+    # in 1-5 s, as well on the measured pages as with its reasoning); "": the model's default.
+    claim_audit_reasoning_effort: str = "none"
+    claim_audit_input_eur_per_mtok: Decimal = Field(default=Decimal("1.80"), ge=0)
+    claim_audit_output_eur_per_mtok: Decimal = Field(default=Decimal("5.50"), ge=0)
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.
     analyze_fetch_per_minute: int = Field(default=10, ge=1)

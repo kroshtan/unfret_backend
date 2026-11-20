@@ -76,6 +76,10 @@ class AnalysisState(TypedDict):
     next_skills: list[str]
     # The image index's likely same product on another shop (set by reverse_image; see unfret.card).
     same_product: NotRequired[dict[str, Any]]
+    # Every checkable claim the listing makes (set by claim_audit; see unfret.graph.skills.claim_audit.ListingClaim).
+    listing_claims: NotRequired[list[dict[str, Any]]]
+    # The listing's total piece count and the parts it lists it as (set by claim_audit: PieceCount dumps).
+    listing_piece_count: NotRequired[dict[str, Any]]
 
     # ── Outputs (set by judge node) ──────────────────────────────────────────
     score: int

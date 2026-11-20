@@ -101,3 +101,9 @@ def fresh_thumbnail_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(images, "_failed", {})
     monkeypatch.setattr(images, "_requests", RateLimit(120))
+
+
+@pytest.fixture(autouse=True)
+def no_claim_audit_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test asks the claim audit's stronger model about a page unless it turns the audit on (with a fake model)."""
+    monkeypatch.setattr(scoring.settings, "claim_audit", False)

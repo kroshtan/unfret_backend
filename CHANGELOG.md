@@ -53,6 +53,27 @@
 
 ### Fixes
 
+* **Every LLM step gets a time limit per attempt**: the classification, the triage's question, the headline, the LLM
+  judge (without a scorer) and the review embeddings had only the client's 60 s timeout, so one call that didn't stop
+  writing could push the whole analysis to its 90 s limit. Each attempt now gets 15 s
+  (`UNFRET_LLM_ATTEMPT_TIMEOUT_S`; these ask for a short answer, and the headline takes 4-8 s on dev) and a runaway is
+  tried once more: two attempts and the backoff fit within the skill timeout, and within the analysis timeout next to
+  a skill round that runs to its limit. The content read keeps its own 20 s. Prompts and model settings are
+  unchanged, so the evaluation's recorded responses still replay.
+* **The result card says when part of the check didn't finish**: a result whose AI read of the page failed or ran out
+  of time (`assessment.degraded`) got a milder verdict and fewer checks with no word about it. The card now says, under
+  the headline: "Part of this check didn't finish (the AI read of the page), so this answer may be milder than it
+  should be. It still counted as a check. Checking again after an hour may help." (`verdict.incomplete`; a shared
+  result says only the first sentence). Charging is unchanged: such a result is charged like any other, and the same
+  input within the hour gets it back from the result cache.
+* **"What we checked" adds up**: the heading reads "What we checked: 16 checks in 5 areas" and each area says how many
+  checks looked at it ("Who's behind the shop · 4 checks"; `checklist[].checks`). A check that serves two areas counts
+  once, in the first, and an area the page doesn't have no longer adds its checks to the heading's number. An area
+  where everything passed is read out as "nothing to note".
+* **What a check cost, as a sentence**: `/v1/analyze` responses carry `charge_note`, shown under the result: "This
+  check used one of your free checks; 4 are left.", "This check used one of your checks; 23 are left.", "Quick checks
+  are free.", "You checked this page recently, so no new check was used.", "This page couldn't be assessed, so no
+  check was used." `/check` shows it instead of the lone "One of your free checks.".
 * **A runaway content read no longer degrades the check**: now and then (about 1 in 20 reads of the test shop)
   the model quotes the page's text, gets lost in its own JSON and keeps writing whitespace until it is cut off. That
   used up the content step's whole 45 s, so the check came back degraded (no hard-to-believe claims, pushy sales
@@ -101,6 +122,17 @@
   steps show only while Base is on), and `/llms.txt`'s errors table names Base only while it is on. `/developers` says
   the TypeScript client is a reference to copy, not on npm, with its link. On `/check` the three example shops are
   links (a click still checks one), and the note under the shops that need the extension says why.
+* **`/accuracy` tells the open model from the private one**: the page calls them "Open model (in the code)" (in this
+  repository, what a self-hosted server runs) and "Private model (unfret.net)" (retrained, not published), the same
+  in the side-by-side table, the earlier versions' boxes, the prose and the changelog, where 0.6.0 and 0.7.0 are
+  marked as open-model releases (0.7.0's is still the open model). `/about`, `/developers`, the README, the API
+  contract and `/v1/health`'s `model_version` description in the OpenAPI schema use the same words; the site no
+  longer says "open baseline" or "retrained scorer". The open model has a history too: 0.6.0's scorer
+  `v1-20261108-C`, replayed on today's test set (recorded LLM answers only), is under "Earlier versions" with its
+  release date, and says it was measured afterwards: 85% of unreliable product pages warned about, 84% of warnings
+  right, 18% of legitimate shops warned about (2.8% "Serious concerns"), ROC AUC 0.918.
+  `make accuracy ACCURACY_ARGS="--publish VERSION --kind public --released DATE"` publishes such an earlier open
+  model from its replay (`evals.accuracy`'s docstring has the steps).
 
 ### Internal
 

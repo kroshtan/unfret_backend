@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     # tried once more (llm_max_retries), so two attempts and the backoff between them fit within skill_timeout_s
     # instead of one runaway using it all up and degrading the assessment.
     content_attempt_timeout_s: float = Field(default=20.0, gt=0)
+    # One attempt of every other LLM call: the classification (one or two calls), the triage's question, the headline,
+    # the LLM judge (without a scorer) and the review embeddings. Each asks for a short answer (a page type, a yes/no,
+    # one sentence) and normally takes a few seconds (the headline 4-8 s on dev); a runaway attempt is abandoned and
+    # tried once more, so two attempts and the backoff fit within skill_timeout_s, and within analysis_timeout_s
+    # alongside a skill round that runs to its own limit.
+    llm_attempt_timeout_s: float = Field(default=15.0, gt=0)
     analysis_timeout_s: float = 90.0
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.

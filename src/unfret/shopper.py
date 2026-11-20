@@ -223,6 +223,12 @@ class CheckItem(BaseModel):
         description="checked (nothing to note), concern (a reason above is about it) or not_checked (see note)."
     )
     note: str = Field(default="", description="Why it wasn't checked; empty otherwise.")
+    checks: int | None = Field(
+        default=None,
+        ge=0,
+        description="How many of the verdict's checks_run looked at this area (a check serving two areas counts in "
+        "the first); the areas' counts add up to checks_run.",
+    )
 
 
 class NextStep(BaseModel):
@@ -230,6 +236,15 @@ class NextStep(BaseModel):
 
     type: str = Field(description="What the step is about (the reason it follows from, or the band).")
     text: str
+
+
+class Incomplete(BaseModel):
+    """Part of the check didn't finish (a key step failed or ran out of time): the verdict rests on less evidence."""
+
+    steps: list[str] = Field(
+        description='The steps that didn\'t finish, by name ("content": the AI read of the page).'
+    )
+    text: str = Field(description="One line for the shopper: what didn't finish, what that means, what it cost.")
 
 
 class SameProduct(BaseModel):
@@ -319,6 +334,11 @@ class Verdict(BaseModel):
     deep_check: DeepCheck | None = Field(
         default=None,
         description="Quick results only: whether a deep check of this page is worth it and what it would add.",
+    )
+    incomplete: Incomplete | None = Field(
+        default=None,
+        description="Part of the check didn't finish, so the verdict may be milder than it should be (the result's "
+        "assessment is degraded).",
     )
 
 

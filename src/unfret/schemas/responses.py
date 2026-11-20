@@ -13,7 +13,8 @@ class Healthy(BaseModel):
     version: str = Field(description="The version of the API", default=__version__)
     commit: str | None = Field(default=None, description="The git commit the running image was built from")
     model_version: str | None = Field(
-        default=None, description="The scorer analyses and deep checks run (the open baseline or a retrained one)"
+        default=None,
+        description="The scorer analyses and deep checks run (the open model in the code, or a private one)",
     )
     quick_model_version: str | None = Field(default=None, description="The scorer the x402 quick tier runs")
     x402: str | None = Field(default=None, description="Pay-per-check status: ok, off, low_balance, …")
@@ -75,6 +76,13 @@ class AnalyzeResponse(BaseModel):
     )
     free_check: bool | None = Field(
         default=None, description="True when this check was one of the free ones (a pass's, or a day's without one)."
+    )
+    charge_note: str | None = Field(
+        default=None,
+        description='What this check cost, as one sentence to show under the result: "This check used one of your '
+        'free checks; 4 are left.", "This check used one of your checks; 23 are left.", "Quick checks are '
+        'free.", "You checked this page recently, so no new check was used.", "This page couldn\'t be assessed, '
+        "so no check was used.\". The count is left out when it isn't known (a free check without a pass).",
     )
     report_token: str | None = Field(
         default=None,

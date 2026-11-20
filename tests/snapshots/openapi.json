@@ -111,6 +111,18 @@
       "description": "The account's balance after this analysis, in micro-dollars (1 USD = 1,000,000).",
       "title": "Balance Usd Micros"
      },
+     "charge_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What this check cost, as one sentence to show under the result: \"This check used one of your free checks; 4 are left.\", \"This check used one of your checks; 23 are left.\", \"Quick checks are free.\", \"You checked this page recently, so no new check was used.\", \"This page couldn't be assessed, so no check was used.\". The count is left out when it isn't known (a free check without a pass).",
+      "title": "Charge Note"
+     },
      "charged": {
       "anyOf": [
        {
@@ -311,6 +323,19 @@
    "CheckItem": {
     "description": "One line of the result card's \"What we checked\": an area, and whether it was checked.",
     "properties": {
+     "checks": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many of the verdict's checks_run looked at this area (a check serving two areas counts in the first); the areas' counts add up to checks_run.",
+      "title": "Checks"
+     },
      "key": {
       "description": "who, product, reviews, prices, tricks (shops); seller, price, photos, payment, text (ads); company, location, reviews, terms, photos (service providers).",
       "title": "Key",
@@ -1067,7 +1092,7 @@
         "type": "null"
        }
       ],
-      "description": "The scorer analyses and deep checks run (the open baseline or a retrained one)",
+      "description": "The scorer analyses and deep checks run (the open model in the code, or a private one)",
       "title": "Model Version"
      },
      "quick_model_version": {
@@ -1148,6 +1173,30 @@
      }
     },
     "title": "Healthy",
+    "type": "object"
+   },
+   "Incomplete": {
+    "description": "Part of the check didn't finish (a key step failed or ran out of time): the verdict rests on less evidence.",
+    "properties": {
+     "steps": {
+      "description": "The steps that didn't finish, by name (\"content\": the AI read of the page).",
+      "items": {
+       "type": "string"
+      },
+      "title": "Steps",
+      "type": "array"
+     },
+     "text": {
+      "description": "One line for the shopper: what didn't finish, what that means, what it cost.",
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "steps",
+     "text"
+    ],
+    "title": "Incomplete",
     "type": "object"
    },
    "KeyResponse": {
@@ -3434,6 +3483,17 @@
       "title": "Headline",
       "type": "string"
      },
+     "incomplete": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Incomplete"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Part of the check didn't finish, so the verdict may be milder than it should be (the result's assessment is degraded)."
+     },
      "label": {
       "description": "The band in words.",
       "title": "Label",
@@ -3584,6 +3644,17 @@
       "description": "One plain sentence explaining the verdict.",
       "title": "Headline",
       "type": "string"
+     },
+     "incomplete": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Incomplete"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Part of the check didn't finish, so the verdict may be milder than it should be (the result's assessment is degraded)."
      },
      "label": {
       "description": "The band in words.",

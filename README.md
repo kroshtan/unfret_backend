@@ -29,7 +29,7 @@ Think twice, Serious concerns), and an LLM writes the explanation from the signa
 
 Measured on Unfret's labelled corpus of **1,762 product pages** (scam shops, junk and dropshipping, and legitimate
 shops and listings, among them a golden set of well-known sellers' pages), each replayed through the analysis and
-scored by the open baseline model in this repository. **ROC AUC 0.917.**
+scored by the open model in this repository (the one a self-hosted server runs). **ROC AUC 0.917.**
 
 | Verdict | Pages | Scam or junk among them |
 | --- | --- | --- |
@@ -44,20 +44,20 @@ trained on, so expect somewhat lower numbers on pages it has never seen. It cove
 service providers), and the corpus itself is private (see below). The method, ads and tradespeople, false alarms per
 market, the limits and the model's history are on [unfret.net/accuracy](https://unfret.net/accuracy), from
 `make accuracy` (aggregates only, in [`static/accuracy.json`](src/unfret/static/accuracy.json)). The page leads with
-the numbers of the retrained scorer unfret.net runs (see "The model"; in
-[`static/accuracy-history.json`](src/unfret/static/accuracy-history.json)), shows the baseline's next to them, and
-every earlier version below.
+the numbers of the private model unfret.net runs (see "The model"; in
+[`static/accuracy-history.json`](src/unfret/static/accuracy-history.json)), shows the open model's next to them, and
+every earlier version of both below.
 
 ## The model
 
 The scoring model in this repository ([`src/unfret/scoring/`](src/unfret/scoring/), a logistic regression over the
-skills' features) is an **open baseline** (`v1-20261109-222323-C`, and `v1-quick-20261109-222308-C` for the x402
-quick tier, as of v0.12.0). The service at unfret.net runs privately retrained versions of it. The labelled corpus
-and the duplicate-product image dataset (the photo index's seed) are private, so the baseline can be inspected and
-run but not retrained from this repository alone. `/v1/health` names the scorers a server runs (`model_version`,
+skills' features) is the **open model** (`v1-20261109-222323-C`, and `v1-quick-20261109-222308-C` for the x402
+quick tier, as of v0.12.0). The service at unfret.net runs the **private model**: versions of it retrained on more
+labelled pages, not published. The labelled corpus and the duplicate-product image dataset (the photo index's seed)
+are private, so the open model can be inspected and run but not retrained from this repository alone. `/v1/health` names the scorers a server runs (`model_version`,
 `quick_model_version`).
 
-**Self-hosting uses the open baseline model.** It is in the image; nothing to configure.
+**Self-hosting uses the open model.** It is in the image; nothing to configure.
 
 **Bring your own scorer.** The training code is here (`evals/train.py`), so you can train on a corpus of your own
 (`UNFRET_CORPUS_DIR`, in the layout `evals/corpus.py` reads) and run the result:
@@ -80,30 +80,33 @@ well-known, legitimate sellers, from a seed list kept in the corpus) against a f
 under 5% "Worth a look" or worse, with the reasons and flags behind each failure. Every scorer version is run
 through it before release.
 
-A retrained scorer can also say that with it, "Worth a look" needs a reason to show (`--needs-reason`, the artifact's
+A scorer you retrain can also say that with it, "Worth a look" needs a reason to show (`--needs-reason`, the artifact's
 `verdict_needs_reason`): a page it scores in that band with no reason, or only something missing from the page, then
 reads "Looks fine", and the quick tier's needs a concrete reason (`unfret.shopper.build`). Whether that pays is
-measured per scorer, on the golden set and the corpus replay; the open baseline doesn't set it (with its weaker
+measured per scorer, on the golden set and the corpus replay; the open model doesn't set it (with its weaker
 scorer it would call too many scam pages "Looks fine").
 
 Then point the server at the files: `UNFRET_MODEL_PATH` for analyses and deep checks, `UNFRET_MODEL_QUICK_PATH` for
 the quick tier (in Docker, mount them read-only, e.g. `-v /srv/scorer:/app/private-model:ro` and
-`UNFRET_MODEL_PATH=/app/private-model/model.json`). Either left empty runs the baseline; without a quick scorer of
-its own the quick tier keeps the baseline's. A path that is set but missing, unreadable or made for features no
+`UNFRET_MODEL_PATH=/app/private-model/model.json`). Either left empty runs the open model; without a quick scorer of
+its own the quick tier keeps the open model's. A path that is set but missing, unreadable or made for features no
 skill produces stops the server at start-up instead of letting it score with something else. Retrained models go to
 the model store (`UNFRET_MODELS_DIR`, default `<corpus>/models`), never into `src/`: a pre-commit hook
 (`scripts/check_scorer_baseline.py`, also run by CI) refuses a changed baseline or any other scorer artifact in the
-repository. `static/accuracy.json` holds the baseline's replay numbers. The numbers of the retrained scorers
-unfret.net runs are published as aggregates only, in `static/accuracy-history.json`: one entry per published
-version (`version`, `kind` `private` or `public`, `released`, `measured`, `corpus_pages`, `metrics`, and the whole
-replay `summary`). `make accuracy ACCURACY_ARGS="--publish <version> [--released YYYY-MM-DD]"` adds that version's
-`accuracy.json` from the model store as its entry (or replaces the one it has), after checking that it holds nothing
-but totals, fixed field names and that version (never the model, a page, a shop or the golden set's seed list); a
-replay of the baseline updates the baseline's entry. The `/accuracy` page leads with the numbers of the scorer the
-server runs, shows the newest retrained scorer and the baseline side by side, each with its release date and the
+repository. `static/accuracy.json` holds the open model's replay numbers. The numbers of the private models
+unfret.net runs or ran are published as aggregates only, in `static/accuracy-history.json`, with those of the open
+models: one entry per published version (`version`, `kind` `private` or `public`, `released`, `measured`,
+`corpus_pages`, `metrics`, and the whole replay `summary`). `make accuracy ACCURACY_ARGS="--publish <version>
+[--released YYYY-MM-DD]"` adds that version's `accuracy.json` from the model store as its entry (or replaces the one
+it has), after checking that it holds nothing but totals, fixed field names and that version (never the model, a
+page, a shop or the golden set's seed list); `--kind public` does the same for an earlier open model replayed from
+the git history (`evals/accuracy.py` has the steps), and a replay of the open model updates its entry. The `/accuracy`
+page names them "Private model (unfret.net)" and "Open model (in the code)", leads with the numbers of the scorer the
+server runs, shows the newest private model and the open model side by side, each with its release date and the
 number of labelled pages it was measured on, folds every earlier version below them, newest first, and says so when
-the server runs a scorer whose numbers aren't published. Each version is measured on the corpus as it was at its
-release, so versions measured on different corpus sizes aren't strictly comparable.
+the server runs a scorer whose numbers aren't published. A private model is measured at its release; an older open
+model replayed later says it was measured afterwards. Versions measured on different corpus sizes aren't strictly
+comparable.
 
 **Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
 stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and
@@ -350,7 +353,7 @@ page is never looked up there, so neither can match the other.
 
 `/test-shop/clean-shop` is the comparison: a made-up workshop (Brackenfold Lighting) selling a made-up oak lamp with
 none of the tricks: a plain price, company, address and phone, readable shipping and returns, a handful of ordinary
-reviews spread over months. Its banner says so. Unfret's verdict there is "Looks fine" (the open baseline's quick
+reviews spread over months. Its banner says so. Unfret's verdict there is "Looks fine" (the open model's quick
 scorer says "Worth a look", with no reason).
 
 Use it to demo, screenshot and test: `tests/unit/test_test_shop.py` runs both tiers over it and pins the signals
@@ -1022,10 +1025,11 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |
 | `UNFRET_QUICK_RECORD_QUEUE` | `16` | Quick checks whose photo, price and reviews are being recorded at once, after their answer; more are skipped (0: quick checks record nothing) |
 | `UNFRET_IMAGE_MODEL_PATH` / `UNFRET_IMAGE_THREADS` | `models/dinov2-small-int8.onnx` / `1` | The image index's embedding model (baked into the container image, pinned by SHA-256) and its CPU threads; the photo check is off while the model file is missing. The catalogue seed is imported by hand: see docs/image-index.md |
-| `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH` | — (the open baseline) | A scorer of your own for analyses and deep checks / for the x402 quick tier; see [The model](#the-model) |
+| `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH` | — (the open model) | A scorer of your own for analyses and deep checks / for the x402 quick tier; see [The model](#the-model) |
 | `UNFRET_MAX_PAGE_BYTES` | `2097152` | Larger pages are rejected with 413/422 |
 | `UNFRET_SKILL_TIMEOUT_S` / `UNFRET_ANALYSIS_TIMEOUT_S` | `45` / `90` | A slow skill is skipped; a slow analysis returns 504 |
 | `UNFRET_CONTENT_ATTEMPT_TIMEOUT_S` | `20` | One attempt of the content read (the page text's LLM call); a slower one is abandoned and tried once more (`UNFRET_LLM_MAX_RETRIES`), within the skill timeout |
+| `UNFRET_LLM_ATTEMPT_TIMEOUT_S` | `15` | One attempt of every other LLM call (classification, triage, headline, the LLM judge, review embeddings); a slower one is abandoned and tried once more, within the skill timeout, or within the analysis timeout next to a skill round |
 | `UNFRET_ANALYZE_FETCH_PER_MINUTE` | `10` | Pages fetched per account per minute for URL-only analyses (the `/check` link checker); unreadable pages are free, so this bounds them |
 | `UNFRET_POSTGRES_URI` | `postgresql://unfret:unfret@localhost:5432/unfret` | Tables are created on startup |
 | `UNFRET_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
@@ -1154,7 +1158,7 @@ The `LLM_API_KEY` repo secret is shared. The Kamal secrets files map these onto 
 `scripts/private-model.sh`: with the `MODEL_READ_TOKEN` repo secret (read-only access to the private model store),
 they fetch the store's current release, copy it to the server (`/home/kamal/unfret-model/<destination>`, swapped in
 whole) and mount it read-only at `/app/private-model`, setting `UNFRET_MODEL_PATH` / `UNFRET_MODEL_QUICK_PATH`;
-without the secret, or when the store names no release, the baseline in the image runs. After the deploy they wait
+without the secret, or when the store names no release, the open model in the image runs. After the deploy they wait
 for `/v1/health` to report the expected `model_version` and `quick_model_version`. The production deploy also
 refuses unless dev, which just passed the sweep, runs exactly the release it fetched; a new scorer therefore reaches
 production by deploying dev again (*Actions → CI → Run workflow* on `main`), testing it, then running the production

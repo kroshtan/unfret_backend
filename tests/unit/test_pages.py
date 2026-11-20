@@ -702,6 +702,7 @@ def test_the_result_card_puts_the_same_product_first_and_says_what_was_checked(t
         "checklist": [{"key": "who", "label": "Who's behind the shop", "status": "concern", "note": "New"},
                       {"key": "reviews", "label": "Reviews", "status": "not_checked", "note": "No reviews."}],
         "checks_run": 9,
+        "incomplete": {"steps": ["content"], "text": "Part of this check didn't finish."},
     }  # fmt: skip
     clean = {"band": "reliable", "reasons": [], "positives": [{"title": "Established shop"}], "checks_run": 14}
     script = (
@@ -722,8 +723,65 @@ def test_the_result_card_puts_the_same_product_first_and_says_what_was_checked(t
     }  # fmt: skip
     assert card["reasons"][0]["thumbs"] == [] and card["reasons"][0]["source"] == "Unfret's image index"
     assert card["nextStep"] == "Compare." and card["checks"] == 9
+    assert card["incomplete"] == "Part of this check didn't finish." and clean_card["incomplete"] is None
     assert [i["status"] for i in card["checklist"]] == ["concern", "not_checked"]
     assert clean_card["clean"] == "Nothing worrying in 14 checks." and clean_card["positivesFirst"]
     # A result from before the card: its reasons as ever, and no checklist, step or same product.
     assert older["reasons"][0]["title"] == "Several small signals"
-    assert (older["checklist"], older["nextStep"], older["sameProduct"], older["clean"]) == ([], None, None, None)
+    assert (older["checklist"], older["nextStep"], older["sameProduct"], older["clean"], older["incomplete"]) == (
+        [], None, None, None, None,
+    )  # fmt: skip
+
+
+@pytest.mark.usefixtures("node")
+def test_the_checklist_heading_adds_up_and_the_charge_line_is_a_sentence(tmp_path: Path) -> None:
+    for name in ("check-render.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    render = (tmp_path / "check-render.js").as_uri()
+    items = [
+        {
+            "key": "who",
+            "label": "Who's behind the shop",
+            "status": "concern",
+            "note": "Brand-new web shop",
+            "checks": 4,
+        },
+        {"key": "reviews", "label": "Reviews", "status": "checked", "note": "", "checks": 1},
+        {"key": "prices", "label": "Prices", "status": "not_checked", "note": "No prices.", "checks": 0},
+    ]
+    verdict = {"band": "careful", "reasons": [], "checklist": items, "checks_run": 5}
+    older = {"band": "careful", "reasons": [], "checklist": [{**i, "checks": None} for i in items], "checks_run": 5}
+    charges = [
+        {"tier": "deep", "score": 40, "charged": True, "free_check": True,
+         "charge_note": "This check used one of your free checks; 4 are left."},
+        {"tier": "deep", "score": 40, "charged": True},
+        {"tier": "deep", "score": 40, "charged": True, "free_check": True},
+        {"tier": "quick", "score": 40, "charged": False},
+        {"tier": "deep", "score": 40, "charged": False},
+        {"tier": "deep", "score": -1, "charged": False},
+    ]  # fmt: skip
+    script = (
+        f"import {{ cardOf, chargeNoteOf }} from {json.dumps(render)};"
+        "process.stdout.write(JSON.stringify(["
+        f"cardOf({{ verdict: {json.dumps(verdict)} }}, 'careful', 'https://unfret.net'),"
+        f"cardOf({{ verdict: {json.dumps(older)} }}, 'careful', 'https://unfret.net'),"
+        f"{json.dumps(charges)}.map(chargeNoteOf)]));"
+    )
+    card, older_card, notes = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert card["checklistHeading"] == {"title": "What we checked: 5 checks in 2 areas", "count": ""}
+    assert sum(i["checks"] for i in card["checklist"]) == card["checks"]
+    assert [i["checks"] for i in card["checklist"]] == [4, 1, 0]
+    # An older result without per-area counts keeps the old heading.
+    assert older_card["checklistHeading"] == {"title": "What we checked", "count": " · 5 checks"}
+    assert notes == [
+        "This check used one of your free checks; 4 are left.",  # the server's, with the count
+        "This check used one of your checks.",
+        "This check used one of your free checks.",
+        "Quick checks are free.",
+        "You checked this page recently, so no new check was used.",
+        "This page couldn't be assessed, so no check was used.",
+    ]

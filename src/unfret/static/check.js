@@ -34,7 +34,7 @@ import {
   shopOf,
   unreadableKind,
 } from "./check-core.js";
-import { deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
+import { chargeNoteOf, deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { makePass } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
@@ -485,12 +485,13 @@ function renderResult(result, because = null) {
   );
   const hint = deepHintOf(result);
   if (result.tier === "quick") {
-    nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere. Free, and no check was used."));
-    // Once, under the quick result: what a deep check would add here, what it costs, one button.
-    if (hint) nodes.push(deepHintNode(hint, { run: runDeep, checkoutHref: checkoutHref() }));
-  } else if (result.score < 0) nodes.push(el("p", "small", "No check was used."));
-  else if (result.charged === false) nodes.push(el("p", "small", "You checked this page recently: no new check was used."));
-  else if (result.free_check) nodes.push(el("p", "small", "One of your free checks."));
+    nodes.push(el("p", "small", "Quick check: Unfret read only this page, by its rules, without looking the shop up elsewhere."));
+  }
+  // What the check cost, as a sentence: "This check used one of your free checks; 4 are left.", "Quick checks are free."
+  const charge = chargeNoteOf(result);
+  if (charge) nodes.push(el("p", "small charge-note", charge));
+  // Once, under the quick result: what a deep check would add here, what it costs, one button.
+  if (result.tier === "quick" && hint) nodes.push(deepHintNode(hint, { run: runDeep, checkoutHref: checkoutHref() }));
   const reason = because ? QUICK_BECAUSE[because] : null;
   if (reason) {
     $("no-checks-heading").textContent = reason.heading;

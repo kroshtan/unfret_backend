@@ -275,8 +275,8 @@ def test_the_scorers_table_shows_what_each_share_counts() -> None:
 
 def test_the_changelog_says_what_its_counts_count() -> None:
     text = " ".join((STATIC_DIR / "accuracy.html").read_text(encoding="utf-8").split())
-    assert "(the baseline: 24)" not in text and "(the baseline: 160)" not in text
-    assert "the baseline: 24 of the 180" in text and "160 of the 179" in text
+    assert "(the open model: 24)" not in text and "(the open model: 160)" not in text
+    assert "the open model: 24 of the 180" in text and "160 of the 179" in text
     # The threshold change's numbers say which test set they were measured on.
     assert "on the 1,582 product pages the test set had on November 17, 2026" in text
 
@@ -317,7 +317,7 @@ async def test_the_numbers_are_served_as_json(client: httpx.AsyncClient) -> None
     assert response.json() == _summary()
 
 
-# ── The retrained scorer unfret.net runs, next to the open baseline, and every earlier version ─────────────────
+# ── The private model unfret.net runs, next to the open model, and every earlier version ──────────────────────
 
 
 def _service() -> dict[str, Any]:
@@ -372,9 +372,14 @@ def test_the_single_service_file_is_gone_and_nothing_points_at_it() -> None:
 @pytest.mark.parametrize(
     ("version", "lead", "name", "note"),
     [
-        ("service", "service", "the retrained scorer unfret.net runs", "It is the scorer this server runs."),
-        ("baseline", "baseline", "the open baseline", "It is the scorer this server runs."),
-        ("v9-own", "baseline", "the open baseline", "aren't published here yet"),
+        ("service", "service", "the private model unfret.net runs", "It is the scorer this server runs."),
+        (
+            "baseline",
+            "baseline",
+            "the open model, the scorer in the source code",
+            "It is the scorer this server runs.",
+        ),
+        ("v9-own", "baseline", "the open model, the scorer in the source code", "aren't published here yet"),
     ],
 )
 def test_the_page_leads_with_the_numbers_of_the_scorer_this_server_runs(
@@ -391,7 +396,7 @@ def test_the_page_leads_with_the_numbers_of_the_scorer_this_server_runs(
     # Both scorers' numbers are on the page either way, each named.
     table = page.split('id="scorers"', 1)[1].split("</table>", 1)[0]
     assert versions["service"] in table and versions["baseline"] in table
-    assert "Retrained, runs on unfret.net" in table and "Open baseline, self-hosted" in table
+    assert "Private model (unfret.net)" in table and "Open model (in the code)" in table
     assert table.count("(this server)") == (0 if version == "v9-own" else 1)
     assert accuracy.pct(_service()["groups"]["products"]["caught"]) in table
 
@@ -403,7 +408,7 @@ def test_without_published_service_numbers_the_baseline_leads_alone(
     running("v1-whatever")
     assert accuracy.page_summary() == _summary()
     table = accuracy.scorers_table()
-    assert "Open baseline" in table and "Retrained" not in table
+    assert "Open model (in the code)" in table and "Private model" not in table
     assert "Release date not recorded" in table  # the baseline without a history entry
 
 
@@ -465,10 +470,11 @@ def test_with_one_retrained_scorer_the_history_says_it_is_the_first(history: Any
     top = _top(page)
     assert "v7-20260301-C" in top and _summary()["scorer_version"] in top
     assert "Released March 2, 2026, measured on 3,000 labelled pages" in top
-    assert "Released January 10, 2026, measured on 2,641 labelled pages" in top
+    # Released long before the replay that measured it: the heading says it was measured afterwards.
+    assert "Released January 10, 2026, measured afterwards on 2,641 labelled pages" in top
     assert _boxes(page) == []
     # No earlier version, without contradicting the changelog's older scorers: only their changes are listed.
-    assert "None yet. The older scorers in the" in page and "only their changes are listed" in page
+    assert "None yet. The older versions in the" in page and "only their changes are listed" in page
     assert "Open one to see them" not in page and "aren't strictly comparable" not in page
 
 
@@ -485,11 +491,13 @@ def test_with_three_the_newest_leads_and_the_others_fold_below_newest_first(hist
     assert "None yet." not in page
     assert "Open one to see them" in page and "aren't strictly comparable" in page
     first, second, baseline = boxes
-    assert "Retrained scorer <code>v7-20260301-C</code>" in first
+    assert "Private model (unfret.net) <code>v7-20260301-C</code>" in first
     assert "Released March 2, 2026, measured on 3,000 labelled pages</span></span></summary>" in first
     assert "on 3,000 labelled pages" in first and "81%" in first
     assert "Released February 3, 2026" in second and "on 2,200 labelled pages" in second and "71%" in second
-    assert "Open baseline <code>v0-20251201-C</code>" in baseline and "Released December 2, 2025" in baseline
+    assert "Open model (in the code) <code>v0-20251201-C</code>" in baseline
+    assert "Released December 2, 2025" in baseline
+    assert "afterwards" not in page.split('id="history"', 1)[1].split('id="ads"', 1)[0]  # each measured on release
     # The same numbers as the table above, under the same headings.
     for heading, _ in accuracy._columns():
         assert all(f'<th scope="row">{heading}</th>' in b for b in boxes), heading
@@ -608,7 +616,66 @@ def test_a_server_running_an_earlier_retrained_scorer_leads_with_its_numbers(his
     assert accuracy.page_summary()["scorer_version"] == "v7-20260301-C"
     page = " ".join(accuracy.render(template("accuracy.html")).split())
     assert (
-        "with scorer <code>v7-20260301-C</code>, an earlier retrained scorer. It is the scorer this server runs."
-        in page
+        "with scorer <code>v7-20260301-C</code>, an earlier private model. It is the scorer this server runs." in page
     )
     assert "(this server)" not in _top(page)  # the table still shows the newest and the baseline
+
+
+def test_an_earlier_open_model_measured_afterwards_says_so(history: Any, running: Any) -> None:
+    replayed = accuracy.entry(_made_up("v0-20251201-C", "2026-03-05", 3000, 0.6), "public", "2025-12-02")
+    page = history([*_entries(THREE), _baseline(), replayed])
+    earlier = page.split('id="history"', 1)[1].split('id="ads"', 1)[0]
+    boxes = _boxes(page)
+    assert [re.search(r"<code>([^<]+)</code>", b).group(1) for b in boxes][-1] == "v0-20251201-C"  # type: ignore[union-attr]
+    box = boxes[-1]
+    assert "Open model (in the code) <code>v0-20251201-C</code>" in box
+    assert "Released December 2, 2025, measured afterwards on 3,000 labelled pages" in box
+    assert "Measured afterwards, on March 5, 2026: this scorer inside Unfret as it was that day" in box
+    # The private models in the boxes were measured when released, and say nothing of the kind.
+    assert all("afterwards" not in b for b in boxes[:-1])
+    intro = earlier.split('<div class="acc-history">', 1)[0]
+    assert "The older open models were measured afterwards" in intro
+    assert (
+        "<strong>Open model (in the code)</strong>" in intro and "<strong>Private model (unfret.net)</strong>" in intro
+    )
+    running("v0-20251201-C")
+    assert accuracy.scorer_name({"scorer_version": "v0-20251201-C"}) == "an earlier open model"
+
+
+def test_the_page_names_both_models_the_same_way_everywhere() -> None:
+    page = " ".join(accuracy.render(template("accuracy.html")).split())
+    assert "baseline" not in page.lower() and "retrained scorer" not in page.lower()
+    table = _top(page)
+    for label in accuracy.KIND_LABELS.values():
+        assert label in table
+    for box in _boxes(page):
+        assert any(f"{label} <code>" in box for label in accuracy.KIND_LABELS.values()), box
+
+
+def test_the_earlier_open_model_is_published_with_its_release_date() -> None:
+    entries = {e["version"]: e for e in _history_file()["entries"]}
+    first = entries["v1-20261108-C"]
+    assert first["kind"] == "public" and first["released"] == "2026-11-08"
+    assert first["measured"] > first["released"]  # replayed afterwards, on a later test set
+    assert first["summary"]["corpus"] == _summary()["corpus"]  # on the same test set as today's open model
+    # Below the side-by-side table, which already has today's open model (not repeated as a box).
+    earlier = [e["version"] for e in accuracy.earlier_entries()]
+    assert "v1-20261108-C" in earlier and _summary()["scorer_version"] not in earlier
+    text = " ".join((STATIC_DIR / "accuracy.html").read_text(encoding="utf-8").split())
+    assert '0.6.0, November 8, 2026 <span class="muted">(open model: scorer <code>v1-20261108-C</code>)' in text
+    assert "(open model: scorer <code>v1-20261109-222323-C</code>, still the open model today)" in text
+    assert 'href="#scorer-v1-20261108-C"' in text
+
+
+def test_publishing_an_earlier_open_model(tmp_path: Path) -> None:
+    out = tmp_path / "history.json"
+    record(_summary(), "public", "2026-01-10", out)
+    summary = {**_summary(), "scorer_version": "v0-old-C"}
+    publish("v0-old-C", root=_store(tmp_path, "v0-old-C", summary), out=out, released="2025-12-02", kind="public")
+    entries = json.loads(out.read_text())["entries"]
+    assert [(e["version"], e["kind"], e["released"]) for e in entries] == [
+        (_summary()["scorer_version"], "public", "2026-01-10"),
+        ("v0-old-C", "public", "2025-12-02"),
+    ]
+    with pytest.raises(ValueError, match="kind"):
+        publish("v0-old-C", root=tmp_path, out=out, kind="secret")

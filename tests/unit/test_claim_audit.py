@@ -385,3 +385,5 @@ def test_a_models_noun_reaches_the_shopper_only_as_plain_words() -> None:
     )
     [padding, _] = claim_audit.count_problems(count)
     assert padding.why == "That count includes 12 other pieces: the set has 80 pens."
+    knives = [Part(count=1, item="chef's knife", role="main"), Part(count=1, item="<i>", role="main")]
+    assert claim_audit._listed(knives) == "1 chef's knife and 1 other piece"

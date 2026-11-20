@@ -410,7 +410,7 @@ def addressed_to_reader(quote: str, document: str) -> bool:
 # A piece count padded with accessories or packaging: several of a kind (12 clips in "91 pieces", 25 caps in "52 pcs"),
 # at least this share of the count. One of a kind (a knife set's sharpening steel, a box) is how sets are sold.
 PADDING_SHARE = 0.1
-_WORDS_RE = re.compile(r"^[^\W\d_]+(?:[ -][^\W\d_]+){0,2}$")
+_WORDS_RE = re.compile(r"^[^\W\d_]+(?:['’][^\W\d_]+)?(?:[ -][^\W\d_]+(?:['’][^\W\d_]+)?){0,2}$")
 
 
 def _words(text: str, fallback: str) -> str:
@@ -420,7 +420,7 @@ def _words(text: str, fallback: str) -> str:
 
 
 def _listed(parts: list[Part]) -> str:
-    items = [f"{p.count} {_words(p.item, 'other pieces')}" for p in parts]
+    items = [f"{p.count} {_words(p.item, 'other piece' if p.count == 1 else 'other pieces')}" for p in parts]
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
 
 

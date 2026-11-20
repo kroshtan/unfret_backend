@@ -322,3 +322,134 @@ def test_each_charge_line_is_a_sentence(kwargs: dict[str, Any], sentence: str) -
     args: dict[str, Any] = {"tier": "deep", "score": 70, "charged": True, "free_check": False} | kwargs
     assert card.charge_note(**args) == sentence
     assert sentence[0].isupper() and sentence.endswith(".") and len(sentence.split()) >= 4
+
+
+# A deep check of a marketplace listing read on the phone (Android 0.1.0-beta.2, production 0.14.0): "Worth a look",
+# "Several small signals" and every area ticked fine, the reviews not checked. No reason fired (the discount below
+# "big", a little pushy copy), but the scorer weighed both: the band came from signs the screen didn't show.
+LISTING_FEATURES = {
+    "listing.is_marketplace": 1.0,
+    "listing.discount_pct": 0.3,
+    "listing.seller_not_brand": 0.0,
+    "listing.title_length": 60.0,
+    "content.scam_copy": 0.4,
+    "content.generic_product": 0.2,
+    "content.generic_brand": 0.0,
+    "content.brand_recognized": 1.0,
+    "reviews.has_reviews": 0.0,
+    "review_copies.checked": 0.0,
+    "pricing.reference_anchor": 0.0,
+    "dark_patterns.timer": 0.0,
+    "html_source_signals.timer_app": 0.0,
+    "injection.hidden_chars": 0.0,
+    "brand_presence.wikidata": 0.0,
+    "safety_gate.alert": 0.0,
+    "market_price.known": 0.0,
+}
+LISTING_FLAGS = [
+    {"type": "listing.discount_pct", "evidence": "", "weight": 0.874},
+    {"type": "reviews.verified_share", "evidence": "", "weight": 0.531},  # describes the page: no concern
+    {"type": "listing.is_marketplace", "evidence": "", "weight": 0.386},  # describes the page: no concern
+    {"type": "content.scam_copy", "evidence": "", "weight": 0.343},
+]
+
+
+def _card(features: dict[str, float], flags: list[dict[str, Any]], score: int, page_type: str) -> dict[str, Any]:
+    signs = shopper.small_signs(flags)
+    built = shopper.build(score, features=features, findings=[], facts=PageFacts(), page_type=page_type, signs=signs)
+    judged = state(features, page_type, assessment={"flags": flags})
+    return card.complete(built.model_dump(), judged, available=SKILLS, applicable=SKILLS)
+
+
+def test_the_signs_that_set_the_band_are_on_the_screen() -> None:
+    result = _card(LISTING_FEATURES, LISTING_FLAGS, 62, "aggregate_listing")
+
+    assert result["band"] == "concerns"
+    [reason] = result["reasons"]
+    assert reason["title"] == "Two small signs"  # counted, not "several"
+    assert reason["detail"] == (
+        "No single big problem, but together these lowered the score: a sizeable discount and some pushy sales talk."
+    )
+    assert result["headline"] == "A sizeable discount and some pushy sales talk."
+    status = {i["key"]: (i["status"], i.get("note")) for i in result["checklist"]}
+    assert status["prices"] == ("concern", "A sizeable discount")
+    assert status["tricks"] == ("concern", "Some pushy sales talk")
+    assert status["reviews"][0] == "not_checked"
+    # Every sign is a line of an area that isn't ticked fine.
+    notes = " ".join(i.get("note") or "" for i in result["checklist"] if i["status"] == "concern").lower()
+    for sign in shopper.small_signs(LISTING_FLAGS):
+        assert shopper.sign_text(sign).lower() in notes
+
+
+def test_one_small_sign_is_one_small_sign() -> None:
+    flags = [{"type": "content.title_word_soup", "evidence": "", "weight": 0.4}]
+    result = _card({**LISTING_FEATURES, "content.title_word_soup": 0.5}, flags, 70, "aggregate_listing")
+
+    assert result["band"] == "concerns"
+    assert [r["title"] for r in result["reasons"]] == ["One small sign"]
+    assert result["reasons"][0]["detail"].startswith("Not a big problem by itself")
+    assert "several" not in json.dumps(result).lower() and "a few" not in result["headline"].lower()
+    assert {i["key"]: i["status"] for i in result["checklist"]}["product"] == "concern"
+
+
+def test_signs_in_one_area_are_all_in_its_line() -> None:
+    flags = [
+        {"type": "content.implausible_claims", "evidence": "", "weight": 0.6},
+        {"type": "content.generic_brand", "evidence": "", "weight": 0.5},
+    ]
+    result = _card(LISTING_FEATURES, flags, 40, "storefront")
+
+    assert result["band"] == "careful" and result["reasons"][0]["title"] == "Two signs"  # "small" only at Worth a look
+    product = next(i for i in result["checklist"] if i["key"] == "product")
+    assert product["note"] == "Some hard-to-believe claims and a brand we don't know"
+
+
+def test_a_sign_marks_its_area_next_to_a_reason_that_fired() -> None:
+    features = {**LISTING_FEATURES, "reviews.has_reviews": 1.0, "reviews.j_shaped": 1.0}
+    result = _card(features, LISTING_FLAGS, 55, "aggregate_listing")
+
+    assert [r["type"] for r in result["reasons"]] == ["review_shape"]
+    status = {i["key"]: i["status"] for i in result["checklist"]}
+    assert status["reviews"] == status["prices"] == status["tricks"] == "concern"
+
+
+def test_looks_fine_keeps_its_areas_and_its_one_note() -> None:
+    result = _card(LISTING_FEATURES, LISTING_FLAGS, 90, "aggregate_listing")
+
+    assert result["band"] == "reliable"
+    assert all(i["status"] != "concern" for i in result["checklist"])
+
+
+# Features that are good news when present: a scorer's small weight on one is no concern to show.
+GOOD_NEWS = frozenset({"us_identity.business_entity", "us_identity.us_address", "us_identity.us_phone"})
+
+
+def test_every_signal_a_shipped_scorer_weighs_has_words_and_an_area() -> None:
+    words = COPY["small_signs"]["signs"]
+    for path in (scoring.MODEL_PATH, scoring.MODEL_QUICK_PATH):
+        model = scoring.Model.from_dict(json.loads(path.read_text()))
+        for name, coefficient in zip(model.features, model.coefficients, strict=True):
+            if name not in shopper.CONTEXT_FEATURES and name not in words:
+                # A signal without words would set the band unseen: only features that describe the page, that never
+                # raise the risk when measured (a negative or zero weight) or that are good news may go without.
+                assert name in GOOD_NEWS or coefficient <= 0.0, name
+    for name in words:
+        assert card.area_of(shopper.SIGN_REASONS[name], "shop") is not None, name
+    copy = COPY["small_signs"]
+    shown = [*words.values(), *copy["title"].values(), *copy["title_small"].values(), *copy["detail"].values()]
+    assert not public_result.FORBIDDEN_RE.search(json.dumps(shown))  # never "scam" or "fraud"
+
+
+def test_progress_counts_the_checks_the_checklist_counts() -> None:
+    features = {**CLEAN, "reviews.has_reviews": 0.0}
+    _, checks_run = card.checklist(
+        "shop", features, {}, available={s.name for s in SKILLS}, applicable={s.name for s in SKILLS}
+    )
+    by_skill: dict[str, dict[str, float]] = {}
+    for name, value in features.items():
+        by_skill.setdefault(name.split(".", 1)[0], {})[name] = value
+    steps = ["preprocess", "classify", "triage", *by_skill]
+    done = sum(card.is_check(step, by_skill.get(step, {}), "storefront") for step in steps)
+    assert done == checks_run
+    assert not card.is_check("reviews", {"reviews.has_reviews": 0.0}, "storefront")  # nothing to look at
+    assert not card.is_check("content", {"content.scam_copy": 0.1}, "service_site")  # not on a company's checklist

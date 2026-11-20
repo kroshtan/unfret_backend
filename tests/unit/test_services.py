@@ -1,5 +1,6 @@
 """Service providers: extraction (testimonials, platform profiles), the skills, operator linking and the verdict."""
 
+import json
 import re
 from datetime import date
 from pathlib import Path
@@ -650,6 +651,9 @@ async def test_service_steps_stream() -> None:
         assert f'"skill": "{skill}"' in steps
     assert '"page_type": "service_site"' in steps
     assert final["verdict"]["band"] == "junk_or_scam" and final[analyze._PRIVATE] is True
+    # Progress counts the checks the result then says it ran (the content read and triage are steps, not checks).
+    done = sum(json.loads(e.split("data: ", 1)[1])["check"] for e in events if e.startswith("event: step"))
+    assert done == final["verdict"]["checks_run"] > 0
 
 
 def test_service_results_get_no_share_token(monkeypatch: pytest.MonkeyPatch) -> None:

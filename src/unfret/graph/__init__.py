@@ -2,7 +2,7 @@ import asyncio
 import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import openai
@@ -286,7 +286,9 @@ def _carded(
     async def node(state: AnalysisState) -> dict[str, Any]:
         update = await judge(state)
         if update.get("verdict"):
-            update["verdict"] = card.complete(update["verdict"], state, available=available, applicable=SKILLS)
+            # With the judge's own update (the scorer's assessment): the card marks the areas of its small signs.
+            judged = cast(AnalysisState, {**state, **update})
+            update["verdict"] = card.complete(update["verdict"], judged, available=available, applicable=SKILLS)
         return update
 
     return node

@@ -59,12 +59,12 @@ export function headlineOf(headline, label) {
   return rest.split(/\s+/).length >= 2 ? rest[0].toUpperCase() + rest.slice(1) : text;
 }
 
-// Every verdict below "Looks fine" names at least one reason. The server always sends one (the catalogue's "Several
-// small signals" when nothing else fired); a result without any (from before verdicts had reasons) gets the same words.
+// Every verdict below "Looks fine" names at least one reason. The server always sends one (its small signs, or "Nothing
+// clear-cut" when nothing else fired); a result without any (from before verdicts had reasons) gets the same words.
 const OVERALL_REASON = {
   severity: "low",
-  title: "Several small signals",
-  detail: "No single big problem, but several smaller signals together lowered the score.",
+  title: "Nothing clear-cut",
+  detail: "Nothing on the page stands out by itself, but taken together it scored lower than most.",
 };
 
 /** The reasons to show: the verdict's, or OVERALL_REASON for a band below "Looks fine" without any. */

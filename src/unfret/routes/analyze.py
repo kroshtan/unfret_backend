@@ -626,7 +626,9 @@ def _event(name: str, data: dict[str, Any]) -> str:
 
 def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
     # One LangGraph "updates" chunk ({node: state update}) → one `step` event per finished node (contract v1:
-    # {"skill", "findings"}, plus "page_type" from the classifier); the score is collected in `final` for `result`.
+    # {"skill", "findings", "check"}, plus "page_type" from the classifier); the score is collected in `final` for
+    # `result`. "check" is true for a step the result's checklist counts as a check (unfret.card.is_check): reading
+    # the page, classifying it and triage are steps, not checks, so a client counting progress counts these.
     # Steps carry progress only: which skill finished and the types of what it found, never the evidence. The
     # evidence comes with the (charged) result, so reading the steps and hanging up early gets nothing for free.
     events: list[str] = []
@@ -639,9 +641,13 @@ def _update_events(update: dict[str, Any], final: dict[str, Any]) -> list[str]:
         if "score" in values:
             continue  # the judge (or the early exit): reported as the `result` event
         found = [f.model_dump() if isinstance(f, Finding) else dict(f) for f in values.get("findings", []) or []]
+        features = values.get("features")
         step: dict[str, Any] = {
             "skill": node,
             "findings": [{"skill": f.get("skill", node), "type": f.get("type", "")} for f in found],
+            # One of the checks the result's checklist counts (its checks_run), so progress can count the same unit.
+            "check": isinstance(features, dict)
+            and card.is_check(node, features, str(final.get("page_type") or "storefront")),
         }
         if "page_type" in values:
             step["page_type"] = values["page_type"]
@@ -659,8 +665,9 @@ async def analyze_page_stream(
     """
     Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.
 
-    Events: one ``step`` per finished node (``{"skill", "findings"}`` with the finding types, plus ``page_type``
-    once classified), then a final ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.
+    Events: one ``step`` per finished node (``{"skill", "findings", "check"}`` with the finding types and whether the
+    step is one of the checks the result's ``checks_run`` counts, plus ``page_type`` once classified), then a final
+    ``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.
     Charged like ``POST /v1/analyze`` (a cache hit's result comes at once, charged as there), refunded on ``error``,
     a score of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a
     client that lost the connection gets it again for free by repeating the request with the same account. A

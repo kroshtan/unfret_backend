@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Page facts
+
+* **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything
+  else the page showed (thumbnails 40 px wide, banners, sprites, tracking pixels), so the steps that look at photos
+  saw one product photo. Now an Amazon page on any locale gives its gallery, large and in its order: from the image
+  block's data (`colorImages`), else the mobile page's carousel (`data-a-hires`), else the thumbnails made large;
+  Amazon's product images only (no banners, pixels, video thumbnails or badges), one per photo, at most 12. Other
+  platforms are as before.
+
 ### Fixes
 
 * **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained
@@ -30,6 +39,11 @@
   "Worth a look" or worse. The claims and the piece count are shared with other steps in one call per page
   (`claim_audit.listing_claims`). The golden report now counts every reason shown, notes on "Looks fine" included
   (#274).
+* **A piece count that is padded or doesn't add up is "Worth a look", whoever sells it.** When the claim audit finds
+  a set's count padded with accessories ("91 pieces" that are 80 pens and 12 clips) or its listed parts not making the
+  stated total, the page is "Worth a look" at best, also for a known brand or a shop with a track record (a new
+  feature, `claim_audit.count_off`). The audit's other self-contradictions stay a note that leaves the band as it is
+  (#279).
 
 ### The product photos against the listing's own claims
 

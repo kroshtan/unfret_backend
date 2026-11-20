@@ -25,6 +25,7 @@ from unfret.graph.nodes import (
 )
 from unfret.graph.skills import Skill, SkillOutput
 from unfret.graph.skills.brand_presence import BrandPresenceSkill
+from unfret.graph.skills.claim_audit import ClaimAuditSkill
 from unfret.graph.skills.claims import ClaimsSkill
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
@@ -75,6 +76,8 @@ SKILLS: list[Skill] = [
     # signals reach the shopper as reasons and positives (unfret.shopper).
     PaymentMethodsSkill(),
     ClaimsSkill(),
+    # Every checkable claim on the listing, checked by a stronger model (deep checks only).
+    ClaimAuditSkill(),
     MarketPriceSkill(),
     ReviewCopiesSkill(),
     BrandPresenceSkill(),

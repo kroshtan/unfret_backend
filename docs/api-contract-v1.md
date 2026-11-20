@@ -1419,3 +1419,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - The site's proof of work (`static/new-pass.js`, for `/check`, `/checkout` and `/developers`) computes SHA-256 in
   plain JavaScript instead of one Web Crypto call per hash: the same first counter, several times faster, so a
   developer pass's harder challenge takes seconds in a browser.
+
+## Changes (the claim audit, deep checks; backwards-compatible)
+
+- A new skill on product pages (deep tier only; the quick tier is unchanged): `claim_audit`, with features
+  `claim_audit.claims` (checkable claims found), `.contradicted` (0/1), `.contradictions` (how many are told, at most
+  three) and `.impossible` (how many of those physics, the price or an authority rules out, as against the page merely
+  contradicting itself), or `claim_audit.not_applicable` while it is off (`UNFRET_CLAIM_AUDIT=false`) and
+  `claim_audit.unavailable` when it failed. Its findings have type `claim_contradicted` and evidence
+  `Says "<claim, verbatim>"; <why, one plain sentence>`. Not in the scorer.
+- A new shopper reason key `claim_contradicted` ("A claim that doesn't add up", severity medium, area `product`,
+  source `ai_read`): `The page says “<claim>”. <why>`, with a second finding about the same claim appended (a padded
+  piece count that doesn't add up either). It stands in for `implausible_claims` when both fire. On a page that no
+  track record or known brand vouches for, a claim physics, the price or an authority rules out
+  (`claim_audit.impossible`) makes "Looks fine" "Worth a look" at most; it never makes a warning by itself.

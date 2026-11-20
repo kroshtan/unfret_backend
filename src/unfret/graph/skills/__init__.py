@@ -31,6 +31,10 @@ class SkillOutput(TypedDict):
     skill_results: list[str]
     # The image index's likely same product on another shop (reverse_image), for the result card.
     same_product: NotRequired[dict[str, Any]]
+    # Every checkable claim the listing makes (claim_audit; ListingClaim dumps), for steps that read them.
+    listing_claims: NotRequired[list[dict[str, Any]]]
+    # The listing's total piece count and the parts it lists it as (set by claim_audit: PieceCount dumps).
+    listing_piece_count: NotRequired[dict[str, Any]]
 
 
 class Observation(BaseModel):

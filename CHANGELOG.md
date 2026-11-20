@@ -2,49 +2,23 @@
 
 ## Unreleased
 
-### Features
+## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
+
+### Your pass on your phone
 
 * **"Use on your phone" opens the Android app when it's installed.** The QR code on /my-checks now holds
   `<site>/pass#pass=<pass>`, a verified Android App Link: `/.well-known/assetlinks.json` names Unfret for Android
   (`net.unfret.android`) and its release certificate, so Android opens the link in the app. Without the app (or on an
   iPhone or a computer) `/pass` forwards to `/check#pass=…` in the browser, fragment intact, which asks before it uses
   the pass as before; `/pass` is `noindex`, never cached and sends no referrer. Codes that hold `/check#pass=…` still
-  work.
-* **/android offers Unfret for Android 0.1.0-beta.1**, the first signed release (a beta), for a direct install.
-* **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
-  explain how to install it from the source.
-* **`/android` offers a beta as a beta**: the first Android release is `0.1.0-beta.1`. `make android-release
-  TAG=v0.1.0-beta.1` takes a pre-release tag, and `release.json`'s `"prerelease": true` (written by the app's release
-  workflow) must agree with the version. For a beta the page shows a "Beta" label next to the version and one
-  sentence: an early version, things may still change, and tell us what doesn't work at hello@unfret.net. The
-  install steps and the certificate check are unchanged; with no release the page still says "coming soon".
-
-* **Developer passes' free checks are for the API**: a pass made with `"developer": true` is flagged as one
-  (`api_keys.developer`, migration 34; nothing about who asked), and its 20 free deep checks count on `POST /v1/check`
-  only (the API, the MCP servers, the clients). On `/v1/analyze` (the website, the extension, the phone app) it is a
-  pass without free checks: its bought checks pay as anywhere, and without them it gets the `402` an empty pass gets.
-  Its free checks don't move to another pass, and none move onto it. `GET /v1/credits` reports them apart as
-  `api_free_checks_remaining`, outside `checks_remaining` and `free_checks_remaining`, so the website and the extension
-  don't offer checks they can't spend; `/check` adds "a developer pass: its 20 free checks are for the API" next to
-  the count. `POST /v1/keys` and `/v1/keys/recover` add `developer`; the remote MCP server's `get_checks_left` counts
-  them in. `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` say where they work. Passes made
-  before have no flag and keep working as they did.
-
-* **Developer passes can't use up the shoppers' free checks**: a developer pass's free deep checks come out of their
-  own day's budget (`UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR`, 1.00: 200 checks, ten full developer passes; counter
-  `developer_free_checks`), never the shoppers' `UNFRET_FREE_DAILY_BUDGET_EUR`, and the other way round. Once it is
-  used, a developer pass with only free checks gets `402 INSUFFICIENT_CREDITS` on `/v1/check`: "Today's free developer
-  checks are used up; they're back at 00:00 UTC. Bought checks still work." A given-back free check goes back to the
-  budget it came from. Making a developer pass needs a developer challenge (`GET /v1/keys/challenge?developer=true`),
-  `UNFRET_DEVELOPER_POW_EXTRA_BITS` (4) bits harder than an ordinary pass's (16 times the work; about 1.5 s on average
-  in Python on a laptop); ordinary passes keep their difficulty. `POST /v1/keys` with `"developer": true` and an
-  ordinary challenge answers `400 BAD_CHALLENGE`. `unfret-client` 0.1.1, the TypeScript reference client,
-  `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` follow, and say a developer pass is for
-  trying Unfret out: one per network a day. The site's proof of work (`/check`, `/checkout`, `/developers`) now
-  hashes in plain JavaScript, several times faster than one Web Crypto call per hash, with the same answer.
-
-### Changes
-
+  work (#264).
+* **/android offers Unfret for Android 0.1.0-beta.1**, the first signed release, as a beta, for a direct install
+  (#258).
+* **`/android` offers a beta as a beta**: `make android-release TAG=v0.1.0-beta.1` takes a pre-release tag, and
+  `release.json`'s `"prerelease": true` (written by the app's release workflow) must agree with the version. For a
+  beta the page shows a "Beta" label next to the version and one sentence: an early version, things may still change,
+  and tell us what doesn't work at hello@unfret.net. The install steps and the certificate check are unchanged; with
+  no release the page still says "coming soon" (#253).
 * **`/check` is a web page again, not an app to install.** On a phone, Unfret is `/check` in the browser: "Check a
   link on your phone: open unfret.net/check". The web app manifest (`/manifest.webmanifest`, with its Android share
   target), the "Keep Unfret on your home screen" box with its Install button, the home-screen icon link and the
@@ -52,19 +26,26 @@
   says to open `/check` in the phone's browser (its QR code opens it there) instead of how to install it, and My
   checks' "Use on your phone" no longer says to add Unfret to the home screen. Phones that installed the old web app
   drop its service worker: `/check-sw.js` is now a worker that clears any caches and unregisters itself, and `/check`
-  unregisters it too. The privacy statement no longer describes the worker.
+  unregisters it too. The privacy statement no longer describes the worker (#256).
 
-### Removed
+### The result card
 
-* **Intro codes are gone** (retired in 0.13.0): the redeem path, the operator endpoints (`/v1/admin/codes`),
-  `make codes` and its script, and the `UNFRET_INTRO_CODES_ENABLED` and `UNFRET_INTRO_DAILY_CHECKS_CAP` settings.
-  Migration 33 drops the `intro_codes` table and its day counter. A former intro code (`FRIENDS`) at
-  `POST /v1/invites/redeem` answers like any other code that isn't a gift code: `400 INVALID_INVITE`. An old
-  `/key?code=…` link opens `/checkout?for=key`, and `/checkout?code=…` with anything but a gift code opens as if the
-  link had none (no more "free checks when you install" note). The buyer counts the codes list had (through a code or
-  not) are now in `GET /v1/admin/invites`. Gift codes, affiliates and bonus codes are unchanged.
+* **The result card says when part of the check didn't finish**: a result whose AI read of the page failed or ran out
+  of time (`assessment.degraded`) got a milder verdict and fewer checks with no word about it. The card now says, under
+  the headline: "Part of this check didn't finish (the AI read of the page), so this answer may be milder than it
+  should be. It still counted as a check. Checking again after an hour may help." (`verdict.incomplete`; a shared
+  result says only the first sentence). Charging is unchanged: such a result is charged like any other, and the same
+  input within the hour gets it back from the result cache (#261).
+* **"What we checked" adds up**: the heading reads "What we checked: 16 checks in 5 areas" and each area says how many
+  checks looked at it ("Who's behind the shop · 4 checks"; `checklist[].checks`). A check that serves two areas counts
+  once, in the first, and an area the page doesn't have no longer adds its checks to the heading's number. An area
+  where everything passed is read out as "nothing to note" (#261).
+* **What a check cost, as a sentence**: `/v1/analyze` responses carry `charge_note`, shown under the result: "This
+  check used one of your free checks; 4 are left.", "This check used one of your checks; 23 are left.", "Quick checks
+  are free.", "You checked this page recently, so no new check was used.", "This page couldn't be assessed, so no
+  check was used." `/check` shows it instead of the lone "One of your free checks." (#261).
 
-### Fixes
+### Checking pages
 
 * **Every LLM step gets a time limit per attempt**: the classification, the triage's question, the headline, the LLM
   judge (without a scorer) and the review embeddings had only the client's 60 s timeout, so one call that didn't stop
@@ -72,39 +53,14 @@
   (`UNFRET_LLM_ATTEMPT_TIMEOUT_S`; these ask for a short answer, and the headline takes 4-8 s on dev) and a runaway is
   tried once more: two attempts and the backoff fit within the skill timeout, and within the analysis timeout next to
   a skill round that runs to its limit. The content read keeps its own 20 s. Prompts and model settings are
-  unchanged, so the evaluation's recorded responses still replay.
-* **The result card says when part of the check didn't finish**: a result whose AI read of the page failed or ran out
-  of time (`assessment.degraded`) got a milder verdict and fewer checks with no word about it. The card now says, under
-  the headline: "Part of this check didn't finish (the AI read of the page), so this answer may be milder than it
-  should be. It still counted as a check. Checking again after an hour may help." (`verdict.incomplete`; a shared
-  result says only the first sentence). Charging is unchanged: such a result is charged like any other, and the same
-  input within the hour gets it back from the result cache.
-* **"What we checked" adds up**: the heading reads "What we checked: 16 checks in 5 areas" and each area says how many
-  checks looked at it ("Who's behind the shop · 4 checks"; `checklist[].checks`). A check that serves two areas counts
-  once, in the first, and an area the page doesn't have no longer adds its checks to the heading's number. An area
-  where everything passed is read out as "nothing to note".
-* **What a check cost, as a sentence**: `/v1/analyze` responses carry `charge_note`, shown under the result: "This
-  check used one of your free checks; 4 are left.", "This check used one of your checks; 23 are left.", "Quick checks
-  are free.", "You checked this page recently, so no new check was used.", "This page couldn't be assessed, so no
-  check was used." `/check` shows it instead of the lone "One of your free checks.".
-* **The seller on Amazon's current offer box, in every language**: the offer box names shipper and seller in one
-  label when one company does both ("Verzender / Verkoper" on amazon.nl, "Shipper / Seller", "Expéditeur /
-  Vendeur"), and amazon.nl's wasn't recognised at all, so those listings had no seller. Such a row now fills both the
-  seller and where it ships from, and the labels of the other Amazon languages are known too (de "Verkauf durch",
-  fr "Vendeur", it "Venditore", es "Vendedor", pl "Sprzedawca", se "Säljs av" / "Säljare", tr "Satıcı", and their
-  shipper words). A page without a seller label still has no seller. On the corpus's recorded pages, 2 get a seller
-  (both amazon.nl) and 5 a "ships from" (amazon.nl and amazon.de); no other fact changes. Facts a client sends
-  can't be re-read (the server doesn't get the page's markup with them): the extension extracts them the same way.
+  unchanged, so the evaluation's recorded responses still replay (#261).
 * **A runaway content read no longer degrades the check**: now and then (about 1 in 20 reads of the test shop)
   the model quotes the page's text, gets lost in its own JSON and keeps writing whitespace until it is cut off. That
   used up the content step's whole 45 s, so the check came back degraded (no hard-to-believe claims, pushy sales
   talk or text aimed at AI; confidence capped, "Think twice" instead of "Serious concerns"). Each attempt of that
   read now gets 20 s (`UNFRET_CONTENT_ATTEMPT_TIMEOUT_S`; normal reads take 2-14 s) and a runaway is tried once more,
   so both attempts fit within the step's time. The prompt and model settings are unchanged, so the evaluation's
-  recorded responses still replay.
-* Plainer words: the home page's FAQ said Unfret answers "in one of four words" (it gives one of four answers), and
-  "it can be wrong, in both directions" on the home page, /about, /why and /terms now says what that means: it can
-  miss a bad shop, and it can warn about a good one.
+  recorded responses still replay (#255).
 * **The brand from a marketplace byline, in every language**: Amazon's byline is a link to the brand's store, and
   its phrase was taken as the brand ("De Air Max Store openen" on amazon.nl), then looked up and judged twice
   ("A brand with no presence of its own" and "Known brand" about the same phrase). The byline's phrase is now taken
@@ -112,7 +68,7 @@
   the product's structured brand comes first (JSON-LD, the overview and detail tables' brand row, the byline link's
   brand filter), and a name that reads like a sentence or a store link is no brand at all: a quiet result instead
   of a wrong claim. The same rule applies to the brand a client sends. Of the corpus's recorded pages, 2 get another
-  brand (one nl, one de real Amazon page) and 1 loses a trailing space; no seller changes.
+  brand (one nl, one de real Amazon page) and 1 loses a trailing space; no seller changes (#262).
 * **A seller is the brand when its name holds the brand's as whole words** ("Airmax nasal dilator", "AIRMAX-Store
   BV", "Air Max Benelux" sell Airmax), so "Sold by another company" isn't said of them; "Nikee" no longer counts as
   Nike by containing it. A seller named almost like a brand known elsewhere ("Nikee", "N1ke", "Nike-e") gets its own
@@ -120,16 +76,39 @@
   elsewhere (Wikidata, or its own domain for five years). The seller's whole name must be a slip away (a letter added,
   dropped or swapped, a digit or lookalike character for a letter; two edits for names over six letters), not a word
   in it, and a changed letter in a short name doesn't count ("Boss" isn't a lookalike of Bose). On the corpus no page
-  gets it (86 pages name both a brand and a seller), and `listing.seller_not_brand` changes on none.
+  gets it (86 pages name both a brand and a seller), and `listing.seller_not_brand` changes on none (#262).
 * **"Known brand" and "A brand with no presence of its own" are never both said**: when the content read knows the
-  brand but Wikidata and the domain lookups find nothing, neither is.
+  brand but Wikidata and the domain lookups find nothing, neither is (#262).
+* **The seller on Amazon's current offer box, in every language**: the offer box names shipper and seller in one
+  label when one company does both ("Verzender / Verkoper" on amazon.nl, "Shipper / Seller", "Expéditeur /
+  Vendeur"), and amazon.nl's wasn't recognised at all, so those listings had no seller. Such a row now fills both the
+  seller and where it ships from, and the labels of the other Amazon languages are known too (de "Verkauf durch",
+  fr "Vendeur", it "Venditore", es "Vendedor", pl "Sprzedawca", se "Säljs av" / "Säljare", tr "Satıcı", and their
+  shipper words). A page without a seller label still has no seller. On the corpus's recorded pages, 2 get a seller
+  (both amazon.nl) and 5 a "ships from" (amazon.nl and amazon.de); no other fact changes. Facts a client sends
+  can't be re-read (the server doesn't get the page's markup with them): the extension extracts them the same way
+  (#265).
+
+### Website and pages
+
+* **`/accuracy` tells the open model from the private one**: the page calls them "Open model (in the code)" (in this
+  repository, what a self-hosted server runs) and "Private model (unfret.net)" (retrained, not published), the same
+  in the side-by-side table, the earlier versions' boxes, the prose and the changelog, where 0.6.0 and 0.7.0 are
+  marked as open-model releases (0.7.0's is still the open model). `/about`, `/developers`, the README, the API
+  contract and `/v1/health`'s `model_version` description in the OpenAPI schema use the same words; the site no
+  longer says "open baseline" or "retrained scorer". The open model has a history too: 0.6.0's scorer
+  `v1-20261108-C`, replayed on today's test set (recorded LLM answers only), is under "Earlier versions" with its
+  release date, and says it was measured afterwards: 85% of unreliable product pages warned about, 84% of warnings
+  right, 18% of legitimate shops warned about (2.8% "Serious concerns"), ROC AUC 0.918.
+  `make accuracy ACCURACY_ARGS="--publish VERSION --kind public --released DATE"` publishes such an earlier open
+  model from its replay (`evals.accuracy`'s docstring has the steps) (#260).
 * **`/accuracy` says what its numbers count**: the product section names its pages as the shops' and marketplaces'
   product pages, part of all the test pages, with how many of the rest are ads and tradespeople; the side-by-side
   table shows the pages behind each share ("1.6% (12 of 753)"); "Earlier versions" no longer says there are none
   while the changelog lists older scorers (they weren't measured on this test set, so only their changes are
   listed); the well-known sellers' counts say what they are out of; the "Serious concerns" threshold's numbers say
   which test set they come from and how they lead to the table's; and the tradespeople section says plainly that
-  most measured pages are synthetic (329 of 348), so its numbers say little yet about real sites.
+  most measured pages are synthetic (329 of 348), so its numbers say little yet about real sites (#250).
 * **Site feedback**: the footer (English and Dutch) gives the contact address, hello@unfret.net. The home page says
   what a pass is where the word first appears ("a code saved in your browser … No name, no email"), and the home page
   and `/developers` say that passes and checks don't expire (what ends a pass, and that the operator's one-off
@@ -142,22 +121,54 @@
   services. `/developers` and `/developers/http` say that x402 is Solana only today, with Base coming next (the Base
   steps show only while Base is on), and `/llms.txt`'s errors table names Base only while it is on. `/developers` says
   the TypeScript client is a reference to copy, not on npm, with its link. On `/check` the three example shops are
-  links (a click still checks one), and the note under the shops that need the extension says why.
-* **`/accuracy` tells the open model from the private one**: the page calls them "Open model (in the code)" (in this
-  repository, what a self-hosted server runs) and "Private model (unfret.net)" (retrained, not published), the same
-  in the side-by-side table, the earlier versions' boxes, the prose and the changelog, where 0.6.0 and 0.7.0 are
-  marked as open-model releases (0.7.0's is still the open model). `/about`, `/developers`, the README, the API
-  contract and `/v1/health`'s `model_version` description in the OpenAPI schema use the same words; the site no
-  longer says "open baseline" or "retrained scorer". The open model has a history too: 0.6.0's scorer
-  `v1-20261108-C`, replayed on today's test set (recorded LLM answers only), is under "Earlier versions" with its
-  release date, and says it was measured afterwards: 85% of unreliable product pages warned about, 84% of warnings
-  right, 18% of legitimate shops warned about (2.8% "Serious concerns"), ROC AUC 0.918.
-  `make accuracy ACCURACY_ARGS="--publish VERSION --kind public --released DATE"` publishes such an earlier open
-  model from its replay (`evals.accuracy`'s docstring has the steps).
+  links (a click still checks one), and the note under the shops that need the extension says why (#251).
+* Plainer words: the home page's FAQ said Unfret answers "in one of four words" (it gives one of four answers), and
+  "it can be wrong, in both directions" on the home page, /about, /why and /terms now says what that means: it can
+  miss a bad shop, and it can warn about a good one (#257).
 
-### Internal
+### For AI agents and developers
 
-* The private model store is read from the corpus's `main` branch (was `master`; `MODEL_STORE_REF` still overrides it).
+* **The Python client is on PyPI**: `pip install unfret-client` (0.1.0). `/developers` and `/llms.txt` no longer
+  explain how to install it from the source (#249).
+* **Developer passes' free checks are for the API**: a pass made with `"developer": true` is flagged as one
+  (`api_keys.developer`, migration 34; nothing about who asked), and its 20 free deep checks count on `POST /v1/check`
+  only (the API, the MCP servers, the clients). On `/v1/analyze` (the website, the extension, the phone app) it is a
+  pass without free checks: its bought checks pay as anywhere, and without them it gets the `402` an empty pass gets.
+  Its free checks don't move to another pass, and none move onto it. `GET /v1/credits` reports them apart as
+  `api_free_checks_remaining`, outside `checks_remaining` and `free_checks_remaining`, so the website and the extension
+  don't offer checks they can't spend; `/check` adds "a developer pass: its 20 free checks are for the API" next to
+  the count. `POST /v1/keys` and `/v1/keys/recover` add `developer`; the remote MCP server's `get_checks_left` counts
+  them in. `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` say where they work. Passes made
+  before have no flag and keep working as they did (#254).
+* **Developer passes can't use up the shoppers' free checks**: a developer pass's free deep checks come out of their
+  own day's budget (`UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR`, 1.00: 200 checks, ten full developer passes; counter
+  `developer_free_checks`), never the shoppers' `UNFRET_FREE_DAILY_BUDGET_EUR`, and the other way round. Once it is
+  used, a developer pass with only free checks gets `402 INSUFFICIENT_CREDITS` on `/v1/check`: "Today's free developer
+  checks are used up; they're back at 00:00 UTC. Bought checks still work." A given-back free check goes back to the
+  budget it came from. Making a developer pass needs a developer challenge (`GET /v1/keys/challenge?developer=true`),
+  `UNFRET_DEVELOPER_POW_EXTRA_BITS` (4) bits harder than an ordinary pass's (16 times the work; about 1.5 s on average
+  in Python on a laptop); ordinary passes keep their difficulty. `POST /v1/keys` with `"developer": true` and an
+  ordinary challenge answers `400 BAD_CHALLENGE`. `unfret-client` 0.1.1, the TypeScript reference client,
+  `/developers`, `/developers/http`, `/llms.txt` and `/.well-known/x402` follow, and say a developer pass is for
+  trying Unfret out: one per network a day. The site's proof of work (`/check`, `/checkout`, `/developers`) now
+  hashes in plain JavaScript, several times faster than one Web Crypto call per hash, with the same answer (#266).
+
+### Removed
+
+* **Intro codes are gone** (retired in 0.13.0): the redeem path, the operator endpoints (`/v1/admin/codes`),
+  `make codes` and its script, and the `UNFRET_INTRO_CODES_ENABLED` and `UNFRET_INTRO_DAILY_CHECKS_CAP` settings.
+  Migration 33 drops the `intro_codes` table and its day counter. A former intro code (`FRIENDS`) at
+  `POST /v1/invites/redeem` answers like any other code that isn't a gift code: `400 INVALID_INVITE`. An old
+  `/key?code=…` link opens `/checkout?for=key`, and `/checkout?code=…` with anything but a gift code opens as if the
+  link had none (no more "free checks when you install" note). The buyer counts the codes list had (through a code or
+  not) are now in `GET /v1/admin/invites`. Gift codes, affiliates and bonus codes are unchanged (#254).
+
+### Development
+
+* The private model store is read from the corpus's `main` branch (was `master`; `MODEL_STORE_REF` still overrides it) (#252).
+* `make audit` keeps pip-audit's cache in `.audit-cache`: platformdirs 4.14.8 refuses a `~/.cache` that another user
+  can write, which the CI runner's is, so every audit failed (#267).
+* Migrations 33 and 34: the intro codes' table and day counter dropped, the developer flag on passes.
 
 ## [0.13.0](https://github.com/kroshtan/unfret_backend/compare/0.12.0...0.13.0) (2026-11-18)
 

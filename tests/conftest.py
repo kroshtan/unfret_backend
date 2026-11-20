@@ -40,6 +40,12 @@ def no_second_opinion_calls(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def no_photo_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test fetches product photos or asks a vision model about them unless it turns the photo check on."""
+    monkeypatch.setattr(scoring.settings, "photo_claims", False)
+
+
+@pytest.fixture(autouse=True)
 def fresh_check_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts without remembered x402 answers and with an empty rate limit (both live in memory)."""
     from unfret.routes import check  # noqa: PLC0415 - keep the app out of import time for unrelated tests

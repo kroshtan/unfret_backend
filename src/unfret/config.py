@@ -143,6 +143,21 @@ class Settings(BaseSettings):
     model_path: str = ""
     model_quick_path: str = ""
     image_threads: int = Field(default=1, ge=1, le=8)
+    # The photo check against the listing's own claims (unfret.graph.skills.photo_claims), deep checks only: when the
+    # title or product data states a piece count ("52 pcs") or a size ("30 x 40 cm"), a vision-capable model from the
+    # same OpenAI-compatible provider is asked plain questions about the first few product photos (how many of the
+    # main items are visible, is there a person or object for scale). Off: the skill reports nothing and costs
+    # nothing. The model is Scaleway's Mistral Small 3.2 by default (it reads images; the same model as llm_model),
+    # one call per photo, each photo downscaled to photo_claims_image_px on its longest side. The prices (euros per
+    # million tokens) are only for the cost the skill logs per check.
+    photo_claims: bool = True
+    photo_claims_model: str = "mistral-small-3.2-24b-instruct-2506"
+    photo_claims_max_images: int = Field(default=3, ge=1, le=5)
+    photo_claims_image_px: int = Field(default=768, ge=256, le=1536)
+    # An answer the model gives with less confidence (0–1) than this is dropped.
+    photo_claims_min_confidence: float = Field(default=0.8, ge=0, le=1)
+    photo_claims_input_eur_per_mtok: Decimal = Field(default=Decimal("0.15"), ge=0)
+    photo_claims_output_eur_per_mtok: Decimal = Field(default=Decimal("0.35"), ge=0)
     contact_hash_key: SecretStr = SecretStr("")
 
     # Expensive skill runs the triage may spend on one analysis.

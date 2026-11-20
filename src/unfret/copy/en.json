@@ -201,6 +201,14 @@
       "title": "On the EU list of dangerous products",
       "detail": "The EU's Safety Gate, where authorities warn about dangerous products, has an alert for this product: {alert}"
     },
+    "photo_count_mismatch": {
+      "title": "Fewer pieces in the photo than the listing says",
+      "detail": "The listing says {claim}, but photo {photo}, which shows the whole set, has about {seen} {items}.{padded}"
+    },
+    "photo_size_mismatch": {
+      "title": "Looks bigger in the photos than its stated size",
+      "detail": "The listing gives the size as {claim}, but next to the {reference} in photo {photo} it looks about {size} across."
+    },
     "irreversible_payment_only": {
       "title": "Only payments you can't get back",
       "detail": "The shop mentions {methods} and no card, PayPal or other method with buyer protection. Money sent that way can't be reclaimed if nothing arrives."
@@ -655,6 +663,12 @@
     "brand_presence.shop_is_brand": "Sold by the brand's own site",
     "safety_gate.barcode_match": "On the EU list of dangerous products",
     "safety_gate.model_match": "On the EU list of dangerous products",
+    "photo_claims.checked": "Photos compared with the listing",
+    "photo_claims.photos": "Photos compared",
+    "photo_claims.count_claimed": "Pieces the listing states",
+    "photo_claims.count_seen": "Pieces seen in the photos",
+    "photo_claims.count_mismatch": "Fewer pieces in the photo than stated",
+    "photo_claims.size_mismatch": "Looks bigger in the photos than stated",
     "shop_links.shared_address_shops": "Address shared by other shops",
     "service_identity.kvk_shown": "KvK number shown",
     "service_identity.kvk_malformed": "KvK number looks wrong",
@@ -753,6 +767,7 @@
   "shop_many": "shops",
   "other_brand_one": "another brand name",
   "other_brand_many": "{count} other brand names",
+  "photo_count_padded": " The number only adds up if caps, lids or the box are counted as pieces too.",
   "class_headlines": {
     "p2p_listing": {
       "reliable": "Nothing worrying stood out in this ad, and the seller has a track record on the platform.",
@@ -780,6 +795,7 @@
     "price_history": "Unfret's price history",
     "market_prices": "Prices at other shops (Unfret's price records)",
     "image_index": "Unfret's image index",
+    "photos": "The listing's photos (Unfret's AI read of them)",
     "shop_records": "Shops Unfret has checked",
     "review_records": "Reviews on other shops Unfret has checked",
     "brand_records": "Wikidata and the brand's own website",
@@ -838,6 +854,7 @@
     "service_junk_or_scam": "Better to find another company for this job.",
     "same_product": "Compare before you buy: the same product is sold elsewhere, maybe for less.",
     "compare_elsewhere": "Search for the product under other names: the same item is often sold elsewhere, for less.",
+    "check_listing": "Go by the measurements and the number of pieces in the listing's text, not the photos, and look for buyers' own photos in the reviews.",
     "real_brand": "If you want the brand's product, buy it from the brand itself or a shop you know.",
     "compare_price": "Compare the price at a shop you know: a discount this good is rarely real.",
     "shop_reviews": "Look for reviews of the shop itself on other sites before you pay, and pay with buyer protection.",

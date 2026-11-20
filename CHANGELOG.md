@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### The product photos against the listing's own claims
+
+* **A deep check compares the listing's piece count and size with its own photos** (new skill `photo_claims`). When
+  the title or the product's structured data states one piece count ("52 pcs marker set", "set of 12") or one size
+  ("30 x 40 cm"), the first three product photos are fetched (the photo check's size and time limits), downscaled and
+  shown to a basic vision model, one call per photo, with the title's numbers hidden: what the set is made of,
+  whether the whole set is shown, how many of the main items are visible (caps, lids, boxes and accessories not
+  counted), and whether a person or a common object shows the scale. Only clear mismatches count, from confident
+  answers, and never against another photo that agrees: a photo of the whole set with 25 markers for "52 pcs" (when
+  caps and boxes make up the difference; a third of the count otherwise), or a 30 × 40 cm canvas that looks 120 cm
+  wide next to a child. Two new reasons, source "The listing's photos (Unfret's AI read of them)", area "The product
+  and the brand", next step "Go by the measurements and the number of pieces in the listing's text, not the
+  photos, …": `photo_count_mismatch` ("Fewer pieces in the photo than the listing says") and `photo_size_mismatch`
+  ("Looks bigger in the photos than its stated size"), both medium; with either, a page is "Worth a look" at best,
+  never worse because of it alone. The quick check is unchanged. The model is `UNFRET_PHOTO_CLAIMS_MODEL`
+  (Scaleway's Mistral Small 3.2, the model the analysis already uses; it reads images); `UNFRET_PHOTO_CLAIMS=false`
+  turns it off. Each check logs its photos, tokens and cost (`photo_claims_usage`). New features (`photo_claims.*`)
+  that the shipped scorer doesn't use. `python -m evals.photo_claims` runs it live on the corpus's pages that state a
+  count or size and on Amazon Berkeley Objects listings.
+
 ## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
 
 ### Your pass on your phone

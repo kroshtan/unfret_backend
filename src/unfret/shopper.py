@@ -74,6 +74,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "long_delivery": "low",
     "mailbox_address": "low",
     "safety_gate_alert": "high",
+    "photo_count_mismatch": "medium",
+    "photo_size_mismatch": "medium",
     "irreversible_payment_only": "high",
     "founded_contradicted": "high",
     "far_below_market": "high",
@@ -881,6 +883,40 @@ def _product_facts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["brand_no_presence"] = {"brand": _quote(e.facts.brand) if e.facts.brand else e.phrase("this_brand")}
 
 
+_PHOTO_COUNT_RE = re.compile(
+    r'^Says "(?P<claim>.{1,150}?)"; photo (?P<photo>\d) of the whole set shows (?P<seen>\d+) (?P<items>[^;.]{1,30})'
+    r"(?P<padded>; with the other parts)?"
+)
+_PHOTO_SIZE_RE = re.compile(
+    r'^Says "(?P<claim>.{1,150}?)"; in photo (?P<photo>\d) it looks about (?P<cm>\d+) cm across next to the '
+    r"(?P<reference>[^.]{1,30})\."
+)
+_INCHES_RE = re.compile(r"\d\s*(?:in\b|inch|\"|''|”|″)", re.IGNORECASE)
+
+
+def _photo_claims(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """The listing's piece count or size against what its own photos show (photo_claims)."""
+    count = e.first("photo_count_mismatch")
+    if count and e.f("photo_claims.count_mismatch") >= 1 and (m := _PHOTO_COUNT_RE.match(count.evidence)):
+        fired["photo_count_mismatch"] = {
+            "claim": _quote(m.group("claim")),
+            "photo": m.group("photo"),
+            "seen": m.group("seen"),
+            "items": m.group("items"),
+            "padded": e.phrase("photo_count_padded") if m.group("padded") else "",
+        }
+    size = e.first("photo_size_mismatch")
+    if size and e.f("photo_claims.size_mismatch") >= 1 and (m := _PHOTO_SIZE_RE.match(size.evidence)):
+        cm = int(m.group("cm"))
+        looks = f"{round(cm / 2.54)} inches" if _INCHES_RE.search(m.group("claim")) else f"{cm} cm"
+        fired["photo_size_mismatch"] = {
+            "claim": _quote(m.group("claim")),
+            "photo": m.group("photo"),
+            "size": looks,
+            "reference": m.group("reference"),
+        }
+
+
 def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools, hidden or visible."""
     if e.f("injection.instruction_hidden") >= 1:
@@ -1008,6 +1044,7 @@ def _fired(evidence: _Evidence) -> dict[str, dict[str, str]]:
         _claims,
         _payment_and_market,
         _product_facts,
+        _photo_claims,
         _manipulation,
     )
     for rules in rules_in_order:
@@ -1106,6 +1143,8 @@ def build(
         band = "careful"  # a known brand's own photo sold as another brand's: a false statement about the product
     if band == "reliable" and "rebranded_photo" in fired:
         band = "concerns"  # relabelled generic goods: worth a look and a price comparison, not a warning by itself
+    if band == "reliable" and {"photo_count_mismatch", "photo_size_mismatch"} & set(fired):
+        band = "concerns"  # the listing's own photos contradict its count or size: worth a look, not a warning
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):
         # The one note on a page the scorer calls fine, from the content read's impression of a manufacturer's
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.

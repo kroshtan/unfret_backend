@@ -38,6 +38,7 @@ from unfret.graph.skills.listing import ListingSkill
 from unfret.graph.skills.market_price import MarketPriceSkill
 from unfret.graph.skills.off_platform import OffPlatformSkill
 from unfret.graph.skills.payment_methods import PaymentMethodsSkill
+from unfret.graph.skills.photo_claims import PhotoClaimsSkill
 from unfret.graph.skills.platform_profile import PlatformProfileSkill
 from unfret.graph.skills.price_outlier import PriceOutlierSkill
 from unfret.graph.skills.pricing import PricingSkill
@@ -79,6 +80,8 @@ SKILLS: list[Skill] = [
     ReviewCopiesSkill(),
     BrandPresenceSkill(),
     SafetyGateSkill(),
+    # The listing's piece count and size against its own photos (a vision model; deep checks only).
+    PhotoClaimsSkill(),
     # Service providers.
     ServiceIdentitySkill(),
     DoorwayPagesSkill(),

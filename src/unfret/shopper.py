@@ -49,6 +49,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "generic_product": "medium",
     "claim_contradicted": "medium",
     "implausible_claims": "medium",
+    "data_inconsistency": "low",
     "variant_bait_price": "medium",
     "variants_grouped": "low",
     "pushy_copy": "medium",
@@ -753,6 +754,10 @@ def _product(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         # What else doesn't add up about the same claim (a padded piece count that doesn't add up either) goes with it.
         whys = [m.group("fact") for m in said if m.group("claim") == said[0].group("claim")][:2]
         fired["claim_contradicted"] = {"claim": _quote(said[0].group("claim")), "why": " ".join(whys)[:480]}
+    # A contradiction the claim audit judged immaterial (a slip the buyer sees, or one that favours nobody): a note.
+    slips = [m for f in e.findings.get("data_inconsistency", []) if (m := _SAYS_RE.match(f.evidence))]
+    if e.f("claim_audit.inconsistencies") >= 1 and slips:
+        fired["data_inconsistency"] = {"claim": _quote(slips[0].group("claim")), "why": slips[0].group("fact")[:480]}
     if e.marketplace and e.f("listing.seller_not_brand") >= 1 and e.facts.seller:
         fired["seller_not_brand"] = {"seller": _quote(e.facts.seller)}
         # A seller named almost like a brand known elsewhere ("Nikee" for Nike): a stronger sign than another seller.
@@ -1416,6 +1421,7 @@ def build(
     # warning the band would otherwise drop.
     moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
     weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
+    weighed.discard("data_inconsistency")  # a note: a contradiction judged immaterial is told, never a warning alone
     weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
     weighed.discard("marketplace_reference")  # a note: the marketplace's own reference price, never a warning alone
     weighed -= {"brand_reference", "disclosed_reference"}  # notes too: the maker's price, or one the 30-day low backs

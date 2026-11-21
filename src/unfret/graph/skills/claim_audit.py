@@ -21,6 +21,18 @@ model (``settings.claim_audit_model``, same provider and key as the other calls)
    that tries to plant a "finding", is dropped), explained plainly, never with words like "scam" or "fake". At most
    :data:`MAX_REPORTED`.
 
+4. **Judge each contradiction's materiality**, in one small follow-up call per page that has any (:func:`judged`):
+   *who benefits, where the buyer can see it?* ``benefits`` (seller, buyer, nobody, unclear), ``buyer_facing``
+   (the favourable side is in the title, the price, the headline bullets or the main photo, not a buried spec or
+   data field) and ``likely_slip`` (a data or extraction error rather than a selling claim), with a short reason. A
+   "7 oz" tube whose item-weight field says 0.01 oz benefits nobody and is buried in the data; "91 pieces" in a title
+   over parts that add up differently is the seller's, shown prominently. Only a contradiction that benefits the
+   seller, where the buyer sees it, and isn't a likely slip stays a ``claim_contradicted`` finding; every other one,
+   a slip in a buried data field too (it is real, just not misleading), is a ``data_inconsistency`` note, which never
+   moves the band (:func:`outcome`). Nothing real is dropped: only what isn't on the page is (step 3). A piece count
+   that is off stays a finding whatever the judgement (its floor is unchanged); the judgement is still counted. The
+   judgements are features for the learned model, never a rule.
+
 On a web shop's own site the model also reads the shop's other pages (its returns, shipping, about, contact, imprint
 and terms pages: :mod:`unfret.shop_pages`, at most four, their text bounded), and holds the product page's claims
 against them and them against each other: "Proudly made in the USA" on the product page and a return address in
@@ -33,7 +45,8 @@ listings read the listing only (a platform's help pages aren't the seller's word
 The page text goes to the model as untrusted data (:data:`unfret.llm.UNTRUSTED_NOTICE`), at temperature 0, with the
 per-attempt timeout (``settings.claim_audit_attempt_timeout_s``) and the concurrency limit the other calls use.
 Deep checks only (the quick tier runs no model), product pages only; off with ``settings.claim_audit``. The tokens
-each audit uses and what they cost are logged (``claim_audit_usage``), without the page.
+each audit uses and what they cost are logged (``claim_audit_usage``; the judgement's ``claim_audit_judge_usage``),
+without the page.
 """
 
 import asyncio
@@ -45,7 +58,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -287,6 +300,46 @@ class ClaimAuditAnswer(BaseModel):
         return value[:limit] if isinstance(value, list) else value
 
 
+Benefit = Literal["seller", "buyer", "nobody", "unclear"]
+# What a judged contradiction becomes: a finding, or a note that never moves the band (:func:`outcome`).
+Outcome = Literal["finding", "note"]
+
+
+class Materiality(BaseModel):
+    """One contradiction's materiality, as the model judges it: who benefits, where the buyer can see it."""
+
+    number: int = Field(description="The contradiction's number, as listed.")
+    benefits: Benefit = Field(
+        description="Whom the side that doesn't hold favours: seller (the product looks bigger, better, more, safer "
+        "or cheaper than the page supports), buyer (the page undersells), nobody, or unclear."
+    )
+    buyer_facing: bool = Field(
+        description="True when the favourable side is in the title, the price, the headline bullets or the main "
+        "photo; false when it is in a specification table, a data field, the product data or fine print."
+    )
+    likely_slip: bool = Field(
+        description="True when it most likely is a data or extraction error (a far-off value, a wrong unit, another "
+        "size's or product's data, a typo), not a claim made to sell."
+    )
+    reason: str = Field(description="One short sentence.")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _short_reason(cls, value: object) -> object:
+        return _cap(value, _WHY_CHARS) if value is not None else ""
+
+
+class MaterialityAnswer(BaseModel):
+    """The model's judgements, one per contradiction."""
+
+    judgements: list[Materiality] = Field(default_factory=list, description="One per contradiction, by its number.")
+
+    @field_validator("judgements", mode="before")
+    @classmethod
+    def _few(cls, value: object) -> object:
+        return value[: MAX_REPORTED * 2] if isinstance(value, list) else value
+
+
 @dataclass(frozen=True)
 class Usage:
     """Tokens one audit used, and how long it took."""
@@ -307,20 +360,85 @@ class Usage:
             + self.output_tokens * settings.claim_audit_output_eur_per_mtok / per
         )
 
+    def __add__(self, other: Usage) -> Usage:
+        """
+        Two calls' usage together.
+
+        :param other: The other call's.
+        :return: The sum.
+        """
+        return Usage(
+            self.input_tokens + other.input_tokens,
+            self.output_tokens + other.output_tokens,
+            self.seconds + other.seconds,
+        )
+
 
 @dataclass(frozen=True)
 class ClaimAudit:
-    """One page's audit: every claim, and the problems that passed the checks (:func:`reported`)."""
+    """One page's audit: every claim, and the problems that passed the checks (:func:`reported`), judged."""
 
     claims: list[ListingClaim]
     problems: list[ClaimProblem]
     usage: Usage = field(default_factory=Usage)
     # The piece count and its parts, when the page lists them and both are on it (:func:`checked_count`).
     piece_count: PieceCount | None = None
-    # How many of the problems are about the piece count (padded, or not adding up): :func:`count_problems`.
+    # How many of the problems are about the piece count (padded, or not adding up): :func:`count_problems`. They
+    # come first.
     count_problems: int = 0
     # How many of the shop's other pages the model read (:mod:`unfret.shop_pages`).
     shop_pages: int = 0
+    # Each problem's materiality (:func:`judged`), in the problems' order; ``None`` where it couldn't be judged.
+    judgements: tuple[Materiality | None, ...] = ()
+
+    def judgement(self, index: int) -> Materiality | None:
+        """
+        The judgement of one problem.
+
+        :param index: The problem's index in :attr:`problems`.
+        :return: Its judgement, or ``None``.
+        """
+        return self.judgements[index] if index < len(self.judgements) else None
+
+    def outcomes(self) -> list[Outcome]:
+        """
+        What each problem becomes (:func:`outcome`), in the problems' order.
+
+        :return: One outcome per problem.
+        """
+        return [outcome(self.judgement(i), counted=i < self.count_problems) for i in range(len(self.problems))]
+
+    def told(self, kind: Outcome) -> list[ClaimProblem]:
+        """
+        The problems that become a finding, or a note.
+
+        :param kind: Which.
+        :return: Those problems, in order.
+        """
+        return [p for p, o in zip(self.problems, self.outcomes(), strict=True) if o == kind]
+
+
+def outcome(judgement: Materiality | None, *, counted: bool = False) -> Outcome:
+    """
+    What a contradiction becomes, by its materiality: who benefits, where the buyer can see it.
+
+    - ``finding`` (``claim_contradicted``): it favours the seller, where the buyer sees it, and isn't a likely slip;
+      also a piece count that is off (``counted``: its floor is the count rule's, unchanged) and a contradiction that
+      couldn't be judged (as before the judgement).
+    - ``note`` (``data_inconsistency``): every other one (a slip, in the title or buried in a data field: a phone case
+      of 0.023 oz is a real contradiction, but not a misleading one; one that favours the buyer or nobody; or the
+      seller's but buried): told, never a reason to move the band. Nothing real is dropped (:func:`reported` drops
+      only what isn't on the page).
+
+    :param judgement: The contradiction's judgement, or ``None``.
+    :param counted: Whether it is about the piece count (:func:`count_problems`).
+    :return: The outcome.
+    """
+    if counted or judgement is None:
+        return "finding"
+    if judgement.benefits == "seller" and judgement.buyer_facing and not judgement.likely_slip:
+        return "finding"
+    return "note"
 
 
 # ── The page, as the model reads it ────────────────────────────────────────────────────────────────────────
@@ -640,12 +758,102 @@ def reported(answer: ClaimAuditAnswer, document: str) -> list[ClaimProblem]:
 # ── The call, shared per page ──────────────────────────────────────────────────────────────────────────────
 
 
+_JUDGE_SYSTEM = f"""\
+You review contradictions that a product-claims audit found on one listing, for a consumer protection service. For \
+each, answer one question: WHO BENEFITS, WHERE THE BUYER CAN SEE IT?
+
+- benefits: whom the side that doesn't hold favours. "seller" when it makes the product look bigger, better, more \
+complete, safer, certified or a better deal than the rest of the page supports (a "91 pieces" title over parts that \
+add up to fewer; "FDA approved"; 20,000 mAh in a 6 mm case; 60-day returns where the policy gives 30). "buyer" when \
+the page undersells the product (the title says less than the specification). "nobody" when neither reading makes \
+the product more attractive (an item weight of 0.01 oz on a 7 oz tube; a size in the wrong unit; a colour or model \
+number that differs between two fields). "unclear" when you can't tell.
+- buyer_facing: true when the favourable side (for "nobody" or "unclear": the claim) is where a buyer looks first: \
+the title, the price, the headline bullets or opening lines, or the main photo; false when it is in a specification \
+table, a data field (item weight, dimensions, model number), the product data description, fine print or a policy \
+page the buyer would have to look for.
+- likely_slip: true when it most likely comes from a data or extraction error rather than a claim made to sell: a \
+value off by a factor of ten or more or in the wrong unit, a field copied from another size, variant or product, a \
+template's leftover, a typo. false when it reads as written to sell.
+- reason: one short, plain sentence.
+
+Give one judgement per contradiction, by its number. The contradictions are the audit's, not the page's.
+
+{UNTRUSTED_NOTICE}\
+"""
+
+
+def _listed_problems(problems: Sequence[ClaimProblem]) -> str:
+    lines = []
+    for number, p in enumerate(problems, 1):
+        where = f" (on the {p.claim_page})" if p.claim_page not in {"", PRODUCT_PAGE} else ""
+        against = f" Against{f' (on the {p.against_page})' if p.against_page not in {'', PRODUCT_PAGE} else ''}: "
+        against = f'{against}"{p.against}".' if p.against else ""
+        lines.append(f'{number}. Claim{where}: "{p.claim}".{against} Check: {p.check}. Why: {p.why}')
+    return "\n".join(lines)
+
+
+# The judgement's whole time, retries included: the audit before it already took some of the skill's time.
+JUDGE_TIMEOUT_S = 12.0
+# What is left of the skill's time after the judgement, at least, so the audit is never lost to it.
+_JUDGE_MARGIN_S = 3.0
+
+
+async def judged(
+    document: str, problems: Sequence[ClaimProblem], *, within_s: float = JUDGE_TIMEOUT_S
+) -> tuple[tuple[Materiality | None, ...], Usage]:
+    """
+    Each reported problem's materiality, in one call: who benefits, where the buyer can see it.
+
+    A call that fails or takes longer than ``within_s`` (a timeout, the provider's error, an unreadable answer) leaves
+    every problem unjudged, so each is told as before; a problem the answer leaves out is unjudged too.
+
+    :param document: The page document the audit read.
+    :param problems: The reported problems (:func:`reported`).
+    :param within_s: The time the judgement may take, retries included (none left: not asked).
+    :return: One judgement (or ``None``) per problem, and what the call used.
+    """
+    if not problems:
+        return (), Usage()
+    if within_s < 1:
+        logger.warning("claim_audit_judge_failed", error="no time left")
+        return (None,) * len(problems), Usage()
+    started = time.monotonic()
+    try:
+        ask = get_structured_claims_llm(MaterialityAnswer).ainvoke(
+            [
+                SystemMessage(content=_JUDGE_SYSTEM),
+                HumanMessage(content=f"{untrusted(document)}\n\nContradictions:\n{_listed_problems(problems)}"),
+            ]
+        )
+        out: dict[str, Any] = await asyncio.wait_for(ask, timeout=within_s)
+    except Exception as exc:  # noqa: BLE001 - the audit stands without its judgement
+        logger.warning("claim_audit_judge_failed", error=type(exc).__name__)
+        return (None,) * len(problems), Usage()
+    meta = getattr(out.get("raw"), "usage_metadata", None) or {}
+    spent = Usage(int(meta.get("input_tokens", 0)), int(meta.get("output_tokens", 0)), time.monotonic() - started)
+    answer = out.get("parsed")
+    by_number = {j.number: j for j in answer.judgements} if isinstance(answer, MaterialityAnswer) else {}
+    judgements = tuple(by_number.get(n) for n in range(1, len(problems) + 1))
+    logger.info(
+        "claim_audit_judge_usage",
+        model=settings.claim_audit_model,
+        input_tokens=spent.input_tokens,
+        output_tokens=spent.output_tokens,
+        seconds=round(spent.seconds, 2),
+        cost_eur=str(round(spent.cost_eur(), 5)),
+        problems=len(problems),
+        judged=sum(1 for j in judgements if j is not None),
+    )
+    return judgements, spent
+
+
 async def _ask(document: str) -> ClaimAudit:
     """
     Ask the model about one page document.
 
     :param document: The page document (:func:`page_document`).
-    :return: The audit, problems filtered (:func:`reported`).
+    :return: The audit, problems filtered (:func:`reported`) and judged (:func:`judged`).
     :raises ValueError: When the model's answer can't be read.
     """
     started = time.monotonic()
@@ -669,7 +877,12 @@ async def _ask(document: str) -> ClaimAudit:
     )
     counted = checked_count(answer.piece_count, page_texts(document)[PRODUCT_PAGE])
     counts = len(count_problems(counted)) if counted else 0  # reported() keeps them first, all of them
-    return ClaimAudit(answer.claims, reported(answer, document), spent, counted, counts, len(page_texts(document)) - 1)
+    problems = reported(answer, document)
+    left = settings.skill_timeout_s - (time.monotonic() - started) - _JUDGE_MARGIN_S
+    judgements, judging = await judged(document, problems, within_s=min(JUDGE_TIMEOUT_S, left))
+    return ClaimAudit(
+        answer.claims, problems, spent + judging, counted, counts, len(page_texts(document)) - 1, judgements
+    )
 
 
 # One call per page however many steps ask (the audit itself and the photo check), and for as long as a few analyses
@@ -760,11 +973,33 @@ class ClaimAuditSkill(Skill):
     description = "Checks the listing's specific claims (specs, materials, certifications, counts) for contradictions."
     page_types = PRODUCT_PAGES
     retry = True
-    features = ("claims", "contradicted", "contradictions", "impossible", "count_off", "shop_pages", "across_pages")
+    features = (
+        "claims",
+        "contradicted",
+        "contradictions",
+        "impossible",
+        "count_off",
+        "shop_pages",
+        "across_pages",
+        "judged",
+        "benefits_seller",
+        "benefits_buyer",
+        "benefits_nobody",
+        "benefits_unclear",
+        "buyer_facing",
+        "likely_slips",
+        "inconsistencies",
+    )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
         Audit the page's claims (:func:`listing_claims`) and report the clear contradictions.
+
+        A contradiction judged material is a ``claim_contradicted`` finding, one that isn't (a likely slip, too) a
+        ``data_inconsistency`` note (:func:`outcome`). ``contradicted``, ``contradictions``,
+        ``impossible`` and ``across_pages`` count the findings; ``count_off`` every piece-count problem, as before.
+        The judgements (``benefits_*``, ``buyer_facing``, ``likely_slips``, of the ``judged`` problems) and what came
+        of them (``inconsistencies``) are features for the learned model; no rule reads them.
 
         :param state: Current graph state; uses ``facts``, ``cleaned_content``, ``page_type`` and ``url``.
         :return: The skill's features and findings, and the claims for other steps (``listing_claims``).
@@ -772,16 +1007,24 @@ class ClaimAuditSkill(Skill):
         audit = await listing_claims(state)
         if audit is None:
             return self.not_applicable("The claim audit is off.")
-        observations = [Observation(type="claim_contradicted", evidence=evidence(p)) for p in audit.problems]
+        found, notes = audit.told("finding"), audit.told("note")
+        observations = [Observation(type="claim_contradicted", evidence=evidence(p)) for p in found]
+        observations += [Observation(type="data_inconsistency", evidence=evidence(p)) for p in notes]
+        judgements = [j for j in audit.judgements if j is not None]
         output = self.output(
             {
                 "claims": len(audit.claims),
-                "contradicted": bool(audit.problems),
-                "contradictions": len(audit.problems),
-                "impossible": sum(1 for p in audit.problems if p.check in IMPOSSIBLE),
+                "contradicted": bool(found),
+                "contradictions": len(found),
+                "impossible": sum(1 for p in found if p.check in IMPOSSIBLE),
                 "count_off": audit.count_problems,
                 "shop_pages": audit.shop_pages,
-                "across_pages": sum(1 for p in audit.problems if across_pages(p)),
+                "across_pages": sum(1 for p in found if across_pages(p)),
+                "judged": len(judgements),
+                **{f"benefits_{b}": sum(1 for j in judgements if j.benefits == b) for b in get_args(Benefit)},
+                "buyer_facing": sum(1 for j in judgements if j.buyer_facing),
+                "likely_slips": sum(1 for j in judgements if j.likely_slip),
+                "inconsistencies": len(notes),
             },
             observations,
             note=f"{len(audit.claims)} checkable claims{_read_with(audit.shop_pages)}; none that contradicts itself "

@@ -157,6 +157,25 @@
 
 ### Deep checks
 
+* **The claim audit weighs who each contradiction favours, and where the buyer can see it.** After the audit, one
+  small follow-up call to the same model (only on pages with a contradiction told, at most 12 s and never past the
+  skill's time) judges each one: `benefits` (seller, buyer, nobody, unclear), `buyer_facing` (the favourable side is
+  in the title, the price, the headline bullets or the main photo, not a buried spec or data field), `likely_slip`
+  (a data or extraction error rather than a claim made to sell) and a short reason. Only a contradiction that favours
+  the seller, where the buyer sees it, and isn't a likely slip stays `claim_contradicted` ("91 pieces" in a title
+  over parts that add up differently). Every other one is a new `data_inconsistency` finding and shopper reason
+  ("Details on the page that don't match", low): a note that never moves the band. That includes a likely slip
+  buried in a data field (an item weight of 0.023 oz on a phone case): the contradiction is real, so it is told,
+  but it isn't misleading, so the page keeps its band. Nothing real is dropped; only a contradiction whose quotes
+  aren't on the page is, as before. A piece count that is off stays `claim_contradicted` whatever
+  the judgement, so its floor is unchanged; a judgement that fails leaves the contradiction told as before.
+  `claim_audit.contradicted`, `.contradictions`, `.impossible` and `.across_pages` count the findings only; new
+  features `.judged`, `.benefits_seller`, `.benefits_buyer`, `.benefits_nobody`, `.benefits_unclear`,
+  `.buyer_facing`, `.likely_slips` and `.inconsistencies` are for the learned model, and no rule reads
+  them. On the 374 corpus pages where `claim_contradicted` had fired, rerun: 342 contradictions told, of which 112
+  stay findings and 230 become notes (90 pages keep a finding, 177 have notes only). The judgement costs about €0.006 a page that has a contradiction (about 37% of the audit's cost on those
+  pages; roughly a fifth of product pages have one) and a second or so.
+
 * **A shop's earlier copies come from Common Crawl first; the Internet Archive is the fallback.** The Internet
   Archive refused connections after about 40 requests at 4 a minute, which would cost every later deep check its
   look. `domain_history` now asks Common Crawl first: the crawls nearest about 1, 3 and 12 months ago (from its

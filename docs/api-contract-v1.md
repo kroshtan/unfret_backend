@@ -1644,3 +1644,19 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   is VAT in each EU country.
 - The scanner credits everything that arrives (manual transfers too) and records the VAT worked out of it. A quote
   made before this change still credits what was paid.
+
+## Changes (the claim audit judges each contradiction's materiality; backwards-compatible)
+
+- Each contradiction the claim audit tells is judged in one follow-up call (only on a page that has any): who
+  benefits, where the buyer can see it. New features `claim_audit.judged` (contradictions judged), `.benefits_seller`,
+  `.benefits_buyer`, `.benefits_nobody`, `.benefits_unclear`, `.buyer_facing` and `.likely_slips` (how many of the
+  judged ones) and `.inconsistencies` (told as a note). Not in the scorer.
+- Only a contradiction that favours the seller, where the buyer sees it (title, price, headline bullets, main photo),
+  and isn't a likely data slip stays a `claim_contradicted` finding; `.contradicted`, `.contradictions`,
+  `.impossible` and `.across_pages` now count those only. Every other one, a likely slip buried in a data field
+  too, is a new finding `data_inconsistency`, with the same evidence form (`Says "<claim>"; <why>`). A piece count
+  that is off (`.count_off`, unchanged) stays `claim_contradicted` whatever the judgement; a contradiction that
+  couldn't be judged is told as before.
+- A new shopper reason key `data_inconsistency` ("Details on the page that don't match", severity low, area
+  `product`, source `ai_read`): `The page says “<claim>”. <why> Check which is right before you buy.` A note: it
+  never moves the band and keeps no "Worth a look" by itself.

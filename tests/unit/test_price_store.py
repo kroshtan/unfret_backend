@@ -274,3 +274,117 @@ def test_gtin_check_digit() -> None:
     assert price_store.valid_gtin("4006381333931")
     assert not price_store.valid_gtin("4006381333932")
     assert not price_store.valid_gtin(str(date.today().year))
+
+
+# The brand's own shop: its domain is the brand's name, or the seller is the brand (wording of a brand's own shop).
+_OWN_SHOP_TEXT = "Sneaker Unisex\n77,95 €\nUVP:\n109,95 €\n(Preis inkl. 19% MwSt.)"
+
+
+@pytest.mark.parametrize(
+    ("url", "seller"),
+    [
+        ("https://eu.acmeshoes.com/de/de/pd/sneaker/398846", ""),
+        ("https://acmeshoes.de/sneaker", ""),
+        ("", "ACMESHOES"),
+        ("https://shop.example/sneaker", "AcmeShoes Official Store"),
+    ],
+)
+async def test_a_recommended_price_on_the_brands_own_shop_is_a_note(url: str, seller: str) -> None:
+    facts = PageFacts(brand="AcmeShoes", seller=seller, price=77.95, list_price=109.95)
+    out = await PricingSkill().run(state(facts, url=url, text=_OWN_SHOP_TEXT))
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [(o.type, o.evidence) for o in out["findings"]] == [("brand_reference", '"UVP"')]
+
+
+@pytest.mark.parametrize(
+    ("facts", "url", "page_type"),
+    [
+        # Another web shop's "UVP" for the brand it stocks.
+        (
+            PageFacts(brand="AcmeShoes", seller="Sneakerhut", price=77.95, list_price=109.95),
+            "https://sneakerhut.de/x",
+            "storefront",
+        ),
+        # A brand that looks made up: its "recommended" price is the shop's own.
+        (
+            PageFacts(brand="XIEERDUO", seller="XIEERDUO", price=77.95, list_price=109.95),
+            "https://xieerduo.shop/x",
+            "storefront",
+        ),
+        # A marketplace listing is the marketplace's (or the seller's) label, not the brand's own shop.
+        (
+            PageFacts(platform="ebay", brand="AcmeShoes", seller="AcmeShoes", price=77.95, list_price=109.95),
+            "",
+            "aggregate_listing",
+        ),
+    ],
+)
+async def test_a_recommended_price_elsewhere_is_still_the_reason(facts: PageFacts, url: str, page_type: str) -> None:
+    out = await PricingSkill().run(state(facts, url=url, text=_OWN_SHOP_TEXT, page_type=page_type))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+    assert [o.type for o in out["findings"]] == ["reference_anchor"]
+
+
+async def test_only_a_recommended_price_label_is_the_brands_own() -> None:
+    facts = PageFacts(brand="AcmeShoes", seller="AcmeShoes", price=77.95, list_price=109.95)
+    out = await PricingSkill().run(state(facts, text="77,95 € Compare at 109,95 €"))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+
+
+@pytest.mark.parametrize(
+    "disclosure",
+    [
+        "30 Tage Bestpreis: 88,95 €",
+        "Niedrigster Preis der letzten 30 Tage: 88,95 €",
+        "Laagste prijs van de afgelopen 30 dagen: € 88,95",
+        "Lowest price in the last 30 days: €88.95",
+        "30-day low: €88.95",
+        "Prix le plus bas des 30 derniers jours : 88,95 €",
+        "Prezzo più basso degli ultimi 30 giorni: 88,95 €",
+        "Precio más bajo de los últimos 30 días: 88,95 €",
+        "Najniższa cena z 30 dni przed obniżką: 88,95 zł",
+        "Lägsta pris de senaste 30 dagarna: 88,95 kr",
+    ],
+)
+async def test_a_recommended_price_next_to_the_30_day_low_is_a_note(disclosure: str) -> None:
+    facts = PageFacts(brand="AcmeShoes", seller="Sneakerhut", price=77.95, list_price=109.95)
+    text = f"77,95 € UVP: 109,95 € {disclosure}"
+    out = await PricingSkill().run(state(facts, url="https://sneakerhut.example/x", text=text))
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [(o.type, o.evidence) for o in out["findings"]] == [
+        ("disclosed_reference", '"UVP"; lowest price in the last 30 days: 88.95')
+    ]
+
+
+@pytest.mark.parametrize(
+    ("price", "disclosure"),
+    [
+        # Today's price is above the 30-day low: the discount isn't measured honestly.
+        (99.95, "30 Tage Bestpreis: 88,95 €"),
+        # The 30-day low above the "was" price doesn't fit either.
+        (77.95, "30 Tage Bestpreis: 119,95 €"),
+    ],
+)
+async def test_a_30_day_low_that_doesnt_fit_keeps_the_reason(price: float, disclosure: str) -> None:
+    facts = PageFacts(brand="AcmeShoes", seller="Sneakerhut", price=price, list_price=109.95)
+    text = f"{price} € UVP: 109,95 € {disclosure}"
+    out = await PricingSkill().run(state(facts, url="https://sneakerhut.example/x", text=text))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+
+
+async def test_a_brands_recommended_price_never_charged_is_the_reason(store: MemoryPriceStore) -> None:
+    url = "https://acmeshoes.example/sneaker"
+    gtin = [{"@type": "Product", "offers": {"gtin13": "8712345678906"}}]
+    facts = PageFacts(
+        brand="AcmeShoes", seller="AcmeShoes", price=39.95, list_price=79.95, currency="EUR", json_ld=gtin
+    )
+    key = price_store.product_key(url, facts)
+    assert key is not None
+    today = price_store.today()
+    await store.record(
+        key, Observation(today - timedelta(days=settings.price_history_min_days + 5), 39.0, "EUR", None)
+    )
+    await store.record(key, Observation(today - timedelta(days=10), 34.95, "EUR", None))
+    out = await PricingSkill().run(state(facts, url=url, text="39,95 € UVP: 79,95 €"))
+    assert out["features"]["pricing.reference_anchor"] == 1.0
+    assert [o.type for o in out["findings"]] == ["was_never_charged", "reference_anchor"]

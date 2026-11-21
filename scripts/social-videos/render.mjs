@@ -3,12 +3,14 @@
 // out/<video>/ and are copied to DELIVER (media/videos in the metarepo).
 //
 // ffmpeg: $FFMPEG, else `ffmpeg` on the PATH (any build with libx264; `uv run --with imageio-ffmpeg` ships one).
-// Usage: node render.mjs <video> [--frames t1,t2,...]   (--frames: only those stills, as PNGs, for checking)
+// Usage: node render.mjs <video> [--mascot] [--frames t1,t2,...]   (--frames: only those stills, as PNGs, for
+// checking; --mascot: with the animated mascot from the script's `mascot` track, as <video>-mascot.mp4 and .gif)
 import { spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import { mascotMarkup, mascotRuntime } from "./mascot.mjs";
 import { DELIVER, HERE, OUT, VIDEOS } from "./videos.mjs";
 
 const W = 1080;
@@ -26,6 +28,10 @@ const args = process.argv.slice(2);
 const video = VIDEOS.find((v) => v.name === args[0]);
 if (!video) throw new Error(`usage: node render.mjs <video>; one of ${VIDEOS.map((v) => v.name).join(", ")}`);
 const only = args.includes("--frames") ? args[args.indexOf("--frames") + 1].split(",").map(Number) : null;
+const withMascot = args.includes("--mascot");
+if (withMascot && !video.script.mascot) throw new Error(`${video.name} has no mascot track in videos.mjs`);
+const mascot = withMascot ? video.script.mascot : null;
+const output = video.name + (withMascot ? "-mascot" : "");
 const dir = join(OUT, video.name);
 const marks = JSON.parse(readFileSync(join(dir, "page.json"), "utf8"));
 const popup = JSON.parse(readFileSync(join(dir, "popup.json"), "utf8"));
@@ -44,6 +50,9 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
 #layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #layer img { display: block; width: ${W}px; }
 #layer svg { position: absolute; left: 0; top: 0; overflow: visible; }
+/* A live clock over the page's own (script.clocks), and the white flash of a reload (script.reloads). */
+.clock { position: absolute; box-sizing: border-box; white-space: nowrap; display: flex; align-items: center; }
+#reload { position: absolute; inset: 0; background: #fff; opacity: 0; }
 #chrome { position: absolute; left: 0; top: 0; width: ${W}px; height: ${VIEW_TOP}px; background: #f1f3f4;
   box-shadow: 0 2px 0 rgba(0,0,0,.06); }
 #status { height: ${STATUS}px; display: flex; align-items: center; justify-content: space-between; padding: 0 44px;
@@ -75,7 +84,8 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
 #end .free { font-size: 44px; color: var(--deep); margin-top: 70px; }
 </style></head><body>
 <section class="scene" id="page">
-  <div id="view"><div id="layer"><img src="${url(join(dir, "page.png"))}"><svg id="marks"></svg></div></div>
+  <div id="view"><div id="layer"><img src="${url(join(dir, "page.png"))}"><svg id="marks"></svg></div>
+    <div id="reload"></div></div>
   <div id="chrome">
     <div id="status"><span>9:41</span><span style="display:flex;gap:16px;align-items:center">
       <svg width="34" height="26" viewBox="0 0 34 26"><path d="M2 24h5V16H2zM10 24h5V11h-5zM18 24h5V6h-5zM26 24h5V1h-5z" fill="#202124"/></svg>
@@ -97,8 +107,9 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
   <div class="free">Quick checks are free.</div>
 </section>
 <div id="caps"></div>
+${mascot ? mascotMarkup(mascot, W, H) : ""}
 <script>
-const S = ${JSON.stringify({ script: video.script, marks, popup, W, H, SCALE, VIEW_TOP })};
+const S = ${JSON.stringify({ script: video.script, marks, popup, W, H, SCALE, VIEW_TOP, mascot })};
 const { script } = S;
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const ease = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -164,6 +175,28 @@ const strokes = script.strokes.map((s) => {
   return { ...s, ...stroke(marksSvg, s.kind === "circle" ? circlePath(b) : underlinePath(b), 9, "#B0562A") };
 });
 
+// Live clocks over the page's countdowns: each shows "start" seconds at t = 0 and counts down by the second; at a
+// reload (script.reloads) it starts over from "start", as an evergreen timer does.
+const pad = (n) => String(n).padStart(2, "0");
+const reloads = (script.reloads ?? []).map((r) => r.at);
+const clocks = (script.clocks ?? []).map((c) => {
+  const m = S.marks[c.mark], el = document.createElement("div");
+  el.className = "clock";
+  Object.assign(el.style, { left: m.x * S.SCALE - 2 + "px", top: m.y * S.SCALE - 2 + "px",
+    width: m.width * S.SCALE + 24 + "px", height: m.height * S.SCALE + 4 + "px", fontFamily: m.style.fontFamily,
+    fontSize: parseFloat(m.style.fontSize) * S.SCALE + "px", fontWeight: m.style.fontWeight, color: m.style.color,
+    letterSpacing: m.style.letterSpacing, fontVariantNumeric: m.style.fontVariantNumeric,
+    background: m.style.background, paddingLeft: "2px" });
+  document.getElementById("layer").append(el);
+  return { ...c, el };
+});
+function clockText(c, t) {
+  const since = Math.max(0, ...reloads.filter((r) => r <= t), 0);
+  // The page is blank for a moment while it reloads; it comes back showing the full time.
+  const left = Math.max(0, c.start - Math.floor(t - since));
+  return \`\${pad(Math.floor(left / 3600))}:\${pad(Math.floor(left / 60) % 60)}:\${pad(left % 60)}\`;
+}
+
 // The check: the popup's still in the card, scaled to its width.
 const card = document.getElementById("card");
 const cardTop = card.offsetTop, cardLeft = card.offsetLeft, popScale = card.offsetWidth / S.W;
@@ -202,11 +235,18 @@ function camera(t) {
   return keys[keys.length - 1];
 }
 
+const mascot = S.mascot ? (${mascotRuntime.toString()})(S.mascot) : null;
+
 window.frame = (t) => {
+  if (mascot) mascot(t);
   const c = camera(t);
   document.getElementById("layer").style.transform =
     \`scale(\${c.zoom}) translate(\${-c.left * S.SCALE}px, \${-c.top * S.SCALE}px)\`;
   for (const s of strokes) draw(s, progress(t, s.at, s.draw));
+  for (const c of clocks) c.el.textContent = clockText(c, t);
+  let flash = 0;
+  for (const r of reloads) flash = Math.max(flash, progress(t, r, 0.12) * (1 - progress(t, r + 0.3, 0.3)));
+  document.getElementById("reload").style.opacity = flash;
 
   // The cut to the check: it slides up over the page.
   const ch = script.check, inCheck = progress(t, ch.at, 0.45);
@@ -232,11 +272,11 @@ window.frame = (t) => {
 };
 </script></body></html>`;
 
-writeFileSync(join(dir, "stage.html"), stage);
+writeFileSync(join(dir, `${withMascot ? "mascot-" : ""}stage.html`), stage);
 const browser = await chromium.launch({ channel: "chromium" });
 try {
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
-  await page.goto(url(join(dir, "stage.html")));
+  await page.goto(url(join(dir, `${withMascot ? "mascot-" : ""}stage.html`)));
   await page.evaluate(() => document.fonts.ready);
   await page.waitForLoadState("load");
   await page.evaluate(() => window.frame(0));
@@ -244,11 +284,11 @@ try {
   if (only) {
     for (const t of only) {
       await page.evaluate((t) => window.frame(t), t);
-      await page.screenshot({ path: join(dir, `frame-${t.toFixed(2)}.png`) });
+      await page.screenshot({ path: join(dir, `${withMascot ? "mascot-" : ""}frame-${t.toFixed(2)}.png`) });
     }
     console.log(`frames in ${dir}`);
   } else {
-    const mp4 = join(dir, `${video.name}.mp4`);
+    const mp4 = join(dir, `${output}.mp4`);
     const ffmpeg = spawn(
       FFMPEG,
       ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "png", "-i", "-",
@@ -267,7 +307,7 @@ try {
     }
     ffmpeg.stdin.end();
     await done;
-    const gif = join(dir, `${video.name}.gif`);
+    const gif = join(dir, `${output}.gif`);
     await run(FFMPEG, ["-y", "-loglevel", "error", "-i", mp4, "-vf",
       "fps=12,scale=540:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];" +
         "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", gif]);

@@ -139,13 +139,23 @@ class Settings(BaseSettings):
     rdap_bootstrap_url: str = "https://rdap.org/domain/"
     crtsh_url: str = "https://crt.sh/"
     vies_url: str = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
-    # The deep check's look at a shop's earlier copies in the Internet Archive (unfret.graph.skills.domain_history):
-    # only when its address is old and the page already looks doubtful. Off: the triage never plans it.
+    # The deep check's look at a shop's earlier copies in the web archives (unfret.graph.skills.domain_history):
+    # only when its address is old and the page already looks doubtful. Off: the triage never plans it, and no
+    # archive is asked for an address's first copy either.
     domain_history: bool = True
+    # Common Crawl first (unfret.graph.skills.common_crawl): its per-crawl index and its WARC files. Its servers are
+    # shared by everyone: at most this many requests a minute per process (index and data together; a look takes up
+    # to seven), and none for this long after a 403, 429 or 503 ("slow down").
+    commoncrawl_index_url: str = "https://index.commoncrawl.org"
+    commoncrawl_data_url: str = "https://data.commoncrawl.org"
+    commoncrawl_per_minute: int = Field(default=20, ge=1)
+    commoncrawl_pause_s: float = Field(default=600.0, ge=0)
+    # The Internet Archive only when Common Crawl has no usable copy. It blocks clients that ask too often: at most
+    # this many requests a minute and a UTC day per process (a look takes up to four; 0 a day: never asked), and none
+    # for this long after it refused a connection or said "too many requests".
     wayback_url: str = "https://web.archive.org"
-    # The archive blocks clients that ask too often: at most this many requests a minute per process (a look takes up
-    # to four), and none for this long after it refused a connection or said "too many requests".
-    wayback_per_minute: int = Field(default=8, ge=1)
+    wayback_per_minute: int = Field(default=3, ge=1)
+    wayback_daily_cap: int = Field(default=100, ge=0)
     wayback_pause_s: float = Field(default=900.0, ge=0)
 
     # Anonymous price observations (unfret.price_store): today's price of every analysed product page with a

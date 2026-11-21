@@ -12,7 +12,7 @@
   {{header}}
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: November 20, 2026.</em> Unfret is made by Kroshtan (Floris van Beers, Kopenhagenstraat 2a,
+    <p><em>Last updated: November 21, 2026.</em> Unfret is made by Kroshtan (Floris van Beers, Kopenhagenstraat 2a,
       9723 BB Groningen, the Netherlands), who is responsible for the personal data described here (the controller, in
       the words of the GDPR). Questions and requests: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
@@ -119,8 +119,9 @@
       <li><strong>Shop facts</strong>: a shop domain's registration date, first certificate and VAT check, and whether a
         product's brand is on Wikidata, kept a week so they aren't looked up again for every shopper.</li>
       <li><strong>Shop fingerprints</strong>: for web shops and service companies' own websites (not marketplaces or
-        platforms), what their pages reveal about the business behind them: the first and last day we saw the site, its
-        platform and apps, the shape of its template, and the account IDs on its pages (analytics, ad pixels, payment
+        platforms), what their pages reveal about the business behind them: the first and last day we saw the site (and
+        the first day a page our server fetched itself showed it, which tells later checks how long the shop has been
+        online: only the shop's domain and that day), its platform and apps, the shape of its template, and the account IDs on its pages (analytics, ad pixels, payment
         accounts). This recognises shops run by the same operator, and one call centre behind many "local" service
         brands. Never who checked the site, which page, or our verdict. Kept 400 days after we last saw the site.
         Account IDs, contact details and addresses from a page your browser or app sent link that site to others only
@@ -232,8 +233,10 @@
         to suggest a label for the reviewer). We send it nothing that identifies you.</li>
       <li>Public registries (RDAP, crt.sh, the EU's VIES) and Wikidata answer the shop and brand lookups. They see the
         shop's domain, its VAT number, or the product's brand and the domains named after it, not you. For some deep
-        checks the Internet Archive (United States) is asked for earlier copies of the shop's home page: it sees the
-        shop's domain, not you. The EU's Safety
+        checks Common Crawl (a non-profit in the United States, its copies stored on Amazon Web Services) is asked for
+        earlier copies of the shop's home page, and the Internet Archive (United States) only when Common Crawl has
+        none: they see the shop's domain, not you. The same goes for asking them since when the shop's address has
+        been online. The EU's Safety
         Gate alerts (dangerous products) are a copy on our server: checking a product against them asks no one.</li>
       <li>Card and iDEAL | Wero payments: Polar (Polar Software Inc., United States) is the seller of record and
         decides what it does with your payment details, e-mail and country, under its own privacy policy. It may keep

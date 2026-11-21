@@ -12,6 +12,7 @@ node capture.mjs c-piece-count                    # a real deep check on dev.unf
 node shoot.mjs c-piece-count                      # the page on a phone + the popup with that result → out/<video>/
 FFMPEG=… node render.mjs c-piece-count            # → out/<video>/<video>.mp4 and .gif, copied to ../media/videos
 node render.mjs c-piece-count --frames 2,8.5,15   # single frames as PNGs, to check a change
+node render.mjs c-piece-count --mascot            # the same with the animated mascot → <video>-mascot.mp4 and .gif
 ```
 
 - **The real pages** aren't named in this public repo: each video's address and the brand's words to blur are in
@@ -26,3 +27,15 @@ node render.mjs c-piece-count --frames 2,8.5,15   # single frames as PNGs, to ch
   imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`.
 - Everything generated stays in `out/` (git-ignored); the finished files go to `$UNFRET_VIDEOS_DIR`, by default the
   metarepo's `media/videos`.
+- **The mascot** (`--mascot`): `mascot.mjs` animates the rigged drawing in `assets/unfret-mascot.svg`, one character
+  with two poses: C ("Leaning in", the default) and A ("Close inspection", for close-ups), blending between them.
+  A video's `script.mascot` track (format at the top of `mascot.mjs`) sets where it stands, its poses, hops, blinks
+  and nods per beat; `dark: true` switches to the dark-background colours. Keep it in free space, clear of the
+  captions, the marker strokes and the marked finding, and use it in a few deliberate moments, not every shot.
+  `node mascot.mjs out.svg [dark]` writes pose C as a still.
+- **The test shop videos** (`b-`, `f-`, `g-`, `h-`, `i-`) show `/test-shop` on dev, one trick each; the page is the
+  same, so one deep check of it (`node capture.mjs b-countdown`, then copy `out/results/b-countdown.json` to the
+  others) gives each its result. A mark can be a whole element (no `text`); with `style: true` its font and
+  background are kept, so `script.clocks` can run a live countdown in its place, and `script.reloads` flash the page
+  as it reloads (the clock starts over). `popup.expand` opens the popup's "Show details" when the finding is a signal
+  listed there.

@@ -71,6 +71,23 @@
 
 ### Fixes
 
+* **A recommended price on the brand's own shop, or next to the 30-day low, is a note.** Since "UVP: 109,95 €"
+  with the currency after the number is read, a brand's own shop showing its recommended price gave "Discount on a
+  'recommended' price", although there it is the maker's own recommended price. A recommended-retail label ("UVP",
+  "RRP", "MSRP", "Adviesprijs", "Prix conseillé", "Prezzo consigliato", "PVPR", … in every language read) now gives
+  a note instead of the `reference_anchor` reason on a web shop that is the brand's own (the shop's domain is the
+  brand's name, or the seller is the brand, by the existing brand comparisons; not for a brand that looks generated):
+  the `brand_reference` finding, "Discount on the brand's recommended price". The same label on any web shop that
+  discloses the lowest price of the last 30 days (the EU's price-reduction rule: "30 Tage Bestpreis", "Laagste prijs
+  van de afgelopen 30 dagen", "Lowest price in the last 30 days", "Prix le plus bas des 30 derniers jours" and the
+  Italian, Spanish, Portuguese, Polish, Swedish, Danish, Norwegian, Finnish and Czech wording), with today's price
+  at or below that low and the low at or below the "was" price, gives the `disclosed_reference` note, "Discount on a
+  recommended price, below the 30-day low". Both are severity low and never move the band; the price history's
+  `was_above_30d_low` still makes them the reason. Other web shops' labels, and "Compare at", "Usually", "Elsewhere"
+  and the like on any shop, stay the reason. On the golden set one band changes: on the quick
+  tier a German brand's own shop ("UVP: 109,95 €", "30 Tage Bestpreis: 88,95 €") goes back from Think twice to Worth
+  a look; on the deep tier the same page shows the note instead of the reason, its band unchanged.
+
 * **A marketplace's own reference price is a note, not a warning.** Amazon prints its reference-price label on
   every discounted listing, so on amazon.nl, .de, .co.uk and .fr "Adviesprijs", "UVP", "RRP" and "Prix conseillé"
   gave "Discount on a 'recommended' price" whatever the seller did (only "List Price" and "Typical price" were
@@ -129,6 +146,32 @@
   then says it ran rather than every step.
 
 ### Deep checks
+
+* **A shop's earlier copies come from Common Crawl first; the Internet Archive is the fallback.** The Internet
+  Archive refused connections after about 40 requests at 4 a minute, which would cost every later deep check its
+  look. `domain_history` now asks Common Crawl first: the crawls nearest about 1, 3 and 12 months ago (from its
+  `collinfo.json`, kept a day), each crawl's index for the home page, and the page's WARC record by byte range from
+  data.commoncrawl.org, all through `fetch_public` with timeouts and size limits (a record of 1 MB at most, its page
+  of 3 MB). Common Crawl asks clients to stay well under ten requests a second, to slow down on a 503 or a rate-limit
+  refusal and never to retry quickly, and to cache its crawl list: Unfret asks at most `UNFRET_COMMONCRAWL_PER_MINUTE`
+  (20) times a minute per process and not at all for `UNFRET_COMMONCRAWL_PAUSE_S` (10 minutes) after a 403, 429, 503,
+  504 or refused connection. The Internet Archive is asked only when Common Crawl has no usable copy (none, only
+  pages too thin to read, or it can't be asked), now at `UNFRET_WAYBACK_PER_MINUTE` 3 (was 8) and at most
+  `UNFRET_WAYBACK_DAILY_CAP` (100) requests a day per process, with the same pause after a refusal. Each archive's
+  answer is cached per address for a week. The comparison rules and the reason's wording are unchanged; the findings
+  and the source name the archive used ("Common Crawl's copy from October 2026 shows …", source "Earlier copies of the
+  site (Common Crawl, commoncrawl.org)"), and a Common Crawl copy links to its record in Common Crawl's index (it has
+  no page viewer). The privacy page names Common Crawl.
+
+* **An address's first sighting from Common Crawl, the Internet Archive or Unfret itself.** Where the registry gives
+  no date, `domain_age`'s "online since at least" is now the oldest of: Common Crawl's oldest copy of the home page
+  among the crawls nearest 10, 5 and 3 years ago (three index requests at once, cached per address), else the
+  Internet Archive's first copy as before, and Unfret's own first check of the shop. For that the shop store keeps the
+  first day a page Unfret fetched itself showed a shop (`first_fetched`, migration 35; content a client sent never
+  sets it, and existing shops a fetched page described start from their first day), also past a network's daily write
+  limit, where a fetched page now still notes the shop's domain and the day and nothing else. New features
+  `domain_age.first_seen_common_crawl` and `.first_seen_unfret`; `archive_first_capture` and "Established shop" name
+  the source ("per Common Crawl", "per Unfret's own checks").
 
 * **The photo check against the listing's count and size picks its photos from the whole gallery.** With pages now
   giving their gallery (Amazon and other shops, above), `photo_claims` fetches up to 8 of its photos and, when there

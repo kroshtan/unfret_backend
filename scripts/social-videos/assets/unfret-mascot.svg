@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-45 -27.3 188.8 188.8">
+<!-- The Unfret mascot, rigged for mascot.mjs: one character with two poses, C ("Leaning in", drawn here at rest)
+     and A ("Close inspection": turned the other way, the glass in front of its right eye). Units are the logo's
+     (its tile is 4..124). mascot.mjs moves the parts per frame by their ids and blends between the poses:
+       m-place   the whole figure (frame position and size); m-lift: a hop's height; m-squash: squash and stretch
+                 about the ground point (70, 138)
+       m-shadow  the ground shadow
+       m-arm     from a shoulder hidden behind the body to the hand; m-leg-l, m-leg-r: hip to a flat sole
+       m-body    the tile; m-eye-l, m-eye-r, m-brow (hidden at rest), m-smile (the check)
+       m-lens-shadow  the glass's shadow on the tile (pose A), clipped to the tile by m-tile-clip
+       m-mag     the magnifier, its origin at the hand, the glass straight above it in its own units: m-lens-clip,
+                 m-glass, m-ring, m-handle, m-glare; m-lens-world: the figure seen through the glass
+     Colours are plain attributes; mascot.mjs swaps in the dark-background set (mint limbs, white magnifier). -->
+<defs>
+  <g id="m-world">
+    <path id="m-arm" fill="none" stroke="#0F5C4A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" d="M12 100 Q-8 112 -18.86 94.23"/>
+    <path id="m-leg-l" fill="none" stroke="#0F5C4A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" d="M51.71 120.26 L54.2 138 H44.2"/>
+    <path id="m-leg-r" fill="none" stroke="#0F5C4A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" d="M89.34 114.97 L92.58 138 H82.58"/>
+    <g id="m-body" transform="rotate(-8 64 64)">
+      <rect x="4" y="4" width="120" height="120" rx="30" fill="#1F8A70"/>
+      <ellipse id="m-eye-l" fill="#FFFFFF" cx="39" cy="44" rx="7.5" ry="7.5"/>
+      <ellipse id="m-eye-r" fill="#FFFFFF" cx="73" cy="44" rx="7.5" ry="7.5"/>
+      <path id="m-brow" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="7" d="M65 29 Q73 24 81 28" opacity="0"/>
+      <path id="m-smile" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="11.5" d="M31 70 L50 89 Q58 96 66 89 L99 57"/>
+    </g>
+  </g>
+  <clipPath id="m-tile-clip"><rect id="m-tile-clip-rect" x="4" y="4" width="120" height="120" rx="30" transform="rotate(-8 64 64)"/></clipPath>
+  <clipPath id="m-lens-clip"><ellipse id="m-lens-clip-shape" cx="0" cy="-51" rx="19" ry="19"/></clipPath>
+</defs>
+<g id="m-place">
+  <ellipse id="m-shadow" cx="70" cy="139" rx="48" ry="5.5" fill="#12302A" opacity="0.14"/>
+  <g id="m-lift"><g id="m-squash">
+    <use href="#m-world"/>
+    <g clip-path="url(#m-tile-clip)">
+      <g id="m-lens-shadow" opacity="0">
+        <ellipse id="m-lens-shadow-ring" cx="0" cy="-51" rx="23" ry="23" fill="none" stroke="#0F5C4A" stroke-width="8"/>
+        <path id="m-lens-shadow-handle" d="M0 -30 L0 0" stroke="#0F5C4A" stroke-width="11.5" stroke-linecap="round"/>
+      </g>
+    </g>
+    <g id="m-mag" transform="translate(-18.86 94.23) rotate(10)">
+      <g clip-path="url(#m-lens-clip)">
+        <ellipse id="m-glass" cx="0" cy="-51" rx="19" ry="19" fill="#E1F1EA" opacity="0.55"/>
+        <use id="m-lens-world" href="#m-world" transform="matrix(1.5265 -0.2692 0.2692 1.5265 3.4248 -120.8609)"/>
+        <path id="m-glare" d="M-11.74 -52.03 A11.78 11.78 0 0 1 -5.9 -61.2" fill="none" stroke="#FFFFFF" stroke-width="4.5"
+          stroke-linecap="round" opacity=".85"/>
+      </g>
+      <path id="m-handle" d="M0 -30 L0 0" stroke="#12302A" stroke-width="11.5"/>
+      <ellipse id="m-ring" cx="0" cy="-51" rx="23" ry="23" fill="none" stroke="#12302A" stroke-width="8"/>
+      <circle id="m-hand" cx="0" cy="0" r="7.5" fill="#0F5C4A"/>
+    </g>
+  </g></g>
+</g>
+</svg>

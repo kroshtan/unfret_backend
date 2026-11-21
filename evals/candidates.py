@@ -354,8 +354,13 @@ def to_check(
     if ids:
         known = corpus.labels()
         return [known[i] for i in ids]
-    todo = [r for r in candidates(corpus) if rerun or r.id not in results or "error" in results[r.id]]
+    todo = [r for r in candidates(corpus) if rerun or not checked(results.get(r.id))]
     return todo[:limit] if limit else todo
+
+
+def checked(row: dict[str, Any] | None) -> bool:
+    """Whether a candidate has had its deep check (not just some checks added by :mod:`evals.new_findings`)."""
+    return row is not None and "error" not in row and "score" in row
 
 
 async def check(
@@ -454,14 +459,14 @@ def summarise(corpus: Corpus, results: dict[str, dict[str, Any]]) -> dict[str, A
     """
     records = candidates(corpus)
     notes = {r.id: notes_of(r) for r in records}
-    checked = [results[r.id] for r in records if r.id in results and "error" not in results[r.id]]
+    done = [results[r.id] for r in records if checked(results.get(r.id))]
     per_skill: Counter[str] = Counter()
     per_type: Counter[str] = Counter()
-    for row in checked:
+    for row in done:
         per_skill.update(row["fired"])
         per_type.update(f"{f['skill']}:{f['type']}" for f in row["new_findings"])
     by_pool: dict[str, Counter[str]] = {}
-    for row in checked:
+    for row in done:
         pool = notes[row["id"]].get("pool", "")
         by_pool.setdefault(pool, Counter())["checked"] += 1
         if row["fired"]:
@@ -471,15 +476,15 @@ def summarise(corpus: Corpus, results: dict[str, dict[str, Any]]) -> dict[str, A
         "per_pool": dict(Counter(n.get("pool", "") for n in notes.values())),
         "per_category": dict(Counter(n.get("category", "") for n in notes.values())),
         "per_marketplace": dict(Counter(n["marketplace"] for n in notes.values() if "marketplace" in n)),
-        "checked": len(checked),
+        "checked": len(done),
         "errors": sum(1 for r in records if "error" in results.get(r.id, {})),
-        "not_product": sum(1 for row in checked if row["score"] < 0),
-        "fired_any": sum(1 for row in checked if row["fired"]),
+        "not_product": sum(1 for row in done if row["score"] < 0),
+        "fired_any": sum(1 for row in done if row["fired"]),
         "fired_per_skill": dict(per_skill),
         "findings_per_type": dict(per_type),
         "fired_per_pool": {k: dict(v) for k, v in by_pool.items()},
-        "claim_audit_unavailable": sum(1 for row in checked if "claim_audit" in row["unavailable"]),
-        "photo_claims_checked": sum(1 for row in checked if row["features"].get("photo_claims.checked")),
+        "claim_audit_unavailable": sum(1 for row in done if "claim_audit" in row["unavailable"]),
+        "photo_claims_checked": sum(1 for row in done if row["features"].get("photo_claims.checked")),
         "spent_eur_total": round(sum(results[r.id].get("cost_eur", 0) for r in records if r.id in results), 3),
     }
 
@@ -560,7 +565,7 @@ def build_queue(corpus: Corpus, seed: int, random_share: int | None = None) -> l
             continue
         if record.origin_dataset == DATASET:
             row = results.get(record.id)
-            if record.label is not None or row is None or "error" in row or row["score"] < 0:
+            if record.label is not None or row is None or not checked(row) or row["score"] < 0:
                 continue
             item, fired_here = _candidate_item(record, row)
             (items if fired_here else rest).append(item)

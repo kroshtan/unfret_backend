@@ -209,7 +209,10 @@ async def run(
     photo_claims._fetch = _fetch
     load, save = (cand.read_results, cand.write_results) if on_candidates else (read_results, write_results)
     results = load(corpus)
-    records = cand.candidates(corpus) if on_candidates else pages(corpus)
+    # Candidates get the new checks added to their deep check: one without its deep check yet waits for it.
+    records = (
+        [r for r in cand.candidates(corpus) if cand.checked(results.get(r.id))] if on_candidates else pages(corpus)
+    )
     todo = [r for r in records if rerun or r.id not in results or "error" in results[r.id]]
     todo = todo[:limit] if limit else todo
     spent = Decimal(str(cand.total_spent(corpus))) + cand.other_spend(corpus)

@@ -8,11 +8,11 @@ marker strokes, captions, timings).
 ```bash
 cd scripts/social-videos && npm install           # Playwright; needs `npx playwright install chromium`
 (cd ../../../unfret_extension && make build)      # the popup (dist/chrome) and Unfret Dev (dist/chrome-dev)
-node capture.mjs c-piece-count                    # a real deep check on dev.unfret.net → out/results/
-node shoot.mjs c-piece-count                      # the page on a phone + the popup with that result → out/<video>/
-FFMPEG=… node render.mjs c-piece-count            # → out/<video>/<video>.mp4 and .gif, copied to ../media/videos
-node render.mjs c-piece-count --frames 2,8.5,15   # single frames as PNGs, to check a change
-node render.mjs c-piece-count --mascot            # the same with the animated mascot → <video>-mascot.mp4 and .gif
+node capture.mjs e-no-refunds                     # a real deep check on dev.unfret.net → out/results/
+node shoot.mjs e-no-refunds                       # the page on a phone + the popup with that result → out/<video>/
+FFMPEG=… node render.mjs e-no-refunds             # → out/<video>/<video>.mp4 and .gif, copied to ../media/videos
+node render.mjs e-no-refunds --frames 2,8.5,15    # single frames as PNGs, to check a change
+node render.mjs e-no-refunds --mascot             # the same with the animated mascot → <video>-mascot.mp4 and .gif
 ```
 
 - **The real pages** aren't named in this public repo: each video's address and the brand's words to blur are in
@@ -33,11 +33,13 @@ node render.mjs c-piece-count --mascot            # the same with the animated m
   and nods per beat; `dark: true` switches to the dark-background colours. Keep it in free space, clear of the
   captions, the marker strokes and the marked finding, and use it in a few deliberate moments, not every shot.
   `node mascot.mjs out.svg [dark]` writes pose C as a still.
-- **Real pages, one trick each** (`c-`, `f-`, `g-`, `j-`): each page is one where Unfret's deep check on dev shows
-  the finding on the card today; `capture.mjs` goes on past a page it can't check. `shoot.mjs` scrolls down the page
-  and back before the still, so lazy images and text that fades in on scroll are there. A mark can be a whole element
-  (no `text`); with `style: true` its font and background are kept, so `script.clocks` can run a live countdown in
-  its place, and `script.reloads` flash the page as it reloads. `popup.expand` opens the popup's "Show details" when
-  the finding is a signal listed there.
+- **Real pages, one trick each** (`e-`, `f-`, `g-`): English pages, US shops first (the market is the US; a
+  Shopify shop shows dollars with `?currency=USD`), each one where Unfret's deep check on dev shows the finding on
+  the card today. Earlier versions on Dutch and Czech pages are `ne-…` (videos in `media/videos/non-english`).
+  `capture.mjs` goes on past a page it can't check. `shoot.mjs` scrolls down the page and back before the still, so
+  lazy images and text that fades in on scroll are there, and skips hidden copies of a mark's text. A mark can be a
+  whole element (no `text`); with `style: true` its font and background are kept, so `script.clocks` can run a live
+  countdown in its place, and `script.reloads` flash the page as it reloads. `popup.expand` opens the popup's "Show
+  details" when the finding is a signal listed there.
 - **The test shop videos** (`ts-…`, in `media/videos/test-shop`) show `/test-shop` on dev, one trick each, all from
   one deep check of that page; kept for the record.

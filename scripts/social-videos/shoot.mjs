@@ -138,6 +138,7 @@ function prepare(spec) {
       range.setEnd(n, at + text.length);
       const rects = [...range.getClientRects()];
       const r = range.getBoundingClientRect();
+      if (!r.width || !r.height) continue; // a hidden copy (a closed drawer, a sticky bar not shown yet)
       return {
         x: r.left + scrollX,
         y: r.top + scrollY,

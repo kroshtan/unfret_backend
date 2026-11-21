@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
+
 ### Prices
 
 * **Crypto prices include VAT: $5 and $20 for everyone.** An EU buyer paying with SOL or USDC now pays the pack's
@@ -12,7 +14,7 @@
   than card (€20 by card against $20 with crypto, while a euro is worth at least a dollar), and "never more than by
   card" on `/checkout` is true again. `/checkout` shows "$5.00, including 21% VAT ($0.87)"; the packs' labels, `/money`,
   the home page and the developer pages say "VAT included". A quote made before the change still credits what was
-  paid.
+  paid (#300).
 
 * **Euro card prices include VAT: €6.00 and €20.00.** Buyers in the euro area now pay exactly the price shown for 25
   and 100 checks, the same in every euro country, instead of €5.50 / €17.50 plus their country's VAT (€6.66 / €21.18
@@ -23,7 +25,7 @@
   `/money` and the developer pages show the euro prices as they are, without adding VAT. A tax-inclusive euro order is
   credited when its amount with VAT is the pack's price; refunds and affiliate commission still count from Polar's
   amount before VAT. Each Polar product's EUR price must be €6.00 / €20.00 with the tax behaviour *inclusive*: until
-  it is, euro checkouts are refused before anyone pays (and fall back to the dollar checkout).
+  it is, euro checkouts are refused before anyone pays (and fall back to the dollar checkout) (#298).
 
 ### Evaluation
 
@@ -41,7 +43,7 @@
   anchoring. `make new-findings` runs the claim audit and the photo check on every product page already in the
   corpus (an archived page's photos from the archive, as of its capture), recorded, as training features for
   `evals.train --extra-features`; the queue then also holds the `legit` pages on which a new check fired, to be
-  relabelled by hand, and ranks every unlabelled page, none left out.
+  relabelled by hand, and ranks every unlabelled page, none left out (#283).
 
 ### Page facts
 
@@ -70,14 +72,14 @@
   `-300x300`, eBay's `s-l500`, AliExpress's `_220x220`) counts once; theme URL templates (`_{width}x`) are no photo.
   At most 12, on pages about a product only; the page's other images follow as before. Amazon (its own module) and
   Walmart keep their galleries. On the corpus's product pages it changes the photos of 221 Shopify, 62 other, 18
-  WooCommerce pages.
+  WooCommerce pages (#281).
 
 * **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything
   else the page showed (thumbnails 40 px wide, banners, sprites, tracking pixels), so the steps that look at photos
   saw one product photo. Now an Amazon page on any locale gives its gallery, large and in its order: from the image
   block's data (`colorImages`), else the mobile page's carousel (`data-a-hires`), else the thumbnails made large;
   Amazon's product images only (no banners, pixels, video thumbnails or badges), one per photo, at most 12. Other
-  platforms are as before.
+  platforms are as before (#277).
 
 ### Fixes
 
@@ -96,7 +98,7 @@
   `was_above_30d_low` still makes them the reason. Other web shops' labels, and "Compare at", "Usually", "Elsewhere"
   and the like on any shop, stay the reason. On the golden set one band changes: on the quick
   tier a German brand's own shop ("UVP: 109,95 €", "30 Tage Bestpreis: 88,95 €") goes back from Think twice to Worth
-  a look; on the deep tier the same page shows the note instead of the reason, its band unchanged.
+  a look; on the deep tier the same page shows the note instead of the reason, its band unchanged (#299).
 
 * **A marketplace's own reference price is a note, not a warning.** Amazon prints its reference-price label on
   every discounted listing, so on amazon.nl, .de, .co.uk and .fr "Adviesprijs", "UVP", "RRP" and "Prix conseillé"
@@ -107,7 +109,7 @@
   `reference_anchor` reason. The reason fires there only once the price history shows the reference price wasn't
   charged (the "was" price above the product's lowest of the last 30 days). Web shops' "was" prices and a seller's
   own anchor in a listing's text ("Retail value: …") are unchanged. On the golden set no band
-  changes on either tier (no page there showed the reason or shows the note).
+  changes on either tier (no page there showed the reason or shows the note) (#293).
 
 * **A reference price with the currency after the number is read, on every site.** "UVP: 14,39 €", "Prezzo
   consigliato: 19,99 €", "Cena katalogowa: 1 299,00 zł", the usual order in most of the EU, never matched the pricing
@@ -119,9 +121,9 @@
   Danish, Norwegian, Finnish, Czech, and "Unverb. Preisempf.". On Amazon they count as Amazon's own label (the
   `marketplace_reference` note), and so does eBay's struck "List price"; on a web shop they give the
   `reference_anchor` reason, as "RRP" does. On the golden set the deep tier's bands don't change; on the quick tier
-  one page does: Puma's own shop (DE) goes from Worth a look to Think twice on its "UVP: 109,95 €" (its 30-day best
-  price is 88,95 €), and Amazon.de's "UVP" becomes the note. Over the whole corpus only those two pages' pricing
-  findings change.
+  one page does: a German brand's own shop goes from Worth a look to Think twice on its "UVP: 109,95 €" (its 30-day best
+  price is 88,95 €), and an Amazon.de listing's "UVP" becomes the note. Over the whole corpus only those two pages' pricing
+  findings change (#296).
 
 * **A short link is checked as the page it leads to.** A link pasted into a server-side check (the web link checker,
   `POST /v1/check`, the MCP tools) that redirects (a shop's or marketplace's short link, a link shortener) was checked
@@ -130,7 +132,7 @@
   through the same public-address check, at most five), and the check uses that address, without fragment,
   credentials or tracking parameters, for the facts, platform and product id, the result cache, what an account paid
   for, the verdict and price stores and the share token. The report token stays bound to the request as sent, and a
-  report's re-fetch keeps the page's own address. Neither address is logged.
+  report's re-fetch keeps the page's own address. Neither address is logged (#291).
 
 * **Reference prices and reviews from the page itself, on every layout.** What a phone gets from Amazon (and the
   Android app's WebView, whose facts the server takes) is the mobile page, where the price's offscreen copy is empty:
@@ -145,7 +147,7 @@
   check). Any shop: a `StrikethroughPrice`/`ListPrice` price specification in its JSON-LD, a microdata rating;
   WooCommerce's sale price, rating and reviews; Judge.me's average, count, histogram and reviews; Loox and Stamped
   badges; eBay's struck "List price". Nine new fixture pages (`tests/fixtures/pages`), which the extension's parity
-  test reads too.
+  test reads too (#282).
 
 * **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained
   said "Several small signals" while every area of "What we checked" was ticked fine: the scorer's signals that set
@@ -153,7 +155,7 @@
   nowhere. Now the reason counts and names them ("One small sign: a sizeable discount"), the template headline names
   them, the written headline is told how many there are (never "a few" for one), and each sign marks its area as
   something to note, with its words. Stream `step` events add `check`, so progress can count the checks the result
-  then says it ran rather than every step.
+  then says it ran rather than every step (#273).
 
 ### Deep checks
 
@@ -174,7 +176,7 @@
   `.buyer_facing`, `.likely_slips` and `.inconsistencies` are for the learned model, and no rule reads
   them. On the 374 corpus pages where `claim_contradicted` had fired, rerun: 342 contradictions told, of which 112
   stay findings and 230 become notes (90 pages keep a finding, 177 have notes only). The judgement costs about €0.006 a page that has a contradiction (about 37% of the audit's cost on those
-  pages; roughly a fifth of product pages have one) and a second or so.
+  pages; roughly a fifth of product pages have one) and a second or so (#304).
 
 * **A shop's earlier copies come from Common Crawl first; the Internet Archive is the fallback.** The Internet
   Archive refused connections after about 40 requests at 4 a minute, which would cost every later deep check its
@@ -190,7 +192,7 @@
   answer is cached per address for a week. The comparison rules and the reason's wording are unchanged; the findings
   and the source name the archive used ("Common Crawl's copy from October 2026 shows …", source "Earlier copies of the
   site (Common Crawl, commoncrawl.org)"), and a Common Crawl copy links to its record in Common Crawl's index (it has
-  no page viewer). The privacy page names Common Crawl.
+  no page viewer). The privacy page names Common Crawl (#295).
 
 * **An address's first sighting from Common Crawl, the Internet Archive or Unfret itself.** Where the registry gives
   no date, `domain_age`'s "online since at least" is now the oldest of: Common Crawl's oldest copy of the home page
@@ -200,7 +202,7 @@
   sets it, and existing shops a fetched page described start from their first day), also past a network's daily write
   limit, where a fetched page now still notes the shop's domain and the day and nothing else. New features
   `domain_age.first_seen_common_crawl` and `.first_seen_unfret`; `archive_first_capture` and "Established shop" name
-  the source ("per Common Crawl", "per Unfret's own checks").
+  the source ("per Common Crawl", "per Unfret's own checks") (#295).
 
 * **The photo check against the listing's count and size picks its photos from the whole gallery.** With pages now
   giving their gallery (Amazon and other shops, above), `photo_claims` fetches up to 8 of its photos and, when there
@@ -212,7 +214,7 @@
   on 201 after (more corpus pages state a count or size now that their facts are read better); photos asked about
   per corpus check 1.38 → 2.10; cost per check €0.00064 → €0.00072 (the sheet is one call more on 117 of 201
   checks; €0.00031 → €0.00058 on the corpus's pages, which had one photo). On an Amazon.nl felt-tip set: 1 photo
-  before, the gallery's 4 now (3 asked about, chosen by the sheet), €0.00026 → €0.00085, no flag.
+  before, the gallery's 4 now (3 asked about, chosen by the sheet), €0.00026 → €0.00085, no flag (#287).
 
 * **The claim audit reads the shop's other pages too.** On a web shop's own site (not a marketplace listing), the
   deep check's claim audit now also reads the shop's returns, shipping, about and contact pages (then imprint and
@@ -257,7 +259,7 @@
   and context for the model, never told by itself. `UNFRET_VARIANT_CHECK=false` turns it off; each call logs its
   tokens and cost (`variant_check_usage`) (#285). The model is told plainly that a refill, a spare part or an accessory of the
   title's product isn't the same product, even from the same brand and line (brush heads under a toothbrush's title),
-  and an option's noun takes the article it sounds like ("a USB-C cable", "brush head refills").
+  and an option's noun takes the article it sounds like ("a USB-C cable", "brush head refills") (#290, #292).
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery
@@ -293,8 +295,8 @@
   longer counts for the shop, and the verdict is "Worth a look" at best. No copies say nothing. Cheap rules only, no
   LLM; the archive is fetched like any outside page (public addresses, size limit, timeouts, no cookies) and what the
   copies show is cached per address for a week. The archive blocks clients that ask too often, so a server asks it at
-  most `UNFRET_WAYBACK_PER_MINUTE` (8) times a minute and not at all for `UNFRET_WAYBACK_PAUSE_S` (15 minutes) after a
-  refused connection; a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
+  most `UNFRET_WAYBACK_PER_MINUTE` times a minute and not at all for `UNFRET_WAYBACK_PAUSE_S` (15 minutes) after a
+  refused connection (Common Crawl is now asked first, with its own pace, above); a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
   unchanged (#272).
 
 * **An address's age from the Internet Archive where the registry gives none.** Many registries (.nl, .de and other
@@ -310,7 +312,7 @@
   Archive, web.archive.org)": "This web shop's address has been online since at least 2009, per the Internet Archive,
   and its earlier copies show the same shop.") and counts as a decade-old address only once that look compared copies
   and none showed another site; when one did, "Older address, new shop" reads "This web address is at least 17 years
-  old, …". Service sites, quick checks and `UNFRET_DOMAIN_HISTORY=false` never ask.
+  old, …". Service sites, quick checks and `UNFRET_DOMAIN_HISTORY=false` never ask (#288).
 
 ### The product photos against the listing's own claims
 
@@ -332,6 +334,16 @@
   `UNFRET_PHOTO_CLAIMS=false` turns it off. Each check logs its photos, tokens and cost (`photo_claims_usage`). New
   features (`photo_claims.*`) that the shipped scorer doesn't use. `python -m evals.photo_claims` runs it live on the
   corpus's pages that state a count or size and on Amazon Berkeley Objects listings (#275).
+
+### Development
+
+* **Social videos** (`scripts/social-videos`, scripts only, nothing in the service): portrait videos (1080×1920 MP4
+  plus a GIF) that each show one trick on a page, then Unfret's real result for it from a deep check on dev, then the
+  end card; an animated mascot (`--mascot`); five test-shop videos and six on real pages, which this repository
+  doesn't name and which are blurred as the content guide asks (#294, #297, #301, #303, #305).
+* Unfret Dev 0.12.0.154 → 0.13.0.176 on the dev extension channel (`updates-dev.xml`) (#276, #278, #284, #286, #289,
+  #302).
+* Migration 35: `shops.first_fetched`, the first day a page Unfret fetched itself showed a shop (#295).
 
 ## [0.14.0](https://github.com/kroshtan/unfret_backend/compare/0.13.0...0.14.0) (2026-11-20)
 

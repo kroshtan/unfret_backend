@@ -13,8 +13,11 @@ code that could: deep checks are paid from the pass, quick checks are free. (The
 wallet mode for agents that run it themselves.) Too many bad passes from one network are answered 429 before any
 lookup.
 
-Every tool declares a title and explicit ``readOnlyHint`` / ``destructiveHint`` / ``idempotentHint`` /
-``openWorldHint``. Nothing about the checked page or the caller is logged here.
+The tools only ever call the three routes in :data:`ROUTES`, with nothing but the caller's pass: no route that buys,
+tops up or pays (x402, wallets, card checkout) is reachable from here, and a payment header sent to ``/mcp`` is never
+passed on. Every tool declares a title, a one-sentence description and explicit ``readOnlyHint`` /
+``destructiveHint`` / ``idempotentHint`` / ``openWorldHint``. Nothing about the checked page or the caller is logged
+here.
 """
 
 from collections.abc import AsyncIterator
@@ -41,6 +44,8 @@ logger = structlog.get_logger("unfret")
 
 PATH = "/mcp"
 _INTERNAL = "http://unfret.internal"  # the in-process calls' base URL; nothing resolves it
+# Every route a tool may call, and the only ones: a check (paid from the pass) and two reads. Nothing that pays.
+ROUTES: frozenset[tuple[str, str]] = frozenset({("POST", "/v1/check"), ("GET", "/v1/credits"), ("GET", "/v1/pricing")})
 _bad_passes = RateLimit(settings.x402_check_per_minute)  # failed pass checks per visitor network
 
 server: MCPServer = MCPServer(
@@ -95,13 +100,17 @@ async def _call(ctx: Context, method: str, path: str, body: dict[str, Any] | Non
     :param body: The JSON body, if any.
     :return: The response.
     :raises RuntimeError: While the server isn't attached to the app.
+    :raises ValueError: For a route outside :data:`ROUTES`.
     """
+    if (method, path) not in ROUTES:
+        raise ValueError(f"not a route the MCP server calls: {method} {path}")
     if _api is None:
         raise RuntimeError("the MCP server is not attached")  # pragma: no cover
     authorization, client = _caller(ctx)
     transport = httpx.ASGITransport(app=_api, client=client)
     timeout = httpx.Timeout(settings.analysis_timeout_s + 30)
     async with httpx.AsyncClient(transport=transport, base_url=_INTERNAL, timeout=timeout) as http:
+        # Only the pass goes along: never a payment header, so /v1/check always charges the pass (never x402).
         return await http.request(method, path, json=body, headers={"Authorization": authorization})
 
 
@@ -163,14 +172,19 @@ async def _check(ctx: Context, tier: str, url: str, policy: str, page_content: s
     return {"status": "ok", "ok": True, "verdict": verdict, **pass_fields}
 
 
-# Two tools rather than one with a tier: the free one changes nothing (read-only), the deep one spends a check.
+# Two tools rather than one with a tier: the free one changes nothing, the deep one uses one of the pass's checks.
 @server.tool(
     title="Quick check of a store (free)",
+    description=(
+        "Runs Unfret's free, rule-based check of a store or product page (fetched from url, or read from "
+        "page_content) and returns a verdict with action (allow, warn or block), risk_score, the flags found and "
+        "whether a deep check is worth it, without using any of the pass's checks."
+    ),
     annotations=ToolAnnotations(
         title="Quick check of a store (free)",
-        read_only_hint=True,  # free: nothing on the pass changes
+        read_only_hint=True,  # it only reads a page; nothing on the pass or elsewhere changes
         destructive_hint=False,
-        idempotent_hint=True,
+        idempotent_hint=True,  # free: a repeat changes nothing either
         open_world_hint=True,  # it fetches and reads a third-party web page
     ),
 )
@@ -197,11 +211,19 @@ async def check_store_quick(
 
 @server.tool(
     title="Deep check of a store (uses a check)",
+    description=(
+        "Runs Unfret's full check of a store or product page (the quick check's rules plus an AI read of the listing, "
+        "its reviews, photos, price history and domain age), using one check from the Unfret pass (free checks "
+        "first), and returns the verdict with action (allow, warn or block), risk_score and flags, whether it was "
+        "charged and the checks left on the pass."
+    ),
     annotations=ToolAnnotations(
         title="Deep check of a store (uses a check)",
-        read_only_hint=False,  # it uses one of the pass's prepaid checks
+        # It only reads the page and changes nothing there; the one thing it uses up is a check the caller prepaid
+        # for this, which its title and description say.
+        read_only_hint=True,
         destructive_hint=False,  # nothing is deleted or overwritten
-        idempotent_hint=False,  # each is charged (a repeat within the hour by the same pass isn't)
+        idempotent_hint=False,  # a repeat can use another check (only the same pass's repeat within the hour is free)
         open_world_hint=True,  # it fetches and reads a third-party web page
     ),
 )
@@ -226,7 +248,14 @@ async def check_store_deep(
     return await _check(ctx, "deep", url, policy, page_content)
 
 
-@server.tool(title="Checks left on the pass", annotations=_readonly("Checks left on the pass"))
+@server.tool(
+    title="Checks left on the pass",
+    description=(
+        "Returns how many deep checks the Unfret pass has left (free and bought), its balance and whether free deep "
+        "checks are paused today."
+    ),
+    annotations=_readonly("Checks left on the pass"),
+)
 async def get_checks_left(ctx: Context) -> dict[str, Any]:
     """
     How many deep checks the Unfret pass has left (free and bought), and whether free deep checks are paused today.
@@ -253,7 +282,14 @@ async def get_checks_left(ctx: Context) -> dict[str, Any]:
     }
 
 
-@server.tool(title="Unfret prices", annotations=_readonly("Unfret prices"))
+@server.tool(
+    title="Unfret prices",
+    description=(
+        "Returns Unfret's current prices: what a quick and a deep check cost, the check packs a pass can buy and the "
+        "free checks."
+    ),
+    annotations=_readonly("Unfret prices"),
+)
 async def get_pricing(ctx: Context) -> dict[str, Any]:
     """
     Unfret's current prices: what a check costs, the packs a pass can buy, and the free checks.

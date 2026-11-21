@@ -57,6 +57,22 @@
   feature, `claim_audit.count_off`). The audit's other self-contradictions stay a note that leaves the band as it is
   (#279).
 
+* **An older address with a new shop on it.** An address that expired and was bought again, or was taken over, keeps
+  its age, and that age made a brand-new shop look established. When a deep check finds a web shop on an address of 3
+  years or more that already looks doubtful by the other checks (the verdict they alone would give isn't "Looks
+  fine"), it now looks at the shop's home page in the Internet Archive from about 1, 3 and 12 months ago
+  (`domain_history`, planned by the triage next to the photo search). A parked page with the address for sale, an
+  empty placeholder or a different site (another language, not a shop, nothing in common; never with the shop's own
+  name in it) becomes the reason "Older address, new shop": "This web address is 12 years old, but as recently as
+  March 2026 it showed a parked page, with the address for sale. So its age says little about the shop on it now.",
+  with links to the archived copies (`reasons[].links`, shown on /check and shared results). The address's age then no
+  longer counts for the shop, and the verdict is "Worth a look" at best. No copies say nothing. Cheap rules only, no
+  LLM; the archive is fetched like any outside page (public addresses, size limit, timeouts, no cookies) and what the
+  copies show is cached per address for a week. The archive blocks clients that ask too often, so a server asks it at
+  most `UNFRET_WAYBACK_PER_MINUTE` (8) times a minute and not at all for `UNFRET_WAYBACK_PAUSE_S` (15 minutes) after a
+  refused connection; a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
+  unchanged (#272).
+
 ### The product photos against the listing's own claims
 
 * **A deep check compares the listing's piece count and size with its own photos** (new skill `photo_claims`). When

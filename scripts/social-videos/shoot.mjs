@@ -41,6 +41,8 @@ async function shootPage() {
       hasTouch: true,
       locale: video.page.locale ?? "en-US",
       userAgent: MOBILE_UA,
+      // The styles that hide and blur go in as a style tag, which a strict Content Security Policy would refuse.
+      bypassCSP: true,
     });
     const page = await context.newPage();
     await page.goto(video.url, { waitUntil: "load", timeout: 60_000 });
@@ -139,8 +141,32 @@ function prepare(spec) {
     }
     return null;
   };
+  // A mark's look (for a live overlay in its place, e.g. a ticking clock): the text's font and colour, and the
+  // background behind it.
+  const look = (selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    let back = el, bg = "rgba(0, 0, 0, 0)";
+    while (back && (bg === "rgba(0, 0, 0, 0)" || bg === "transparent")) {
+      bg = getComputedStyle(back).backgroundColor;
+      back = back.parentElement;
+    }
+    return { fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, color: cs.color,
+      letterSpacing: cs.letterSpacing, fontVariantNumeric: cs.fontVariantNumeric, background: bg };
+  };
+  // A mark's box: a piece of text (the words a callout marks), or a whole element (no text given).
+  const elementBox = (selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height, lines: [] };
+  };
   const marks = {};
-  for (const [name, { selector, text }] of Object.entries(spec.marks)) marks[name] = textBox(selector, text);
+  for (const [name, { selector, text, style }] of Object.entries(spec.marks)) {
+    marks[name] = text ? textBox(selector, text) : elementBox(selector);
+    if (marks[name] && style) marks[name].style = look(selector);
+  }
   return marks;
 }
 
@@ -224,6 +250,11 @@ async function shootPopup() {
         .unfret-blur { filter: blur(5px); }`,
     });
     const spec = video.popup;
+    // The details (the signals behind the verdict), opened as a user would, when the finding is among them.
+    if (spec.expand) {
+      await popup.click("#result-body details > summary");
+      await popup.waitForTimeout(300);
+    }
     const boxes = await popup.evaluate(
       ({ blurText, finding }) => {
         for (const needle of blurText ?? []) {
@@ -246,7 +277,7 @@ async function shootPopup() {
           }
         }
         // The finding the video points at: the smallest block that holds its text.
-        const all = [...document.querySelectorAll("#result-body li, #result-body div, #result-body p")];
+        const all = [...document.querySelectorAll("#result-body li, #result-body div, #result-body p, #result-body section")];
         const hits = all.filter((e) => e.textContent.includes(finding));
         const el = hits.sort((a, b) => a.textContent.length - b.textContent.length)[0];
         const b = el?.getBoundingClientRect();
@@ -259,7 +290,7 @@ async function shootPopup() {
       { blurText: spec.blurText, finding: spec.finding },
     );
     if (!boxes.finding) throw new Error(`the popup doesn't show "${spec.finding}"`);
-    await popup.setViewportSize({ width: PHONE.width, height: Math.min(boxes.height, 1400) });
+    await popup.setViewportSize({ width: PHONE.width, height: Math.min(boxes.height, 2400) });
     await popup.waitForTimeout(300);
     await popup.screenshot({ path: join(dir, "popup.png") });
     writeFileSync(join(dir, "popup.json"), `${JSON.stringify(boxes, null, 2)}\n`);

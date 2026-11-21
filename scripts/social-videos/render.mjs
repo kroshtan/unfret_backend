@@ -50,6 +50,9 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
 #layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
 #layer img { display: block; width: ${W}px; }
 #layer svg { position: absolute; left: 0; top: 0; overflow: visible; }
+/* A live clock over the page's own (script.clocks), and the white flash of a reload (script.reloads). */
+.clock { position: absolute; box-sizing: border-box; white-space: nowrap; display: flex; align-items: center; }
+#reload { position: absolute; inset: 0; background: #fff; opacity: 0; }
 #chrome { position: absolute; left: 0; top: 0; width: ${W}px; height: ${VIEW_TOP}px; background: #f1f3f4;
   box-shadow: 0 2px 0 rgba(0,0,0,.06); }
 #status { height: ${STATUS}px; display: flex; align-items: center; justify-content: space-between; padding: 0 44px;
@@ -81,7 +84,8 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
 #end .free { font-size: 44px; color: var(--deep); margin-top: 70px; }
 </style></head><body>
 <section class="scene" id="page">
-  <div id="view"><div id="layer"><img src="${url(join(dir, "page.png"))}"><svg id="marks"></svg></div></div>
+  <div id="view"><div id="layer"><img src="${url(join(dir, "page.png"))}"><svg id="marks"></svg></div>
+    <div id="reload"></div></div>
   <div id="chrome">
     <div id="status"><span>9:41</span><span style="display:flex;gap:16px;align-items:center">
       <svg width="34" height="26" viewBox="0 0 34 26"><path d="M2 24h5V16H2zM10 24h5V11h-5zM18 24h5V6h-5zM26 24h5V1h-5z" fill="#202124"/></svg>
@@ -171,6 +175,28 @@ const strokes = script.strokes.map((s) => {
   return { ...s, ...stroke(marksSvg, s.kind === "circle" ? circlePath(b) : underlinePath(b), 9, "#B0562A") };
 });
 
+// Live clocks over the page's countdowns: each shows "start" seconds at t = 0 and counts down by the second; at a
+// reload (script.reloads) it starts over from "start", as an evergreen timer does.
+const pad = (n) => String(n).padStart(2, "0");
+const reloads = (script.reloads ?? []).map((r) => r.at);
+const clocks = (script.clocks ?? []).map((c) => {
+  const m = S.marks[c.mark], el = document.createElement("div");
+  el.className = "clock";
+  Object.assign(el.style, { left: m.x * S.SCALE - 2 + "px", top: m.y * S.SCALE - 2 + "px",
+    width: m.width * S.SCALE + 24 + "px", height: m.height * S.SCALE + 4 + "px", fontFamily: m.style.fontFamily,
+    fontSize: parseFloat(m.style.fontSize) * S.SCALE + "px", fontWeight: m.style.fontWeight, color: m.style.color,
+    letterSpacing: m.style.letterSpacing, fontVariantNumeric: m.style.fontVariantNumeric,
+    background: m.style.background, paddingLeft: "2px" });
+  document.getElementById("layer").append(el);
+  return { ...c, el };
+});
+function clockText(c, t) {
+  const since = Math.max(0, ...reloads.filter((r) => r <= t), 0);
+  // The page is blank for a moment while it reloads; it comes back showing the full time.
+  const left = Math.max(0, c.start - Math.floor(t - since));
+  return \`\${pad(Math.floor(left / 3600))}:\${pad(Math.floor(left / 60) % 60)}:\${pad(left % 60)}\`;
+}
+
 // The check: the popup's still in the card, scaled to its width.
 const card = document.getElementById("card");
 const cardTop = card.offsetTop, cardLeft = card.offsetLeft, popScale = card.offsetWidth / S.W;
@@ -217,6 +243,10 @@ window.frame = (t) => {
   document.getElementById("layer").style.transform =
     \`scale(\${c.zoom}) translate(\${-c.left * S.SCALE}px, \${-c.top * S.SCALE}px)\`;
   for (const s of strokes) draw(s, progress(t, s.at, s.draw));
+  for (const c of clocks) c.el.textContent = clockText(c, t);
+  let flash = 0;
+  for (const r of reloads) flash = Math.max(flash, progress(t, r, 0.12) * (1 - progress(t, r + 0.3, 0.3)));
+  document.getElementById("reload").style.opacity = flash;
 
   // The cut to the check: it slides up over the page.
   const ch = script.check, inCheck = progress(t, ch.at, 0.45);

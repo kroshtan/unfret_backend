@@ -21,6 +21,86 @@ export const DELIVER = process.env.UNFRET_VIDEOS_DIR ?? join(HERE, "..", "..", "
 const PAGES_FILE = process.env.UNFRET_VIDEO_PAGES ?? join(DELIVER, "pages.json");
 const PAGES = existsSync(PAGES_FILE) ? JSON.parse(readFileSync(PAGES_FILE, "utf8")) : {};
 
+/**
+ * A mascot track (mascot.mjs) in the videos' usual two appearances, from a few beats.
+ *
+ * The close-up: from `enter`, it hops in from the right as C along the bottom of the frame to `spot` (feet, frame
+ * px), turns into A (close inspection) and raises the glass toward `look` (frame px; the eyes follow it), puts it back
+ * to its eye, does a double-take at `doubleTake` and nods at each of `nods`; the check then slides in over it. The
+ * check (optional, `check: { spot, lens }`): it hops in as C to `spot` and holds the glass up at `lens`. The end card:
+ * it becomes the logo (from the check's spot, or hopping in from the right when there is no check appearance).
+ *
+ * @param {object} beats The beats.
+ * @returns {object} The track.
+ */
+function mascotTrack({ enter, spot, look, doubleTake, nods = [], blinks = [], check = null, turn = true, cut = 13.2,
+  end = 19.75 }) {
+  const [x, y] = spot;
+  const pose = turn ? 1 : 0, side = turn ? 1 : -1; // A looks right, C left
+  const keys = [
+    { t: 0, x: 1300, y: y - 10, pose: 0, look: [-3, 0], lean: 0, mag: 0, reach: 0, hand: "rest", track: 0, flat: 0,
+      brow: 0, wide: 0, grin: 0 },
+    // Hops in as C, then turns into A, the glass up to its eye.
+    { t: enter, x: 1300, y: y - 10 },
+    { t: enter + 0.42, ease: "linear", x: (1300 + x) / 2 + 40, y: y - 5 },
+    { t: enter + 0.9, ease: "linear", x, y },
+    { t: enter + 1.05, pose: 0, look: [-3, 0] },
+    { t: enter + 1.4, pose, look: [2 * side, -3] },
+    // The glass toward the thing it inspects, eyes following, and back to the eye.
+    { t: enter + 1.5, hand: "rest", mag: 0, reach: 0, lean: 0, track: 0 },
+    { t: enter + 2.0, lens: look, mag: 25 * side, reach: 0.8, lean: 6 * side, track: 1 },
+    { t: enter + 2.6, lens: [look[0] + 40 * side, look[1] - 10], mag: 25 * side, reach: 0.8, lean: 7 * side, track: 1 },
+    { t: doubleTake - 0.3, ease: "out", hand: "rest", mag: 0, reach: 0, lean: 0, track: 0, look: [3 * side, -2],
+      flat: 0, brow: 0, wide: 0 },
+    // The double-take.
+    { t: doubleTake - 0.05, look: [-2 * side, -3], wide: 0, brow: 0, flat: 0, lean: 0 },
+    { t: doubleTake + 0.18, ease: "back", look: [3 * side, -3], wide: 1, brow: 1, flat: 1, lean: -5 * side },
+    { t: doubleTake + 1.5, look: [3 * side, -3], wide: 1, brow: 1, flat: 1, lean: -5 * side },
+    { t: doubleTake + 1.85, ease: "out", look: [3 * side, -1], wide: 0, brow: 0, flat: 0, lean: 0 },
+    // Out of sight under the check: back to C, off to the right.
+    { t: cut + 0.5, x, y, pose, look: [3 * side, -1] },
+    { t: cut + 0.52, ease: "linear", x: 1300, y: check ? check.spot[1] : 815, pose: 0, look: [-3, 0] },
+  ];
+  const hops = [
+    { at: enter, dur: 0.42, height: 60 },
+    { at: enter + 0.47, dur: 0.43, height: 50 },
+    { at: enter + 1.12, dur: 0.26, height: 16 },
+    { at: doubleTake + 0.04, dur: 0.2, height: 14 },
+  ];
+  const allNods = nods.map((at) => ({ at }));
+  if (check) {
+    const [cx, cy] = check.spot;
+    keys.push(
+      { t: cut + 1.3, x: 1300, y: cy },
+      { t: cut + 1.75, ease: "linear", x: cx, y: cy },
+      { t: cut + 1.8, look: [-3, 0], hand: "rest", mag: 0, reach: 0, lean: 0 },
+      { t: cut + 2.25, lens: check.lens, mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
+      { t: end - 0.45, lens: check.lens, mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
+      { t: end - 0.05, ease: "out", hand: "rest", mag: 0, reach: 0, lean: 0, look: [-3, 0] },
+    );
+    hops.push({ at: cut + 1.3, dur: 0.45, height: 60 });
+    allNods.push({ at: cut + 2.55, depth: 0.6 });
+  } else {
+    // No check appearance: it hops in on the end card, on its way to the logo.
+    keys.push({ t: end, x: 1300, y: 815 }, { t: end + 0.5, ease: "linear", x: 900, y: 815 });
+    hops.push({ at: end, dur: 0.5, height: 50 });
+  }
+  const becomeAt = check ? end : end + 0.3;
+  return {
+    scale: 1.65,
+    behind: [{ from: 0, to: cut + 0.55, id: "check" }],
+    keys,
+    hops,
+    blinks: [enter + 1.7, ...blinks],
+    nods: allNods,
+    become: { at: becomeAt, dur: 1.05, logo: "#end img", then: "#end .name, #end .line, #end .web, #end .free", arc: 40 },
+  };
+}
+
+// The test shop on dev, and its pop-ups ("someone just bought this") that would cover the page in a still.
+const TEST_SHOP = "https://dev.unfret.net/test-shop";
+const SHOP_POPS = ["[data-sales-pop]"];
+
 const VIDEO_LIST = [
   {
     name: "c-piece-count",
@@ -148,6 +228,262 @@ const VIDEO_LIST = [
       },
     },
   },
+  // The test shop (/test-shop on dev, "every trick here is copied from real listings, names removed"): one real deep
+  // check of its product page (capture.mjs) is the result in each of these videos; each shows a different finding.
+  {
+    name: "b-countdown",
+    url: TEST_SHOP,
+    expect: "This countdown restarts when you reload the page",
+    page: {
+      height: 1700,
+      hide: SHOP_POPS,
+      marks: {
+        clock: { selector: ".countdown-clock", style: true },
+        timer: { selector: ".countdown-timer" },
+      },
+    },
+    popup: { finding: "This countdown restarts when you reload the page" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 900, zoom: 1 },
+        { t: 4.6, left: 0, top: 900, zoom: 1 },
+        { t: 5.8, left: 8, top: 1040, zoom: 1.75 },
+        { t: 13.2, left: 8, top: 1040, zoom: 1.75 },
+      ],
+      // The page's own countdown, live (it starts at 15:00 on load), and a reload that starts it over.
+      clocks: [{ mark: "clock", start: 900 }],
+      reloads: [{ at: 8.0 }],
+      strokes: [{ mark: "clock", kind: "circle", at: 8.7, draw: 0.6 }],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "“Sale ends in 15 minutes.”" },
+        { from: 4.7, to: 7.9, y: 1240, size: 78, text: "Now reload the page." },
+        { from: 8.9, to: 13.2, y: 1130, size: 100, text: "Back to 15:00." },
+        { from: 10.2, to: 13.2, y: 1290, size: 74, text: "It restarts on every visit", tone: "caution" },
+        { from: 11.4, to: 13.2, y: 420, size: 54, text: "The deadline isn't real.", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "It catches the restarting clock", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 9.0, nods: [10.45],
+        blinks: [11.9], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
+  {
+    name: "f-was-price",
+    url: TEST_SHOP,
+    expect: "79% off: discounts this deep",
+    page: {
+      height: 1700,
+      hide: SHOP_POPS,
+      marks: {
+        was: { selector: ".price-was", text: "$189.99" },
+        save: { selector: ".price-save", text: "(79%)" },
+        now: { selector: ".price-now", text: "$39.99" },
+      },
+    },
+    popup: { finding: "79% off: discounts this deep" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 860, zoom: 1 },
+        { t: 4.6, left: 0, top: 860, zoom: 1 },
+        { t: 5.8, left: 4, top: 990, zoom: 1.35 },
+        { t: 13.2, left: 4, top: 990, zoom: 1.35 },
+      ],
+      strokes: [
+        { mark: "was", kind: "circle", at: 7.4, draw: 0.6 },
+        { mark: "save", kind: "underline", at: 9.4, draw: 0.5 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A star projector, 79% off." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Look at the “was” price." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Ever $189.99?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Nobody paid that price", tone: "caution" },
+        { from: 11.1, to: 13.2, y: 420, size: 54, text: "A big “was” makes any price look cheap.", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "It calls out the made-up discount", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1468], lens: [720, 1250] } }),
+    },
+  },
+  {
+    name: "g-imported-reviews",
+    url: TEST_SHOP,
+    expect: "Loox (reviews with AliExpress import)",
+    page: {
+      height: 3900,
+      hide: SHOP_POPS,
+      marks: {
+        first: { selector: "#looxReviews article:nth-of-type(1)", text: "Absolutely love it! My kids fall asleep so fast now." },
+        again: { selector: "#looxReviews article:nth-of-type(7)", text: "Absolutely love it! My kids fall asleep so fast now." },
+        shoes: { selector: "#looxReviews article:nth-of-type(5)", text: "These shoes fit perfectly" },
+      },
+    },
+    // The finding is among the signals behind the verdict: the popup's own "Show details", opened.
+    popup: { finding: "Loox (reviews with AliExpress import)", expand: true },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.2, left: 0, top: 2480, zoom: 1 },
+        { t: 5.0, left: 0, top: 2480, zoom: 1 },
+        { t: 6.4, left: 0, top: 2900, zoom: 1 },
+        { t: 13.2, left: 0, top: 2900, zoom: 1 },
+      ],
+      strokes: [
+        { mark: "first", kind: "underline", at: 4.0, draw: 0.6 },
+        { mark: "shoes", kind: "circle", at: 7.6, draw: 0.6 },
+        { mark: "again", kind: "underline", at: 9.6, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 3.0, y: 1240, size: 78, text: "4.9 stars from 2,847 reviews." },
+        { from: 3.4, to: 6.2, y: 1560, size: 70, text: "Read a few." },
+        { from: 8.0, to: 13.2, y: 330, size: 84, text: "Shoes? On a projector?" },
+        { from: 10.0, to: 13.2, y: 420, size: 66, text: "Same words, another name", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "It finds reviews imported in bulk", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      // Not a close-up (the reviews at full size): it stays C, at the lower right, looking up the list.
+      mascot: mascotTrack({ enter: 5.6, spot: [920, 1662], look: [700, 1370], doubleTake: 8.1, nods: [10.2],
+        blinks: [11.9], turn: false, check: { spot: [870, 1261], lens: [720, 1040] } }),
+    },
+  },
+  {
+    name: "h-same-photo",
+    url: TEST_SHOP,
+    expect: "sold elsewhere for $17.99",
+    page: {
+      height: 1300,
+      hide: SHOP_POPS,
+      marks: {
+        photo: { selector: "#gallery-main" },
+        brand: { selector: ".vendor", text: "LUMIQZEN" },
+        now: { selector: ".price-now", text: "$39.99" },
+      },
+    },
+    popup: { finding: "Looks like the same product, sold elsewhere for $17.99" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.2, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 150, zoom: 1 },
+        { t: 7.0, left: 0, top: 150, zoom: 1 },
+        { t: 8.6, left: 0, top: 700, zoom: 1 },
+        { t: 13.2, left: 0, top: 700, zoom: 1 },
+      ],
+      strokes: [
+        { mark: "brand", kind: "underline", at: 9.2, draw: 0.5 },
+        { mark: "now", kind: "circle", at: 10.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 2.9, y: 1240, size: 78, text: "A LUMIQZEN projector." },
+        { from: 3.2, to: 7.0, y: 1500, size: 78, text: "Their own design, right?" },
+        { from: 9.0, to: 13.2, y: 1500, size: 84, text: "$39.99 here.", tone: "caution" },
+        { from: 10.6, to: 13.2, y: 1620, size: 54, text: "Is the same photo anywhere else?", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 640,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Same photo, other brand, $17.99", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      // The check's finding fills the card, so the mascot only comes on for the end: it hops in and becomes the logo.
+      mascot: {
+        scale: 1.65,
+        keys: [
+          { t: 0, x: 1300, y: 815, pose: 0, look: [-3, 0], hand: "rest" },
+          { t: 19.75, x: 1300, y: 815 },
+          { t: 20.25, ease: "linear", x: 900, y: 815 },
+        ],
+        hops: [{ at: 19.75, dur: 0.5, height: 50 }],
+        become: { at: 20.0, dur: 1.05, logo: "#end img", then: "#end .name, #end .line, #end .web, #end .free", arc: 30 },
+      },
+    },
+  },
+  {
+    name: "i-preticked-extra",
+    url: TEST_SHOP,
+    expect: "A paid extra is ticked for you in advance",
+    page: {
+      height: 1700,
+      hide: SHOP_POPS,
+      marks: {
+        addon: { selector: "label.addon", text: "Add Worry-Free Delivery Protection (+$4.99)" },
+        box: { selector: "label.addon input" },
+        cart: { selector: ".btn-cart" },
+      },
+    },
+    popup: { finding: "A paid extra is ticked for you in advance" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.2, left: 0, top: 1000, zoom: 1 },
+        { t: 4.6, left: 0, top: 1000, zoom: 1 },
+        { t: 5.8, left: 8, top: 1280, zoom: 1.75 },
+        { t: 13.2, left: 8, top: 1280, zoom: 1.75 },
+      ],
+      strokes: [
+        { mark: "box", kind: "circle", at: 7.6, draw: 0.6 },
+        { mark: "addon", kind: "underline", at: 9.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "Pick a colour, add to cart." },
+        { from: 4.7, to: 7.6, y: 1240, size: 78, text: "Look above the button." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Already ticked." },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "+$4.99 you didn't pick", tone: "caution" },
+        { from: 11.1, to: 13.2, y: 420, size: 54, text: "Not allowed in the EU.", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "It flags the extra ticked for you", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1498], lens: [708, 1306] } }),
+    },
+  }
 ];
 
 /** The videos, each with its page and its brand's words to blur from pages.json. */

@@ -51,6 +51,20 @@
   own anchor in a listing's text ("Retail value: …") are unchanged. On the golden set no band
   changes on either tier (no page there showed the reason or shows the note).
 
+* **A reference price with the currency after the number is read, on every site.** "UVP: 14,39 €", "Prezzo
+  consigliato: 19,99 €", "Cena katalogowa: 1 299,00 zł", the usual order in most of the EU, never matched the pricing
+  skill's reference-price check (a word boundary after "€" can't match before a space or the end of the text); only
+  "€ 14,39" did. Now the currency may come before or after the number (also "EUR", "zł", "kr", eBay's "US $"), with
+  "," or "." for decimals and ".", "," or a space for thousands. More reference-price labels are read: Italian
+  ("Prezzo consigliato", "Prezzo di listino"), Spanish ("Precio recomendado", "PVPR", "Precio de venta recomendado"),
+  Portuguese, Polish ("Cena katalogowa", "Sugerowana cena"), Swedish ("Rekommenderat pris", "Rek. pris", "Listpris"),
+  Danish, Norwegian, Finnish, Czech, and "Unverb. Preisempf.". On Amazon they count as Amazon's own label (the
+  `marketplace_reference` note), and so does eBay's struck "List price"; on a web shop they give the
+  `reference_anchor` reason, as "RRP" does. On the golden set the deep tier's bands don't change; on the quick tier
+  one page does: Puma's own shop (DE) goes from Worth a look to Think twice on its "UVP: 109,95 €" (its 30-day best
+  price is 88,95 €), and Amazon.de's "UVP" becomes the note. Over the whole corpus only those two pages' pricing
+  findings change.
+
 * **A short link is checked as the page it leads to.** A link pasted into a server-side check (the web link checker,
   `POST /v1/check`, the MCP tools) that redirects (a shop's or marketplace's short link, a link shortener) was checked
   under the short link: no product id, and the result cache, price history, fingerprint store and share link keyed on

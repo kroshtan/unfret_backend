@@ -173,6 +173,7 @@ POSITIVE_SOURCES: dict[str, str] = {
     "vat_registered": "vies",
     "us_business": "legal_pages",
     "established_domain": "rdap",
+    "established_archive": "archive",
     "trust_info_present": "legal_pages",
     "natural_reviews": "reviews",
     "protected_payment": "legal_pages",

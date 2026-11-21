@@ -50,6 +50,18 @@
 
 ### Deep checks
 
+* **The photo check against the listing's count and size picks its photos from the whole gallery.** With pages now
+  giving their gallery (Amazon and other shops, above), `photo_claims` fetches up to 8 of its photos and, when there
+  are more than it asks about, shows them to the vision model once as one numbered contact sheet: which photos show a
+  person or common object next to the product (for a size: the lifestyle shots) and which lay out the whole set (for
+  a count). Photo 1 and those go to its three questions (one of each in turn), the rest in gallery order; without an
+  answer, the first photos as before. A finding names the photo's place in the gallery. The false-alarm rules are
+  unchanged. On the evaluation (`python -m evals.photo_claims --corpus --abo 150`): 0 flags on 179 checks before, 0
+  on 201 after (more corpus pages state a count or size now that their facts are read better); photos asked about
+  per corpus check 1.38 → 2.10; cost per check €0.00064 → €0.00072 (the sheet is one call more on 117 of 201
+  checks; €0.00031 → €0.00058 on the corpus's pages, which had one photo). On an Amazon.nl felt-tip set: 1 photo
+  before, the gallery's 4 now (3 asked about, chosen by the sheet), €0.00026 → €0.00085, no flag.
+
 * **The claim audit reads the shop's other pages too.** On a web shop's own site (not a marketplace listing), the
   deep check's claim audit now also reads the shop's returns, shipping, about and contact pages (then imprint and
   terms: at most four, linked from the page on the shop's own domain, never a PDF; fetched in parallel through the

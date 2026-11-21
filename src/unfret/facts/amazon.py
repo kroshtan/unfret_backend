@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup, Tag
 
 from unfret.facts._parse import parse_count, parse_date, parse_price, parse_rating
 from unfret.facts.brand import clean_brand
+from unfret.facts.gallery import GALLERY_MAX
 from unfret.facts.schema import PageFacts, Review
 
 _FIRST_AVAILABLE_RE = re.compile(
@@ -69,7 +70,6 @@ _VARIATION_SELECTORS = "#twister li, #variation_color_name li, #variation_size_n
 # JSON or as a JSON string to ``parseJSON``); the mobile page puts each photo's large copy on its carousel slide
 # (``data-a-hires``); the desktop thumbnails (``#altImages``) are the last resort, made large. Only Amazon's product
 # images (``/images/I/``): no banners, sprites or pixels (``/images/G/``), no video thumbnails or badges.
-GALLERY_MAX = 12
 _GALLERY_INITIAL_RE = re.compile(
     r"""['"]colorImages['"]\s*:\s*\{\s*['"]initial['"]\s*:\s*(?:[\w$.]*parseJSON\(\s*')?"""
 )

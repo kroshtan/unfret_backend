@@ -4,6 +4,18 @@
 
 ### Page facts
 
+* **Every product page gives its gallery first, not only Amazon's.** A new step (`facts/gallery.py`) puts the
+  product's photos at the front of `image_urls`, large and in order, on any shop system or marketplace: the main photo
+  of the structured data (a schema.org `image` array or one) or the Open Graph image, then AliExpress's
+  `imagePathList` and Temu's `gallery`, Shopify's product JSON (`ProductJson-…`, `data-product-json`), and gallery
+  markup (zoom and full-size attributes such as WooCommerce's `data-large_image`, eBay's `data-zoom-src` and bol.com's
+  `data-zoom-image-url`; images inside a gallery, carousel or slider, never in a header, menu, footer, video or related
+  products, each at its largest `srcset` size). One photo in several sizes (Shopify's `_800x`, WordPress's
+  `-300x300`, eBay's `s-l500`, AliExpress's `_220x220`) counts once; theme URL templates (`_{width}x`) are no photo.
+  At most 12, on pages about a product only; the page's other images follow as before. Amazon (its own module) and
+  Walmart keep their galleries. On the corpus's product pages it changes the photos of 221 Shopify, 62 other, 18
+  WooCommerce pages.
+
 * **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything
   else the page showed (thumbnails 40 px wide, banners, sprites, tracking pixels), so the steps that look at photos
   saw one product photo. Now an Amazon page on any locale gives its gallery, large and in its order: from the image
@@ -39,6 +51,27 @@
   "Worth a look" or worse. The claims and the piece count are shared with other steps in one call per page
   (`claim_audit.listing_claims`). The golden report now counts every reason shown, notes on "Looks fine" included
   (#274).
+* **A piece count that is padded or doesn't add up is "Worth a look", whoever sells it.** When the claim audit finds
+  a set's count padded with accessories ("91 pieces" that are 80 pens and 12 clips) or its listed parts not making the
+  stated total, the page is "Worth a look" at best, also for a known brand or a shop with a track record (a new
+  feature, `claim_audit.count_off`). The audit's other self-contradictions stay a note that leaves the band as it is
+  (#279).
+
+* **An older address with a new shop on it.** An address that expired and was bought again, or was taken over, keeps
+  its age, and that age made a brand-new shop look established. When a deep check finds a web shop on an address of 3
+  years or more that already looks doubtful by the other checks (the verdict they alone would give isn't "Looks
+  fine"), it now looks at the shop's home page in the Internet Archive from about 1, 3 and 12 months ago
+  (`domain_history`, planned by the triage next to the photo search). A parked page with the address for sale, an
+  empty placeholder or a different site (another language, not a shop, nothing in common; never with the shop's own
+  name in it) becomes the reason "Older address, new shop": "This web address is 12 years old, but as recently as
+  March 2026 it showed a parked page, with the address for sale. So its age says little about the shop on it now.",
+  with links to the archived copies (`reasons[].links`, shown on /check and shared results). The address's age then no
+  longer counts for the shop, and the verdict is "Worth a look" at best. No copies say nothing. Cheap rules only, no
+  LLM; the archive is fetched like any outside page (public addresses, size limit, timeouts, no cookies) and what the
+  copies show is cached per address for a week. The archive blocks clients that ask too often, so a server asks it at
+  most `UNFRET_WAYBACK_PER_MINUTE` (8) times a minute and not at all for `UNFRET_WAYBACK_PAUSE_S` (15 minutes) after a
+  refused connection; a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
+  unchanged (#272).
 
 ### The product photos against the listing's own claims
 

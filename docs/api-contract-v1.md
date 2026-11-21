@@ -1467,3 +1467,32 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   checked" only when the listing stated a count or size and a photo could be read.
 - x402 `POST /v1/check` (deep tier) carries the reasons as flags like any other; the quick tier and the MCP tools are
   unchanged.
+
+## Changes (a piece count that is off is "Worth a look"; backwards-compatible)
+
+- A new feature `claim_audit.count_off`: how many of the claim audit's findings are about the piece count (padded
+  with accessories, or the parts it lists not making the total). With one, "Looks fine" becomes "Worth a look",
+  whatever the brand or the shop's track record, and the `claim_contradicted` reason keeps a "Worth a look" the scorer
+  gave. Other self-contradictions are unchanged: a note, the band as it is.
+
+## Changes (an older address with a new shop: the shop's earlier copies; backwards-compatible)
+
+- A deep check of a web shop (`POST /v1/analyze`, the stream, `/v1/check`'s deep tier) may look at the shop's home
+  page in the Internet Archive from about 1, 3 and 12 months ago: only when its address is at least 3 years old and
+  the page already looks doubtful by the other checks. The stream may then have one more `event: step` with
+  `skill` `domain_history`. A quick check never does.
+- A new reason `type` **`domain_repurposed`** (`severity` `medium`, area `who`, next step `shop_reviews`): title
+  "Older address, new shop", detail "This web address is 12 years old, but as recently as March 2026 it showed a
+  parked page, with the address for sale. So its age says little about the shop on it now." (or "an empty placeholder
+  page", or "a different site (not a shop, in Dutch, “…”)"), `source` "Earlier copies of the site (Internet Archive,
+  web.archive.org)". With it, the positive `established_domain` isn't given, and the verdict is `concerns` at best.
+- `reasons[].links` (new, optional, at most three strings, empty for every other reason): the archived copies the
+  reason rests on, `https://web.archive.org/web/<timestamp>/<address>`. Clients may show them as links ("The earlier
+  copies: March 2026, …"); clients that don't know the field show the reason as any other. Shared results carry
+  them too (only `https://web.archive.org/web/` links).
+- New findings in the stream's steps and the assessment's evidence: `archive_copy` (one per copy compared),
+  `no_archive_copies` (the archive has none from the past year: neutral, never a reason) and `domain_repurposed`.
+- Checklist: "Who's behind the shop" counts the look as a check when copies were compared; its new note key
+  `no_archive` reads "The Internet Archive has no earlier copies of the shop's address." when nothing else in the
+  area ran.
+- x402 `POST /v1/check` and the MCP server: unchanged in shape.

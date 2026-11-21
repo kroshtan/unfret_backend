@@ -70,6 +70,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "no_imprint": "medium",
     "invalid_vat": "high",
     "new_domain": "high",
+    "domain_repurposed": "medium",
     "short_registration": "low",
     "returns_abroad": "medium",
     "return_address_withheld": "medium",
@@ -206,6 +207,11 @@ class Reason(BaseModel):
     )
     source: str | None = Field(
         default=None, description='Where the evidence comes from, in words: "Domain registry (RDAP)", "The page", …'
+    )
+    links: list[str] = Field(
+        default_factory=list,
+        max_length=3,
+        description="Up to three links to the evidence elsewhere (archived copies on web.archive.org).",
     )
 
 
@@ -868,6 +874,7 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["invalid_vat"] = {}
     if e.f("domain_age.under_6_months") >= 1:
         fired["new_domain"] = {"age": e.age(max(round(e.f("domain_age.age_years") * 365), 1))}
+    _repurposed(e, fired)
     # Registered for at most a year in all (registration to expiry), so the shop is itself less than a year old. A
     # term of 0 means the registry doesn't publish an expiry date (.nl doesn't); an established domain renewing year
     # by year is normal and never says this.
@@ -875,6 +882,31 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     if e.f("domain_age.known") >= 1 and 0 < term <= 1.1 and e.f("domain_age.age_years") < ESTABLISHED_DOMAIN_YEARS:
         fired["short_registration"] = {}
     _policies(e, fired)
+
+
+_REPURPOSED_RE = re.compile(
+    r"copy from (?P<month>[A-Z][a-z]+ \d{4}) shows (?P<what>.+?)\. (?P<links>https://web\.archive\.org/\S+(?: \S+)*)$"
+)
+
+
+def _repurposed(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """An old address that showed a different site, a parked page or a placeholder not long ago (domain_history)."""
+    finding = e.first("domain_repurposed")
+    match = _REPURPOSED_RE.search(finding.evidence) if finding else None
+    years = int(e.f("domain_age.age_years"))
+    if e.f("domain_history.changed") < 1 or match is None or years < 1:
+        return  # an address under a year old gets no trust from its age to take back
+    fired["domain_repurposed"] = {
+        "age": e.age(years * 365),
+        "month": match["month"],
+        "what": match["what"],
+        "links": " ".join(match["links"].split()[:3]),
+    }
+
+
+def _age_vouches(e: _Evidence) -> bool:
+    """Whether the address's age speaks for the shop: not when it showed another site until recently."""
+    return e.f("domain_history.changed") < 1
 
 
 # A web shop whose address has existed this long is "established" (the positive), and never "registered for a year".
@@ -888,8 +920,20 @@ def _trust_info_present(e: _Evidence) -> bool:
 
 def _vouched_shop(e: _Evidence) -> bool:
     """A web shop with a track record: its address has existed for years, or it shows its return policy and company."""
-    established = e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS
+    established = e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS and _age_vouches(e)
     return e.storefront and (established or _trust_info_present(e))
+
+
+def _claims_off(e: _Evidence) -> bool:
+    """
+    Whether the claim audit's findings make a "Looks fine" page "Worth a look".
+
+    A claim physics, the price or an authority rules out, on a page nobody vouches for; or a piece count padded with
+    accessories or that its own parts don't add up to, which is misleading whoever sells it (a known brand or a track
+    record doesn't keep "Looks fine").
+    """
+    impossible = e.f("claim_audit.impossible") >= 1 and _unvouched_product(e)
+    return impossible or e.f("claim_audit.count_off") >= 1
 
 
 def _unvouched_product(e: _Evidence) -> bool:
@@ -905,7 +949,7 @@ LONG_ESTABLISHED_YEARS = 10
 def _long_established(e: _Evidence) -> bool:
     """The shop's domain has existed for a decade, or it is the brand's own site and the brand is on Wikidata."""
     own_site = e.f("brand_presence.shop_is_brand") >= 1 and e.f("brand_presence.wikidata") >= 1
-    return e.f("domain_age.age_years") >= LONG_ESTABLISHED_YEARS or own_site
+    return (e.f("domain_age.age_years") >= LONG_ESTABLISHED_YEARS and _age_vouches(e)) or own_site
 
 
 def _imprint_really_missing(e: _Evidence) -> bool:
@@ -1076,7 +1120,7 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     company = e.first("business_entity")
     if e.storefront and e.f("us_identity.us_address") >= 1 and company:
         fired["us_business"] = {"company": _quote(company.evidence.removeprefix("Company: "))}
-    if e.storefront and e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS:
+    if e.storefront and e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS and _age_vouches(e):
         fired["established_domain"] = {"years": str(int(e.f("domain_age.age_years")))}
     if e.storefront and _trust_info_present(e):
         fired["trust_info_present"] = {}
@@ -1144,6 +1188,7 @@ def _reason(key: str, params: dict[str, str]) -> Reason:
         detail=copy["detail"].format(**params),
         severity=REASON_SEVERITY[key],
         thumbnails=thumbnails,
+        links=params.get("links", "").split()[:3],
     )
 
 
@@ -1206,15 +1251,13 @@ def fired_reasons(
     return sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
 
 
-def _worth_a_look(evidence: _Evidence, fired: set[str]) -> bool:
-    """Whether a page the scorer calls fine has a reason that makes it "Worth a look", never a warning by itself."""
-    return (
-        "rebranded_photo" in fired  # relabelled generic goods: worth a price comparison
-        # A claim physics, the price or the authority rules out, unless a track record or a known brand vouches.
-        or (evidence.f("claim_audit.impossible") >= 1 and _unvouched_product(evidence))
-        or bool({"photo_count_mismatch", "photo_size_mismatch"} & fired)  # the photos contradict the count or size
-        or "variant_bait_price" in fired  # the price shown is another item's than the title's, whoever sells it
-    )
+# Reasons that make a page "Worth a look" at best: relabelled generic goods (worth a price comparison); the listing's
+# own photos contradicting its count or size; an old address that showed another site until recently (its age vouches
+# for nothing); a price shown for another item than the title's (a variant's), whoever sells it. None makes a warning
+# by itself.
+_WORTH_A_LOOK = frozenset(
+    {"rebranded_photo", "photo_count_mismatch", "photo_size_mismatch", "domain_repurposed", "variant_bait_price"}
+)
 
 
 def build(
@@ -1254,8 +1297,9 @@ def build(
     (``brand_photo_reused``), and a page whose photo is sold under other brand names (``rebranded_photo``) is
     "concerns" at best, as is a page with a claim the claim audit found impossible (``claim_audit.impossible``: by
     physics, the price or what an authority approves; a page that merely contradicts itself is only told), unless a
-    track record or a known brand vouches for it. None makes a page "junk_or_scam" by itself: that band is the
-    scorer's alone.
+    track record or a known brand vouches for it, and as is a page whose piece count is padded with accessories or
+    doesn't add up (``claim_audit.count_off``), whoever sells it. None makes a page "junk_or_scam" by itself: that
+    band is the scorer's alone.
 
     With ``needs_reason`` (a scorer whose artifact says so, :attr:`unfret.scoring.Model.needs_reason`), "Worth a
     look" (``concerns``) also needs something to look at: a page the scorer puts there (a score from
@@ -1287,15 +1331,18 @@ def build(
     fired = _fired(evidence)
     # A page that only contradicts itself (a catalogue slip as often as padding) is told, but is no reason to keep a
     # warning the band would otherwise drop.
-    weighed = set(fired) - ({"claim_contradicted"} if evidence.f("claim_audit.impossible") < 1 else set())
+    moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
+    weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
     weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score
     if band in {"reliable", "concerns"} and "brand_photo_reused" in fired:
         band = "careful"  # a known brand's own photo sold as another brand's: a false statement about the product
-    if band == "reliable" and _worth_a_look(evidence, set(fired)):
-        band = "concerns"
+    if band == "reliable" and _WORTH_A_LOOK & set(fired):
+        band = "concerns"  # each a thing to look at before buying, not a warning by itself (see _WORTH_A_LOOK)
+    if band == "reliable" and _claims_off(evidence):
+        band = "concerns"  # worth a look, not a warning
     if band == "reliable" and set(fired) == {"implausible_claims"} and _vouched_shop(evidence):
         # The one note on a page the scorer calls fine, from the content read's impression of a manufacturer's
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.

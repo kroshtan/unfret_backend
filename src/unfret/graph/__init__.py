@@ -30,6 +30,7 @@ from unfret.graph.skills.claims import ClaimsSkill
 from unfret.graph.skills.content import ContentSkill
 from unfret.graph.skills.dark_patterns import DarkPatternsSkill
 from unfret.graph.skills.domain_age import DomainAgeSkill
+from unfret.graph.skills.domain_history import DomainHistorySkill
 from unfret.graph.skills.doorway_pages import DoorwayPagesSkill
 from unfret.graph.skills.duplicate_ads import DuplicateAdsSkill
 from unfret.graph.skills.eu_registry import EuRegistrySkill
@@ -95,6 +96,8 @@ SKILLS: list[Skill] = [
     TestimonialsSkill(),
     PlatformProfileSkill(),
     ReverseImageSkill(),
+    # The shop's earlier copies in the Internet Archive: planned by the triage on an old address that looks doubtful.
+    DomainHistorySkill(),
     # Peer-to-peer ads
     SellerProfileSkill(),
     OffPlatformSkill(),

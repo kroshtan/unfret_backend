@@ -130,6 +130,8 @@ def _params() -> dict[str, str]:
         "place": "China",
         "sites": "aliexpress.com",
         "shops": "shops",
+        "month": "March 2026",
+        "what": "a parked page, with the address for sale",
         "names": "a.shop, b.shop",
         "low": "€19.95",
         "was": "€79.95",

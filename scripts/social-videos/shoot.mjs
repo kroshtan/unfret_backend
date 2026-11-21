@@ -52,6 +52,13 @@ async function shootPage() {
       if (await button.count()) await button.click({ timeout: 5000 }).catch(() => {});
     }
     await page.waitForTimeout(1500);
+    // Down the page and back, as a reader scrolls: lazy images load and text that fades in on scroll shows.
+    for (let y = 0; y <= video.page.height; y += 300) {
+      await page.evaluate((top) => window.scrollTo(0, top), y);
+      await page.waitForTimeout(250);
+    }
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(1000);
     const boxes = await page.evaluate(prepare, video.page);
     await page.waitForTimeout(500);
     await page.screenshot({

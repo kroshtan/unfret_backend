@@ -228,10 +228,156 @@ const VIDEO_LIST = [
       },
     },
   },
+  // Real pages (addresses in pages.json): each video one trick, on a page where Unfret's deep check on dev shows it on
+  // the card today.
+  {
+    name: "f-was-price",
+    // A Czech fashion shop's two-piece set: 1.149 Kč against a "was" price of 5.745 Kč, "80% SLEVA".
+    expect: "80% off: discounts this deep",
+    page: {
+      locale: "cs-CZ",
+      height: 1300,
+      blur: ["figure.logo__img"],
+      marks: {
+        was: { selector: "s.product__price--strike", text: "5.745,00" },
+        now: { selector: "span.product__price--sale", text: "1.149,00" },
+      },
+    },
+    popup: { finding: "80% off: discounts this deep" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 520, zoom: 1 },
+        { t: 4.6, left: 0, top: 520, zoom: 1 },
+        { t: 5.8, left: 4, top: 700, zoom: 1.45 },
+        { t: 13.2, left: 4, top: 700, zoom: 1.45 },
+      ],
+      strokes: [
+        { mark: "was", kind: "circle", at: 7.4, draw: 0.6 },
+        { mark: "now", kind: "underline", at: 9.4, draw: 0.5 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A two-piece set, 80% off." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Look at the “was” price." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Ever 5.745 Kč?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Or just a big number?", tone: "caution" },
+        { from: 11.1, to: 13.2, y: 420, size: 54, text: "A big “was” makes any price look cheap.", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "80% off a price nobody paid", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1468], lens: [720, 1250] } }),
+    },
+  },
+  {
+    name: "j-since-1989",
+    // A Dutch bag shop that says "sinds 1989" (since 1989); its web address is months old.
+    expect: "but its web address has existed for only",
+    page: {
+      locale: "nl-NL",
+      height: 1500,
+      blur: ["figure.logo__img"],
+      marks: {
+        since: { selector: "body", text: "1989" },
+      },
+    },
+    popup: { finding: "but its web address has existed for only" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 700, zoom: 1 },
+        { t: 4.6, left: 0, top: 700, zoom: 1 },
+        { t: 5.8, left: 8, top: 950, zoom: 1.5 },
+        { t: 13.2, left: 8, top: 950, zoom: 1.5 },
+      ],
+      strokes: [
+        { mark: "since", kind: "circle", at: 7.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A family shop, it says." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Read the small print." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Since 1989?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "How old is the website?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Its web address is 7 months old", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1468], lens: [720, 1250] } }),
+    },
+  },
+  {
+    name: "g-imported-reviews",
+    // A Czech shop's memory journal with 1,035 star ratings, shown by Loox, a review app that imports reviews from
+    // AliExpress.
+    expect: "copies reviews from other sites",
+    page: {
+      locale: "cs-CZ",
+      height: 1400,
+      hide: ["div.sticky-add-to-cart__bar"],
+      blur: ["img.header-logo__image"],
+      marks: {
+        stars: { selector: "span.loox-rating-label", text: "(1,035)" },
+      },
+    },
+    popup: { finding: "copies reviews from other sites" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 420, zoom: 1 },
+        { t: 4.6, left: 0, top: 420, zoom: 1 },
+        { t: 5.8, left: 8, top: 700, zoom: 1.6 },
+        { t: 13.2, left: 8, top: 700, zoom: 1.6 },
+      ],
+      strokes: [
+        { mark: "stars", kind: "circle", at: 7.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A journal for your mum." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "1,035 five-star ratings." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Who wrote them?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Buyers of this journal?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Reviews copied in by an app", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
   // The test shop (/test-shop on dev, "every trick here is copied from real listings, names removed"): one real deep
   // check of its product page (capture.mjs) is the result in each of these videos; each shows a different finding.
+  // Kept for the record (their videos are in media/videos/test-shop); the published set is on real pages.
   {
-    name: "b-countdown",
+    name: "ts-b-countdown",
     url: TEST_SHOP,
     expect: "This countdown restarts when you reload the page",
     page: {
@@ -279,7 +425,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "f-was-price",
+    name: "ts-f-was-price",
     url: TEST_SHOP,
     expect: "79% off: discounts this deep",
     page: {
@@ -328,7 +474,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "g-imported-reviews",
+    name: "ts-g-imported-reviews",
     url: TEST_SHOP,
     expect: "Loox (reviews with AliExpress import)",
     page: {
@@ -379,7 +525,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "h-same-photo",
+    name: "ts-h-same-photo",
     url: TEST_SHOP,
     expect: "sold elsewhere for $17.99",
     page: {
@@ -436,7 +582,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "i-preticked-extra",
+    name: "ts-i-preticked-extra",
     url: TEST_SHOP,
     expect: "A paid extra is ticked for you in advance",
     page: {

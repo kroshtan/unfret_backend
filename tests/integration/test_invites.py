@@ -24,7 +24,7 @@ from unfret.migrations import MIGRATIONS, migrate
 from unfret.prices import PriceBook
 
 INVITE = 5 * settings.analysis_price_usd_micros  # 5 checks: $1.00
-GROSS_NL = {25: 6_050_000, 50: 12_100_000, 100: 24_200_000}  # the packs with Dutch VAT, in lamports at $1,000/SOL
+PRICE = {25: 5_000_000, 50: 10_000_000, 100: 20_000_000}  # the packs, VAT included, in lamports at $1,000/SOL
 
 
 async def quote_with_claim(pool: asyncpg.Pool, checks: int, *, claim: bool = True) -> tuple[vat.Quote, str]:
@@ -54,7 +54,7 @@ async def an_invite(pool: asyncpg.Pool, buyer: str | None = None) -> str:
     """One issued invite code, as a buyer would hand it on."""
     async with pool.acquire() as conn, conn.transaction():
         quote, _ = await quote_with_claim(pool, 25)
-        assert await invites.issue_for_quote(conn, settings, quote.id, quote.net_usd_micros, buyer=buyer) == 1
+        assert await invites.issue_for_quote(conn, settings, quote.id, quote.gross_usd_micros, buyer=buyer) == 1
         codes = await conn.fetchval("SELECT invite_codes FROM vat_quotes WHERE id = $1", quote.id)
     return str(codes[0])
 
@@ -73,7 +73,7 @@ async def test_a_crypto_pack_comes_with_its_invites_shown_once(
 ) -> None:
     rpc, scan = await scanner(pool)
     quote, claim = await quote_with_claim(pool, checks)
-    rpc.add("buy", with_memos(transfer("anna", str(HOT.pubkey()), GROSS_NL[checks]), quote.memo))
+    rpc.add("buy", with_memos(transfer("anna", str(HOT.pubkey()), PRICE[checks]), quote.memo))
     assert await collect(client, quote.id, claim) == {"paid": False, "checks": checks, "invites": []}
 
     assert await scan.scan_once() == 1
@@ -102,11 +102,11 @@ async def test_no_invites_without_a_claim_for_a_short_payment_or_a_second_one(
     unclaimable, _ = await quote_with_claim(pool, 25, claim=False)  # an older client's quote: nobody could collect
     short, short_claim = await quote_with_claim(pool, 25)
     twice, twice_claim = await quote_with_claim(pool, 25)
-    rpc.add("old", with_memos(transfer("anna", hot, GROSS_NL[25]), unclaimable.memo))
-    rpc.add("short", with_memos(transfer("bill", hot, GROSS_NL[25] // 2), short.memo))  # half the pack
-    rpc.add("one", with_memos(transfer("cleo", hot, GROSS_NL[25]), twice.memo))
-    rpc.add("two", with_memos(transfer("cleo", hot, GROSS_NL[25]), twice.memo))  # the same quote paid again
-    rpc.add("hand", transfer("dirk", hot, GROSS_NL[25]))  # by hand, no quote
+    rpc.add("old", with_memos(transfer("anna", hot, PRICE[25]), unclaimable.memo))
+    rpc.add("short", with_memos(transfer("bill", hot, PRICE[25] // 2), short.memo))  # half the pack
+    rpc.add("one", with_memos(transfer("cleo", hot, PRICE[25]), twice.memo))
+    rpc.add("two", with_memos(transfer("cleo", hot, PRICE[25]), twice.memo))  # the same quote paid again
+    rpc.add("hand", transfer("dirk", hot, PRICE[25]))  # by hand, no quote
 
     assert await scan.scan_once() == 5
     assert (await collect(client, short.id, short_claim))["invites"] == []
@@ -144,7 +144,7 @@ async def shop(client: httpx.AsyncClient, pool: asyncpg.Pool) -> ChainRpc:
 async def test_two_reads_at_once_get_the_codes_once(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     rpc, scan = await scanner(pool)
     quote, claim = await quote_with_claim(pool, 100)
-    rpc.add("buy", with_memos(transfer("anna", str(HOT.pubkey()), GROSS_NL[100]), quote.memo))
+    rpc.add("buy", with_memos(transfer("anna", str(HOT.pubkey()), PRICE[100]), quote.memo))
     await scan.scan_once()
 
     results = await asyncio.gather(*(invites.take_from_quote(pool, quote.id, claim) for _ in range(5)))

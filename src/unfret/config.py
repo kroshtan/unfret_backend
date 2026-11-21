@@ -216,10 +216,10 @@ class Settings(BaseSettings):
     # SOL (wSOL) is converted at quote and payment time from Pyth's SOL/USD price, read on chain through our RPC, and
     # refused while that price is stale or uncertain.
     price_per_check_usd: Decimal = Field(default=Decimal("0.20"), gt=0, decimal_places=6)
-    # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (plus VAT where it
-    # applies); by card (the Merchant of Record) it costs its card_prices_usd price, or (a pack not named there) that
-    # plus the card costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps
-    # its checks and the gift codes it got.
+    # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (VAT included); by card
+    # (the Merchant of Record) it costs its card_prices_usd price, or (a pack not named there) that plus the card
+    # costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps its checks and
+    # the gift codes it got.
     packs: list[int] = [25, 100]
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)

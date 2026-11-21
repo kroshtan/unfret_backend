@@ -834,9 +834,9 @@
   "and": "and",
   "pricing": {
     "pack": "{checks} checks — {price}",
-    "crypto": "pay with crypto: {crypto} + VAT where applicable",
+    "crypto": "pay with crypto: {crypto}, VAT included",
     "card_tax": "plus sales tax/VAT where applicable, added at checkout",
-    "vat_line": "{net} + {rate}% VAT ({vat}) = {total}",
+    "vat_line": "{total}, including {rate}% VAT ({vat})",
     "no_vat_line": "{total} (no VAT outside the EU)",
     "invite_one": "with 1 gift code for a friend ({checks} checks)",
     "invite_many": "with {count} gift codes for friends ({checks} checks each)"

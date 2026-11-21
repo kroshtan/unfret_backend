@@ -30,8 +30,8 @@ SOL_BOOK = PriceBook(settings, StaticOracle("1000"))
 
 
 def net(received: int) -> int:
-    """What a transfer without a quote credits: a sale to an unknown country, Dutch VAT (21%) taken out."""
-    return received * 10_000 // 12_100
+    """What a transfer without a quote credits: all of it (prices include VAT; the Dutch VAT is recorded out of it)."""
+    return received
 
 
 def transfer(source: str, destination: str, lamports: int, *, inner: bool = False) -> dict[str, Any]:
@@ -226,7 +226,7 @@ async def shop(client: httpx.AsyncClient, pool: asyncpg.Pool) -> ChainRpc:
     return rpc
 
 
-async def test_purchase_transaction_pays_the_pack_plus_vat(
+async def test_purchase_transaction_pays_the_pack_vat_included(
     client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool
 ) -> None:
     buyer = Keypair()
@@ -239,12 +239,12 @@ async def test_purchase_transaction_pays_the_pack_plus_vat(
     assert reply["price"] == {
         "country": "DE",
         "vat_rate_pct": "21",  # under the threshold every EU buyer pays the Dutch rate
-        "net_usd_micros": 5_000_000,
-        "vat_usd_micros": 1_050_000,
-        "total_usd_micros": 6_050_000,
-        "total_usd": "$6.05",
+        "net_usd_micros": 4_132_231,  # $5.00 less the 21% VAT in it
+        "vat_usd_micros": 867_769,
+        "total_usd_micros": 5_000_000,  # the pack's crypto price, the same for every country
+        "total_usd": "$5.00",
     }
-    assert reply["amount"] == 60_500_000  # $6.05 at $100/SOL
+    assert reply["amount"] == 50_000_000  # $5.00 at $100/SOL
     quote = await pool.fetchrow("SELECT * FROM vat_quotes")
     assert (quote["country"], quote["checks"], quote["beneficiary"]) == ("DE", 25, None)
     memo = f"unfret:quote:{quote['id']}"
@@ -315,7 +315,7 @@ async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc, pool: as
     response = await client.get("/v1/credits/solana-pay.svg", params={"checks": 25, "country": "NL"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
-    assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$6.05", "21")
+    assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$5.00", "21")
     assert response.text.startswith("<svg")
     quote_id = await pool.fetchval("SELECT id FROM vat_quotes")
     assert response.headers["x-unfret-quote"] == quote_id  # the page reads it (same origin) to poll the quote
@@ -506,31 +506,31 @@ async def quoted(pool: asyncpg.Pool, country: str, *, beneficiary: str | None = 
     return quote.memo
 
 
-async def test_a_quoted_purchase_credits_the_net_and_records_the_sale(pool: asyncpg.Pool) -> None:
+async def test_a_quoted_purchase_credits_the_price_and_records_the_vat_in_it(pool: asyncpg.Pool) -> None:
     rpc = ChainRpc()
     scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     hot, member = str(HOT.pubkey()), str(Keypair().pubkey())
-    rpc.add("nl", with_memos(transfer("anna", hot, 6_050_000), await quoted(pool, "NL")))  # $6.05 = $5 + 21%
+    rpc.add("nl", with_memos(transfer("anna", hot, 5_000_000), await quoted(pool, "NL")))  # $5, VAT included
     rpc.add("us", with_memos(transfer("bill", hot, 5_000_000), await quoted(pool, "US")))
-    rpc.add("for", with_memos(transfer("vault", hot, 6_050_000), await quoted(pool, "DE", beneficiary=member)))
-    rpc.add("odd", with_memos(transfer("cleo", hot, 6_050_000), await quoted(pool, "BE", edge="NL")))
-    rpc.add("hand", transfer("dirk", hot, 6_050_000))  # sent by hand, without a quote
+    rpc.add("for", with_memos(transfer("vault", hot, 5_000_000), await quoted(pool, "DE", beneficiary=member)))
+    rpc.add("odd", with_memos(transfer("cleo", hot, 5_000_000), await quoted(pool, "BE", edge="NL")))
+    rpc.add("hand", transfer("dirk", hot, 5_000_000))  # sent by hand, without a quote
 
     assert await scanner.scan_once() == 5
     assert await balance(pool, "anna") == 5_000_000  # 25 checks
     assert await balance(pool, "bill") == 5_000_000
     assert await balance(pool, member) == 5_000_000 and await balance(pool, "vault") is None
-    assert await balance(pool, "dirk") == 5_000_000  # unknown country: the Dutch rate, conservatively
+    assert await balance(pool, "dirk") == 5_000_000  # all of it; recorded at the Dutch rate, conservatively
     rows = await pool.fetch("SELECT * FROM crypto_sales ORDER BY id")
     assert [(r["country"], r["country_mismatch"], r["vat_rate_bps"], r["vat_usd_micros"]) for r in rows] == [
-        ("NL", False, 2100, 1_050_000),
+        ("NL", False, 2100, 867_769),  # the VAT worked out of $5: $4.132231 net
         ("US", False, 0, 0),
-        ("DE", False, 2100, 1_050_000),
-        ("BE", True, 2100, 1_050_000),
-        ("unknown", False, 2100, 1_050_000),
+        ("DE", False, 2100, 867_769),
+        ("BE", True, 2100, 867_769),
+        ("unknown", False, 2100, 867_769),
     ]
-    assert [(r["signature"], r["asset"], r["amount"]) for r in rows][0] == ("nl", "SOL", 6_050_000)
+    assert [(r["signature"], r["asset"], r["amount"]) for r in rows][0] == ("nl", "SOL", 5_000_000)
     # Nothing that identifies a person: no IP, no wallet column (the transaction on chain shows who paid).
     columns = {
         r["column_name"]
@@ -548,7 +548,7 @@ async def test_the_scanner_marks_only_the_credited_quote_paid_once(pool: asyncpg
     hot = str(HOT.pubkey())
     paid, unpaid, dust = [await quoted(pool, "NL") for _ in range(3)]
     paid_id = paid.removeprefix(vat.QUOTE_MEMO_PREFIX)
-    rpc.add("first", with_memos(transfer("anna", hot, 6_050_000), paid))
+    rpc.add("first", with_memos(transfer("anna", hot, 5_000_000), paid))
     rpc.add("zero", with_memos(transfer("bill", hot, 0), dust))  # credits nothing: not paid
     assert await scanner.scan_once() == 1
     rows = {r["id"]: r["paid_at"] for r in await pool.fetch("SELECT id, paid_at FROM vat_quotes")}
@@ -556,7 +556,7 @@ async def test_the_scanner_marks_only_the_credited_quote_paid_once(pool: asyncpg
     assert first is not None and set(rows.values()) == {None}
     assert unpaid.removeprefix(vat.QUOTE_MEMO_PREFIX) in rows
 
-    rpc.add("again", with_memos(transfer("anna", hot, 6_050_000), paid))  # paying the same quote twice
+    rpc.add("again", with_memos(transfer("anna", hot, 5_000_000), paid))  # paying the same quote twice
     assert await scanner.scan_once() == 1
     assert await scanner.scan_once() == 0
     assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", paid_id) == first  # set once
@@ -586,10 +586,10 @@ async def test_a_reference_without_the_memo_credits_the_quotes_key(pool: asyncpg
     quote, account = await key_quote(pool)
     hot = str(HOT.pubkey())
     assert quote.reference is not None
-    rpc.add("phantom", with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference))
+    rpc.add("phantom", with_accounts(transfer("payer", hot, 5_000_000), "payer", hot, quote.reference))
 
     assert await scanner.scan_once() == 1
-    assert await balance(pool, account) == 5_000_000  # 25 checks, VAT taken out at the quote's rate
+    assert await balance(pool, account) == 5_000_000  # 25 checks: the price, VAT included
     assert await balance(pool, "payer") is None
     assert await balance(pool, quote.reference) is None  # the reference is never credited
     assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", quote.id) is not None
@@ -603,7 +603,7 @@ async def test_a_reference_and_the_memo_credit_once(pool: asyncpg.Pool) -> None:
     quote, account = await key_quote(pool)
     hot = str(HOT.pubkey())
     assert quote.reference is not None
-    both = with_memos(with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference), quote.memo)
+    both = with_memos(with_accounts(transfer("payer", hot, 5_000_000), "payer", hot, quote.reference), quote.memo)
     rpc.add("both", both)
 
     assert await scanner.scan_once() == 1
@@ -619,13 +619,13 @@ async def test_an_unknown_reference_falls_back_to_the_memo_then_the_sender(pool:
     await scanner.initialise()
     quote, account = await key_quote(pool)
     hot, stranger = str(HOT.pubkey()), str(Keypair().pubkey())
-    rpc.add("memo", with_memos(with_accounts(transfer("anna", hot, 6_050_000), "anna", hot, stranger), quote.memo))
-    rpc.add("bare", with_accounts(transfer("bill", hot, 6_050_000), "bill", hot, stranger))
+    rpc.add("memo", with_memos(with_accounts(transfer("anna", hot, 5_000_000), "anna", hot, stranger), quote.memo))
+    rpc.add("bare", with_accounts(transfer("bill", hot, 5_000_000), "bill", hot, stranger))
 
     assert await scanner.scan_once() == 2
     assert await balance(pool, account) == 5_000_000  # the memo's quote
     assert await balance(pool, "anna") is None
-    assert await balance(pool, "bill") == net(6_050_000)  # no quote at all: the sender, as before
+    assert await balance(pool, "bill") == net(5_000_000)  # no quote at all: the sender, as before
     assert await balance(pool, stranger) is None
 
 
@@ -673,7 +673,9 @@ async def test_per_country_mode_charges_each_eu_countrys_own_rate(
     monkeypatch.setattr(settings, "vat_mode", "per_country")
     body = {"address": str(Keypair().pubkey()), "checks": 25, "country": "HU", "currency": "USDC"}
     reply = (await client.post("/v1/credits/purchase-tx", json=body)).json()
-    assert (reply["price"]["vat_rate_pct"], reply["amount"]) == ("27", 6_350_000)
+    # The price stays $5.00 (VAT included); only the VAT in it follows the rate.
+    assert (reply["price"]["vat_rate_pct"], reply["amount"]) == ("27", 5_000_000)
+    assert (reply["price"]["net_usd_micros"], reply["price"]["vat_usd_micros"]) == (3_937_007, 1_062_993)
     assert (await client.get("/v1/pricing")).json()["vat"]["eu_rates_pct"]["FI"] == "25.5"
 
 

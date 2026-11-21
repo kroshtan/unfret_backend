@@ -690,13 +690,14 @@ $("beneficiary").addEventListener("change", (event) => {
   refreshTarget();
 });
 
-// The VAT this page expects for the chosen country (the server's quote is what counts): EU countries per
-// /v1/pricing's vat.eu_rates_pct, others none.
+// The VAT this page expects in the crypto price for the chosen country (the server's quote is what counts): EU
+// countries per /v1/pricing's vat.eu_rates_pct, others none. The price includes it: the VAT is worked out of the
+// price (net rounded down, as the server does), never added on top.
 function vatFor(country) {
   const pct = Number(pricing.vat.eu_rates_pct[country] ?? 0);
-  const net = pack.crypto_usd_micros;
-  const vat = Math.floor((net * pct * 100 + 5000) / 10000);
-  return { pct, net, vat, total: net + vat };
+  const total = pack.crypto_usd_micros;
+  const net = Math.floor((total * 10000) / (10000 + Math.round(pct * 100)));
+  return { pct, net, vat: total - net, total };
 }
 
 // The amount to pay in the chosen currency's base units for a dollar value: USDC exactly, SOL at the live quote
@@ -713,18 +714,16 @@ function formatPay(amount) {
 function describe() {
   if (!pricing || !pack || watch || !cryptoAvailable()) return; // while a purchase is under way, it describes that one
   if (!countryField.value) {
-    // The price before VAT, so nobody has to pick a country to see what it costs; the VAT follows the country.
-    const net = pack.crypto_usd_micros;
-    const sol = currency === "SOL" ? ` (≈ ${formatPay(payAmount(net))})` : "";
-    summary.textContent =
-      `${checksWord(pack.checks)} with ${currency}: ${formatUsd(net)}${sol} plus VAT in the EU. ` +
-      "Choose your country to see the total.";
+    // The price is the same for every country (VAT included); the country only decides how much of it is VAT.
+    const total = pack.crypto_usd_micros;
+    const sol = currency === "SOL" ? ` (≈ ${formatPay(payAmount(total))})` : "";
+    summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${formatUsd(total)}${sol}, VAT included.`;
     return;
   }
-  const { pct, net, vat, total } = vatFor(countryField.value);
+  const { pct, vat, total } = vatFor(countryField.value);
   const sol = currency === "SOL" ? ` ≈ ${formatPay(payAmount(total))}` : "";
   const price = pct
-    ? `${formatUsd(net)} + ${pct}% VAT (${formatUsd(vat)}) = ${formatUsd(total)}`
+    ? `${formatUsd(total)}, including ${pct}% VAT (${formatUsd(vat)})`
     : `${formatUsd(total)} (no VAT outside the EU)`;
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
@@ -772,7 +771,7 @@ function renderPacks() {
       const price = element("span", cardPrice(option), "price card-only");
       price.dataset.checks = String(option.checks);
       const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
-      const crypto = element("span", "+ VAT where it applies", "muted crypto crypto-only");
+      const crypto = element("span", "VAT included", "muted crypto crypto-only");
       // Spaces between the parts (a grid ignores them), so read as text the words don't run together.
       label.append(input, name, " ", price, " ", cryptoPrice, " ", crypto);
       if (option.invites?.count) label.append(" ", element("span", inviteOffer(option.invites), "muted gift"));

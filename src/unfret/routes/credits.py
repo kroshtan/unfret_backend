@@ -1,7 +1,7 @@
 """
 Prices, balances and buying credits.
 
-``/v1/pricing``, ``/v1/credits``, ``/v1/credits/purchase-tx`` (a pack with SOL or USDC, VAT where it applies), and
+``/v1/pricing``, ``/v1/credits``, ``/v1/credits/purchase-tx`` (a pack with SOL or USDC, VAT included), and
 card top-ups for API keys (``/v1/credits/fiat-checkout`` and the provider's webhook, off until a provider is wired
 in).
 """
@@ -130,9 +130,11 @@ class VatBreakdown(BaseModel):
 
     country: str
     vat_rate_pct: str
-    net_usd_micros: int = Field(description="The pack's price, credited to the account.")
-    vat_usd_micros: int
-    total_usd_micros: int = Field(description="What is charged: net plus VAT.")
+    net_usd_micros: int = Field(description="The price less its VAT (the VAT is worked out of the price).")
+    vat_usd_micros: int = Field(description="The VAT included in the price (zero outside the EU).")
+    total_usd_micros: int = Field(
+        description="What is charged, VAT included: the pack's crypto price, all of it credited to the account."
+    )
     total_usd: str
 
 
@@ -365,9 +367,10 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
     """
     Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.
 
-    The pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the
-    transaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15–30 seconds):
-    what arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.
+    The pack costs its crypto price, VAT included: the buyer's country (see ``vat`` in ``/v1/pricing``) only decides
+    how much of it is VAT. The transaction's memo names the stored quote. Credits arrive once the transfer is finalized
+    (about 15–30 seconds): everything that arrived, credited to the paying wallet unless ``beneficiary`` or ``key_id``
+    says otherwise.
     No sign-in needed: anyone may fund any wallet or API key.
 
     :param body: Which pack, for whom, paid how, from where.

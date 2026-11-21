@@ -4,6 +4,16 @@
 
 ### Prices
 
+* **Crypto prices include VAT: $5 and $20 for everyone.** An EU buyer paying with SOL or USDC now pays the pack's
+  crypto price as shown, VAT included, instead of the price plus VAT ($6.05 / $24.20 at the Dutch 21%), and is
+  credited all of it (25 or 100 checks, as before). The VAT is worked out of the price at the buyer's rate
+  (`net = price / (1 + rate)`, as manual transfers already were) and recorded in the sales records as before; affiliate
+  commission still counts from the net. With the euro card prices VAT-inclusive too, crypto is again never dearer
+  than card (€20 by card against $20 with crypto, while a euro is worth at least a dollar), and "never more than by
+  card" on `/checkout` is true again. `/checkout` shows "$5.00, including 21% VAT ($0.87)"; the packs' labels, `/money`,
+  the home page and the developer pages say "VAT included". A quote made before the change still credits what was
+  paid.
+
 * **Euro card prices include VAT: €6.00 and €20.00.** Buyers in the euro area now pay exactly the price shown for 25
   and 100 checks, the same in every euro country, instead of €5.50 / €17.50 plus their country's VAT (€6.66 / €21.18
   in the Netherlands). The packs and their credits are unchanged (25 and 100 checks), and so are the dollar prices

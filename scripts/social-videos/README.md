@@ -33,9 +33,11 @@ node render.mjs c-piece-count --mascot            # the same with the animated m
   and nods per beat; `dark: true` switches to the dark-background colours. Keep it in free space, clear of the
   captions, the marker strokes and the marked finding, and use it in a few deliberate moments, not every shot.
   `node mascot.mjs out.svg [dark]` writes pose C as a still.
-- **The test shop videos** (`b-`, `f-`, `g-`, `h-`, `i-`) show `/test-shop` on dev, one trick each; the page is the
-  same, so one deep check of it (`node capture.mjs b-countdown`, then copy `out/results/b-countdown.json` to the
-  others) gives each its result. A mark can be a whole element (no `text`); with `style: true` its font and
-  background are kept, so `script.clocks` can run a live countdown in its place, and `script.reloads` flash the page
-  as it reloads (the clock starts over). `popup.expand` opens the popup's "Show details" when the finding is a signal
-  listed there.
+- **Real pages, one trick each** (`c-`, `f-`, `g-`, `j-`): each page is one where Unfret's deep check on dev shows
+  the finding on the card today; `capture.mjs` goes on past a page it can't check. `shoot.mjs` scrolls down the page
+  and back before the still, so lazy images and text that fades in on scroll are there. A mark can be a whole element
+  (no `text`); with `style: true` its font and background are kept, so `script.clocks` can run a live countdown in
+  its place, and `script.reloads` flash the page as it reloads. `popup.expand` opens the popup's "Show details" when
+  the finding is a signal listed there.
+- **The test shop videos** (`ts-…`, in `media/videos/test-shop`) show `/test-shop` on dev, one trick each, all from
+  one deep check of that page; kept for the record.

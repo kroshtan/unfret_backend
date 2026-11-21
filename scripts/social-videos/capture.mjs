@@ -68,7 +68,15 @@ try {
     // A click on "Check this page", as a user would.
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${id}/popup/popup.html?tab=${String(tabId)}`);
-    await popup.waitForSelector("#analyse:not([disabled])", { timeout: 30_000 });
+    // A page Unfret can't check (gone, or not a shop page) leaves the button off: say so and go on to the next.
+    const ready = await popup.waitForSelector("#analyse:not([disabled])", { timeout: 30_000 }).catch(() => null);
+    if (!ready) {
+      console.error(`${video.name}: the popup offers no check for this page`);
+      process.exitCode = 1;
+      await popup.close();
+      await tab.close();
+      continue;
+    }
     await popup.click("#analyse");
     const state = await waitForResult(worker, tabId);
     await popup.close();

@@ -274,11 +274,11 @@ def provider() -> polar.PolarProvider:
 def test_the_made_up_orders_are_read_by_the_real_polar_provider() -> None:
     now = int(time.time())
     body, headers = signed_webhook(
-        SECRET, "order.paid", polar_order("e2e-1", "key:abcdefghij", PRODUCT, 600), timestamp=now
+        SECRET, "order.paid", polar_order("e2e-1", "key:abcdefghij", PRODUCT, 650), timestamp=now
     )
     paid = provider().parse_webhook(headers, body, now)
     assert paid is not None
-    assert (paid.kind, paid.order_id, paid.account, paid.amount_cents) == ("paid", "e2e-1", "key:abcdefghij", 600)
+    assert (paid.kind, paid.order_id, paid.account, paid.amount_cents) == ("paid", "e2e-1", "key:abcdefghij", 650)
 
     refund = polar_order("e2e-1", "key:abcdefghij", PRODUCT, 600, refunded_cents=600)
     body, headers = signed_webhook(SECRET, "order.refunded", refund, timestamp=now)

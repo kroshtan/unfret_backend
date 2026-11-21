@@ -32,9 +32,20 @@ def settings(**overrides: Any) -> Settings:
         "polar_access_token": SecretStr("polar_oat_test"),
         "polar_products": ",".join(f"{size}={product}" for size, product in PRODUCTS.items()),
         "fiat_webhook_secret": SecretStr(SECRET),
+        # The mechanics below are tested at fixed prices (dollars before tax, euros with VAT, an exclusive org
+        # default); the shipped defaults (all tax-inclusive) have their own tests at the end.
+        **OLD_SETUP,
         **overrides,
     }
     return Settings(_env_file=None, **values)  # type: ignore[call-arg]
+
+
+OLD_SETUP: dict[str, Any] = {
+    "card_prices_usd": "25=6.00,100=20.00",
+    "card_prices_eur": "25=6.00,100=20.00",
+    "card_prices_usd_tax_inclusive": False,
+    "polar_org_tax_inclusive": False,
+}
 
 
 def provider(transport: httpx.MockTransport | None = None, **overrides: Any) -> PolarProvider:
@@ -568,3 +579,77 @@ async def test_euro_prices_before_vat_need_a_price_polar_adds_vat_to() -> None:
     chosen = pack(settings(card_prices_eur_tax_inclusive=False), 25)
     assert chosen is not None and not chosen.tax_inclusive("eur")
     assert (await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")).checkout_id == CHECKOUT_ID
+
+
+# ── The shipped defaults: every card price includes tax, Polar's organisation default is inclusive ──────────────
+def shipped(transport: httpx.MockTransport | None = None) -> PolarProvider:
+    built = polar.from_settings(
+        Settings(
+            _env_file=None,  # type: ignore[call-arg]
+            polar_access_token=SecretStr("polar_oat_test"),
+            polar_products=",".join(f"{size}={product}" for size, product in PRODUCTS.items()),
+            fiat_webhook_secret=SecretStr(SECRET),
+        ),
+        transport=transport,
+    )
+    assert built is not None
+    return built
+
+
+def test_the_defaults_are_tax_inclusive_in_both_currencies() -> None:
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.card_usd_cents == {25: 650, 100: 2100} and s.card_eur_cents == {25: 650, 100: 2100}
+    assert s.card_prices_usd_tax_inclusive and s.card_prices_eur_tax_inclusive and s.polar_org_tax_inclusive
+    chosen = pack(s, 25)
+    assert chosen is not None and chosen.tax_inclusive("usd") and chosen.tax_inclusive("eur")
+
+
+@pytest.mark.parametrize(("currency", "cents"), [("usd", 650), ("eur", 650), ("usd", 2100), ("eur", 2100)])
+@pytest.mark.parametrize(
+    ("behaviour", "ok"), [(None, True), ("inclusive", True), ("exclusive", False), ("location", False)]
+)
+async def test_with_an_inclusive_org_default_null_counts_as_inclusive(
+    currency: str, cents: int, behaviour: str | None, ok: bool
+) -> None:
+    built = shipped(polar_api([], amount=cents, product_price={"tax_behavior": behaviour}))
+    chosen = pack(Settings(_env_file=None), 25 if cents == 650 else 100)  # type: ignore[call-arg]
+    assert chosen is not None
+    if ok:
+        checkout = await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, currency)  # type: ignore[arg-type]
+        assert checkout.checkout_id == CHECKOUT_ID
+    else:
+        with pytest.raises(FiatProviderError, match="tax behaviour"):
+            await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, currency)  # type: ignore[arg-type]
+
+
+def test_tax_behaviour_with_the_org_default() -> None:
+    assert polar.tax_behaviour_matches(True, None, org_inclusive=True)
+    assert not polar.tax_behaviour_matches(True, None, org_inclusive=False)
+    assert not polar.tax_behaviour_matches(False, None, org_inclusive=True)
+    assert polar.tax_behaviour_matches(False, None, org_inclusive=False)
+    assert not polar.tax_behaviour_matches(True, "exclusive", org_inclusive=True)
+
+
+@pytest.mark.parametrize(("net", "tax"), [(537, 113), (650, 0), (609, 41)])  # NL 21%; reverse charge; a US state
+def test_a_dollar_order_is_credited_at_its_price_with_tax_included(net: int, tax: int) -> None:
+    now = time.time()
+    data = order(subtotal_amount=650, net_amount=net, tax_amount=tax, total_amount=650)
+    body, headers = signed("order.paid", data, now)
+    event = shipped().parse_webhook(headers, body, now)
+    assert event is not None and (event.amount_cents, event.paid_price_cents) == (net, 650)
+    on_top = order(subtotal_amount=650, net_amount=650, tax_amount=137, total_amount=787)
+    body, headers = signed("order.paid", on_top, now)
+    assert shipped().parse_webhook(headers, body, now) is None  # tax added on top: not the price we show
+
+
+@pytest.mark.parametrize(("top", "ok"), [("inclusive", True), ("exclusive", False)])
+async def test_the_checkouts_own_tax_behaviour_wins(top: str, ok: bool) -> None:
+    # Polar's checkout-level tax_behavior is resolved; it decides over the price's (null: the org default).
+    built = shipped(polar_api([], amount=650, tax_behavior=top, product_price={"tax_behavior": None}))
+    chosen = pack(Settings(_env_file=None), 25)  # type: ignore[call-arg]
+    assert chosen is not None
+    if ok:
+        assert (await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "usd")).checkout_id == CHECKOUT_ID
+    else:
+        with pytest.raises(FiatProviderError, match="tax behaviour"):
+            await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "usd")

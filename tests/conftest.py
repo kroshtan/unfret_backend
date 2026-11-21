@@ -107,3 +107,9 @@ def fresh_thumbnail_state(monkeypatch: pytest.MonkeyPatch) -> None:
 def no_claim_audit_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test asks the claim audit's stronger model about a page unless it turns the audit on (with a fake model)."""
     monkeypatch.setattr(scoring.settings, "claim_audit", False)
+
+
+@pytest.fixture(autouse=True)
+def no_variant_check_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test asks the variant check's model about a page unless it turns the check on (with a fake model)."""
+    monkeypatch.setattr(scoring.settings, "variant_check", False)

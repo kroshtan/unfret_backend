@@ -28,6 +28,13 @@ these tests (text, markup and data are our own); no third-party page content, im
 | `bolcom-gallery.html` | A bol.com product page's filmstrip (`data-zoom-image-url`, a video's still, recommendations) | `tests/unit/test_facts.py` |
 | `aliexpress-gallery.html` | An AliExpress item's `imagePathList` in its page data, thumbnail copies on the page | `tests/unit/test_facts.py` |
 | `temu-gallery.html` | A Temu goods page's `gallery` in its page data | `tests/unit/test_facts.py` |
+| `amazon-de-variants-bait.html` | An Amazon.de listing whose "Größe" picker groups a phone case, a screen protector, a charging cable and a bundle (checked 2026-11-21 against amazon.nl's and amazon.de's twister; ASINs, brand and wording our own): the twister's script data with nothing selected, each swatch's price, and a price range from the cable's €6.99 | `tests/unit/test_variant_check.py` (the bait price) |
+| `amazon-com-variants-counts.html` | Amazon.com's classic twister (`#variation_size_name`, `data-defaultasin`, `data-dp-url`, swatch prices) for battery pack sizes, one selected | `tests/unit/test_variant_check.py` (plain amounts cost nothing) |
+| `shopify-variants-refill.html` | A Shopify shop's toothbrush whose "Style" options put a brush head refill first and at the price shown, with Shopify's `var meta` and `ProductJson-…` (prices in cents) and a radio picker | `tests/unit/test_variant_check.py` |
+| `woocommerce-variants-sizes.html` | A WooCommerce variable product: `data-product_variations`, the "Maat" select with a default, and an AggregateOffer price range | `tests/unit/test_variant_check.py` |
+| `generic-productgroup-colours.html` | A schema.org `ProductGroup` with `variesBy` colour and three variants, one out of stock | `tests/unit/test_variant_check.py` |
+| `walmart-variants-grouped.html` | A Walmart listing's `__NEXT_DATA__` `variantCriteria` and `variantsMap`: a patio set, a single chair and a cushion as "Size" | `tests/unit/test_variant_check.py` (grouping alone) |
+| `generic-select-picker.html` | A shop's own size select with a price at the end of each label, next to a language select in the header and a quantity select | `tests/unit/test_variant_check.py` |
 | `script-shell.html` | A single-page app's empty shell: no visible text, price or product data until scripts run | the e2e sweep (`PAGE_TOO_THIN`) |
 
 The e2e sweep (`tests/e2e`) has dev fetch these from the forge at the commit dev runs

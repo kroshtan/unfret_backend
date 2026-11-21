@@ -24,6 +24,7 @@ from unfret.facts import (
     p2p,
     service_platforms,
     testimonials,
+    variants,
     walmart,
     widgets,
 )
@@ -172,6 +173,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         walmart.extract(soup, facts)
     elif facts.platform == "shopify":
         _shopify(html, facts, url)
+    variants.extract(soup, url, facts)  # the variant picker's options, on any platform
     facts.brand = clean_brand(facts.brand)  # one brand string for every check: no byline phrase, no sentence
     if not facts.title:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")

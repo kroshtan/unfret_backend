@@ -49,6 +49,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "generic_product": "medium",
     "claim_contradicted": "medium",
     "implausible_claims": "medium",
+    "variant_bait_price": "medium",
+    "variants_grouped": "low",
     "pushy_copy": "medium",
     "big_discount": "medium",
     "was_never_charged": "high",
@@ -177,6 +179,8 @@ _GROUPS = (
     ("returns_abroad", "return_address_withheld"),
     # The claim audit's quoted contradiction says what the content read's impression of "hard to believe" says, better.
     ("claim_contradicted", "implausible_claims"),
+    # The bait price's sentence says the grouping too.
+    ("variant_bait_price", "variants_grouped"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 # A fee on top of the price ("service fee", "Bearbeitungsgebühr"): "costs revealed later". Shipping costs worked out
@@ -1077,6 +1081,16 @@ def _photo_claims(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         }
 
 
+def _variants(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Different products grouped as one listing's sizes, and a price shown for one that isn't the title's product."""
+    bait = e.first("variant_bait_price")
+    if bait and e.f("variant_check.bait_price") >= 1:
+        fired["variant_bait_price"] = {"text": bait.evidence}
+    grouped = e.first("variants_grouped")
+    if grouped and e.f("variant_check.grouped") >= 1:
+        fired["variants_grouped"] = {"text": grouped.evidence}
+
+
 def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools, hidden or visible."""
     if e.f("injection.instruction_hidden") >= 1:
@@ -1206,6 +1220,7 @@ def _fired(evidence: _Evidence) -> dict[str, dict[str, str]]:
         _payment_and_market,
         _product_facts,
         _photo_claims,
+        _variants,
         _manipulation,
     )
     for rules in rules_in_order:
@@ -1238,8 +1253,11 @@ def fired_reasons(
 
 # Reasons that make a page "Worth a look" at best: relabelled generic goods (worth a price comparison); the listing's
 # own photos contradicting its count or size; an old address that showed another site until recently (its age vouches
-# for nothing). None makes a warning by itself.
-_WORTH_A_LOOK = frozenset({"rebranded_photo", "photo_count_mismatch", "photo_size_mismatch", "domain_repurposed"})
+# for nothing); a price shown for another item than the title's (a variant's), whoever sells it. None makes a warning
+# by itself.
+_WORTH_A_LOOK = frozenset(
+    {"rebranded_photo", "photo_count_mismatch", "photo_size_mismatch", "domain_repurposed", "variant_bait_price"}
+)
 
 
 def build(
@@ -1315,6 +1333,7 @@ def build(
     # warning the band would otherwise drop.
     moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
     weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
+    weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score

@@ -2038,6 +2038,17 @@
       "title": "Url",
       "type": "string"
      },
+     "variants": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Variants"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The variant picker's options, prices and the headline price's option."
+     },
      "variations": {
       "items": {
        "type": "string"
@@ -3405,6 +3416,165 @@
      "type"
     ],
     "title": "ValidationError",
+    "type": "object"
+   },
+   "VariantDimension": {
+    "description": "One dimension of a variant picker (\"Size\", \"Farbe\", \"Stijlnaam\") and its values in the page's order.",
+    "properties": {
+     "kind": {
+      "default": "other",
+      "description": "What it varies, from its name (size, colour, \u2026).",
+      "enum": [
+       "size",
+       "colour",
+       "count",
+       "pattern",
+       "material",
+       "flavour",
+       "style",
+       "other"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "name": {
+      "default": "",
+      "description": "As the page labels it; '' when it doesn't.",
+      "maxLength": 100,
+      "title": "Name",
+      "type": "string"
+     },
+     "values": {
+      "items": {
+       "maxLength": 200,
+       "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Values",
+      "type": "array"
+     }
+    },
+    "title": "VariantDimension",
+    "type": "object"
+   },
+   "VariantOption": {
+    "description": "One option a shopper can pick: one value per dimension, and its price when the page gives it.",
+    "properties": {
+     "available": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Available"
+     },
+     "label": {
+      "default": "",
+      "description": "The option as the page names it ('Wit / 40').",
+      "maxLength": 300,
+      "title": "Label",
+      "type": "string"
+     },
+     "price": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "In the page's currency (PageFacts.currency).",
+      "title": "Price"
+     },
+     "selected": {
+      "default": false,
+      "title": "Selected",
+      "type": "boolean"
+     },
+     "values": {
+      "description": "Its value in each dimension, in the dimensions' order.",
+      "items": {
+       "maxLength": 200,
+       "type": "string"
+      },
+      "maxItems": 5,
+      "title": "Values",
+      "type": "array"
+     }
+    },
+    "title": "VariantOption",
+    "type": "object"
+   },
+   "Variants": {
+    "description": "The options a listing groups under one page (sizes, colours, styles, amounts), on any platform.\n\nOne rating and one review pool cover every option, and a \"from\" price is the cheapest option's: a listing that\ngroups different products as \"sizes\" shows them as one product.",
+    "properties": {
+     "dimensions": {
+      "items": {
+       "$ref": "#/components/schemas/VariantDimension"
+      },
+      "maxItems": 5,
+      "title": "Dimensions",
+      "type": "array"
+     },
+     "from_price": {
+      "default": false,
+      "description": "The page shows its price as a 'from' price or a range.",
+      "title": "From Price",
+      "type": "boolean"
+     },
+     "headline": {
+      "anyOf": [
+       {
+        "maximum": 99.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Index in options of the option the page's price belongs to.",
+      "title": "Headline"
+     },
+     "headline_basis": {
+      "default": "",
+      "enum": [
+       "",
+       "selected",
+       "from",
+       "price"
+      ],
+      "title": "Headline Basis",
+      "type": "string"
+     },
+     "options": {
+      "items": {
+       "$ref": "#/components/schemas/VariantOption"
+      },
+      "maxItems": 100,
+      "title": "Options",
+      "type": "array"
+     },
+     "source": {
+      "default": "picker",
+      "enum": [
+       "amazon",
+       "walmart",
+       "shopify",
+       "woocommerce",
+       "schema_org",
+       "picker"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "title": "Variants",
     "type": "object"
    },
    "VatBreakdown": {

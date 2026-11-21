@@ -17,10 +17,13 @@ from unfret.graph.skills import photo_claims
 from unfret.graph.skills.photo_claims import (
     Claims,
     CountClaim,
+    GalleryPick,
     PhotoAnswer,
     PhotoClaimsSkill,
     SizeClaim,
+    chosen,
     claims,
+    contact_sheet,
     count_mismatch,
     counts,
     masked,
@@ -202,6 +205,21 @@ class _Model:
         return {"raw": raw, "parsed": self.answers[len(self.calls) - 1], "parsing_error": None}
 
 
+class _Picker:
+    """The contact sheet's one question: which photos are worth asking about."""
+
+    def __init__(self, answer: GalleryPick | Exception | None) -> None:
+        self.answer = answer
+        self.calls: list[Any] = []
+
+    async def ainvoke(self, messages: list[Any]) -> dict[str, Any]:
+        self.calls.append(messages)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        raw = AIMessage(content="", usage_metadata={"input_tokens": 700, "output_tokens": 30, "total_tokens": 730})
+        return {"raw": raw, "parsed": self.answer, "parsing_error": None}
+
+
 @pytest.fixture
 def model(monkeypatch: pytest.MonkeyPatch) -> _Model:
     monkeypatch.setattr(settings, "photo_claims", True)
@@ -214,8 +232,12 @@ def model(monkeypatch: pytest.MonkeyPatch) -> _Model:
 
     monkeypatch.setattr(photo_claims, "_fetch", fetch)
     fake = _Model([MARKERS, answer(), answer()])
-    monkeypatch.setattr(photo_claims, "get_structured_vision_llm", lambda schema: fake)
+    picker = _Picker(GalleryPick(scale_photos=[], whole_set_photos=[]))
+    monkeypatch.setattr(
+        photo_claims, "get_structured_vision_llm", lambda schema: picker if schema is GalleryPick else fake
+    )
     fake.fetched = fetched  # type: ignore[attr-defined]
+    fake.picker = picker  # type: ignore[attr-defined]
     return fake
 
 
@@ -262,6 +284,76 @@ async def test_unreadable_photos_cost_nothing(model: _Model, monkeypatch: pytest
     monkeypatch.setattr(photo_claims, "_fetch", broken)
     out = await PhotoClaimsSkill().run(_state(PageFacts(title="52pcs marker set", image_urls=["/a.jpg"])))
     assert out["features"] == {"photo_claims.checked": 0.0} and not model.calls
+
+
+# ── Which photos: the gallery's contact sheet ────────────────────────────────
+
+
+COUNT = Claims(CountClaim("52 pcs", 52), None)
+SIZE = Claims(None, SizeClaim("30x40cm", 40.0, inches=False))
+BOTH = Claims(COUNT.count, SIZE.size)
+
+
+@pytest.mark.parametrize(
+    ("stated", "scale", "whole_set", "expected"),
+    [
+        (SIZE, [5, 7], [2], [1, 5, 7]),  # for a size: photo 1 and the photos with a reference
+        (COUNT, [5, 7], [2], [1, 2, 3]),  # for a count: the whole set laid out, then gallery order
+        (BOTH, [6, 7], [3, 4], [1, 3, 6]),  # one of each in turn
+        (SIZE, [1, 9, 7, 7], [], [1, 2, 7]),  # photo 1 once, numbers not on the sheet ignored, then gallery order
+        (SIZE, [], [], [1, 2, 3]),
+    ],
+)
+def test_photos_chosen_for_each_claim(
+    stated: Claims, scale: list[int], whole_set: list[int], expected: list[int]
+) -> None:
+    picked = GalleryPick(scale_photos=scale, whole_set_photos=whole_set)
+    assert chosen([1, 2, 3, 4, 5, 6, 7, 8], picked, stated, 3) == expected
+
+
+def test_without_a_pick_the_first_photos() -> None:
+    assert chosen([2, 4, 5, 6], None, BOTH, 3) == [2, 4, 5]
+    assert chosen([3], None, SIZE, 3) == [3]
+
+
+def test_the_contact_sheet_numbers_each_photo() -> None:
+    photos = {n: Image.open(io.BytesIO(_photo())) for n in (1, 2, 4, 5, 7)}
+    sheet = contact_sheet(photos)
+    assert sheet.size == (4 * photo_claims.SHEET_TILE, 2 * photo_claims.SHEET_TILE)
+    assert sheet.getpixel((2, 2)) == (0, 0, 0)  # the label's box
+
+
+GALLERY = [f"https://m.media-amazon.com/images/I/7{n}Gallery._AC_SL1500_.jpg" for n in range(1, 10)]
+
+
+async def test_a_size_is_asked_about_the_lifestyle_photos(model: _Model) -> None:
+    model.picker.answer = GalleryPick(scale_photos=[6, 4], whole_set_photos=[])  # type: ignore[attr-defined]
+    model.answers = [answer(), answer(), CANVAS_ON_WALL]
+    facts = PageFacts(title="Canvas print 30x40cm", image_urls=GALLERY)
+
+    out = await PhotoClaimsSkill().run(_state(facts))
+
+    # The gallery is fetched up to MAX_CANDIDATES, shown once as a sheet, and photos 1, 4 and 6 are asked about.
+    assert len(model.fetched) == photo_claims.MAX_CANDIDATES  # type: ignore[attr-defined]
+    assert len(model.picker.calls) == 1 and len(model.calls) == 3  # type: ignore[attr-defined]
+    assert "#x#cm" in model.picker.calls[0][1].content[0]["text"]  # type: ignore[attr-defined]
+    assert out["features"]["photo_claims.photos"] == 3.0
+    [finding] = out["findings"]
+    assert finding.evidence == 'Says "30x40cm"; in photo 6 it looks about 120 cm across next to the child.'
+
+
+async def test_a_failed_pick_asks_about_the_first_photos(model: _Model) -> None:
+    model.picker.answer = TimeoutError()  # type: ignore[attr-defined]
+    model.answers = [answer(), answer(), CANVAS_ON_WALL]
+    out = await PhotoClaimsSkill().run(_state(PageFacts(title="Canvas print 30x40cm", image_urls=GALLERY)))
+
+    assert len(model.calls) == 3
+    assert out["findings"][0].evidence.startswith('Says "30x40cm"; in photo 3 ')
+
+
+async def test_no_sheet_for_a_gallery_within_the_limit(model: _Model) -> None:
+    await PhotoClaimsSkill().run(_state(PageFacts(title="52pcs marker set", image_urls=GALLERY[:3])))
+    assert not model.picker.calls and len(model.calls) == 3  # type: ignore[attr-defined]
 
 
 def test_the_cost_per_check() -> None:

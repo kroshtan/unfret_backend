@@ -175,8 +175,9 @@ class Settings(BaseSettings):
     # same OpenAI-compatible provider is asked plain questions about the first few product photos (how many of the
     # main items are visible, is there a person or object for scale). Off: the skill reports nothing and costs
     # nothing. The model is Scaleway's Mistral Small 3.2 by default (it reads images; the same model as llm_model),
-    # one call per photo, each photo downscaled to photo_claims_image_px on its longest side. The prices (euros per
-    # million tokens) are only for the cost the skill logs per check.
+    # one call per photo (plus one contact sheet to choose them from a bigger gallery), each photo downscaled to
+    # photo_claims_image_px on its longest side. The prices (euros per million tokens) are only for the cost the skill
+    # logs per check.
     photo_claims: bool = True
     photo_claims_model: str = "mistral-small-3.2-24b-instruct-2506"
     photo_claims_max_images: int = Field(default=3, ge=1, le=5)

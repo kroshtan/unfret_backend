@@ -27,6 +27,8 @@ PUBLIC_BANDS: dict[shopper.Band, tuple[PublicBand, str, str]] = {
 }
 # Words a public result never uses: it states what a page showed, it doesn't call a shop names.
 FORBIDDEN_RE = re.compile(r"scam|fraud", re.IGNORECASE)
+# The only links a reason may carry: archived copies of the shop's address (domain_history).
+_ARCHIVE_PREFIX = "https://web.archive.org/web/"
 
 
 def clean_url(url: str) -> str:
@@ -77,6 +79,8 @@ def _items(kind: str, entries: list[dict[str, Any]], notes: list[str]) -> list[d
             item |= {"severity": entry.get("severity", "low"), "thumbnails": list(entry.get("thumbnails", []))}
         if source := _clean(entry.get("source")):
             item["source"] = source  # only when the result has one, so older results hash as before
+        if links := [str(u) for u in entry.get("links") or [] if str(u).startswith(_ARCHIVE_PREFIX)][:3]:
+            item["links"] = links  # likewise: only when there are any
         out.append(item)
     return out
 

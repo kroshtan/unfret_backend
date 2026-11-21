@@ -97,6 +97,7 @@ REASON_SOURCES: dict[str, str] = {
     # Registers and lookups elsewhere.
     "invalid_vat": "vies",
     "new_domain": "rdap",
+    "domain_repurposed": "archive",
     "short_registration": "rdap",
     "founded_contradicted": "rdap",
     "was_never_charged": "price_history",
@@ -203,6 +204,7 @@ AREAS: dict[str, dict[str, tuple[str, ...]]] = {
             "shop_links",
             "claims",
             "payment_methods",
+            "domain_history",
         ),
         "product": (
             "listing",
@@ -239,6 +241,7 @@ REASON_AREAS: dict[str, str] = {
             "missing_trust_info",
             "invalid_vat",
             "new_domain",
+            "domain_repurposed",
             "short_registration",
             "origin_doubt",
             "mailbox_address",
@@ -399,12 +402,20 @@ _HAD_NOTHING: dict[str, tuple[str, str]] = {
     "domain_age": ("domain_age.known", "registry_silent"),
     "reverse_image": ("reverse_image.searched", "no_photo"),
     "photo_claims": ("photo_claims.checked", "nothing"),
+    "domain_history": ("domain_history.snapshots", "no_archive"),
 }
 
 # The next step for the strongest finding (keys of the catalogue's "next_steps"); otherwise the band's.
 STEP_FOR_REASON: dict[str, str] = {
     **dict.fromkeys(
-        ("new_domain", "short_registration", "founded_contradicted", "linked_new_shops", "shared_address"),
+        (
+            "new_domain",
+            "domain_repurposed",
+            "short_registration",
+            "founded_contradicted",
+            "linked_new_shops",
+            "shared_address",
+        ),
         "shop_reviews",
     ),
     **dict.fromkeys(

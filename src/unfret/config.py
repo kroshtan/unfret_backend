@@ -130,6 +130,14 @@ class Settings(BaseSettings):
     rdap_bootstrap_url: str = "https://rdap.org/domain/"
     crtsh_url: str = "https://crt.sh/"
     vies_url: str = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
+    # The deep check's look at a shop's earlier copies in the Internet Archive (unfret.graph.skills.domain_history):
+    # only when its address is old and the page already looks doubtful. Off: the triage never plans it.
+    domain_history: bool = True
+    wayback_url: str = "https://web.archive.org"
+    # The archive blocks clients that ask too often: at most this many requests a minute per process (a look takes up
+    # to four), and none for this long after it refused a connection or said "too many requests".
+    wayback_per_minute: int = Field(default=8, ge=1)
+    wayback_pause_s: float = Field(default=900.0, ge=0)
 
     # Anonymous price observations (unfret.price_store): today's price of every analysed product page with a
     # public product ID, kept 90 days. The "was price never charged" check needs this many days of observations.

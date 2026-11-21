@@ -134,7 +134,7 @@ export function bandOf(result) {
 // checks finishes. The classifier's step names the page type; until then, and for a page type not listed, the shop's.
 export const CHECKLISTS = {
   shop: [
-    { label: "Who's behind the shop", skills: ["eu_registry", "us_identity", "domain_age"] },
+    { label: "Who's behind the shop", skills: ["eu_registry", "us_identity", "domain_age", "domain_history"] },
     { label: "The product and the brand", skills: ["listing", "content", "brand_presence"] },
     { label: "Reviews", skills: ["reviews", "review_copies"] },
     { label: "Prices, delivery and returns", skills: ["pricing", "market_price", "dark_patterns", "shop_policies"] },

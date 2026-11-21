@@ -15,8 +15,19 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, business, markup, p2p, service_platforms, testimonials, walmart
-from unfret.facts._parse import parse_date, parse_number, parse_rating
+from unfret.facts import (
+    amazon,
+    bolcom,
+    business,
+    gallery,
+    markup,
+    p2p,
+    service_platforms,
+    testimonials,
+    walmart,
+    widgets,
+)
+from unfret.facts._parse import parse_count, parse_date, parse_number, parse_rating
 from unfret.facts.brand import clean_brand
 from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
@@ -106,6 +117,8 @@ _VARIANT_PRICE_RE = re.compile(r'"price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_ID_RE = re.compile(r'"id"\s*:\s*"?(\d{6,})')
 _VARIANT_WINDOW = 1_500  # chars around a compare-at price that belong to the same variant object
 _WS_RE = re.compile(r"\s+")
+# A priceSpecification's priceType for a reference price ("https://schema.org/ListPrice", "StrikethroughPrice").
+_REFERENCE_TYPE_RE = re.compile(r"(?:ListPrice|StrikethroughPrice|MSRP|SRP)$", re.IGNORECASE)
 _SKIP_HIDDEN = {"script", "style", "noscript", "template", "head", "meta", "link", "svg", "input"}
 
 _MAX_HIDDEN_CHARS = 300
@@ -142,7 +155,9 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
     _text_signals(soup, facts)
     _policy_links(soup, url, facts)
     _images(soup, url, facts)
-    _main_photo_first(soup, url, facts, structured=_structured_data(soup, facts))
+    structured = _structured_data(soup, facts)
+    main = structured or _main_photo_first(soup, url, facts, structured=bool(structured))
+    gallery.extract(soup, url, facts, main=main)
     if facts.platform == "amazon":
         amazon.extract(soup, facts)
     elif facts.platform == "bol.com":
@@ -158,6 +173,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         facts.image_urls = [urljoin(url, image)]
     if facts.platform in PRIVATE_SELLER_PLATFORMS:
         p2p.extract(soup, facts)  # the ad and the seller's account, never their name
+    widgets.extract(soup, facts)  # reviews and a "was" price the structured data left out
     if facts.platform in P2P_PLATFORMS:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)
@@ -384,7 +400,7 @@ def _variant_offers(product: dict[str, Any]) -> object:
     return None
 
 
-def _main_photo_first(soup: BeautifulSoup, url: str, facts: PageFacts, *, structured: bool) -> None:
+def _main_photo_first(soup: BeautifulSoup, url: str, facts: PageFacts, *, structured: bool) -> list[str]:
     # The photo checks take a product page's first image as its main photo. Without one in the structured data, the
     # page's own markup comes first in document order: on most shops the header's logo, a flag or a menu's picture
     # of another product. A product page's Open Graph image is its product photo (Shopify, WooCommerce and most
@@ -392,28 +408,29 @@ def _main_photo_first(soup: BeautifulSoup, url: str, facts: PageFacts, *, struct
     # (a service company's site, whose Open Graph image is often its logo) keep their order.
     image = _meta(soup, "og:image:secure_url") or _meta(soup, "og:image")
     if structured or not image or image.startswith("data:"):
-        return
+        return []
     if _meta(soup, "og:type").strip().lower() not in {
         "product",
         "product.item",
         "product.group",
         "og:product",
     } and not any(_about_a_product(p) for p in facts.json_ld):
-        return
+        return []
     facts.image_urls = _dedupe([urljoin(url, image), *facts.image_urls])[:50]
+    return [urljoin(url, image)]
 
 
-def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> bool:
+def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> list[str]:
     """
     Read the product, its offer, rating, reviews and photos from the page's JSON-LD.
 
     :param soup: The parsed page.
     :param facts: Filled in place.
-    :return: Whether the structured data named the product's photos (they then come first in ``image_urls``).
+    :return: The product's photos the structured data named (they then come first in ``image_urls``).
     """
     products, ratings = _json_ld(soup)
     facts.json_ld = [_trim(p) for p in products[:20]]
-    photos = False
+    photos: list[str] = []
     if products:
         product = products[0]
         facts.title = facts.title or str(product.get("name") or "")[:2000]
@@ -432,9 +449,13 @@ def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> bool:
     if facts.price is None and products:
         # A ProductGroup's own price is its variants' (the page's Open Graph price, read above, is the one on show).
         _apply_offer(_variant_offers(products[0]), facts)
+    if products and facts.list_price is None and facts.price is not None:
+        facts.list_price = reference_price(products[0].get("offers"), facts.price)
+    if facts.rating is None or facts.rating_count is None:
+        _microdata_rating(soup, facts)
     if not facts.reviews:
         _microdata_reviews(soup, facts)
-    return bool(products) and photos
+    return photos if products else []
 
 
 def _apply_offer(offers: object, facts: PageFacts) -> None:
@@ -447,6 +468,37 @@ def _apply_offer(offers: object, facts: PageFacts) -> None:
     seller = offer.get("seller")
     if isinstance(seller, dict) and not facts.seller:
         facts.seller = str(seller.get("name") or "")[:300]
+
+
+def reference_price(offers: object, price: float) -> float | None:
+    """
+    The offer's reference price in its structured data, above the price on offer.
+
+    A ``priceSpecification`` whose ``priceType`` is a list or strike-through price (Google's markup for a "was" price).
+
+    :param offers: The product's ``offers``.
+    :param price: The price on offer.
+    :return: The reference price, or ``None``.
+    """
+    offer = offers[0] if isinstance(offers, list) and offers else offers
+    specs = offer.get("priceSpecification") if isinstance(offer, dict) else None
+    for spec in specs if isinstance(specs, list) else [specs]:
+        if not isinstance(spec, dict) or not _REFERENCE_TYPE_RE.search(str(spec.get("priceType") or "")):
+            continue
+        if (was := _number(spec.get("price"))) is not None and was > price:
+            return was
+    return None
+
+
+def _microdata_rating(soup: BeautifulSoup, facts: PageFacts) -> None:
+    rating = soup.find(itemprop="aggregateRating")
+    if not isinstance(rating, Tag):
+        return
+    value, count = rating.find(itemprop="ratingValue"), rating.find(itemprop=["reviewCount", "ratingCount"])
+    if facts.rating is None and isinstance(value, Tag):
+        facts.rating = parse_rating(str(value.get("content") or _text(value)))
+    if facts.rating_count is None and isinstance(count, Tag):
+        facts.rating_count = parse_count(str(count.get("content") or _text(count)))
 
 
 def _apply_rating(rating: object, facts: PageFacts) -> None:
@@ -476,13 +528,13 @@ def _apply_reviews(reviews: object, facts: PageFacts) -> None:
         )
 
 
-def _apply_images(images: object, facts: PageFacts) -> bool:
+def _apply_images(images: object, facts: PageFacts) -> list[str]:
     items = images if isinstance(images, list) else [images] if images else []
     # An ImageObject names its file as `url` or as `contentUrl` (IKEA's, among others).
     found = [(i.get("url") or i.get("contentUrl")) if isinstance(i, dict) else i for i in items]
     urls = [urljoin(facts.url, u) for u in found if isinstance(u, str) and u and not u.startswith("data:")]
     facts.image_urls = _dedupe([*urls, *facts.image_urls])[:50]
-    return bool(urls)
+    return urls
 
 
 def _microdata_reviews(soup: BeautifulSoup, facts: PageFacts) -> None:

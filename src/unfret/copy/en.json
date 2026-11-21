@@ -141,6 +141,10 @@
       "title": "Brand-new web shop",
       "detail": "This web shop's address was registered only {age} ago."
     },
+    "domain_repurposed": {
+      "title": "Older address, new shop",
+      "detail": "This web address is {age} old, but as recently as {month} it showed {what}. So its age says little about the shop on it now."
+    },
     "short_registration": {
       "title": "New, short registration",
       "detail": "The shop's web address was registered less than a year ago, and only for one year: short-lived shops are often set up this way."
@@ -667,6 +671,11 @@
     "domain_age.term_years": "Registration term",
     "domain_age.redacted": "Owner details hidden",
     "domain_age.cert_age_years": "Age of the security certificate",
+    "domain_history.checked": "Earlier copies of the site looked up",
+    "domain_history.snapshots": "Earlier copies of the site compared",
+    "domain_history.changed": "The address showed another site until recently",
+    "domain_history.parked": "The address was for sale until recently",
+    "domain_history.months_since_change": "Time since the address showed another site",
     "shop_links.linked_shops": "Other shops with the same accounts",
     "shop_links.linked_young_shops": "Young shops with the same accounts",
     "shop_links.shared_payment": "Payment account shared with other shops",
@@ -834,6 +843,7 @@
     "checkout": "The checkout page",
     "legal_pages": "The shop's terms and legal pages",
     "rdap": "Domain registry (RDAP)",
+    "archive": "Earlier copies of the site (Internet Archive, web.archive.org)",
     "vies": "EU VAT register (VIES)",
     "price_history": "Unfret's price history",
     "market_prices": "Prices at other shops (Unfret's price records)",
@@ -875,6 +885,7 @@
     "notes": {
       "no_reviews": "The page shows no reviews.",
       "registry_silent": "The domain registry doesn't say how old the address is.",
+      "no_archive": "The Internet Archive has no earlier copies of the shop's address.",
       "no_photo": "No product photo could be read.",
       "unavailable": "Couldn't be checked this time.",
       "not_applicable": "Doesn't apply to this page.",

@@ -54,6 +54,7 @@ from unfret.graph.skills.shop_links import ShopLinksSkill
 from unfret.graph.skills.shop_policies import ShopPoliciesSkill
 from unfret.graph.skills.testimonials import TestimonialsSkill
 from unfret.graph.skills.us_identity import UsIdentitySkill
+from unfret.graph.skills.variant_check import VariantCheckSkill
 from unfret.graph.state import P2P_TYPES, PRODUCT_TYPES, SERVICE_TYPES, AnalysisState, PageType
 
 logger = structlog.get_logger("unfret")
@@ -85,6 +86,8 @@ SKILLS: list[Skill] = [
     SafetyGateSkill(),
     # The listing's piece count and size against its own photos (a vision model; deep checks only).
     PhotoClaimsSkill(),
+    # Different products grouped as one listing's sizes, and a price shown for one of them (deep checks only).
+    VariantCheckSkill(),
     # Service providers.
     ServiceIdentitySkill(),
     DoorwayPagesSkill(),

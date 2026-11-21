@@ -13,7 +13,7 @@ check itself.
 """
 
 from datetime import date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -53,6 +53,14 @@ PhoneKind = Literal["mobile", "local", "national", "toll_free", "premium", "unkn
 EmailKind = Literal["own_domain", "webmail", "other"]
 SellerType = Literal["", "business", "private"]
 Delivery = Literal["shipping", "pickup"]
+# What a variant picker's dimension varies, from its name in any language (unfret.facts.variants).
+VariantKind = Literal["size", "colour", "count", "pattern", "material", "flavour", "style", "other"]
+# Where the options were read: a platform's own variant data, a shop system's product JSON, schema.org's
+# ProductGroup, or the page's own picker (select or radio buttons).
+VariantSource = Literal["amazon", "walmart", "shopify", "woocommerce", "schema_org", "picker"]
+# How the option the headline price belongs to is known: the page has it selected, the page shows a "from" price or
+# a price range (the cheapest option), or the headline price is that option's price.
+HeadlineBasis = Literal["", "selected", "from", "price"]
 
 _SHORT = 300
 _LONG = 2_000
@@ -173,6 +181,44 @@ class ListingDetails(BaseModel):
     )
 
 
+class VariantDimension(BaseModel):
+    """One dimension of a variant picker ("Size", "Farbe", "Stijlnaam") and its values in the page's order."""
+
+    name: str = Field(default="", max_length=100, description="As the page labels it; '' when it doesn't.")
+    kind: VariantKind = Field(default="other", description="What it varies, from its name (size, colour, …).")
+    values: list[Annotated[str, Field(max_length=200)]] = Field(default_factory=list, max_length=100)
+
+
+class VariantOption(BaseModel):
+    """One option a shopper can pick: one value per dimension, and its price when the page gives it."""
+
+    label: str = Field(default="", max_length=300, description="The option as the page names it ('Wit / 40').")
+    values: list[Annotated[str, Field(max_length=200)]] = Field(
+        default_factory=list, max_length=5, description="Its value in each dimension, in the dimensions' order."
+    )
+    price: float | None = Field(default=None, ge=0, description="In the page's currency (PageFacts.currency).")
+    available: bool | None = None
+    selected: bool = False
+
+
+class Variants(BaseModel):
+    """
+    The options a listing groups under one page (sizes, colours, styles, amounts), on any platform.
+
+    One rating and one review pool cover every option, and a "from" price is the cheapest option's: a listing that
+    groups different products as "sizes" shows them as one product.
+    """
+
+    source: VariantSource = "picker"
+    dimensions: list[VariantDimension] = Field(default_factory=list, max_length=5)
+    options: list[VariantOption] = Field(default_factory=list, max_length=100)
+    headline: int | None = Field(
+        default=None, ge=0, le=99, description="Index in options of the option the page's price belongs to."
+    )
+    headline_basis: HeadlineBasis = ""
+    from_price: bool = Field(default=False, description="The page shows its price as a 'from' price or a range.")
+
+
 class PageFacts(BaseModel):
     """Structured facts about one page. Absent facts are ``None`` or empty, never guessed."""
 
@@ -196,6 +242,9 @@ class PageFacts(BaseModel):
     )
     reviews: list[Review] = Field(default_factory=list, max_length=100)
     variations: list[str] = Field(default_factory=list, max_length=100)
+    variants: Variants | None = Field(
+        default=None, description="The variant picker's options, prices and the headline price's option."
+    )
 
     json_ld: list[dict[str, Any]] = Field(default_factory=list, max_length=20, description="Product JSON-LD.")
     script_srcs: list[str] = Field(default_factory=list, max_length=300)

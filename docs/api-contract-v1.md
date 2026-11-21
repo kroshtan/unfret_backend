@@ -1575,3 +1575,18 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   "Listpris", "Unverb. Preisempf." and the Portuguese, Danish, Norwegian, Finnish and Czech equivalents), and so does
   eBay's struck "List price". On a web shop the new labels give `reference_anchor`, as "RRP" does. A reference price
   written with its currency after the number ("UVP: 14,39 €") now matches as well; it never did before.
+
+## Changes (euro card prices include VAT; backwards-compatible)
+
+- The euro card prices are now **€6.00 / €20.00 including VAT** (`price_eur_cents` 600 / 2000), the final price for
+  every buyer in the euro area whatever their country's rate; they were €5.50 / €17.50 with VAT added at checkout.
+  `GET /v1/pricing` adds a top-level `card_tax_inclusive: {"usd": false, "eur": true}`: whether the card prices in
+  each currency include sales tax/VAT. Where it is `true`, show the price as it is (no VAT added for the buyer's
+  country; "€6.00, VAT included"); where `false`, as before (the dollar prices: add `vat.card_rates_pct` for an EU
+  country, sales tax at checkout elsewhere). The dollar prices, the crypto prices, the packs and their credits
+  (25 / 100 checks) are unchanged.
+- A paid euro order credits its pack when it paid the pack's euro price including VAT (Polar's `net_amount +
+  tax_amount`); refunds still count pro rata from the order's amount before tax. A euro checkout is refused before
+  anyone pays when the Polar product's EUR price isn't set to tax-inclusive (or isn't the pack's price).
+- Settings: `UNFRET_CARD_PRICES_EUR` (default `25=6.00,100=20.00`), `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (default
+  `true`; `false` goes back to VAT on top).

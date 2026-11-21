@@ -12,7 +12,7 @@ from unfret.x402.evm import parse_address
 
 def _pack_prices(value: str) -> dict[int, int]:
     """
-    Pack prices as set: ``"25=5.50,100=17.50"`` → ``{25: 550, 100: 1750}``.
+    Pack prices as set: ``"25=6.00,100=20.00"`` → ``{25: 600, 100: 2000}``.
 
     :param value: The setting.
     :return: Pack size → cents; empty for an empty setting.
@@ -228,11 +228,14 @@ class Settings(BaseSettings):
     # hand, like the euro prices; a pack not named here costs its derived card price. Each Polar product needs a USD
     # price equal to its pack's, or its checkout is refused before anyone pays.
     card_prices_usd: str = "25=6.00,100=20.00"
-    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=5.50,100=17.50", one per
-    # pack, before the provider's sales tax/VAT like the dollar prices. Set by hand (not derived from the dollar
-    # price, so they stay round); each Polar product needs a EUR price equal to its pack's. A EUR checkout is what
-    # shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in dollars.
-    card_prices_eur: str = "25=5.50,100=17.50"
+    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=6.00,100=20.00", one per
+    # pack. Set by hand (not derived from the dollar price, so they stay round); each Polar product needs a EUR price
+    # equal to its pack's. A EUR checkout is what shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in
+    # dollars. card_prices_eur_tax_inclusive (the default): these prices include VAT, the same for every buyer (the
+    # provider takes each country's VAT out of it), so the EUR price of each Polar product must be set to "inclusive"
+    # tax behaviour, or its checkout is refused; false: VAT is added on top at checkout, like the dollar prices.
+    card_prices_eur: str = "25=6.00,100=20.00"
+    card_prices_eur_tax_inclusive: bool = True
     # Invites ("gift codes", unfret.credits.invites): every credited pack comes with one invite per invite_per_checks
     # checks bought (25 → 1, 100 → 4), each worth invite_checks checks to any account but the buyer's. An account
     # redeems at most one a calendar month (UTC). 0 turns issuing off; invites already issued stay redeemable.
@@ -706,7 +709,7 @@ class Settings(BaseSettings):
     @property
     def card_eur_cents(self) -> dict[int, int]:
         """
-        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=5.50,100=17.50"``).
+        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=6.00,100=20.00"``).
 
         :return: Pack size → euro cents; empty when euro prices are off.
         :raises ValueError: If the setting is malformed.
@@ -715,7 +718,7 @@ class Settings(BaseSettings):
             return _pack_prices(self.card_prices_eur)
         except ValueError:
             raise ValueError(
-                "card_prices_eur must read like 25=5.50,100=17.50 (positive euros, at most cents)"
+                "card_prices_eur must read like 25=6.00,100=20.00 (positive euros, at most cents)"
             ) from None
 
     @property

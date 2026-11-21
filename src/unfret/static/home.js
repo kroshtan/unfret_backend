@@ -4,9 +4,9 @@ import { chooseButtons } from "./install-button.js";
 import { cardPrice, taxNote } from "./prices.js";
 import { wireStartForm } from "./start-check.js";
 
-// The card prices follow Cloudflare's country hint, visibly: euros in the euro area, and with the VAT the card
-// provider adds for an EU country (prices.js), with a note naming the country, which the visitor can change at
-// checkout. Elsewhere the dollar prices, with tax added at checkout where it applies.
+// The card prices follow Cloudflare's country hint, visibly: euros in the euro area (VAT included), dollars with the
+// VAT the card provider adds for another EU country (prices.js), with a note the visitor can change at checkout.
+// Elsewhere the dollar prices, with tax added at checkout where it applies.
 async function prices() {
   const response = await fetch("/v1/pricing", { headers: { Accept: "application/json" } });
   if (!response.ok) return;
@@ -39,7 +39,7 @@ async function prices() {
     const link = document.createElement("a");
     link.href = "/checkout";
     link.textContent = "change at checkout";
-    note.replaceChildren(`${taxNote(body, hint)} `, link);
+    note.replaceChildren(`${taxNote(body, hint, euros ? "eur" : "usd")} `, link);
     note.hidden = false;
   }
 }

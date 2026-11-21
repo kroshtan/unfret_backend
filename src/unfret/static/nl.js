@@ -1,13 +1,13 @@
 // The Dutch landing page (/nl): the paste-a-link field (start-check.js) and the free checks and euro pack prices,
-// live from /v1/pricing, with the Dutch VAT rate the card provider adds (prices.js). Without JavaScript the page
-// still reads well: the numbers in the HTML are the defaults.
+// live from /v1/pricing, VAT included (prices.js). Without JavaScript the page still reads well: the numbers in the
+// HTML are the defaults.
 import { cardPrice } from "./prices.js";
 import { wireStartForm } from "./start-check.js";
 
 const form = document.getElementById("start-check");
 wireStartForm(form, { empty: form?.dataset.empty ?? "", invalid: form?.dataset.invalid ?? "" });
 
-/** Cents as a Dutch euro price: "€ 6,66". */
+/** Cents as a Dutch euro price: "€ 6,00". */
 export function euros(cents) {
   return `€ ${(cents / 100).toFixed(2).replace(".", ",")}`;
 }

@@ -400,7 +400,8 @@ function cardCurrency() {
   return euros && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
 }
 
-// A pack's card price as the buyer pays it: with the chosen EU country's VAT, which the provider adds (prices.js).
+// A pack's card price as the buyer pays it: euro prices include VAT; a dollar price gets the chosen EU country's VAT,
+// which the provider adds (prices.js).
 function priceIn(currency, option) {
   return cardPriceFor(pricing, option, currency, payCountry)?.text ?? (currency === "eur" ? option.price_eur : option.price_usd);
 }
@@ -630,7 +631,7 @@ function refreshTarget() {
     const option = pricing?.packs.find((p) => String(p.checks) === price.dataset.checks);
     if (option) price.textContent = cardPrice(option); // follows the chosen country's currency
   }
-  const note = taxNote(pricing, payCountry);
+  const note = taxNote(pricing, payCountry, cardCurrency());
   for (const prefix of CARD_COUNTRY) $(`${prefix}-tax`).textContent = note;
   const topupId = keyIdOf(topupKey.value);
   for (const [cardButton, localButton, ok] of [

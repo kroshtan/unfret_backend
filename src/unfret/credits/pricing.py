@@ -163,8 +163,9 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     The public price list (``GET /v1/pricing``): the price of a check, the packs on both routes, and live amounts.
 
     Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd``
-    is the price (by card, before the provider's sales tax/VAT), ``price_eur`` the same in euros for visitors from the
-    euro area (``None`` while euro prices are off), and ``crypto_usd`` the lower price when paying with
+    is the price (by card, before the provider's sales tax/VAT), ``price_eur`` the card price in euros for visitors
+    from the euro area (``None`` while euro prices are off; VAT included while ``card_tax_inclusive.eur`` is true: the
+    final price, the same for every buyer), and ``crypto_usd`` the lower price when paying with
     SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the gift codes it comes with to give away (the
     25-pack: one of 5 checks; the 100-pack: four).
 
@@ -199,6 +200,8 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
             }
             for p in on_sale
         ],
+        # Whether the card prices in each currency include sales tax/VAT (the final price) or get it at checkout.
+        "card_tax_inclusive": {"usd": False, "eur": settings.card_prices_eur_tax_inclusive},
         # Deprecated: the packs' crypto prices under their old name.
         "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
         "vat": vat.describe(settings),

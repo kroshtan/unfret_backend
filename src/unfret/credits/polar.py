@@ -3,20 +3,25 @@ Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`P
 
 Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the same
 product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_usd`` and ``card_prices_eur`` set
-the prices). A checkout is created for the pack's product in USD, or in EUR for visitors from the euro area, with
-discount codes off and our account id and this site's address (``public_base_url``) in its metadata; nothing about the
-buyer is sent, except the billing country of a local payment method (:mod:`unfret.credits.local_methods`): Polar shows
-iDEAL | Wero only for a checkout in EUR whose billing country is the Netherlands, so that checkout has
-``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it; Polar still asks for the country
-only, and its card tab stays selected, with iDEAL | Wero as the tab next to it). The API calls need an Organization
-Access Token with the ``checkouts:write`` scope only.
+the prices). Each price has a tax behaviour in Polar: the dollar price is before tax (``exclusive``, or left to the
+organisation's default) and the euro price includes VAT (``inclusive``, set on the price itself) while
+``card_prices_eur_tax_inclusive`` is on. Polar then takes each country's VAT out of the euro price instead of adding
+it, so every buyer pays exactly the price we show. A checkout is created for the pack's product in USD, or in EUR for
+visitors from the euro area, with discount codes off and our account id and this site's address (``public_base_url``)
+in its metadata; nothing about the buyer is sent, except the billing country of a local payment method
+(:mod:`unfret.credits.local_methods`): Polar shows iDEAL | Wero only for a checkout in EUR whose billing country is the
+Netherlands, so that checkout has ``customer_billing_address: {"country": "NL"}`` prefilled (the buyer can change it;
+Polar still asks for the country only, and its card tab stays selected, with iDEAL | Wero as the tab next to it). The
+API calls need an Organization Access Token with the ``checkouts:write`` scope only.
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 
-- ``order.paid`` → ``paid``, for the order's ``net_amount`` (after discounts, before sales tax/VAT). Credited only if
-  the order is for a configured pack's product and its ``net_amount`` is exactly that pack's card price in the
-  order's currency (USD, or EUR for a pack with a euro price); anything else (another currency, a zero or changed
-  price, an unknown product) credits nothing and is logged as ``polar_order_not_credited`` for a person to look at.
+- ``order.paid`` → ``paid``, for the order's ``net_amount`` (after discounts, before sales tax/VAT: what refunds and
+  commission are counted against). Credited only if the order is for a configured pack's product and it paid exactly
+  that pack's card price in the order's currency (USD, or EUR for a pack with a euro price): its ``net_amount`` for a
+  price before tax, its ``net_amount + tax_amount`` for a tax-inclusive price (Polar's ``net_amount`` is then the price
+  less the buyer's VAT, which differs by country). Anything else (another currency, a zero or changed price, an
+  unknown product) credits nothing and is logged as ``polar_order_not_credited`` for a person to look at.
   Polar's fee (``platform_fee_amount``, when in the order's currency) goes along, for an affiliate's commission on
   the net revenue (:mod:`unfret.credits.affiliates`).
 - ``order.refunded`` → ``refunded``, with the order's ``refunded_amount`` (the total refunded so far, before tax, in
@@ -121,7 +126,7 @@ class PolarProvider:
             ``None`` leaves it to the buyer (cards only until they pick a country).
         :return: The checkout.
         :raises FiatProviderError: If Polar refuses or can't be reached, or the checkout isn't the pack's price in
-            that currency.
+            that currency, or the price's tax behaviour isn't the pack's (:func:`tax_behaviour_matches`).
         """
         product = self.products.get(pack.checks)
         expected = pack.card_cents(currency)
@@ -162,6 +167,17 @@ class PolarProvider:
                 expected_cents=expected,
             )
             raise FiatProviderError("The Polar product's price doesn't match the pack.")
+        behaviour = (checkout.get("product_price") or {}).get("tax_behavior")
+        if not tax_behaviour_matches(pack.tax_inclusive(currency), behaviour):
+            # A euro price we show with VAT included that Polar would add VAT on top of (or the other way round).
+            logger.warning(
+                "polar_checkout_tax_mismatch",
+                checks=pack.checks,
+                currency=currency,
+                tax_behavior=behaviour,
+                expected="inclusive" if pack.tax_inclusive(currency) else "exclusive",
+            )
+            raise FiatProviderError("The Polar product's tax behaviour doesn't match the pack.")
         return FiatCheckout(checkout_id, url)
 
     def parse_webhook(self, headers: Mapping[str, str], body: bytes, now: float) -> FiatEvent | None:
@@ -201,14 +217,16 @@ class PolarProvider:
         product, currency, net = data.get("product_id"), str(data["currency"]).lower(), int(data["net_amount"])
         pack = self.packs_by_product.get(str(product)) if product else None
         expected = pack.card_cents(currency) if pack else None
-        if pack is None or expected is None or net != expected:
+        # What the buyer paid at the price we show: with the VAT for a tax-inclusive price, without it otherwise.
+        price = net + int(data.get("tax_amount") or 0) if pack and pack.tax_inclusive(currency) else net
+        if pack is None or expected is None or price != expected:
             reason = "unknown_product" if pack is None else "currency" if expected is None else "amount"
             logger.warning(
                 "polar_order_not_credited",
                 order_id=order_id,
                 reason=reason,
                 currency=currency,
-                amount_cents=net,
+                amount_cents=price,
                 expected_cents=expected,
             )
             return None
@@ -220,6 +238,7 @@ class PolarProvider:
             provider=self.name,
             order_id=order_id,
             amount_cents=net,
+            price_cents=price,
             currency=currency,
             checkout_id=str(data["checkout_id"]) if data.get("checkout_id") else None,
             account=str(metadata["account"]) if metadata.get("account") else None,
@@ -230,6 +249,22 @@ class PolarProvider:
     async def aclose(self) -> None:
         """Close the HTTP client."""
         await self.http.aclose()
+
+
+def tax_behaviour_matches(inclusive: bool, behaviour: object) -> bool:
+    """
+    Whether a Polar price's ``tax_behavior`` charges what we show.
+
+    A tax-inclusive price must say ``inclusive`` on the price itself: ``null`` falls back to the organisation's
+    default, which the token can't read, and ``location`` adds the tax on top outside the EU. A price before tax may be
+    ``exclusive``, ``null`` (the default) or ``location`` (US buyers still pay their sales tax on top), just not
+    ``inclusive``, which would charge less than the price list says and credit nothing.
+
+    :param inclusive: Whether the pack's price in that currency includes tax.
+    :param behaviour: The price's ``tax_behavior`` as Polar returned it.
+    :return: True if the checkout may go ahead.
+    """
+    return behaviour == "inclusive" if inclusive else behaviour != "inclusive"
 
 
 def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> PolarProvider | None:

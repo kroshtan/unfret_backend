@@ -227,11 +227,13 @@ async def test_the_dutch_page_is_dutch_and_sends_the_rest_to_the_english_pages(c
     assert 'id="start-check"' in main and 'data-empty="Plak eerst een link."' in main
 
 
-async def test_the_dutch_page_shows_euro_prices_with_dutch_vat(client: httpx.AsyncClient) -> None:
+async def test_the_dutch_page_shows_euro_prices_with_vat_included(client: httpx.AsyncClient) -> None:
     page = (await client.get("/nl")).text
     prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
     assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
-    assert "€ 6,66" in prices and "€ 21,18" in prices  # €5.50 and €17.50 with 21% VAT, as the defaults say
+    assert "€ 6,00" in prices and "€ 20,00" in prices  # the defaults, VAT included: what a Dutch buyer pays
+    assert "6,66" not in page and "21,18" not in page
+    assert "Prijzen inclusief btw" in page
     script = (STATIC_DIR / "nl.js").read_text()
     assert '"/v1/pricing"' in script and 'cardPrice(body, pack, "eur", "NL")' in script
 
@@ -308,8 +310,10 @@ async def test_the_prices_say_what_they_include(client: httpx.AsyncClient) -> No
     page = (await client.get("/")).text
     pricing = _flat(page.split('class="pricing"', 1)[1].split('class="code-box"', 1)[0])
     note = pricing.split('id="price-note">', 1)[1].split("</p>", 1)[0]
-    # The defaults in the page are the prices before tax (home.js puts in the VAT once it knows the country).
-    assert "These card prices are before tax. In the EU, card prices include VAT" in note
+    # The defaults in the page are the dollar prices before tax (home.js puts in the euros, VAT included, or the
+    # VAT on a dollar price, once it knows the country).
+    assert "In the euro area, card prices are in euros with VAT included: €6.00 and €20.00" in note
+    assert "The dollar prices are before tax" in note
     assert "sales tax is added at checkout where it applies" in note
     assert "the crypto price is plus VAT where it applies" in pricing
     prices = (STATIC_DIR / "prices.js").read_text()
@@ -348,3 +352,51 @@ async def test_the_scope_is_the_same_wherever_it_is_listed(client: httpx.AsyncCl
         assert "company's website" not in page and "companies' websites" not in page, path
         assert "local service" in page, path
     assert "companies' websites" not in (STATIC_DIR / "check.js").read_text()
+
+
+@pytest.mark.usefixtures("node")
+def test_euro_card_prices_are_shown_as_they_are_and_dollar_prices_get_the_vat(tmp_path: Path) -> None:
+    module = tmp_path / "prices.mjs"
+    module.write_text((STATIC_DIR / "prices.js").read_text())
+    pricing = {
+        "card_tax_inclusive": {"usd": False, "eur": True},
+        "vat": {"card_rates_pct": {"NL": "21", "DE": "19", "FI": "25.5", "SE": "25"}},
+    }
+    packs = [
+        {"checks": 25, "price_usd_micros": 6_000_000, "price_eur_cents": 600},
+        {"checks": 100, "price_usd_micros": 20_000_000, "price_eur_cents": 2000},
+    ]
+    before = {**pricing, "card_tax_inclusive": {"usd": False, "eur": False}}
+    script = (
+        f"import {{ cardPrice, taxNote }} from {json.dumps(module.as_uri())};"
+        f"const pricing = {json.dumps(pricing)}; const before = {json.dumps(before)};"
+        f"const packs = {json.dumps(packs)};"
+        "const show = (doc, currency, country) => packs.map((p) => cardPrice(doc, p, currency, country).text);"
+        "process.stdout.write(JSON.stringify(["
+        "show(pricing, 'eur', 'NL'), show(pricing, 'eur', 'DE'), show(pricing, 'eur', 'FI'), show(pricing, 'eur', ''),"
+        "show(pricing, 'usd', 'SE'), show(pricing, 'usd', 'US'), show(before, 'eur', 'NL'),"
+        "taxNote(pricing, 'NL', 'eur'), taxNote(pricing, '', 'eur'), taxNote(pricing, 'SE', 'usd'),"
+        "taxNote(pricing, 'US', 'usd'), taxNote(before, 'NL', 'eur')]));"
+    )
+    out = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
+        ).stdout
+    )
+    assert out == [
+        ["€6.00", "€20.00"],  # VAT included: the same price in every euro country, whatever its rate
+        ["€6.00", "€20.00"],
+        ["€6.00", "€20.00"],
+        ["€6.00", "€20.00"],  # no country needed to see the final price
+        ["$7.50", "$25.00"],  # a dollar price gets the EU country's VAT (Sweden, 25%)
+        ["$6.00", "$20.00"],  # sales tax is added at checkout
+        ["€7.26", "€24.20"],  # euro prices before VAT (the setting off): the Dutch VAT on top
+        "Card prices include VAT.",
+        "Card prices include VAT.",
+        "Card prices include 25% VAT for Sweden.",
+        "Sales tax or VAT is added at checkout where it applies.",
+        "Card prices include 21% VAT for the Netherlands.",
+    ]
+    # The pages say what the price includes for the currency they show it in.
+    assert 'taxNote(body, hint, euros ? "eur" : "usd")' in (STATIC_DIR / "home.js").read_text()
+    assert "taxNote(pricing, payCountry, cardCurrency())" in (STATIC_DIR / "checkout.js").read_text()

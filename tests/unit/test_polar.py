@@ -204,6 +204,8 @@ def polar_api(seen: list[httpx.Request], *, status: int = 201, **reply: Any) -> 
             "tax_amount": None,
             "total_amount": 600,
             "product_id": sent["products"][0],
+            # The selected price's tax behaviour: the euro prices include VAT, the dollar ones are left to the default.
+            "product_price": {"tax_behavior": "inclusive" if sent.get("currency") == "eur" else None},
             "metadata": sent.get("metadata", {}),
             "success_url": sent.get("success_url"),
             **reply,
@@ -278,6 +280,7 @@ def test_order_paid_is_the_pre_tax_amount_and_nothing_about_the_buyer() -> None:
         provider="polar",
         order_id=ORDER["id"],
         amount_cents=600,
+        price_cents=600,  # before tax: a dollar price is matched on the amount before sales tax/VAT
         checkout_id=CHECKOUT_ID,
         account=ACCOUNT,
         fee_cents=69,  # Polar's fee, for the affiliate commission's net revenue
@@ -299,13 +302,13 @@ def test_each_pack_matches_its_own_card_price(size: int) -> None:
 
 
 def test_an_order_at_the_100_packs_old_price_credits_nothing() -> None:
-    # The 100-pack's product still at $22 / €19 in Polar while the pack costs $20 / €17.50: never credited as is.
+    # The 100-pack's product still at $22 / €17.50 in Polar while the pack costs $20 / €20: never credited as is.
     assert parse("order.paid", order(product_id=PRODUCTS[100], subtotal_amount=2200, net_amount=2200)) is None
-    euro = {**EURO, "product_id": PRODUCTS[100], "subtotal_amount": 1900, "net_amount": 1900}
+    euro = {**EURO, "product_id": PRODUCTS[100], "subtotal_amount": 1750, "net_amount": 1446, "tax_amount": 304}
     assert parse("order.paid", order(**euro)) is None
 
 
-@pytest.mark.parametrize(("currency", "polar_cents"), [("usd", 2200), ("eur", 1900)])
+@pytest.mark.parametrize(("currency", "polar_cents"), [("usd", 2200), ("eur", 1750)])
 async def test_a_100_pack_checkout_is_refused_while_its_polar_price_is_the_old_one(
     currency: str, polar_cents: int
 ) -> None:
@@ -314,7 +317,7 @@ async def test_a_100_pack_checkout_is_refused_while_its_polar_price_is_the_old_o
     seen: list[httpx.Request] = []
     built = provider(polar_api(seen, amount=polar_cents))
     chosen = pack(settings(), 100)
-    assert chosen is not None and chosen.card_cents(currency) == {"usd": 2000, "eur": 1750}[currency]
+    assert chosen is not None and chosen.card_cents(currency) == {"usd": 2000, "eur": 2000}[currency]
     with pytest.raises(FiatProviderError, match="doesn't match"):
         await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, currency)  # type: ignore[arg-type]
     assert [json.loads(r.content)["products"] for r in seen] == [[PRODUCTS[100]]]
@@ -379,7 +382,7 @@ def test_forged_stale_and_unreadable_webhooks_are_refused() -> None:
 
 async def test_a_euro_checkout_is_the_packs_product_in_eur_with_the_same_metadata() -> None:
     seen: list[httpx.Request] = []
-    built = provider(polar_api(seen, amount=550))
+    built = provider(polar_api(seen, amount=600))
     chosen = pack(settings(), 25)
     assert chosen is not None
 
@@ -399,7 +402,7 @@ async def test_a_euro_checkout_is_the_packs_product_in_eur_with_the_same_metadat
 async def test_a_wero_checkout_prefills_only_the_billing_country() -> None:
     # Polar shows iDEAL | Wero only for a EUR checkout whose billing country is NL; AddressInput needs only country.
     seen: list[httpx.Request] = []
-    built = provider(polar_api(seen, amount=550))
+    built = provider(polar_api(seen, amount=600))
     chosen = pack(settings(), 25)
     assert chosen is not None
 
@@ -422,7 +425,7 @@ async def test_a_wero_checkout_prefills_only_the_billing_country() -> None:
     "reply",
     [
         {"currency": "usd", "amount": 550},  # Polar fell back to the dollar price
-        {"currency": "eur", "amount": 600},  # the product's euro price isn't the pack's
+        {"currency": "eur", "amount": 550},  # the product's euro price isn't the pack's (the old €5.50)
         {"status": 422},  # e.g. the product has no euro price
     ],
 )
@@ -444,31 +447,61 @@ async def test_no_euro_checkout_without_euro_prices() -> None:
     assert seen == []  # Polar isn't even asked
 
 
-EURO = {"currency": "eur", "subtotal_amount": 550, "net_amount": 550, "tax_amount": 116, "total_amount": 666}
+# The 25-pack at €6.00 VAT included, bought from the Netherlands: Polar takes the 21% VAT out of the price.
+EURO = {"currency": "eur", "subtotal_amount": 600, "net_amount": 496, "tax_amount": 104, "total_amount": 600}
 
 
-@pytest.mark.parametrize(("size", "cents"), [(25, 550), (100, 1750)])
-def test_a_euro_order_matches_its_packs_euro_price(size: int, cents: int) -> None:
-    changes = {**EURO, "product_id": PRODUCTS[size], "subtotal_amount": cents, "net_amount": cents}
-    event = parse("order.paid", order(**changes))
+@pytest.mark.parametrize(
+    ("size", "cents", "net", "tax"),
+    [
+        (25, 600, 496, 104),  # the Netherlands, 21%
+        (100, 2000, 1653, 347),
+        (25, 600, 504, 96),  # Germany, 19%: another net amount, the same price
+        (100, 2000, 1594, 406),  # Finland, 25.5%
+        (25, 600, 600, 0),  # a business with a VAT number (reverse charge): no VAT, the same price
+    ],
+)
+def test_a_euro_order_matches_its_packs_euro_price_with_vat_included(
+    size: int, cents: int, net: int, tax: int
+) -> None:
+    changes = {"product_id": PRODUCTS[size], "subtotal_amount": cents, "net_amount": net, "tax_amount": tax}
+    event = parse("order.paid", order(**{**EURO, **changes, "total_amount": cents}))
     assert event == FiatEvent(
         kind="paid",
         provider="polar",
         order_id=ORDER["id"],
-        amount_cents=cents,
+        amount_cents=net,  # before VAT: what refunds and the affiliate's commission count from
+        price_cents=cents,  # what the buyer paid, VAT included: the pack's euro price
         currency="eur",
         checkout_id=CHECKOUT_ID,
         account=ACCOUNT,
     )
+    assert event.paid_price_cents == cents
+
+
+def test_a_euro_order_with_vat_on_top_of_the_price_credits_nothing() -> None:
+    # The product's EUR price left exclusive in Polar: the buyer paid €7.26 for a pack shown at €6.00.
+    assert parse("order.paid", order(**{**EURO, "net_amount": 600, "tax_amount": 126, "total_amount": 726})) is None
+
+
+def test_euro_prices_before_vat_are_matched_before_vat() -> None:
+    # card_prices_eur_tax_inclusive off: the euro prices are before VAT, like the dollar ones.
+    now = time.time()
+    body, headers = signed("order.paid", order(**{**EURO, "net_amount": 600, "tax_amount": 126}), now)
+    event = provider(card_prices_eur_tax_inclusive=False).parse_webhook(headers, body, now)
+    assert event is not None and (event.amount_cents, event.paid_price_cents) == (600, 600)
+    body, headers = signed("order.paid", order(**EURO), now)
+    assert provider(card_prices_eur_tax_inclusive=False).parse_webhook(headers, body, now) is None
 
 
 @pytest.mark.parametrize(
     "changes",
     [
-        {**EURO, "net_amount": 600},  # the dollar number in euros
+        {**EURO, "net_amount": 600},  # the price before VAT, with the VAT on top
+        {**EURO, "subtotal_amount": 550, "net_amount": 455, "tax_amount": 95},  # the old €5.50 price
         {**EURO, "net_amount": 500, "discount_amount": 50},  # a discount
         {**EURO, "product_id": PRODUCTS[100]},  # the 25-pack's euro price for the 100-pack
-        {**EURO, "product_id": PRODUCTS[50], "net_amount": 1000},  # the 50-pack, off sale
+        {**EURO, "product_id": PRODUCTS[50], "net_amount": 826, "tax_amount": 174},  # the 50-pack, off sale
         {"currency": "gbp", "net_amount": 550},  # a currency we don't sell in
         {"currency": "gbp"},
     ],
@@ -484,6 +517,54 @@ def test_no_euro_orders_without_euro_prices() -> None:
 
 
 def test_euro_refunds_are_in_the_orders_own_cents() -> None:
-    refunded = order(**EURO, status="partially_refunded", refunded_amount=275, refunded_tax_amount=58)
+    # Polar reports the refund before VAT, like net_amount: half the order is half of both.
+    refunded = order(**EURO, status="partially_refunded", refunded_amount=248, refunded_tax_amount=52)
     event = parse("order.refunded", refunded)
-    assert event is not None and (event.amount_cents, event.refunded_cents) == (550, 275)
+    assert event is not None and (event.amount_cents, event.refunded_cents) == (496, 248)
+
+
+# ── Tax behaviour of the product's price ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("behaviour", [None, "exclusive", "location"])
+async def test_a_euro_checkout_whose_price_isnt_tax_inclusive_is_refused(behaviour: str | None) -> None:
+    # A €6.00 price Polar would add VAT to (exclusive, or the organisation's default, which the token can't read):
+    # refused before anyone pays €7.26 for a pack shown at €6.00 (the route falls back to the dollar checkout).
+    built = provider(polar_api([], product_price={"tax_behavior": behaviour}))
+    chosen = pack(settings(), 25)
+    assert chosen is not None
+    with pytest.raises(FiatProviderError, match="tax behaviour"):
+        await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")
+
+
+async def test_a_euro_checkout_at_the_tax_inclusive_price_goes_ahead() -> None:
+    seen: list[httpx.Request] = []
+    chosen = pack(settings(), 100)
+    assert chosen is not None and chosen.card_cents("eur") == 2000 and chosen.tax_inclusive("eur")
+    checkout = await provider(polar_api(seen, amount=2000)).create_checkout(
+        ACCOUNT, chosen, SUCCESS_URL, "eur", billing_country="NL"
+    )
+    assert checkout.checkout_id == CHECKOUT_ID
+    (request,) = seen
+    assert json.loads(request.content)["currency"] == "eur"
+
+
+@pytest.mark.parametrize(
+    ("behaviour", "ok"), [(None, True), ("exclusive", True), ("location", True), ("inclusive", False)]
+)
+async def test_a_dollar_checkout_needs_a_price_before_tax(behaviour: str | None, ok: bool) -> None:
+    built = provider(polar_api([], product_price={"tax_behavior": behaviour}))
+    chosen = pack(settings(), 25)
+    assert chosen is not None and not chosen.tax_inclusive("usd")
+    if ok:
+        assert (await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL)).checkout_id == CHECKOUT_ID
+    else:
+        with pytest.raises(FiatProviderError, match="tax behaviour"):
+            await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL)
+
+
+async def test_euro_prices_before_vat_need_a_price_polar_adds_vat_to() -> None:
+    built = provider(polar_api([], product_price={"tax_behavior": "exclusive"}), card_prices_eur_tax_inclusive=False)
+    chosen = pack(settings(card_prices_eur_tax_inclusive=False), 25)
+    assert chosen is not None and not chosen.tax_inclusive("eur")
+    assert (await built.create_checkout(ACCOUNT, chosen, SUCCESS_URL, "eur")).checkout_id == CHECKOUT_ID

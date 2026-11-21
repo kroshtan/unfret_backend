@@ -46,6 +46,18 @@ def no_photo_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_archive_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test reaches the Internet Archive (a web shop without a registry date asks it for its first copy)."""
+    from unfret.graph.skills import domain_history  # noqa: PLC0415 - keep the graph out of import time
+
+    async def offline(url: str, **_: object) -> bytes:
+        raise ConnectionError("No Internet Archive in tests: pass recorded answers (tests/fixtures/wayback).")
+
+    monkeypatch.setattr(domain_history, "fetch_public", offline)
+    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+
+
+@pytest.fixture(autouse=True)
 def fresh_check_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test starts without remembered x402 answers and with an empty rate limit (both live in memory)."""
     from unfret.routes import check  # noqa: PLC0415 - keep the app out of import time for unrelated tests

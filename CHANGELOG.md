@@ -158,6 +158,21 @@
   refused connection; a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
   unchanged (#272).
 
+* **An address's age from the Internet Archive where the registry gives none.** Many registries (.nl, .de and other
+  EU country domains) publish no registration date: 107 of the 169 golden storefronts had no age. On a web shop whose
+  registry gives no date, `domain_age` now asks the archive's index once for the home page's first copy (one request,
+  within the same `UNFRET_WAYBACK_PER_MINUTE` pace and pause as the look at earlier copies, cached per address; paced
+  out, refused or unreachable, it is skipped and asked again next time). That date is a minimum ("online since at
+  least 2009, per the Internet Archive"), never the registration date: it is kept apart (`domain_age.archive_age_years`,
+  `.archive_first_year`, `.age_from_archive`, finding `archive_first_capture`), and `age_years` stays the registry's
+  (or the first certificate's). An age of 3 years or more from the archive plans the look at earlier copies on a
+  doubtful page like a registered one. Because an expired address bought again keeps its old copies, an archive-only
+  age gives "Established shop" (new positive `established_archive`, source "Earlier copies of the site (Internet
+  Archive, web.archive.org)": "This web shop's address has been online since at least 2009, per the Internet Archive,
+  and its earlier copies show the same shop.") and counts as a decade-old address only once that look compared copies
+  and none showed another site; when one did, "Older address, new shop" reads "This web address is at least 17 years
+  old, …". Service sites, quick checks and `UNFRET_DOMAIN_HISTORY=false` never ask.
+
 ### The product photos against the listing's own claims
 
 * **A deep check compares the listing's piece count and size with its own photos** (new skill `photo_claims`). When

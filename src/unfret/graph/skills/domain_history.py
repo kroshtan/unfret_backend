@@ -35,8 +35,7 @@ from bs4 import BeautifulSoup
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
 from unfret.facts.schema import PageFacts
-from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput
-from unfret.graph.skills.domain_age import candidates
+from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput, domain_age
 from unfret.graph.state import AnalysisState
 from unfret.html_cleaner import strip_to_text
 from unfret.net import fetch_public, hostname
@@ -47,6 +46,7 @@ _CDX_TIMEOUT_S = 8.0
 _SNAPSHOT_TIMEOUT_S = 10.0
 _TOTAL_TIMEOUT_S = 15.0
 _MAX_CDX_BYTES = 256 * 1024
+_MAX_FIRST_CAPTURE_BYTES = 16 * 1024
 _MAX_SNAPSHOT_BYTES = 3 * 1024 * 1024
 _TEXT_CHARS = 60_000  # of a copy's text read for its words
 _TOP_WORDS = 40
@@ -373,6 +373,30 @@ async def captures(host: str, today: date) -> list[list[str]]:
     return [[str(r[0]), str(r[1])] for r in rows if isinstance(r, list) and len(r) == 2]
 
 
+async def first_capture(host: str) -> str | None:
+    """
+    The day the archive first copied the address's home page: the address is at least that old.
+
+    One index request (the earliest capture that the archive answered with a page or a redirect), within
+    :data:`pace` like the history look. A lower bound only: an address can be online for years before the archive
+    first copies it, and an expired address bought again keeps its old copies (what :func:`history` checks).
+
+    :param host: The shop's host.
+    :return: ISO date of the first capture, or ``None`` when the archive has none. Paced out
+        (:class:`ArchiveBusyError`) or an index that can't be reached raises, so it isn't cached.
+    """
+    url = (
+        f"{settings.wayback_url}/cdx/search/cdx?url={quote(host)}/&output=json&fl=timestamp"
+        f"&filter={quote('statuscode:[23]..')}&limit=1"
+    )
+    body = await _get(url, timeout=_CDX_TIMEOUT_S, max_bytes=_MAX_FIRST_CAPTURE_BYTES)
+    data = json.loads(body or b"[]")
+    rows = data[1:] if isinstance(data, list) and data and data[0] == ["timestamp"] else []
+    first = rows[0] if rows and isinstance(rows[0], list) and rows[0] else None
+    day = _day(str(first[0])) if first else None
+    return day.isoformat() if day else None
+
+
 async def _snapshot(timestamp: str, original: str) -> dict[str, Any]:
     raw = f"{settings.wayback_url}/web/{timestamp}id_/{original}"
     body = await _get(raw, timeout=_SNAPSHOT_TIMEOUT_S, max_bytes=_MAX_SNAPSHOT_BYTES)
@@ -426,7 +450,7 @@ def address_name(host: str) -> str:
     :param host: The shop's host.
     :return: The name, or ``""``.
     """
-    label = _squash(candidates(host)[0].split(".")[0]) if host else ""
+    label = _squash(domain_age.candidates(host)[0].split(".")[0]) if host else ""
     return label if len(label) >= 3 else ""
 
 
@@ -558,8 +582,13 @@ class DomainHistorySkill(Skill):
         features: dict[str, float | bool] = {"checked": True, "snapshots": len(snapshots)}
         if changed:
             latest, outcome = changed[0]  # newest first
-            years = int(state.get("features", {}).get("domain_age.age_years", 0.0))
-            age = f"{host} is {years} years old, but" if years >= 1 else f"{host}:"
+            known = state.get("features", {})
+            years = int(known.get("domain_age.age_years", 0.0))
+            since = int(known.get("domain_age.archive_first_year", 0.0))
+            if known.get("domain_age.age_from_archive", 0.0) >= 1 and since:
+                age = f"{host} has been online since at least {since} (per the Internet Archive), but"
+            else:
+                age = f"{host} is {years} years old, but" if years >= 1 else f"{host}:"
             when = _day(latest["timestamp"])
             today = datetime.now(tz=UTC).date()
             features |= {

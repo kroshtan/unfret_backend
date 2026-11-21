@@ -12,7 +12,8 @@ from unfret import card, fact_cache, public_result, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph import SKILLS, triage
-from unfret.graph.skills import domain_history
+from unfret.graph.skills import domain_age, domain_history
+from unfret.graph.skills.domain_age import DomainAgeSkill
 from unfret.graph.skills.domain_history import DomainHistorySkill
 from unfret.graph.state import Finding
 from unfret.x402.verdict import skills_for
@@ -335,3 +336,181 @@ async def test_planned_next_to_the_photo_search_and_outside_its_budget() -> None
     # The round after: the history doesn't use up the photo budget, and isn't planned twice.
     after = state | {"triage_round": 1, "expensive_runs": ["domain_history"]}
     assert (await triage.plan(after, {"reverse_image", "domain_history"})).run == ()
+
+
+# ── The archive's first copy as the address's age, where the registry gives none ─────────────────────────────
+
+
+def _registry(rdap: dict[str, Any] | None, certificates: list[dict[str, str]]) -> Any:
+    """A stand-in for domain_age's fetch_public: the RDAP answer (``None``: not found) and crt.sh's."""
+    request = httpx.Request("GET", "https://rdap.test/")
+
+    async def fetch(url: str, **_: Any) -> bytes:
+        if "crt.sh" in url:
+            return json.dumps(certificates).encode()
+        if rdap is None:
+            raise httpx.HTTPStatusError("x", request=request, response=httpx.Response(404, request=request))
+        return json.dumps(rdap).encode()
+
+    return fetch
+
+
+# A .nl-style answer: the registry knows the domain but publishes no registration date.
+NO_DATE = {"events": [{"eventAction": "last changed", "eventDate": "2024-02-01"}], "entities": []}
+
+
+def _first_copy() -> Any:
+    asked: list[str] = []
+
+    async def fetch(url: str, **kwargs: Any) -> bytes:
+        asked.append(url)
+        assert kwargs["max_bytes"] <= 16 * 1024 and kwargs["total_timeout"] <= 15
+        return fixture("cdx_first.json")
+
+    fetch.asked = asked  # type: ignore[attr-defined]
+    return fetch
+
+
+def _age_state(url: str, page_type: str = "storefront") -> Any:
+    return state(url, BOOTS) | {"page_type": page_type, "features": {}}
+
+
+async def test_first_capture_is_one_paced_index_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    fetch = _first_copy()
+    monkeypatch.setattr(domain_history, "fetch_public", fetch)
+    assert await domain_history.first_capture("www.trailstone.example") == "2009-04-12"
+    [url] = fetch.asked
+    assert url.startswith("https://web.archive.org/cdx/search/cdx?url=www.trailstone.example/")
+    assert "limit=1" in url and "fl=timestamp" in url and "&from=" not in url  # the earliest copy, only its date
+    assert len(domain_history.pace.sent) == 1  # within the same pace as the history look
+
+    async def empty(url: str, **_: Any) -> bytes:
+        return b"[]"
+
+    monkeypatch.setattr(domain_history, "fetch_public", empty)
+    assert await domain_history.first_capture("new.example") is None
+
+
+async def test_an_age_from_the_archive_when_the_registry_gives_no_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(domain_age, "fetch_public", _registry(NO_DATE, [{"not_before": "2025-06-01T00:00:00"}]))
+    fetch = _first_copy()
+    monkeypatch.setattr(domain_history, "fetch_public", fetch)
+    out = await DomainAgeSkill().run(_age_state("https://www.trailstone.example/p"))
+    f = out["features"]
+    assert f["domain_age.age_from_archive"] == 1.0 and f["domain_age.archive_first_year"] == 2009.0
+    assert f["domain_age.archive_age_years"] > 17
+    # The registry's own age is untouched: the archive's is a minimum, kept apart, never the registration date.
+    assert f["domain_age.age_years"] < 2
+    first = next(x for x in out["findings"] if x.type == "archive_first_capture")
+    assert first.evidence.startswith("Online since at least 2009-04-12, per the Internet Archive")
+    assert "not the registration date" in first.evidence
+    assert not [x for x in out["findings"] if x.type == "registered"]
+    # Cached per address like the history look: the next check doesn't ask again.
+    await DomainAgeSkill().run(_age_state("https://www.trailstone.example/q"))
+    assert len(fetch.asked) == 1
+
+
+async def test_nothing_from_the_registry_or_the_certificates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(domain_age, "fetch_public", _registry(None, []))
+    monkeypatch.setattr(domain_history, "fetch_public", _first_copy())
+    out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
+    f = out["features"]
+    assert f["domain_age.known"] == 0.0  # the registry is still silent; the archive only says "at least"
+    assert f["domain_age.age_from_archive"] == 1.0 and f["domain_age.archive_first_year"] == 2009.0
+
+
+async def test_no_archive_question_with_a_registration_date_or_off_a_shop(monkeypatch: pytest.MonkeyPatch) -> None:
+    registered = {"events": [{"eventAction": "registration", "eventDate": "2015-03-01"}]}
+    monkeypatch.setattr(domain_age, "fetch_public", _registry(registered, []))
+    fetch = _first_copy()
+    monkeypatch.setattr(domain_history, "fetch_public", fetch)
+    out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
+    assert "domain_age.archive_age_years" not in out["features"]
+    monkeypatch.setattr(domain_age, "fetch_public", _registry(NO_DATE, []))
+    await DomainAgeSkill().run(_age_state("https://plumber.example/", page_type="service_site"))
+    monkeypatch.setattr(settings, "domain_history", False)
+    await DomainAgeSkill().run(_age_state("https://other.example/p"))
+    assert fetch.asked == []
+
+
+async def test_paced_out_or_refused_it_is_skipped_and_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(domain_age, "fetch_public", _registry(NO_DATE, []))
+    monkeypatch.setattr(domain_history, "fetch_public", _first_copy())
+    monkeypatch.setattr(domain_history.pace, "paused_until", float("inf"))  # the archive refused us lately
+    out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
+    assert out["features"]["domain_age.known"] == 1.0 and "domain_age.archive_age_years" not in out["features"]
+
+    async def refused(url: str, **_: Any) -> bytes:
+        raise httpx.ConnectError("Connection refused")
+
+    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(domain_history, "fetch_public", refused)
+    out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
+    assert "domain_age.archive_age_years" not in out["features"]
+    assert domain_history.pace.paused_until > 0  # the refusal pauses the archive for the history look too
+
+    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(domain_history, "fetch_public", _first_copy())
+    out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
+    assert out["features"]["domain_age.archive_first_year"] == 2009.0  # neither was remembered
+
+
+ARCHIVE_AGE = {
+    "domain_age.known": 1.0,
+    "domain_age.age_years": 0.0,
+    "domain_age.archive_age_years": 17.6,
+    "domain_age.archive_first_year": 2009.0,
+    "domain_age.age_from_archive": 1.0,
+}
+
+
+def test_an_archive_age_counts_only_once_the_history_look_agrees() -> None:
+    def positives(features: dict[str, float]) -> set[str]:
+        verdict = shopper.build(80, features=features, findings=[], facts=PageFacts(), page_type="storefront")
+        return {p.type for p in verdict.positives}
+
+    assert shopper.address_years(ARCHIVE_AGE) == (17.6, True)
+    # Before (or without) a look at its earlier copies: no "Established shop" from the archive's age alone.
+    assert not positives(ARCHIVE_AGE) & {"established_domain", "established_archive"}
+    assert not positives(ARCHIVE_AGE | {"domain_history.checked": 1.0, "domain_history.snapshots": 0.0}) & {
+        "established_archive"
+    }
+    # Its recent copies show the same shop: established, by the archive, said as a minimum.
+    agreed = ARCHIVE_AGE | {"domain_history.checked": 1.0, "domain_history.snapshots": 3.0}
+    assert "established_archive" in positives(agreed) and "established_domain" not in positives(agreed)
+    verdict = shopper.build(80, features=agreed, findings=[], facts=PageFacts(), page_type="storefront")
+    established = next(p for p in verdict.positives if p.type == "established_archive")
+    assert established.title == "Established shop"
+    assert established.detail.startswith("This web shop's address has been online since at least 2009, per the")
+    carded = card.complete(verdict.model_dump(), state("https://trailstone.example/p", BOOTS) | {
+        "features": agreed, "findings": []}, available=SKILLS, applicable=SKILLS)  # fmt: skip
+    shown = next(p for p in carded["positives"] if p["type"] == "established_archive")
+    assert shown["source"] == "Earlier copies of the site (Internet Archive, web.archive.org)"
+    # A registration date always wins over the archive's minimum.
+    assert shopper.address_years(ARCHIVE_AGE | {"domain_age.age_years": 20.0}) == (20.0, False)
+
+
+async def test_an_archive_age_taken_back_by_the_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(domain_history, "fetch_public", archive({"20251203090101": "bakery.html"}))
+    out = await DomainHistorySkill().run(
+        state("https://www.oudebakker.example/p", SNEAKERS) | {"features": ARCHIVE_AGE}
+    )
+    repurposed = next(x for x in out["findings"] if x.type == "domain_repurposed")
+    assert repurposed.evidence.startswith(
+        "oudebakker.example has been online since at least 2009 (per the Internet Archive), but the Internet "
+        "Archive's copy from December 2025 shows a different site"
+    )
+    features = ARCHIVE_AGE | out["features"]
+    verdict = shopper.build(80, features=features, findings=out["findings"], facts=PageFacts(),
+                            page_type="storefront")  # fmt: skip
+    reason = next(r for r in verdict.reasons if r.type == "domain_repurposed")
+    assert reason.detail.startswith("This web address is at least 17 years old, but as recently as December 2025")
+    assert not {p.type for p in verdict.positives} & {"established_domain", "established_archive"}
+
+
+def test_an_archive_age_triggers_the_history_look() -> None:
+    available = {"domain_history"}
+    planned = triage.history_plan(_triage_state(0, DOUBTFUL | ARCHIVE_AGE), available)
+    assert planned.run == ("domain_history",) and "Internet Archive" in planned.reason
+    young = ARCHIVE_AGE | {"domain_age.archive_age_years": 1.5}
+    assert triage.history_plan(_triage_state(0, DOUBTFUL | young), available).run == ()

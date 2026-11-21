@@ -479,6 +479,10 @@
       "title": "Established shop",
       "detail": "This web shop's address has existed for {years} years."
     },
+    "established_archive": {
+      "title": "Established shop",
+      "detail": "This web shop's address has been online since at least {year}, per the Internet Archive, and its earlier copies show the same shop."
+    },
     "trust_info_present": {
       "title": "Shop details present",
       "detail": "Return policy and company details are on the page."
@@ -716,6 +720,9 @@
     "claims.store_without_address": "Mentions a store, gives no address",
     "domain_age.founded_claim_years": "Years in business claimed",
     "domain_age.founded_contradicted": "Long-established claim on a new site",
+    "domain_age.archive_age_years": "Online since at least (Internet Archive)",
+    "domain_age.archive_first_year": "First copy in the Internet Archive",
+    "domain_age.age_from_archive": "Age from the Internet Archive, not the registry",
     "market_price.other_shops": "Other shops with this product",
     "market_price.below_market": "Below the usual price",
     "market_price.far_below": "Far below the usual price",

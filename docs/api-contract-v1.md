@@ -1452,6 +1452,24 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   track record or known brand vouches for, a claim physics, the price or an authority rules out
   (`claim_audit.impossible`) makes "Looks fine" "Worth a look" at most; it never makes a warning by itself.
 
+## Changes (an address's age from the Internet Archive where the registry gives none; backwards-compatible)
+
+- On a web shop whose domain registry publishes no registration date (common for .nl, .de and other EU country
+  domains), a deep check may ask the Internet Archive for the first copy of the shop's home page. Its date is a
+  minimum for the address's age, never its registration date.
+- `domain_age` adds `.archive_age_years`, `.archive_first_year` and `.age_from_archive` (the address's oldest age is
+  the archive's, not the registry's or the first certificate's); `.age_years` and `.known` keep their meaning
+  (registry or first certificate only). New finding `archive_first_capture`: "Online since at least <date>, per the
+  Internet Archive (its first copy of <address>; a minimum, not the registration date)."
+- An archive age of at least 3 years plans the `domain_history` look on a doubtful page, as a registered one does.
+- A new positive `type` **`established_archive`**: title "Established shop", detail "This web shop's address has been
+  online since at least <year>, per the Internet Archive, and its earlier copies show the same shop.", `source`
+  "Earlier copies of the site (Internet Archive, web.archive.org)". Given only when the address has no registration
+  age of 3 years, its archive age is 3 years or more, and `domain_history` compared copies with none showing another
+  site, a parked page or a placeholder; never together with `established_domain`.
+- `domain_repurposed` on an archive age reads "This web address is at least <n> years old, but …".
+- x402 `POST /v1/check` and the MCP server: unchanged in shape.
+
 ## Changes (the product photos against the listing's own claims; backwards-compatible)
 
 - Two new reason types on product pages (deep checks only), severity medium, source "The listing's photos (Unfret's

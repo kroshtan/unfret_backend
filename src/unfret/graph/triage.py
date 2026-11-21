@@ -10,8 +10,10 @@ came back empty but every other signal still points to a supplier product: try t
 The look at the shop's earlier copies in the Internet Archive (``domain_history``) is planned by rules alone, once,
 next to the photo plan and outside its budget (it costs no money, only a few seconds, and runs in parallel with the
 photo search): on a web shop whose address is old enough to count as "established"
-(:data:`unfret.shopper.ESTABLISHED_DOMAIN_YEARS`) and whose page already looks doubtful by the cheap skills
-(:func:`looks_doubtful`), the case where an address's age would otherwise vouch for a shop that took it over.
+(:data:`unfret.shopper.ESTABLISHED_DOMAIN_YEARS`; by its registration, or where the registry gives no date, the
+Internet Archive's first copy of it: :func:`unfret.shopper.address_years`) and whose page already looks doubtful
+by the cheap skills (:func:`looks_doubtful`), the case where an address's age would otherwise vouch for a shop
+that took it over.
 """
 
 import math
@@ -189,10 +191,11 @@ def history_plan(state: AnalysisState, available: set[str]) -> TriagePlan:
         return TriagePlan((), "")
     if not (settings.domain_history and settings.network_lookups) or state.get("page_type") != "storefront":
         return TriagePlan((), "")
-    years = state.get("features", {}).get("domain_age.age_years", 0.0)
+    years, from_archive = shopper.address_years(state.get("features", {}))
     if years < shopper.ESTABLISHED_DOMAIN_YEARS or not looks_doubtful(state):
         return TriagePlan((), "")
-    return TriagePlan((HISTORY,), f"An address of {int(years)} years on a doubtful page: check its earlier copies.")
+    age = f"at least {int(years)} years (Internet Archive)" if from_archive else f"{int(years)} years"
+    return TriagePlan((HISTORY,), f"An address of {age} on a doubtful page: check its earlier copies.")
 
 
 async def _first_round(state: AnalysisState) -> TriagePlan:

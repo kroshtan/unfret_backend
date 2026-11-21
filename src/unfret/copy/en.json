@@ -109,6 +109,14 @@
       "title": "Discount on the marketplace's reference price",
       "detail": "The 'was' price is the marketplace's own {anchor}, shown on every discounted listing: a reference price, not necessarily what anyone paid."
     },
+    "brand_reference": {
+      "title": "Discount on the brand's recommended price",
+      "detail": "The 'was' price is the brand's own {anchor}, on the brand's own shop: its recommended price, not necessarily what anyone paid."
+    },
+    "disclosed_reference": {
+      "title": "Discount on a recommended price, below the 30-day low",
+      "detail": "The 'was' price is labelled {anchor}, and the page gives the lowest price of the last 30 days, {low}: today's price is at or below it."
+    },
     "permanent_sale": {
       "title": "Never-ending sale",
       "detail": "The page says {phrase}: shops that are always closing down use this to rush you."

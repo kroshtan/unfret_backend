@@ -7,14 +7,22 @@ anonymous price store (:mod:`unfret.price_store`) on the way.
 A marketplace's own reference-price label (Amazon's "List Price", "Adviesprijs", "UVP", "RRP", …) is a note
 (``marketplace_reference``), not the ``reference_anchor`` reason: the marketplace prints it on every discounted
 listing. It becomes the reason only once the price history shows the price was never charged.
+
+So is a recommended-retail label ("UVP", "RRP", "Adviesprijs", …) on the brand's own shop (``brand_reference``):
+there it is the maker's own recommended price. And so is one on a page that gives the lowest price of the last 30
+days (the EU's price-reduction disclosure: "30 Tage Bestpreis", "Laagste prijs van de afgelopen 30 dagen", …) with
+today's price at or below it (``disclosed_reference``). Any other web shop's label stays the reason.
 """
 
 import re
 
-from unfret import price_store
+from unfret import brands, price_store
 from unfret.config import settings
+from unfret.facts._parse import parse_number
 from unfret.graph.skills import Observation, Skill, SkillOutput
+from unfret.graph.skills.listing import generated_brand_score
 from unfret.graph.state import AnalysisState
+from unfret.net import hostname
 
 # A reduction this deep is practically always measured against a price nobody paid.
 IMPLAUSIBLE_DISCOUNT = 0.7
@@ -87,6 +95,57 @@ _OWN_LABELS: dict[str, frozenset[str]] = {
     # eBay strikes its "List price" through above the price on every discounted listing.
     "ebay": frozenset({"list price"}),
 }
+# The labels that name the maker's recommended retail price, in every language read ("compare at", "usually",
+# "elsewhere", "list price" and the like are the shop's own claims, not the maker's).
+_RECOMMENDED_LABELS = frozenset(
+    {
+        "adviesprijs",
+        "adviesverkoopprijs",
+        "rrp",
+        "msrp",
+        "uvp",
+        "unverbindliche preisempfehlung",
+        "unverb. preisempf.",
+        "recommended retail price",
+        "prix conseillé",
+        "prezzo consigliato",
+        "precio de venta recomendado",
+        "precio recomendado",
+        "p.v.p.r.",
+        "pvpr",
+        "preço recomendado",
+        "sugerowana cena",
+        "rekommenderat pris",
+        "rek. pris",
+        "vejledende pris",
+        "veiledende pris",
+        "suositushinta",
+        "doporučená cena",
+    }
+)
+# Shop systems a brand runs its own shop on; marketplaces have their own labels (above).
+_WEB_SHOPS = frozenset({"generic", "shopify", "woocommerce"})
+# The lowest price of the last 30 days, as the EU's price-reduction rule (the Omnibus directive) has shops disclose
+# it next to a reduced price, in the languages read: German, Dutch, English, French, Italian, Spanish, Portuguese,
+# Polish, Swedish, Danish, Norwegian, Finnish, Czech. The price follows the label.
+_THIRTY_DAY_LOW_RE = re.compile(
+    r"(?:30[- ]?tage[- ]?(?:best|tiefst|niedrigst)preis|(?:best|tiefst)preis der letzten 30 tage"
+    r"|niedrigster preis (?:der|in den|innerhalb der) letzten 30 tage[n]?"
+    r"|laagste prijs (?:van |in )?(?:de )?(?:afgelopen|laatste) 30 dagen|30[- ]dagen[- ]laagste prijs"
+    r"|lowest price (?:in|of|over|during) the (?:last|past|previous|prior) 30 days"
+    r"|30[- ]day (?:low(?:est price)?|best price)"
+    r"|prix le plus bas (?:pratiqué )?(?:des|au cours des|sur les|lors des) 30 derniers jours"
+    r"|prezzo più basso (?:degli|negli|praticato negli) ultimi 30 giorni"
+    r"|precio más bajo (?:de los|en los) últimos 30 días|preço mais baixo (?:dos|nos) últimos 30 dias"
+    r"|najniższa cena (?:z|w ciągu) (?:ostatnich )?30 dni(?: przed obniżką)?"
+    r"|lägsta pris(?:et)? (?:de|under de) senaste 30 dagarna|laveste pris (?:i |de )*seneste 30 dage"
+    r"|laveste pris (?:de |i )*siste 30 dager|alin hinta (?:viimeisen|edellisen) 30 päivän aikana"
+    r"|30 päivän alin hinta|nejnižší cena (?:za )?(?:posledních )?30 dn[ií])"
+    rf"(?!\w)\s*\(?\s*:?\s*({_PRICE}[\d.,]*)",
+    re.IGNORECASE,
+)
+# Today's price may be this much above the disclosed 30-day low (rounding) and still be at it.
+_AT_LOW = 1.005
 _PERMANENT_SALE_RE = re.compile(
     r"\b(opheffingsuitverkoop|totale uitverkoop|alles moet weg|wegens opheffing|laatste kans|closing down sale"
     r"|everything must go|store closing|liquidation sale|going out of business|räumungsverkauf|alles muss raus"
@@ -130,8 +189,8 @@ class PricingSkill(Skill):
             observations.append(
                 Observation(type="implausible_discount", evidence=f"{discount:.0%} off {facts.list_price:g}.")
             )
-        own = _OWN_LABELS.get(facts.platform, frozenset())
         anchors = list(_ANCHOR_RE.finditer(text)) if discount > 0 else []
+        own, note, suffix = _notes(state) if anchors else (frozenset(), "", "")
         anchor = next((m for m in anchors if m.group(1).lower() not in own), None)
         own_anchor = None if anchor else next((m for m in anchors if m.group(1).lower() in own), None)
         if anchor:
@@ -169,5 +228,60 @@ class PricingSkill(Skill):
                 features["reference_anchor"] = True
                 observations.append(Observation(type="reference_anchor", evidence=label))
             else:
-                observations.append(Observation(type="marketplace_reference", evidence=label))
+                observations.append(Observation(type=note, evidence=label + suffix))
         return self.output(features, observations)
+
+
+def _notes(state: AnalysisState) -> tuple[frozenset[str], str, str]:
+    """
+    The reference-price labels that are a note on this page, not the reason, and which note they give.
+
+    A marketplace's own labels (``marketplace_reference``); on a web shop, a recommended-retail label on the brand's
+    own shop (``brand_reference``) or next to a 30-day low that agrees with the discount (``disclosed_reference``).
+
+    :param state: The graph state; uses ``facts``, ``cleaned_content``, ``url`` and ``page_type``.
+    :return: The labels (lower case), the note's finding type, and what its evidence adds after the label.
+    """
+    facts = state["facts"]
+    if own := _OWN_LABELS.get(facts.platform):
+        return own, "marketplace_reference", ""
+    if _brands_own_shop(state):
+        return _RECOMMENDED_LABELS, "brand_reference", ""
+    low = thirty_day_low(state["cleaned_content"])
+    if low is not None and _agrees(facts.price, facts.list_price, low):
+        return _RECOMMENDED_LABELS, "disclosed_reference", f"; lowest price in the last 30 days: {low:g}"
+    return frozenset(), "", ""
+
+
+def _brands_own_shop(state: AnalysisState) -> bool:
+    """
+    Whether a page is the brand's own web shop: the shop's domain is the brand's name, or the seller is the brand.
+
+    :param state: The graph state; uses ``facts``, ``url`` and ``page_type``.
+    :return: ``True`` on a web shop (not a marketplace) whose brand runs it, by a brand that doesn't look generated.
+    """
+    facts = state["facts"]
+    if state.get("page_type") != "storefront" or facts.platform not in _WEB_SHOPS or not facts.brand:
+        return False
+    if generated_brand_score(facts.brand) >= 0.6:  # a made-up brand's "recommended" price is the shop's own
+        return False
+    host = hostname(state.get("url", ""))
+    if host and brands.is_shop_name(facts.brand, price_store.registrable_domain(host)):
+        return True
+    return bool(brands.same_company(facts.brand, facts.seller))
+
+
+def thirty_day_low(text: str) -> float | None:
+    """
+    The lowest price of the last 30 days the page discloses (the EU's price-reduction rule), if it does.
+
+    :param text: The page's cleaned text.
+    :return: The first disclosed 30-day low, or ``None``.
+    """
+    m = _THIRTY_DAY_LOW_RE.search(text)
+    return parse_number(m.group(1)) if m else None
+
+
+def _agrees(price: float | None, was: float | None, low: float) -> bool:
+    # Today's price at or below the disclosed 30-day low, and the low at or below the "was" price.
+    return price is not None and was is not None and 0 < price <= low * _AT_LOW and low <= was

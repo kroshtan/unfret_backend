@@ -4,6 +4,18 @@
 
 ### Page facts
 
+* **Every product page gives its gallery first, not only Amazon's.** A new step (`facts/gallery.py`) puts the
+  product's photos at the front of `image_urls`, large and in order, on any shop system or marketplace: the main photo
+  of the structured data (a schema.org `image` array or one) or the Open Graph image, then AliExpress's
+  `imagePathList` and Temu's `gallery`, Shopify's product JSON (`ProductJson-…`, `data-product-json`), and gallery
+  markup (zoom and full-size attributes such as WooCommerce's `data-large_image`, eBay's `data-zoom-src` and bol.com's
+  `data-zoom-image-url`; images inside a gallery, carousel or slider, never in a header, menu, footer, video or related
+  products, each at its largest `srcset` size). One photo in several sizes (Shopify's `_800x`, WordPress's
+  `-300x300`, eBay's `s-l500`, AliExpress's `_220x220`) counts once; theme URL templates (`_{width}x`) are no photo.
+  At most 12, on pages about a product only; the page's other images follow as before. Amazon (its own module) and
+  Walmart keep their galleries. On the corpus's product pages it changes the photos of 221 Shopify, 62 other, 18
+  WooCommerce pages.
+
 * **Amazon pages give the product's whole gallery.** A page's photos were the main image followed by everything
   else the page showed (thumbnails 40 px wide, banners, sprites, tracking pixels), so the steps that look at photos
   saw one product photo. Now an Amazon page on any locale gives its gallery, large and in its order: from the image

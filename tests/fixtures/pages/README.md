@@ -22,6 +22,12 @@ these tests (text, markup and data are our own); no third-party page content, im
 | `generic-jsonld-strikethrough.html` | A shop's Product JSON-LD with a `StrikethroughPrice` price specification, an `ImageObject` by `contentUrl`, and its rating in a separate `AggregateRating` block | `tests/unit/test_facts_reviews_prices.py` |
 | `generic-microdata-rating.html` | A product's rating in microdata (`aggregateRating`) and a Stamped badge | `tests/unit/test_facts_reviews_prices.py` |
 | `ebay-was-price.html` | An eBay item's price section with a struck "List price" | `tests/unit/test_facts_reviews_prices.py` |
+| `shopify-gallery.html` | A Shopify product page's photos (Dawn-style media gallery with `srcset`, a lazy URL template, thumbnails, the theme's `ProductJson-…` with one photo only there, a related product, logo, banner and payment icons) | `tests/unit/test_facts.py` (the product gallery) |
+| `woocommerce-gallery.html` | A WooCommerce product page: one photo in the JSON-LD, the gallery's `data-large_image` copies (`-scaled`, `-600x800` thumbnails), related products | `tests/unit/test_facts.py` |
+| `ebay-item-gallery.html` | An eBay item page: JSON-LD `image` array, the `ux-image-carousel` with `data-zoom-src`, similar items | `tests/unit/test_facts.py` |
+| `bolcom-gallery.html` | A bol.com product page's filmstrip (`data-zoom-image-url`, a video's still, recommendations) | `tests/unit/test_facts.py` |
+| `aliexpress-gallery.html` | An AliExpress item's `imagePathList` in its page data, thumbnail copies on the page | `tests/unit/test_facts.py` |
+| `temu-gallery.html` | A Temu goods page's `gallery` in its page data | `tests/unit/test_facts.py` |
 | `script-shell.html` | A single-page app's empty shell: no visible text, price or product data until scripts run | the e2e sweep (`PAGE_TOO_THIN`) |
 
 The e2e sweep (`tests/e2e`) has dev fetch these from the forge at the commit dev runs

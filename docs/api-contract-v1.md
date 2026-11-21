@@ -1570,3 +1570,8 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   never moves the band. It is `reference_anchor` again once the product's price history shows the reference price
   was not charged (`pricing.was_above_30d_low`). A web shop's labels, and a seller's own anchor in a marketplace
   listing's text, are unchanged.
+- Amazon's labels on its other locales count too ("Prezzo consigliato", "Prezzo di listino", "Precio recomendado",
+  "PVPR", "Precio de venta recomendado", "Cena katalogowa", "Sugerowana cena", "Rek. pris", "Rekommenderat pris",
+  "Listpris", "Unverb. Preisempf." and the Portuguese, Danish, Norwegian, Finnish and Czech equivalents), and so does
+  eBay's struck "List price". On a web shop the new labels give `reference_anchor`, as "RRP" does. A reference price
+  written with its currency after the number ("UVP: 14,39 €") now matches as well; it never did before.

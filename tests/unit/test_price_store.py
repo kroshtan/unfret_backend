@@ -103,6 +103,79 @@ async def test_a_marketplaces_own_reference_price_is_a_note(platform: Platform, 
     assert [o.type for o in out["findings"]] == ["marketplace_reference"]
 
 
+@pytest.mark.parametrize(
+    ("platform", "text"),
+    [
+        # Amazon's other EU locales: .it, .es, .pl, .se.
+        ("amazon", "-24% 10,90 € Prezzo consigliato: 14,39 €"),
+        ("amazon", "-24% 10,90 € Prezzo di listino: 14,39 €"),
+        ("amazon", "-24% 10,90 € Precio recomendado: 14,39 €"),
+        ("amazon", "-24% 10,90 € PVPR: 14,39 €"),
+        ("amazon", "-24% 10,90 € Precio de venta recomendado: 14,39 €"),
+        ("amazon", "-24% 10,90 zł Cena katalogowa: 14,39 zł"),
+        ("amazon", "-24% 10,90 zł Sugerowana cena: 14,39 zł"),
+        ("amazon", "-24% 109 kr Rek. pris: 143,90 kr"),
+        ("amazon", "-24% 10,90 € Unverb. Preisempf.: 14,39 €"),
+        # eBay's struck "List price".
+        ("ebay", "US $10.90 List price US $14.39 Save US $3.49 (24% off)"),
+    ],
+)
+async def test_eu_marketplace_reference_labels_are_a_note(platform: Platform, text: str) -> None:
+    facts = PageFacts(platform=platform, price=10.9, list_price=14.39)
+    out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [o.type for o in out["findings"]] == ["marketplace_reference"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The currency before or after the number, "," or "." for decimals, "." "," or a space for thousands.
+        "UVP: 14,39 €",
+        "UVP: 14,39€ jetzt 10,90€",
+        "UVP 1.299,00 € jetzt 999,00 €",
+        "UVP: € 1.299,00",
+        "UVP: EUR 14,39",
+        "UVP: 14,39 EUR",
+        "RRP: £1,299.00",
+        "Prix conseillé : 1 299,00 €",
+        "Prezzo consigliato: 19,99 €",
+        "Precio recomendado: 1.299 €",
+        "PVPR 19,99 €",
+        "Cena katalogowa: 1 299,00 zł",
+        "Rekommenderat pris: 1 299 kr",
+        "Vejledende pris: 1.299,00 kr.",
+    ],
+)
+async def test_a_reference_label_matches_whatever_the_price_format(text: str) -> None:
+    out = await PricingSkill().run(state(PageFacts(price=10.9, list_price=14.39), text=text))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+    assert [o.type for o in out["findings"]] == ["reference_anchor"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Prezzo consigliato: 14,39 €", "PVPR: 14,39 €", "Cena katalogowa: 14,39 zł", "Rek. pris: 143,90 kr"],
+)
+async def test_eu_reference_labels_on_a_web_shop_are_the_reason(text: str) -> None:
+    out = await PricingSkill().run(state(PageFacts(price=10.9, list_price=14.39), text=text))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+
+
+async def test_a_label_without_a_price_after_it_is_not_an_anchor() -> None:
+    text = "UVP des Herstellers beachten. Normaal 2 dagen levertijd. Prezzo consigliato dal produttore."
+    out = await PricingSkill().run(state(PageFacts(price=10.9, list_price=14.39), text=text))
+    assert out["features"] == {}
+
+
+async def test_an_ebay_sellers_own_reference_label_still_counts() -> None:
+    facts = PageFacts(platform="ebay", price=10.9, list_price=14.39)
+    text = "US $10.90 List price US $14.39. RRP £49.99, yours for £10.90!"
+    out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+    assert [o.evidence for o in out["findings"]] == ['"RRP"']
+
+
 async def test_a_marketplaces_own_reference_price_never_charged_is_the_reason(store: MemoryPriceStore) -> None:
     url = "https://www.amazon.nl/dp/B0ABC12345"
     facts = PageFacts(platform="amazon", price=39.95, list_price=79.95, currency="EUR")

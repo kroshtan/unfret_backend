@@ -21,19 +21,51 @@ IMPLAUSIBLE_DISCOUNT = 0.7
 # A "was" price this much above the lowest price of the last 30 days was not the price before the reduction.
 _ABOVE_LOW = 1.05
 
-_PRICE = r"(?:[€$£]\s*\d|\d[\d.,]*\s*(?:€|eur|euro|usd|gbp)\b)"
+# A price with its currency before ("€ 14,39", "EUR 14.39", eBay's "US $14.39") or after the number ("14,39 €",
+# "1.299,00 zł", "1 299 kr", the usual order in most of the EU), with "." or "," for decimals and "." "," or a space
+# for thousands.
+# A trailing sign is matched without a word boundary: "€" is no word character, so "14,39 €" ends in none.
+_NUMBER = r"\d(?:[\d.,]|[ \u00a0\u202f]\d{3}(?!\d))*"
+_PRICE = (
+    rf"(?:(?:(?:\b(?:us|au|ca|c)\s?)?[€$£]|\b(?:eur|usd|gbp|chf|sek|pln)\s)\s*\d"
+    rf"|{_NUMBER}\s*(?:[€$£]|(?:eur|euro|usd|gbp|chf|sek|nok|dkk|pln|zł|kr)(?!\w)))"
+)
+# Recommended-retail and list-price labels on Amazon's other EU locales and the big EU marketplaces: Italian,
+# Spanish, Portuguese, Polish, Swedish, Danish, Norwegian, Finnish, Czech.
+_EU_LABEL_LIST = (
+    "prezzo consigliato",
+    "prezzo di listino",
+    "precio de venta recomendado",
+    "precio recomendado",
+    "p.v.p.r.",
+    "pvpr",
+    "preço recomendado",
+    "cena katalogowa",
+    "sugerowana cena",
+    "rekommenderat pris",
+    "rek. pris",
+    "listpris",
+    "vejledende pris",
+    "veiledende pris",
+    "suositushinta",
+    "doporučená cena",
+)
+_EU_LABELS = "|".join(re.escape(label) for label in _EU_LABEL_LIST)
 # "Was" prices that are a reference (recommended retail, "usually", "elsewhere", "value"), not this shop's own
 # earlier price. Plain "was"/"van" is the honest label and doesn't count; "van … voor …" only with a vague anchor.
 _ANCHOR_RE = re.compile(
     rf"\b(adviesprijs|adviesverkoopprijs|vergelijkbare? (?:waarde|prijs)|meestal|normaal|elders|winkelwaarde"
-    rf"|rrp|msrp|uvp|unverbindliche preisempfehlung|recommended retail price|compare at|comparable value"
-    rf"|retail value|elsewhere|usually|typical price|list price|prix conseillé)\b\s*:?\s*(?:{_PRICE})",
+    rf"|rrp|msrp|uvp|unverbindliche preisempfehlung|unverb\. preisempf\.|recommended retail price|compare at"
+    rf"|comparable value|retail value|elsewhere|usually|typical price|list price|prix conseillé"
+    rf"|{_EU_LABELS})(?!\w)\s*:?\s*(?:{_PRICE})",
     re.IGNORECASE,
 )
 # Marketplaces print their own reference-price label on every discounted listing, whatever the seller does, so on
 # their pages it is a note (``marketplace_reference``), not a reason. Amazon's in every locale its pages are read in
 # ("List Price" and "Typical price" on .com, "RRP" on .co.uk, "UVP" or "Unverbindliche Preisempfehlung" on .de,
-# "Adviesprijs" on .nl, "Prix conseillé" on .fr), bol.com's "Adviesprijs" and "Meestal", Walmart's.
+# "Adviesprijs" on .nl, "Prix conseillé" on .fr, "Prezzo consigliato" on .it, "Precio recomendado" or "PVPR" on
+# .es, "Cena katalogowa" on .pl, "Rek. pris" on .se, …), bol.com's "Adviesprijs" and "Meestal", Walmart's, and
+# eBay's struck "List price".
 # A made-up reference price there is the reason only once the price history shows it was never charged (part 2).
 _OWN_LABELS: dict[str, frozenset[str]] = {
     "amazon": frozenset(
@@ -45,11 +77,15 @@ _OWN_LABELS: dict[str, frozenset[str]] = {
             "uvp",
             "unverbindliche preisempfehlung",
             "adviesprijs",
+            "unverb. preisempf.",
             "prix conseillé",
+            *_EU_LABEL_LIST,
         }
     ),
     "bol.com": frozenset({"adviesprijs", "adviesverkoopprijs", "meestal"}),
     "walmart": frozenset({"list price", "typical price"}),
+    # eBay strikes its "List price" through above the price on every discounted listing.
+    "ebay": frozenset({"list price"}),
 }
 _PERMANENT_SALE_RE = re.compile(
     r"\b(opheffingsuitverkoop|totale uitverkoop|alles moet weg|wegens opheffing|laatste kans|closing down sale"

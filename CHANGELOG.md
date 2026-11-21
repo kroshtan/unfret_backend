@@ -17,7 +17,7 @@
   `ProductGroup`'s `hasVariant` and `variesBy`, else the page's own picker (a select or radio buttons named as a size,
   colour, style or variant, never quantity, country, currency, delivery or sorting, outside header, menu and footer;
   a price at the end of an option's label is its price). `variations` (Amazon's swatch labels) is unchanged. On the
-  golden set, 38 of the 180 pages have variants (schema.org 18, Shopify 9, picker 6, Walmart 3, Amazon 2).
+  golden set, 38 of the 180 pages have variants (schema.org 18, Shopify 9, picker 6, Walmart 3, Amazon 2) (#285).
 
 * **Every product page gives its gallery first, not only Amazon's.** A new step (`facts/gallery.py`) puts the
   product's photos at the front of `image_urls`, large and in order, on any shop system or marketplace: the main photo
@@ -70,7 +70,7 @@
   calls fine is "Worth a look" with it, whoever sells it. Next step "Pick the option you actually want and check its
   own price, photos and reviews". How far the prices spread beyond what the options' own amounts explain is a feature
   and context for the model, never told by itself. `UNFRET_VARIANT_CHECK=false` turns it off; each call logs its
-  tokens and cost (`variant_check_usage`).
+  tokens and cost (`variant_check_usage`) (#285).
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery

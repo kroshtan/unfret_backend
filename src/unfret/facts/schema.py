@@ -226,7 +226,7 @@ class PageFacts(BaseModel):
         description="Copyright lines ('© 2026 Acme Outdoor LLC. All rights reserved.'): the keyword and what follows.",
     )
     policy_links: dict[str, str] = Field(
-        default_factory=dict, description="Kind (refund, terms, privacy, contact, imprint, shipping) to URL."
+        default_factory=dict, description="Kind (refund, terms, privacy, contact, about, imprint, shipping) to URL."
     )
     image_urls: list[str] = Field(default_factory=list, max_length=50)
 

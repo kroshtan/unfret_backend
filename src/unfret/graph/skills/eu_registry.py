@@ -30,15 +30,15 @@ from typing import Any
 
 import httpx
 
+from unfret import shop_pages
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
-from unfret.facts import parse_page
 from unfret.facts.vat_ids import check_digits_ok, is_iban_at
 from unfret.graph.skills import NOT_APPLICABLE, SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
 from unfret.graph.skills.us_identity import find_identity, names_any_company
 from unfret.graph.state import AnalysisState
 from unfret.market import shop_market
-from unfret.net import fetch_public, hostname
+from unfret.net import hostname
 from unfret.price_store import registrable_domain
 
 _WITHDRAWAL_RE = re.compile(
@@ -54,8 +54,6 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _VIES_TIMEOUT_S = 10.0
 # The shop's own pages that hold its company details when the product page doesn't, in the order they're tried.
 _LEGAL_PAGE_KINDS = ("contact", "terms")
-_LEGAL_PAGE_TIMEOUT_S = 8.0
-_LEGAL_PAGE_MAX_BYTES = 3 * 1024 * 1024
 _SEPARATOR = r"[\s.]?"
 
 
@@ -127,30 +125,32 @@ def shows_imprint(html: str, url: str) -> bool:
     :param url: Its URL.
     :return: ``True`` when it does.
     """
-    facts, text = parse_page(html, url)
-    legal = " ".join(facts.legal_mentions)
-    return bool(_IMPRINT_RE.search(legal) or _IMPRINT_RE.search(text) or facts.vat_ids)
+    return page_shows_imprint(shop_pages.read_html(html, url))
+
+
+def page_shows_imprint(page: shop_pages.ReadPage) -> bool:
+    """
+    Whether one of the shop's pages, as read, names the company behind the shop (:func:`shows_imprint`).
+
+    :param page: The page (:func:`unfret.shop_pages.read`).
+    :return: ``True`` when it does.
+    """
+    return bool(_IMPRINT_RE.search(page.legal) or _IMPRINT_RE.search(page.text) or page.vat)
 
 
 async def read_legal_pages(urls: list[str]) -> dict[str, Any] | None:
     """
     Read the shop's contact and terms pages for its company details.
 
+    The pages are read through :func:`unfret.shop_pages.read`, so a page the claim audit reads too is fetched once.
+
     :param urls: From :func:`legal_page_urls`.
     :return: ``{"imprint": bool}``, or ``None`` when no page could be read (not a finding either way).
     """
 
     async def one(url: str) -> bool | None:
-        try:
-            body = await fetch_public(
-                url,
-                timeout=_LEGAL_PAGE_TIMEOUT_S,
-                total_timeout=_LEGAL_PAGE_TIMEOUT_S,
-                max_bytes=_LEGAL_PAGE_MAX_BYTES,
-            )
-        except Exception:  # noqa: BLE001 - a page we can't read says nothing about the shop
-            return None
-        return await asyncio.to_thread(shows_imprint, body.decode("utf-8", "replace"), url)
+        page = await shop_pages.read(url)
+        return None if page is None else page_shows_imprint(page)
 
     results = await asyncio.gather(*(one(u) for u in urls))
     if all(r is None for r in results):

@@ -1881,7 +1881,7 @@
       "additionalProperties": {
        "type": "string"
       },
-      "description": "Kind (refund, terms, privacy, contact, imprint, shipping) to URL.",
+      "description": "Kind (refund, terms, privacy, contact, about, imprint, shipping) to URL.",
       "title": "Policy Links",
       "type": "object"
      },

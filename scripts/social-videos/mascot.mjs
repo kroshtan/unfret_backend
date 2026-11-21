@@ -17,6 +17,10 @@
 //   hops   [{ at, dur, height }]  a hop between two keys' x, y (set ease "linear" on the landing key): crouch
 //          before, stretch in the air, a damped squash after landing; height in frame px.
 //   blinks [t]                    nods [{ at, dur?, depth? }]   waves [{ at, dur, amp }]  (a waggle of the glass)
+//   become { at, dur, logo, then, arc? }  it turns into the logo: from `at`, over `dur`, it moves into the box of the
+//          element `logo` (a CSS selector; that element is hidden, the mascot takes its place), its glass fades, its
+//          arms and legs draw into the tile, it straightens and its face settles into the logo's; then it holds
+//          still. The elements `then` (a selector) fade in after. arc: a rise on the way, in frame px.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -213,6 +217,21 @@ export function mascotRuntime(track) {
     return { lift, squash };
   }
 
+  // Turning into the logo: the logo's element is hidden for good, its box is where the tile ends up (the tile's
+  // units are the logo's own, 128 to its side).
+  const become = track.become ?? null;
+  let logoBox = null, thenEls = [];
+  if (become) {
+    const logo = document.querySelector(become.logo);
+    logo.style.visibility = "hidden";
+    thenEls = [...document.querySelectorAll(become.then ?? ":not(*)")];
+    const box = () => {
+      const r = logo.getBoundingClientRect(), root = el.root.getBoundingClientRect();
+      return mul(T(r.left - root.left, r.top - root.top), S(r.width / 128, r.height / 128));
+    };
+    logoBox = box;
+  }
+
   /** Puts the mascot under an element for a while (a scene sliding in over it), else on top of everything. */
   function layer(t) {
     const spot = (track.behind ?? []).find((b) => t >= b.from && t < b.to);
@@ -223,12 +242,20 @@ export function mascotRuntime(track) {
 
   return (t) => {
     layer(t);
+    // b: how far it has turned into the logo (0: not at all, 1: it is the logo). Everything that isn't the logo
+    // fades out with (1 - b); `early` goes first, so the glass and limbs are gone before the face settles.
+    const b = become ? EASE.inout(clamp((t - become.at) / become.dur)) : 0;
+    const keep = 1 - b, early = 1 - smooth(b / 0.6);
+    for (const node of thenEls) {
+      node.style.opacity = String(become ? smooth((t - become.at - become.dur) / 0.4) : 1);
+    }
     const x = channel("x", t), y = channel("y", t), pose = clamp(channel("pose", t)), g = between(pose);
-    let lean = channel("lean", t), mag = g.mag + channel("mag", t), look = channel("look", t);
-    const reach = channel("reach", t), handOff = channel("hand", t), trackLens = channel("track", t);
-    const flat = channel("flat", t), grin = channel("grin", t), brow = channel("brow", t), wide = channel("wide", t);
-    let bob = 0.8 * Math.sin((t * 2 * Math.PI) / 2.6); // breathing
-    const breath = 0.006 * Math.sin((t * 2 * Math.PI) / 2.6 + 0.6);
+    let lean = channel("lean", t) * keep, mag = g.mag + channel("mag", t), look = lerp(channel("look", t), [0, 0], b);
+    const reach = channel("reach", t), handOff = channel("hand", t), trackLens = channel("track", t) * keep;
+    const flat = channel("flat", t) * keep, grin = channel("grin", t) * keep, brow = channel("brow", t) * early;
+    const wide = channel("wide", t) * keep;
+    let bob = 0.8 * Math.sin((t * 2 * Math.PI) / 2.6) * keep; // breathing
+    const breath = 0.006 * Math.sin((t * 2 * Math.PI) / 2.6 + 0.6) * keep;
 
     for (const nod of track.nods ?? []) {
       const p = bump((t - nod.at) / (nod.dur ?? 0.4)) * (nod.depth ?? 1);
@@ -245,30 +272,34 @@ export function mascotRuntime(track) {
       const q = (t - b) / 0.2;
       if (q > 0 && q < 1) blink = Math.max(blink, q < 0.4 ? smooth(q / 0.4) : 1 - smooth((q - 0.4) / 0.6));
     }
+    blink *= keep;
 
-    const { lift, squash } = hops(t);
-    el.place.setAttribute("transform", css(mul(T(x, y), mul(S(k, k), T(-G[0], -G[1])))));
+    const hop = hops(t), lift = hop.lift * keep + (become?.arc ?? 0) * bump(b), squash = hop.squash * keep;
+    const place = mul(T(x, y), mul(S(k, k), T(-G[0], -G[1])));
+    el.place.setAttribute("transform", css(b > 0 ? lerp(place, logoBox(), b) : place));
     el.lift.setAttribute("transform", `translate(0 ${n2(-lift / k)})`);
     el.squash.setAttribute("transform", css(S(1 + 0.6 * squash, 1 - squash, G)));
     const air = clamp(lift / 220);
     set(el.shadow, { cx: n2(g.shadow[0]), rx: n2(48 * (1 - 0.45 * air) * (1 + 0.4 * Math.max(0, squash))) });
-    el.shadow.setAttribute("opacity", (shadowAlpha * (1 - 0.6 * air)).toFixed(3));
+    el.shadow.setAttribute("opacity", (shadowAlpha * (1 - 0.6 * air) * early).toFixed(3));
 
     // The tile: the pose's tilt, the lean at the hips, breathing.
-    const body = mul(T(0, bob), mul(R(lean, g.pivot), mul(R(g.tilt, [64, 64]), S(1 - breath, 1 + breath, [64, 124]))));
+    const body = mul(T(0, bob), mul(R(lean, g.pivot), mul(R(g.tilt * keep, [64, 64]), S(1 - breath, 1 + breath, [64, 124]))));
     el.body.setAttribute("transform", css(body));
     el.tileClip.setAttribute("transform", css(body));
 
     // Legs: hip (on the tile) to the planted sole, the toes turning with the pose.
     [el.legL, el.legR].forEach((leg, i) => {
-      const hip = ap(body, g.hips[i]), sole = g.soles[i];
-      leg.setAttribute("d", `M${n2(hip[0])} ${n2(hip[1])} L${n2(sole[0])} ${n2(sole[1])} H${n2(sole[0] + g.toe)}`);
+      const hip = ap(body, g.hips[i]), sole = lerp(hip, g.soles[i], early); // drawn into the tile as it becomes the logo
+      leg.setAttribute("d", `M${n2(hip[0])} ${n2(hip[1])} L${n2(sole[0])} ${n2(sole[1])} H${n2(sole[0] + g.toe * early)}`);
     });
 
     // The magnifier at the hand: its glass, ring, handle and glare between the poses' shapes.
-    const hand = [g.hand[0] + handOff[0], g.hand[1] + handOff[1]];
-    const magM = mul(T(hand[0], hand[1]), R(mag));
+    const shoulder = ap(body, lerp([48, 90], lerp(g.shoulder, g.shoulderUp, reach), early)); // well inside, as a logo
+    const hand = lerp(shoulder, [g.hand[0] + handOff[0], g.hand[1] + handOff[1]], early);
+    const magM = mul(T(hand[0], hand[1]), mul(R(mag), S(0.6 + 0.4 * early, 0.6 + 0.4 * early)));
     el.mag.setAttribute("transform", css(magM));
+    el.mag.setAttribute("opacity", early.toFixed(3));
     const cy = -g.reachLen, [rx, ry, turn] = g.lens;
     const ellipse = { cx: "0", cy: n2(cy), transform: `rotate(${n2(turn)} 0 ${n2(cy)})` };
     set(el.lensClip, { ...ellipse, rx: n2(rx), ry: n2(ry) });
@@ -282,7 +313,7 @@ export function mascotRuntime(track) {
     const zoomAt = ap(magM, [g.zoom[1], cy + g.zoom[2]]);
     el.lensWorld.setAttribute("transform", css(mul(inv(magM), S(g.zoom[0], g.zoom[0], zoomAt))));
     // Its shadow on the tile (A): the ring and handle, down and to the left.
-    el.lensShadow.setAttribute("opacity", g.shadow[1].toFixed(3));
+    el.lensShadow.setAttribute("opacity", (g.shadow[1] * early).toFixed(3));
     if (g.shadow[1] > 0.001) {
       el.lensShadow.setAttribute("transform", css(mul(T(-6, 7), magM)));
       set(el.shadowRing, { ...ellipse, rx: n2(rx + 4), ry: n2(ry + 4) });
@@ -290,7 +321,6 @@ export function mascotRuntime(track) {
     }
 
     // The arm, from the shoulder behind the tile to the hand, with a soft elbow.
-    const shoulder = ap(body, lerp(g.shoulder, g.shoulderUp, reach));
     const d = [hand[0] - shoulder[0], hand[1] - shoulder[1]], len = Math.hypot(d[0], d[1]) || 1;
     let perp = [-d[1] / len, d[0] / len];
     if (perp[1] < 0) perp = [-perp[0], -perp[1]];
@@ -309,8 +339,10 @@ export function mascotRuntime(track) {
     const ll = Math.hypot(look[0], look[1]);
     if (ll > 6.5) look = [(look[0] * 6.5) / ll, (look[1] * 6.5) / ll];
     const r = 7.5 * (1 + 0.28 * wide);
+    const LOGO_EYES = [[45, 44], [79, 44]];
     [el.eyeL, el.eyeR].forEach((eye, i) => {
-      set(eye, { cx: n2(g.eyes[i][0] + look[0]), cy: n2(g.eyes[i][1] + look[1]), rx: n2(r * (1 + 0.08 * blink)),
+      const at = lerp(g.eyes[i], LOGO_EYES[i], b);
+      set(eye, { cx: n2(at[0] + look[0]), cy: n2(at[1] + look[1]), rx: n2(r * (1 + 0.08 * blink)),
         ry: n2(Math.max(0.9, r * (1 - 0.88 * blink))) });
     });
 

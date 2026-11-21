@@ -94,8 +94,8 @@ const VIDEO_LIST = [
       // it hops in from the right along the white band under the title (as C, "Leaning in"), turns into A ("Close
       // inspection") at the left, under the title and left of "91 pieces?" (feet at 160, 1105), reads the title with
       // the glass, does a double-take at "91 pieces?" and nods at the sum; the check slides in over it. The check: C
-      // hops in to the card's lower right (870, 1498) and holds the glass up to the finding, then jumps up beside the
-      // logo on the end card (880, 815), grins and waves the glass.
+      // hops in to the card's lower right (870, 1498) and holds the glass up to the finding; as the end card comes, it
+      // rises into the logo's place and turns into the logo.
       mascot: {
         scale: 1.65,
         behind: [{ from: 0, to: 13.75, id: "check" }],
@@ -131,12 +131,8 @@ const VIDEO_LIST = [
           { t: 15.0, look: [-3, 0], hand: "rest", mag: 0, reach: 0, lean: 0 },
           { t: 15.45, lens: [708, 1306], mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
           { t: 19.3, lens: [708, 1306], mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
-          // The end card: jumps up beside the logo, grins, waves the glass.
+          // The end card: lowers the glass, then turns into the logo (become, below).
           { t: 19.7, ease: "out", hand: "rest", mag: 0, reach: 0, lean: 0, look: [-3, 0] },
-          { t: 19.85, x: 870, y: 1498 },
-          { t: 20.45, ease: "linear", x: 880, y: 815 },
-          { t: 20.9, look: [-5, 0], grin: 0 },
-          { t: 21.6, ease: "spring", grin: 1, look: [-2, -1] },
         ],
         hops: [
           { at: 5.2, dur: 0.42, height: 60 },
@@ -144,11 +140,11 @@ const VIDEO_LIST = [
           { at: 6.32, dur: 0.26, height: 16 },
           { at: 7.98, dur: 0.2, height: 14 },
           { at: 14.5, dur: 0.45, height: 60 },
-          { at: 19.85, dur: 0.6, height: 120 },
         ],
-        blinks: [6.9, 8.9, 11.7, 12.7, 16.6, 18.3, 22.4],
+        blinks: [6.9, 8.9, 11.7, 12.7, 16.6, 18.3],
         nods: [{ at: 10.05 }, { at: 10.5 }, { at: 15.75, depth: 0.6 }],
-        waves: [{ at: 21.7, dur: 1.0, amp: 14 }],
+        // As the end card fades in it rises into the logo's place and becomes the logo; the words come after.
+        become: { at: 19.75, dur: 1.05, logo: "#end img", then: "#end .name, #end .line, #end .web, #end .free", arc: 40 },
       },
     },
   },

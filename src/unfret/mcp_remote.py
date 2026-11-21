@@ -172,7 +172,7 @@ async def _check(ctx: Context, tier: str, url: str, policy: str, page_content: s
     return {"status": "ok", "ok": True, "verdict": verdict, **pass_fields}
 
 
-# Two tools rather than one with a tier: the free one changes nothing, the deep one uses one of the pass's checks.
+# Two tools rather than one with a tier: the free one changes nothing (read-only), the deep one uses a check.
 @server.tool(
     title="Quick check of a store (free)",
     description=(
@@ -219,9 +219,7 @@ async def check_store_quick(
     ),
     annotations=ToolAnnotations(
         title="Deep check of a store (uses a check)",
-        # It only reads the page and changes nothing there; the one thing it uses up is a check the caller prepaid
-        # for this, which its title and description say.
-        read_only_hint=True,
+        read_only_hint=False,  # it uses up one of the pass's paid checks, so a client should ask first
         destructive_hint=False,  # nothing is deleted or overwritten
         idempotent_hint=False,  # a repeat can use another check (only the same pass's repeat within the hour is free)
         open_world_hint=True,  # it fetches and reads a third-party web page

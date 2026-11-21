@@ -64,7 +64,7 @@ HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
 # tool → (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), as submitted to Claude's connector directory
 EXPECTED_HINTS = {
     "check_store_quick": (True, False, True, True),
-    "check_store_deep": (True, False, False, True),  # reads only; a repeat can use another check
+    "check_store_deep": (False, False, False, True),  # uses a paid check (ask first); a repeat can use another
     "get_checks_left": (True, False, True, False),
     "get_pricing": (True, False, True, False),
 }

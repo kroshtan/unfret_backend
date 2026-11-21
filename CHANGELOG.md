@@ -5,9 +5,9 @@
 ### MCP
 
 * **The remote MCP server's tools are ready for Claude's connector directory.** Each tool now has a one-sentence
-  description of what it does and returns (instead of its docstring), and all five annotations. `check_store_deep` is
-  now annotated read-only, like `check_store_quick`: it reads a page and changes nothing there; its title and
-  description say it uses one of the pass's checks, and it stays not idempotent. The tools can only call
+  description of what it does and returns (instead of its docstring), and all five annotations (`check_store_deep`
+  stays not read-only and not idempotent: it uses one of the pass's paid checks, so a client asks first). The tools
+  can only call
   `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other header, so no
   payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
   descriptions and that no tool can pay.

@@ -982,17 +982,17 @@ current protocol (2026-07-28) and the initialize handshake of earlier versions.
 It takes **an Unfret pass only**: `Authorization: Bearer ufk_…`, checked before the MCP layer (401 with
 `WWW-Authenticate: Bearer realm="Unfret"` otherwise; too many bad passes from one network get 429 first). It never pays
 from a wallet and has no code that could (the tools call only `POST /v1/check`, `GET /v1/credits` and
-`GET /v1/pricing`, with nothing but the pass; a payment header sent to `/mcp` is never passed on): quick checks are free, deep checks use one of the pass's checks, as on
+`GET /v1/pricing`, with nothing but the pass; a payment header sent to `/mcp` is never passed on): quick checks are
+free, deep checks use one of the pass's checks, as on
 `/v1/check` with a pass (where `/v1/check`'s per-minute limit counts per pass, so agents behind one host network don't
 share it). Tools, each with a title, a one-sentence description and explicit `readOnlyHint` / `destructiveHint` /
-`idempotentHint` / `openWorldHint`. Both checks are read-only (they read a page and change nothing there); the deep
-one says in its title and description that it uses one of the pass's checks, and is not idempotent, since a repeat
-can use another:
+`idempotentHint` / `openWorldHint`; the free check and the one that spends are separate tools, so a client can let the
+free one run without asking:
 
 | Tool | Hints | |
 | --- | --- | --- |
 | `check_store_quick` (`url`, `policy`, `page_content`) | read-only, not destructive, idempotent (free), open world (reads a third-party page) | The verdict; or `status` (`page_unreadable`, `unavailable`, …) with a `next_step` |
-| `check_store_deep` (`url`, `policy`, `page_content`) | read-only, not destructive, not idempotent (each can use one of the pass's checks), open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
+| `check_store_deep` (`url`, `policy`, `page_content`) | not read-only (uses one of the pass's checks), not destructive, not idempotent (a repeat can use another), open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
 | `get_checks_left` | read-only, not destructive, idempotent, closed world | Deep checks left (free and bought), whether free ones are paused, where to buy more |
 | `get_pricing` | read-only, not destructive, idempotent, closed world | `GET /v1/pricing` |
 

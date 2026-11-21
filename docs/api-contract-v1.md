@@ -1058,7 +1058,7 @@ Additive: x402 clients see the same requests, responses, headers and status code
   and `{"detail", "error_code": "UNAUTHORIZED" | "INVALID_API_KEY"}`; **429** `RATE_LIMITED` (with `Retry-After`)
   after too many bad passes from one network in a minute; 503 while the service isn't up. Tools:
   `check_store_quick` and `check_store_deep` (`url`, `policy`, `page_content`; run `POST /v1/check` with the pass,
-  tier quick (free) or deep (one check); both annotated read-only, the deep one not idempotent), `get_checks_left`
+  tier quick (free, read-only) or deep (one check; not read-only, not idempotent)), `get_checks_left`
   (`GET /v1/credits`), `get_pricing` (`GET /v1/pricing`); no other route is reachable from it. It never pays from a
   wallet.
 - `POST /v1/check` with a pass: its per-minute limit (`x402_check_per_minute`, 30) now counts per pass rather than

@@ -37,7 +37,12 @@
   fetch, once per page for both (6 s rather than 8; a bot check is now a page not read). New features `claim_audit.shop_pages` and `claim_audit.across_pages`; a page's
   `policy_links` may name its `about` page. `UNFRET_CLAIM_AUDIT_SHOP_PAGES=false` reads the product page only.
   `evals.shop_pages` records the shop pages of the golden set and a junk and scam sample and compares the deep check
-  with and without them. MEASURED
+  with and without them: on the golden set of well-known sellers (180 pages, 158 web shops whose pages were read)
+  it adds one note across pages (a prize valued differently on a product page and in the terms) and changes no band
+  (174 Looks fine, 3 Worth a look, 3 Think twice, as before); on 40 junk and scam shops it catches "delivery 3-6
+  working days" against a shipping page's "4 to 45 working days". The audit reads about 1,400 more tokens (about
+  €0.003 more a check, €0.013 in all); the pages are fetched while the other checks run (0.5 s median, 1.9 s at the
+  90th percentile, 6 s at most) (#280).
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery

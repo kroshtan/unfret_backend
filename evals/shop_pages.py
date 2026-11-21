@@ -24,6 +24,7 @@ import argparse
 import asyncio
 import json
 import random
+import re
 import statistics
 import time
 from collections import Counter
@@ -265,6 +266,9 @@ def _fetch_timing(corpus: Corpus, records: list[LabelRecord]) -> dict[str, Any]:
     }
 
 
+_ACROSS_RE = re.compile(r"\. (?:Its [a-z]+ page says '|That's on the shop's [a-z]+ page)")
+
+
 def _seller(record: LabelRecord) -> str:
     try:
         notes = json.loads(record.notes or "{}")
@@ -311,6 +315,13 @@ async def compare(corpus: Corpus, records: list[LabelRecord], concurrency: int) 
                 1 for r in members if (_cache(corpus) / f"{r.id}.json").exists() and _links(corpus, r)
             ),
             "notes_added": sum(1 for p in pages if p["new_notes"]),
+            # Notes that quote another of the shop's pages (the rest are the same page's notes, reworded or reordered).
+            "across_pages": [
+                {"seller": p["seller"], "label": p["label"], "band": p["band_after"], "note": t}
+                for p in pages
+                for t in p["new_notes"]
+                if _ACROSS_RE.search(t)
+            ],
             "band_changes": [p for p in pages if p["band_before"] != p["band_after"]],
             "bands_after": dict(Counter(p["band_after"] for p in pages)),
             "changed": [p for p in pages if p["new_notes"] or p["gone_notes"] or p["band_before"] != p["band_after"]],
@@ -338,7 +349,8 @@ def to_markdown(report: dict[str, Any]) -> str:
             f"## {name}: {group['pages']} pages, {group['with_shop_pages']} with shop pages",
             "",
             (
-                f"Notes added on {group['notes_added']} pages; band changes: {len(group['band_changes'])}; "
+                f"Notes added on {group['notes_added']} pages, {len(group['across_pages'])} quoting another of "
+                f"the shop's pages; band changes: {len(group['band_changes'])}; "
                 f"bands after: {group['bands_after']}"
             ),
             "",

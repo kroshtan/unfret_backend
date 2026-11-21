@@ -65,11 +65,15 @@ def test_queue_order_and_finding_labels(tmp_path: Path) -> None:
     corpus.add_many((_record(i, "legit" if i == 4 else None), "<html></html>") for i in range(6))
     finding = {"skill": "claim_audit", "type": "claim_contradicted", "evidence": "e"}
     rows: dict[str, dict[str, Any]] = {
-        "dfc-000": {"score": 50, "confidence": 0.1, "fired": ["claim_audit"], "new_findings": [finding]},
-        "dfc-001": {"score": 10, "confidence": 0.9, "fired": ["photo_claims"], "new_findings": []},
-        "dfc-002": {"score": 80, "confidence": 0.9, "fired": ["claim_audit"], "new_findings": [finding]},
-        "dfc-003": {"score": 20, "confidence": 0.9, "fired": [], "new_findings": []},
-        "dfc-004": {"score": 50, "confidence": 0.1, "fired": ["claim_audit"], "new_findings": []},  # labelled
+        "dfc-000": {"score": 50, "confidence": 0.1, "findings": [finding]},
+        "dfc-001": {"score": 10, "confidence": 0.9, "features": {"photo_claims.count_mismatch": 1.0}},
+        "dfc-002": {"score": 80, "confidence": 0.9, "findings": [finding]},
+        "dfc-003": {
+            "score": 20,
+            "confidence": 0.9,
+            "findings": [{**finding, "skill": "domain_history", "type": "archive_copy"}],
+        },
+        "dfc-004": {"score": 50, "confidence": 0.1, "findings": [finding]},  # labelled
         "dfc-005": {"error": "boom"},
     }
     cand.write_results(corpus, {k: {"id": k, **v} for k, v in rows.items()})
@@ -95,8 +99,8 @@ def test_pinned_page_from_elsewhere_goes_first(tmp_path: Path) -> None:
     )
     corpus.add_many([(golden, "<html></html>"), (_record(0), "<html></html>")])
     rows = {
-        "gold-1": {"id": "gold-1", "score": 60, "confidence": 0.9, "fired": ["claim_audit"], "new_findings": []},
-        "dfc-000": {"id": "dfc-000", "score": 50, "confidence": 0.1, "fired": ["claim_audit"], "new_findings": []},
+        "gold-1": {"id": "gold-1", "score": 60, "confidence": 0.9, "features": {"claim_audit.count_off": 1.0}},
+        "dfc-000": {"id": "dfc-000", "score": 50, "confidence": 0.1, "features": {"claim_audit.contradicted": 1.0}},
     }
     cand.write_results(corpus, rows)
     cand.pin(corpus, ["gold-1"], "is the count finding right?")
@@ -117,8 +121,8 @@ def test_relabel_tier_unlabelled_corpus_pages_and_nothing_dropped(tmp_path: Path
         *(_record(i) for i in range(30)),
     ]
     corpus.add_many((r, "<html></html>") for r in records)
-    fired_row = {"features": {}, "findings": [], "fired": ["claim_audit"]}
-    quiet: dict[str, Any] = {"features": {}, "findings": [], "fired": []}
+    fired_row = {"features": {"claim_audit.contradicted": 1.0}, "findings": []}
+    quiet: dict[str, Any] = {"features": {"claim_audit.contradicted": 0.0}, "findings": []}
     (tmp_path / "reports" / "new-findings").mkdir(parents=True)
     rows = {"mend-1": fired_row, "mend-2": fired_row, "coi-3": fired_row, "coi-4": quiet}
     (tmp_path / "reports" / "new-findings" / "results.jsonl").write_text(
@@ -126,7 +130,7 @@ def test_relabel_tier_unlabelled_corpus_pages_and_nothing_dropped(tmp_path: Path
     )
     cand.write_results(
         corpus,
-        {f"dfc-{i:03d}": {"id": f"dfc-{i:03d}", "score": 20, "confidence": 0.9, "fired": []} for i in range(30)},
+        {f"dfc-{i:03d}": {"id": f"dfc-{i:03d}", "score": 20, "confidence": 0.9} for i in range(30)},
     )
     queue = cand.build_queue(corpus, seed=1)
     ids = [i.id for i in queue]

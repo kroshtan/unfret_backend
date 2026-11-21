@@ -68,7 +68,9 @@ BLIND_ONE_IN = 5
 PINS = "deep_label_pins.json"
 EXCLUDED = ("reverse_image", "shop_links")  # paid per search; needs the fingerprint database
 # The deep check's newer checks, by skill name (also those still being built: a name that contains one of these).
-NEW_SKILLS: tuple[str, ...] = ("claim_audit", "photo_claims", "wayback", "variation", "cross_page")
+NEW_SKILLS: tuple[str, ...] = ("claim_audit", "photo_claims", "domain_history", "wayback", "variation", "cross_page")
+# Findings of those that only give context (what an archive copy showed), not something found: not asked about.
+NEUTRAL_FINDINGS: frozenset[str] = frozenset({"archive_copy", "no_archive_copies"})
 # Feature suffixes that mean a new check found something, also without a finding (a count the photos don't show).
 FIRED_FEATURES: tuple[str, ...] = (
     "contradicted",
@@ -77,6 +79,8 @@ FIRED_FEATURES: tuple[str, ...] = (
     "size_mismatch",
     "padded",
     "mismatch",
+    "changed",
+    "parked",
 )
 UNSURE = 0.4  # scorer confidence below this is "unsure"
 SURE_FINE = 35  # a score below this is the scorer saying the page is fine
@@ -152,7 +156,7 @@ def fired(features: dict[str, float], findings: list[dict[str, Any]]) -> list[st
     :param findings: Its findings (dumped).
     :return: Skill names, sorted.
     """
-    names = {f["skill"] for f in findings if is_new(f["skill"])}
+    names = {f["skill"] for f in findings if is_new(f["skill"]) and f["type"] not in NEUTRAL_FINDINGS}
     for name, value in features.items():
         skill, _, feature = name.partition(".")
         if is_new(skill) and value and any(feature.endswith(s) for s in FIRED_FEATURES):
@@ -179,7 +183,7 @@ def result_row(result: dict[str, Any]) -> dict[str, Any]:
         "risk": assessment.get("risk_score"),
         "features": features,
         "findings": findings,
-        "new_findings": [f for f in findings if is_new(f["skill"])],
+        "new_findings": [f for f in findings if is_new(f["skill"]) and f["type"] not in NEUTRAL_FINDINGS],
         "fired": fired(features, findings),
         "claims": len(result.get("listing_claims") or []),
         "piece_count": result.get("listing_piece_count"),
@@ -208,7 +212,23 @@ def read_results(corpus: Corpus) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     rows = (json.loads(line) for line in path.read_text().splitlines() if line.strip())
-    return {row["id"]: row for row in rows}
+    return {row["id"]: with_new_findings(row) for row in rows}
+
+
+def with_new_findings(row: dict[str, Any]) -> dict[str, Any]:
+    """
+    A result row with its new findings and fired checks worked out again from its findings and features.
+
+    So a row recorded before a check counted as new reads the same as one recorded now.
+
+    :param row: The row as recorded.
+    :return: The row.
+    """
+    if "error" in row:
+        return row
+    found = row.get("findings", [])
+    news = [f for f in found if is_new(f["skill"]) and f["type"] not in NEUTRAL_FINDINGS]
+    return row | {"new_findings": news, "fired": fired(row.get("features", {}), found)}
 
 
 def total_spent(corpus: Corpus) -> float:
@@ -424,11 +444,7 @@ def corpus_rows(corpus: Corpus) -> dict[str, dict[str, Any]]:
     """
     from evals import new_findings  # noqa: PLC0415 - it imports this module
 
-    return {
-        k: row | {"new_findings": row.get("findings", []), "score": None}
-        for k, row in new_findings.read_results(corpus).items()
-        if "error" not in row
-    }
+    return {k: row | {"score": None} for k, row in new_findings.read_results(corpus).items() if "error" not in row}
 
 
 def label_rows(corpus: Corpus) -> dict[str, dict[str, Any]]:

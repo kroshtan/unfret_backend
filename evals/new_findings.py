@@ -93,7 +93,8 @@ def read_results(corpus: Corpus) -> dict[str, dict[str, Any]]:
     path = corpus.root / REPORTS / "results.jsonl"
     if not path.exists():
         return {}
-    return {row["id"]: row for row in (json.loads(x) for x in path.read_text().splitlines() if x.strip())}
+    rows = (json.loads(x) for x in path.read_text().splitlines() if x.strip())
+    return {row["id"]: cand.with_new_findings(row) for row in rows}
 
 
 def write_results(corpus: Corpus, results: dict[str, dict[str, Any]]) -> None:

@@ -12,14 +12,32 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from evals.config import eval_settings
 
 Label = Literal["legit", "junk", "scam"]
-LabelSource = Literal["dataset", "rule", "llm", "agreed", "human"]
+SOURCES: frozenset[str] = frozenset({"dataset", "rule", "llm", "agreed", "human"})
+LLM_SOURCE = "llm:"  # an LLM labeller's labels: ``llm:<model>:<prompt version>`` (evals.llm_label)
+
+
+def _label_source(value: str) -> str:
+    if value in SOURCES or value.startswith(LLM_SOURCE):
+        return value
+    msg = f"unknown label source {value!r}"
+    raise ValueError(msg)
+
+
+LabelSource = Annotated[str, AfterValidator(_label_source)]
+
+
+def is_llm(source: str | None) -> bool:
+    """Whether a label source is an LLM's (``llm``, or an LLM labeller's ``llm:<model>:<prompt>``)."""
+    return source is not None and (source == "llm" or source.startswith(LLM_SOURCE))
+
+
 Split = Literal["train", "test"]
 UNRELIABLE: frozenset[str] = frozenset({"junk", "scam"})
 # Page classes. ``product`` is every product page (``aggregate_listing``, ``storefront``, or no page type recorded):

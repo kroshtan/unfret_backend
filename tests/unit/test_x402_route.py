@@ -13,6 +13,7 @@ import httpx
 import pytest
 from solders.keypair import Keypair
 
+from tests.conftest import page_fetcher
 from tests.unit.x402_helpers import (
     FakeRpc,
     configured,
@@ -303,7 +304,7 @@ async def test_unfetchable_page_costs_nothing(
     async def blocked(url: str, **_: object) -> bytes:
         raise httpx.ConnectError("blocked")
 
-    monkeypatch.setattr("unfret.routes.check.fetch_public", blocked)
+    monkeypatch.setattr("unfret.routes.check.fetch_public_page", page_fetcher(blocked))
     body = {k: v for k, v in BODY.items() if k != "page_content"}
 
     response = await client.post("/v1/check", json=body, headers={"PAYMENT-SIGNATURE": paid_header()})

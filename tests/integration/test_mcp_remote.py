@@ -12,6 +12,7 @@ import pytest
 from mcp.client.streamable_http import streamable_http_client
 
 from mcp import Client
+from tests.conftest import page_fetcher
 from tests.integration.conftest import FakeGraph
 from tests.integration.test_check_pass import new_pass
 from unfret import mcp_remote
@@ -126,7 +127,7 @@ async def test_an_unreadable_page_asks_for_its_html(
     async def blocked(url: str, **_: object) -> bytes:
         raise OSError("refused")
 
-    monkeypatch.setattr(check, "fetch_public", blocked)
+    monkeypatch.setattr(check, "fetch_public_page", page_fetcher(blocked))
     issued = await new_pass(serving, developer=True)
 
     async with mcp_client(issued["key"]) as session:

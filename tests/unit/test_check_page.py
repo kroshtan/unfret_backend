@@ -10,9 +10,10 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.conftest import page_fetcher
 from unfret import page_fetch
 from unfret.main import app
-from unfret.net import RefusedError, UnresolvableHostError, UnsafeURLError
+from unfret.net import FetchedPage, RefusedError, UnresolvableHostError, UnsafeURLError
 from unfret.routes.pages import BROWSER_ONLY_SHOPS, STATIC_DIR, asset_tag
 
 
@@ -197,7 +198,7 @@ async def test_fetch_failures_are_named(monkeypatch: pytest.MonkeyPatch, error: 
     async def refuse(url: str, **_: Any) -> bytes:
         raise error
 
-    monkeypatch.setattr(page_fetch, "fetch_public", refuse)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(refuse))
     with pytest.raises(page_fetch.PageUnreadableError) as raised:
         await page_fetch.fetch_page("https://shop.test/p")
     assert raised.value.reason == reason
@@ -211,7 +212,7 @@ async def test_a_shop_that_keeps_the_fetch_waiting_is_given_up_on_in_seconds(mon
         seen.update(kwargs)
         raise httpx.ReadTimeout("no answer")
 
-    monkeypatch.setattr(page_fetch, "fetch_public", hang)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(hang))
     with pytest.raises(page_fetch.PageUnreadableError) as raised:
         await page_fetch.fetch_page("https://shop.test/p")
 
@@ -416,3 +417,40 @@ def test_the_page_drops_an_ended_pass_before_treating_a_401_as_an_expired_sign_i
     assert "function freeAvailable() {\n  return !account && !freeGiven()" in script  # the free pass follows
     mine = (STATIC_DIR / "my-checks.js").read_text()
     assert "Unfret has a new free start: the pass that was on this device has ended." in mine
+
+
+_READABLE = (
+    "<html><body><main><h1>Lamp</h1>" + "<p>A brass desk lamp with a linen shade.</p>" * 20 + "</main></body></html>"
+)
+
+
+@pytest.mark.parametrize(
+    ("asked", "landed", "address"),
+    [
+        # A short link: the page's own address, without fragment, credentials or tracking (the product id stays).
+        (
+            "https://short.test/d/AbC",
+            "https://user:pw@Shop.test/dp/B0TEST1234/ref=x?psc=1&utm_source=share&variant=7#reviews",
+            "https://shop.test/dp/B0TEST1234/ref=x?variant=7",
+        ),
+        ("http://shop.test/p/1", "https://shop.test/p/1", "https://shop.test/p/1"),  # to https: that address
+        # No redirect: the address as asked (cleaned downstream, as before).
+        (
+            "https://shop.test/p/1?utm_source=x",
+            "https://shop.test/p/1?utm_source=x",
+            "https://shop.test/p/1?utm_source=x",
+        ),
+    ],
+)
+async def test_a_fetched_page_comes_with_its_own_address(
+    monkeypatch: pytest.MonkeyPatch, asked: str, landed: str, address: str
+) -> None:
+    async def fetch(url: str, **_: Any) -> FetchedPage:
+        assert url == asked
+        return FetchedPage(_READABLE.encode(), landed)
+
+    monkeypatch.setattr(page_fetch, "fetch_public_page", fetch)
+
+    page = await page_fetch.fetch_page(asked)
+
+    assert page.url == address and "brass desk lamp" in page.html

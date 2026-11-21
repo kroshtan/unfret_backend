@@ -1,11 +1,12 @@
 import os
 import shutil
-from collections.abc import Iterator
-from typing import NoReturn
+from collections.abc import Awaitable, Callable, Iterator
+from typing import Any, NoReturn
 
 import pytest
 
 from unfret import scoring
+from unfret.net import FetchedPage
 from unfret.reports import second_opinion
 from unfret.visitors import RateLimit
 
@@ -19,6 +20,20 @@ def unavailable(reason: str) -> NoReturn:
     if os.getenv("CI"):
         pytest.fail(f"{reason} (CI must run every test)")
     pytest.skip(reason)
+
+
+def page_fetcher(fetch: Callable[..., Awaitable[bytes]]) -> Callable[..., Awaitable[FetchedPage]]:
+    """
+    A stand-in for :func:`unfret.net.fetch_public_page` from one for ``fetch_public``: the page, at the URL asked for.
+
+    :param fetch: An async ``(url, **kwargs) -> bytes``.
+    :return: An async ``(url, **kwargs) -> FetchedPage`` (no redirects).
+    """
+
+    async def fetch_page(url: str, **kwargs: Any) -> FetchedPage:
+        return FetchedPage(await fetch(url, **kwargs), url)
+
+    return fetch_page
 
 
 @pytest.fixture(autouse=True)

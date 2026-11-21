@@ -169,6 +169,27 @@ def is_tracking_param(name: str, value: str = "") -> bool:
     )
 
 
+def without_tracking(url: str) -> str:
+    """
+    A page's address without what isn't the page: no fragment, user name or password, or tracking parameters.
+
+    The other query parameters keep their order (a product's ``?id=``, ``?variant=``).
+
+    :param url: An absolute address.
+    :return: The cleaned address (``url`` as given when it can't be parsed).
+    """
+    try:
+        parts = urlsplit(url.strip())
+        port = parts.port
+    except ValueError:
+        return url.strip()
+    netloc = (parts.hostname or "") + (f":{port}" if port else "")
+    query = urlencode(
+        [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not is_tracking_param(k, v)]
+    )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+
+
 def _listing(url: str) -> str:
     """
     The listing a URL points at: scheme, host and path, plus the query parameters that identify the product.

@@ -198,7 +198,7 @@ async def _fetch_live(url: str) -> tuple[str | None, str]:
     if not await robots_allows(url):
         return None, "robots"
     try:
-        return await fetch_page(url), ""
+        return (await fetch_page(url)).html, ""
     except PageUnreadableError as exc:
         return None, exc.reason
 

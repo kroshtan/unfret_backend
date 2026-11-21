@@ -7,11 +7,13 @@ import asyncpg
 import httpx
 import pytest
 
+from tests.conftest import page_fetcher
 from tests.integration.conftest import FakeGraph
 from tests.integration.test_keys import PAGE, PRICE, balance, bearer, solve
 from unfret.config import settings
 from unfret.credits import free
 from unfret.main import app
+from unfret.net import FetchedPage
 from unfret.routes import analyze, check
 
 CHECK = {**PAGE, "tier": "deep"}
@@ -221,7 +223,7 @@ async def test_a_page_that_cant_be_fetched_costs_nothing(
     async def blocked(url: str, **_: object) -> bytes:
         raise OSError("refused")
 
-    monkeypatch.setattr(check, "fetch_public", blocked)
+    monkeypatch.setattr(check, "fetch_public_page", page_fetcher(blocked))
     issued = await new_pass(client, developer=True)
 
     response = await client.post(
@@ -231,6 +233,33 @@ async def test_a_page_that_cant_be_fetched_costs_nothing(
     assert response.status_code == 422 and response.json()["error_code"] == "PAGE_UNAVAILABLE"
     assert await free.left(pool, issued["key_id"], api=True) == 20
     assert graph.calls == []
+
+
+async def test_a_short_link_is_checked_under_the_pages_own_address(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = "https://shop.test/products/lamp?id=4&utm_medium=social#top"
+
+    async def redirected(url: str, **_: object) -> FetchedPage:
+        return FetchedPage(PAGE["page_content"].encode(), landed if "short.test" in url else url)
+
+    monkeypatch.setattr(check, "fetch_public_page", redirected)
+    issued = await new_pass(client, developer=True)
+
+    response = await client.post(
+        "/v1/check", json={"url": "https://short.test/s/9x", "tier": "deep"}, headers=bearer(issued["key"])
+    )
+    again = await client.post(
+        "/v1/check",
+        json={"url": "https://shop.test/products/lamp?id=4", "tier": "deep"},
+        headers=bearer(issued["key"]),
+    )
+
+    assert response.status_code == 200, response.text
+    assert graph.calls[0]["url"] == "https://shop.test/products/lamp?id=4"
+    assert again.status_code == 200 and again.json()["cached"] is True  # the page's own address: the same result
+    assert len(graph.calls) == 1
+    assert await free.left(pool, issued["key_id"], api=True) == 19  # the repeat within the hour is free
 
 
 async def test_the_days_budget_pauses_free_checks_on_check_too(

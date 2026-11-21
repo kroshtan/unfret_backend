@@ -13,6 +13,7 @@ import httpx
 import pytest
 from solders.keypair import Keypair
 
+from tests.conftest import page_fetcher
 from tests.integration.test_privacy import PAGE, URL, dump, outside, stores, x402_client  # noqa: F401 - fixtures
 from tests.unit.x402_helpers import expected, payment_header, payment_instructions, sign_payment
 from unfret import reports, shop_store
@@ -86,6 +87,8 @@ async def test_a_paid_check_of_the_test_shop_keeps_nothing(
     for name, module in list(sys.modules.items()):
         if name.startswith("unfret") and hasattr(module, "fetch_public"):
             monkeypatch.setattr(module, "fetch_public", fetch_public)
+        if name.startswith("unfret") and hasattr(module, "fetch_public_page"):
+            monkeypatch.setattr(module, "fetch_public_page", page_fetcher(fetch_public))
     hot: Keypair = x402_client.hot  # type: ignore[attr-defined]
     x402_client.rpc.sim_delta = lamports  # type: ignore[attr-defined]
     payer = Keypair()

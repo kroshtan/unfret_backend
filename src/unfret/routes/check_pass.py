@@ -170,7 +170,7 @@ async def pass_check(body: CheckRequest, request: Request, token: str) -> Respon
     return await _checked(body, request, account)
 
 
-async def _checked(body: CheckRequest, request: Request, account: str) -> Response:  # noqa: C901
+async def _checked(body: CheckRequest, request: Request, account: str) -> Response:  # noqa: C901, PLR0911
     """
     Answer the check for a pass: from the cache, or a fresh analysis.
 
@@ -195,9 +195,16 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
         raise TooManyRequestsError(
             "Too many links checked in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
         )
-    page = await _readable_page(body)
-    if isinstance(page, Response):
-        return page
+    readable = await _readable_page(body)
+    if isinstance(readable, Response):
+        return readable
+    page, analysed = readable
+    if analysed is not body:  # a short link: its page may have been checked under its own address
+        body, key = analysed, _cache_key(analysed)
+        if (
+            hit := _recall_cached(body, key) or await verdict_store.recall(body.url, body.tier, body.policy)
+        ) is not None:
+            return await _pay_for_hit(request, body, account, hit)
     graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)

@@ -1,5 +1,5 @@
 """
-What the shop's address showed before: earlier copies of its home page in the Internet Archive.
+What the shop's address showed before: earlier copies of its home page in Common Crawl or the Internet Archive.
 
 An old address makes a shop look established (the "Established shop" positive, the scorer's domain age). An address
 that expired and was bought again, or was taken over, carries that age to a new shop that hasn't earned it. So when
@@ -15,16 +15,27 @@ deep check looks at the home page's copies from about 1, 3 and 12 months ago and
 
 Cheap rules only, no LLM: the copy's title, language (a stop-word count), shop markers (a basket, prices, a shop
 platform) and its most frequent words. No copies at all says nothing either: plenty of honest shops are never
-archived. The archived copies are fetched like any outside page (:func:`unfret.net.fetch_public`: public addresses
-only, a size limit, timeouts, no cookies), raw (``id_``, without the archive's own toolbar), and what they show is
-cached per address as a store-level fact (:mod:`unfret.fact_cache`), never their HTML.
+archived.
+
+Where the copies come from, in order:
+
+1. **Common Crawl** (:mod:`unfret.graph.skills.common_crawl`): the crawls nearest each of those days, their index for
+   the home page, and the page's WARC record by byte range, within Common Crawl's own pace.
+2. **The Internet Archive**, only when Common Crawl has no usable copy (none, or only pages too thin to read, or it
+   can't be reached): its CDX index and raw copies (``id_``, without the archive's toolbar), within a pace of a few
+   requests a minute and a daily cap (``UNFRET_WAYBACK_PER_MINUTE``, ``UNFRET_WAYBACK_DAILY_CAP``), and none for a
+   while after it refused us. It blocks clients that ask too often.
+
+The findings name the archive the copies came from, with links to them. Copies are fetched like any outside page
+(:func:`unfret.net.fetch_public`: public addresses only, a size limit, timeouts, no cookies), and what they show is
+cached per address and per archive as a store-level fact (:mod:`unfret.fact_cache`), never their HTML.
 """
 
 import asyncio
+import contextlib
 import json
 import re
-import time
-from collections import Counter, deque
+from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
@@ -32,19 +43,21 @@ from urllib.parse import quote
 import httpx
 from bs4 import BeautifulSoup
 
+from unfret import shopper
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
 from unfret.facts.schema import PageFacts
-from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput, domain_age
+from unfret.graph.skills import STOREFRONTS, Observation, Skill, SkillOutput, common_crawl, domain_age
+from unfret.graph.skills.common_crawl import ArchiveBusyError, ArchiveUnreachableError
 from unfret.graph.state import AnalysisState
 from unfret.html_cleaner import strip_to_text
 from unfret.net import fetch_public, hostname
+from unfret.pace import Pace
 
 # About 1, 3 and 12 months before today; a copy counts for a target within this many days of it.
 TARGETS_DAYS: tuple[tuple[int, int], ...] = ((30, 45), (91, 60), (365, 90))
 _CDX_TIMEOUT_S = 8.0
 _SNAPSHOT_TIMEOUT_S = 10.0
-_TOTAL_TIMEOUT_S = 15.0
 _MAX_CDX_BYTES = 256 * 1024
 _MAX_FIRST_CAPTURE_BYTES = 16 * 1024
 _MAX_SNAPSHOT_BYTES = 3 * 1024 * 1024
@@ -147,8 +160,13 @@ _LANGUAGES = {
 }
 
 
-class ArchiveUnreachableError(ConnectionError):
-    """None of the archived copies could be fetched: a connection problem, so the graph tries the skill once more."""
+COMMON_CRAWL, WAYBACK = "commoncrawl", "wayback"
+# How the findings name each archive ("<name> copy of …", "<owner> copy from …").
+ARCHIVE_NAMES = {
+    COMMON_CRAWL: ("Common Crawl", "Common Crawl's"),
+    WAYBACK: ("Internet Archive", "the Internet Archive's"),
+}
+__all__ = ["ArchiveBusyError", "ArchiveUnreachableError"]
 
 
 def language(text: str) -> str:
@@ -266,13 +284,26 @@ def _day(timestamp: str) -> date | None:
 
 def archive_url(timestamp: str, original: str) -> str:
     """
-    Where a person sees an archived copy (with the archive's toolbar, so it is clearly an archived page).
+    Where a person sees an Internet Archive copy (with the archive's toolbar, so it is clearly an archived page).
 
     :param timestamp: The copy's 14-digit timestamp.
     :param original: The archived address.
     :return: The web.archive.org link.
     """
     return f"https://web.archive.org/web/{timestamp}/{original}"
+
+
+def copy_link(snapshot: dict[str, Any]) -> str:
+    """
+    The link to a copy in the archive it came from.
+
+    :param snapshot: The copy's summary (``archive``, ``timestamp``, ``original``, and a Common Crawl copy's
+        ``crawl``).
+    :return: A web.archive.org copy, or the copy's record in Common Crawl's index.
+    """
+    if snapshot.get("archive") == COMMON_CRAWL:
+        return common_crawl.copy_url(str(snapshot["crawl"]), snapshot["timestamp"], snapshot["original"])
+    return archive_url(snapshot["timestamp"], snapshot["original"])
 
 
 def month_of(timestamp: str) -> str:
@@ -285,62 +316,39 @@ def month_of(timestamp: str) -> str:
     return f"{_MONTHS[int(timestamp[4:6]) - 1]} {timestamp[:4]}"
 
 
-class ArchiveBusyError(RuntimeError):
-    """Unfret's own pace for the archive is used up, or the archive refused us lately: not asked, not retried."""
-
-
-class Pace:
+# The Internet Archive blocks a client that asks too often (it refuses connections for an hour, longer on repeat),
+# which would cost every later deep check its look: a few requests a minute, a daily cap, a pause after a refusal.
+def new_pace() -> Pace:
     """
-    How often this process asks the Internet Archive: a few requests a minute, and none for a while after a refusal.
+    A fresh pace for the Internet Archive, by the settings.
 
-    The archive blocks a client that asks too often (it refuses connections for an hour, longer on repeat), which
-    would cost every later deep check its look: so the skill asks within a pace of its own
-    (``UNFRET_WAYBACK_PER_MINUTE``), and stops asking for ``UNFRET_WAYBACK_PAUSE_S`` after a refused connection or a
-    "too many requests".
+    :return: The pace.
     """
-
-    def __init__(self) -> None:
-        """Start with nothing sent."""
-        self.sent: deque[float] = deque()
-        self.paused_until = 0.0
-
-    def take(self) -> bool:
-        """
-        Take one request from the pace.
-
-        :return: ``True`` when the request may be sent now.
-        """
-        now = time.monotonic()
-        while self.sent and self.sent[0] <= now - 60:
-            self.sent.popleft()
-        if now < self.paused_until or len(self.sent) >= settings.wayback_per_minute:
-            return False
-        self.sent.append(now)
-        return True
-
-    def pause(self) -> None:
-        """Stop asking for ``UNFRET_WAYBACK_PAUSE_S``."""
-        self.paused_until = time.monotonic() + settings.wayback_pause_s
+    return Pace(
+        per_minute=lambda: settings.wayback_per_minute,
+        pause_s=lambda: settings.wayback_pause_s,
+        daily_cap=lambda: settings.wayback_daily_cap,
+    )
 
 
-pace = Pace()
+pace = new_pace()
 
 
 def _refused(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code == 429
+        return exc.response.status_code in {403, 429}
     return isinstance(exc, httpx.ConnectError | ConnectionRefusedError)
 
 
 async def _get(url: str, *, timeout: float, max_bytes: int) -> bytes:
     """
-    One request to the archive, within :data:`pace`, like any outside page (:func:`unfret.net.fetch_public`).
+    One request to the Internet Archive, within :data:`pace`, like any outside page (:func:`unfret.net.fetch_public`).
 
     :param url: The archive address.
     :param timeout: The whole request's time limit.
     :param max_bytes: The largest answer accepted.
     :return: The answer's body.
-    :raises ArchiveBusyError: When the pace is used up or the archive refused us lately.
+    :raises ArchiveBusyError: When the pace or the day's cap is used up, or the archive refused us lately.
     :raises Exception: What :func:`unfret.net.fetch_public` raises (a refusal pauses the pace first).
     """
     if not pace.take():
@@ -355,7 +363,7 @@ async def _get(url: str, *, timeout: float, max_bytes: int) -> bytes:
 
 async def captures(host: str, today: date) -> list[list[str]]:
     """
-    The home page's copies of the last 13 months, one a month (the archive's CDX index).
+    The home page's copies of the last 13 months in the Internet Archive, one a month (its CDX index).
 
     :param host: The shop's host.
     :param today: Today.
@@ -375,7 +383,7 @@ async def captures(host: str, today: date) -> list[list[str]]:
 
 async def first_capture(host: str) -> str | None:
     """
-    The day the archive first copied the address's home page: the address is at least that old.
+    The day the Internet Archive first copied the address's home page: the address is at least that old.
 
     One index request (the earliest capture that the archive answered with a page or a redirect), within
     :data:`pace` like the history look. A lower bound only: an address can be online for years before the archive
@@ -401,29 +409,109 @@ async def _snapshot(timestamp: str, original: str) -> dict[str, Any]:
     raw = f"{settings.wayback_url}/web/{timestamp}id_/{original}"
     body = await _get(raw, timeout=_SNAPSHOT_TIMEOUT_S, max_bytes=_MAX_SNAPSHOT_BYTES)
     summary = await asyncio.to_thread(summarise, body.decode("utf-8", errors="replace"))
-    return {"timestamp": timestamp, "original": original} | summary
+    return {"archive": WAYBACK, "timestamp": timestamp, "original": original} | summary
+
+
+def _unreachable(picked: int, fetched: list[Any]) -> None:
+    """
+    Raise when copies were picked and none could be fetched.
+
+    :param picked: How many were picked.
+    :param fetched: What fetching each gave (a summary or an error).
+    :raises ArchiveUnreachableError: When none could be fetched.
+    """
+    if picked and not any(isinstance(s, dict) for s in fetched):
+        errors = sorted({type(e).__name__ for e in fetched if isinstance(e, BaseException)})
+        raise ArchiveUnreachableError(f"No archived copy could be fetched ({', '.join(errors)}).")
+
+
+async def wayback_history(host: str, today: date) -> dict[str, Any]:
+    """
+    The Internet Archive's copies of the home page from about 1, 3 and 12 months ago.
+
+    :param host: The shop's host.
+    :param today: Today.
+    :return: ``archive``, ``captures`` (how many monthly copies the archive has) and ``snapshots`` (each picked
+        copy's summary, newest first; a copy that couldn't be fetched is left out). When none of the picked copies
+        could be fetched it raises (:class:`ArchiveUnreachableError`), and so does an index that can't be reached.
+    """
+    rows = await captures(host, today)
+    picked = pick(rows, today)
+    fetched = await asyncio.gather(*(_snapshot(t, o) for t, o in picked), return_exceptions=True)
+    _unreachable(len(picked), fetched)
+    return {"archive": WAYBACK, "captures": len(rows), "snapshots": [s for s in fetched if isinstance(s, dict)]}
+
+
+async def _crawl_snapshot(capture: dict[str, Any]) -> dict[str, Any]:
+    page = await common_crawl.fetch_page(capture)
+    summary = await asyncio.to_thread(summarise, page.decode("utf-8", errors="replace"))
+    meta = {"archive": COMMON_CRAWL, "crawl": capture["crawl"], "timestamp": str(capture["timestamp"])}
+    return meta | {"original": str(capture.get("url", ""))} | summary
+
+
+async def common_crawl_history(host: str, today: date) -> dict[str, Any]:
+    """
+    Common Crawl's copies of the home page from about 1, 3 and 12 months ago: one from each nearest crawl.
+
+    :param host: The shop's host.
+    :param today: Today.
+    :return: Like :func:`wayback_history`; ``captures`` is how many of the picked crawls had the home page. A crawl
+        list or indexes that can't be asked, or copies none of which could be fetched, raise
+        (:func:`unfret.graph.skills.common_crawl.give_up`), so nothing is cached.
+    """
+    crawls = common_crawl.pick(await common_crawl.crawls(), today, TARGETS_DAYS)
+    answers = await asyncio.gather(*(common_crawl.captures(c, host) for c in crawls), return_exceptions=True)
+    errors = [a for a in answers if isinstance(a, BaseException)]
+    if crawls and len(errors) == len(crawls):
+        common_crawl.give_up(errors)
+    picked = [c for a in answers if isinstance(a, list) and (c := common_crawl.html_capture(a))]
+    fetched = await asyncio.gather(*(_crawl_snapshot(c) for c in picked), return_exceptions=True)
+    _unreachable(len(picked), fetched)
+    snapshots = sorted((s for s in fetched if isinstance(s, dict)), key=lambda s: s["timestamp"], reverse=True)
+    if not snapshots:
+        common_crawl.give_up(errors)  # an index that failed may have had the copy: ask again next time
+    return {"archive": COMMON_CRAWL, "captures": len(picked), "snapshots": snapshots}
+
+
+def usable(found: dict[str, Any] | None) -> bool:
+    """
+    Whether an archive's answer has a copy to compare with (not only pages too thin to read).
+
+    :param found: :func:`common_crawl_history` or :func:`wayback_history`.
+    :return: ``True`` when it does.
+    """
+    return any(s.get("kind") != "thin" for s in (found or {}).get("snapshots", []))
 
 
 async def history(host: str, today: date | None = None) -> dict[str, Any]:
     """
-    What the shop's home page showed about 1, 3 and 12 months ago.
+    What the shop's home page showed about 1, 3 and 12 months ago: Common Crawl first, the Internet Archive after.
+
+    Each archive's answer is cached per address on its own; the Internet Archive is asked only when Common Crawl has
+    no usable copy (:func:`usable`).
 
     :param host: The shop's host.
     :param today: Today (tests pass their own).
-    :return: ``captures`` (how many monthly copies the archive has) and ``snapshots`` (each picked copy's summary,
-        newest first; a copy that couldn't be fetched is left out).
-    :raises ArchiveUnreachableError: When none of the picked copies could be fetched (an index that can't be reached
-        raises too, from :func:`captures`).
+    :return: ``archive`` (whose copies: ``commoncrawl`` or ``wayback``), ``captures``, ``snapshots`` (newest first)
+        and ``asked`` (the archives that answered).
+    :raises Exception: When neither archive answered (paced out, refused or unreachable): not cached.
     """
     today = today or datetime.now(tz=UTC).date()
-    rows = await captures(host, today)
-    picked = pick(rows, today)
-    fetched = await asyncio.gather(*(_snapshot(t, o) for t, o in picked), return_exceptions=True)
-    snapshots = [s for s in fetched if isinstance(s, dict)]
-    if picked and not snapshots:
-        errors = sorted({type(e).__name__ for e in fetched if isinstance(e, BaseException)})
-        raise ArchiveUnreachableError(f"No archived copy could be fetched ({', '.join(errors)}).")
-    return {"captures": len(rows), "snapshots": snapshots}
+    crawl: dict[str, Any] | None = None
+    with contextlib.suppress(Exception):  # unreachable or paced out: the Internet Archive instead
+        crawl = await cached_fact(COMMON_CRAWL, host, lambda: common_crawl_history(host, today))
+    if crawl is not None and usable(crawl):
+        return crawl | {"asked": [COMMON_CRAWL]}
+    try:
+        wayback = await cached_fact(WAYBACK, host, lambda: wayback_history(host, today)) or {}
+    except Exception:
+        if crawl is None:
+            raise
+        return crawl | {"asked": [COMMON_CRAWL]}  # Common Crawl's answer stands; the archive is asked next time
+    wayback = {"archive": WAYBACK} | wayback  # answers cached before the archive was named
+    asked = [COMMON_CRAWL, WAYBACK] if crawl is not None else [WAYBACK]
+    best = wayback if crawl is None or wayback.get("snapshots") else crawl
+    return best | {"asked": asked}
 
 
 def _squash(name: str) -> str:
@@ -529,11 +617,27 @@ def describe(snapshot: dict[str, Any], outcome: str) -> str:
     return f"a different site ({', '.join(details)})" if details else "a different site"
 
 
+def _with_links(said: str, changed: list[tuple[dict[str, Any], str]]) -> str:
+    """
+    A finding's words, then the links to the changed copies, as many as fit in a finding (the first always does).
+
+    :param said: The words.
+    :param changed: The changed copies, newest first.
+    :return: The evidence, at most 500 characters.
+    """
+    links = [copy_link(s) for s, _ in changed]
+    text = said[: 499 - len(links[0])] + " " + links[0]
+    for link in links[1:]:
+        if len(text) + 1 + len(link) <= 500:
+            text += " " + link
+    return text
+
+
 class DomainHistorySkill(Skill):
-    """The shop's home page about 1, 3 and 12 months ago (the Internet Archive), compared with the page now."""
+    """The shop's home page about 1, 3 and 12 months ago (Common Crawl, else the Internet Archive), compared."""
 
     name = "domain_history"
-    description = "Compares the shop with earlier copies of its address in the Internet Archive."
+    description = "Compares the shop with earlier copies of its address in Common Crawl or the Internet Archive."
     page_types = STOREFRONTS
     tier = "expensive"
     always_run = False
@@ -550,12 +654,15 @@ class DomainHistorySkill(Skill):
         host = hostname(state.get("url", ""))
         if not host or not settings.network_lookups or not settings.domain_history:
             return self.output({"checked": False}, note="No address to look up.")
-        found = await cached_fact("wayback", host, lambda: history(host)) or {}
+        found = await history(host)
         snapshots: list[dict[str, Any]] = found.get("snapshots", [])
         if not snapshots:
+            asked = found.get("asked") or [found.get("archive", WAYBACK)]
+            who = " and ".join(("the " if a == WAYBACK else "") + ARCHIVE_NAMES[a][0] for a in asked)
+            have = "have" if len(asked) > 1 else "has"
             observation = Observation(
                 type="no_archive_copies",
-                evidence=f"The Internet Archive has no copies of {host} from the past year to compare with.",
+                evidence=f"{who[0].upper()}{who[1:]} {have} no copies of {host} from the past year to compare with.",
             )
             return self.output({"checked": True, "snapshots": 0}, [observation])
 
@@ -566,14 +673,15 @@ class DomainHistorySkill(Skill):
         changed: list[tuple[dict[str, Any], str]] = []
         for snapshot in snapshots:
             outcome = compare(snapshot, lang_now=lang_now, words_now=words_now, names=names, label=label)
-            link = archive_url(snapshot["timestamp"], snapshot["original"])
             what = {"same": "the same shop", "unclear": "a page too thin to compare"}.get(outcome) or describe(
                 snapshot, outcome
             )
+            archive = ARCHIVE_NAMES[snapshot.get("archive", WAYBACK)][0]
+            month = month_of(snapshot["timestamp"])
             observations.append(
                 Observation(
                     type="archive_copy",
-                    evidence=f"Internet Archive copy of {host} from {month_of(snapshot['timestamp'])}: {what}. {link}",
+                    evidence=f"{archive} copy of {host} from {month}: {what}. {copy_link(snapshot)}",
                 )
             )
             if outcome in {"parked", "placeholder", "different"}:
@@ -586,7 +694,7 @@ class DomainHistorySkill(Skill):
             years = int(known.get("domain_age.age_years", 0.0))
             since = int(known.get("domain_age.archive_first_year", 0.0))
             if known.get("domain_age.age_from_archive", 0.0) >= 1 and since:
-                age = f"{host} has been online since at least {since} (per the Internet Archive), but"
+                age = f"{host} has been online since at least {since} (per {shopper.seen_by(known)}), but"
             else:
                 age = f"{host} is {years} years old, but" if years >= 1 else f"{host}:"
             when = _day(latest["timestamp"])
@@ -596,12 +704,7 @@ class DomainHistorySkill(Skill):
                 "parked": any(o == "parked" for _, o in changed),
                 "months_since_change": round(((today - when).days if when else 0) / 30.4, 1),
             }
-            links = " ".join(archive_url(s["timestamp"], s["original"]) for s, _ in changed)
-            observations.append(
-                Observation(
-                    type="domain_repurposed",
-                    evidence=f"{age} the Internet Archive's copy from {month_of(latest['timestamp'])} shows "
-                    f"{describe(latest, outcome)}. {links}"[:500],
-                )
-            )
+            owner = ARCHIVE_NAMES[latest.get("archive", WAYBACK)][1]
+            said = f"{age} {owner} copy from {month_of(latest['timestamp'])} shows {describe(latest, outcome)}."
+            observations.append(Observation(type="domain_repurposed", evidence=_with_links(said, changed)))
         return self.output(features, observations)

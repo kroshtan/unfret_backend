@@ -513,6 +513,29 @@ def kind_of(page_type: str) -> str:
     return "shop"
 
 
+_COMMON_CRAWL_LINK = "https://index.commoncrawl.org/"
+# The first-seen source (domain_age) as a card source: an archive's copies, or the shops Unfret has checked.
+_SEEN_SOURCES = {shopper.COMMON_CRAWL: "archive_cc", shopper.WAYBACK: "archive", shopper.UNFRET: "shop_records"}
+
+
+def _archive_source(key: str, links: list[str], features: dict[str, float]) -> str:
+    """
+    The archive a reason or positive of the archives' kind names: the one its copies came from.
+
+    A reason with links names the archive of its links; the "Established shop" of a first sighting names its source.
+
+    :param key: The source key by its type (``archive`` for the archives' reasons and positives).
+    :param links: The reason's links.
+    :param features: The skill features.
+    :return: The source key.
+    """
+    if key != "archive":
+        return key
+    if links:
+        return "archive_cc" if all(u.startswith(_COMMON_CRAWL_LINK) for u in links) else "archive"
+    return _SEEN_SOURCES[shopper.seen_source(features)]
+
+
 def source_label(key: str) -> str:
     """
     A source in words.
@@ -974,9 +997,9 @@ def complete(
     parsed = Verdict.model_validate(verdict)
     features = state.get("features", {})
     for reason in parsed.reasons:
-        reason.source = source_label(REASON_SOURCES.get(reason.type, "page"))
+        reason.source = source_label(_archive_source(REASON_SOURCES.get(reason.type, "page"), reason.links, features))
     for positive in parsed.positives:
-        positive.source = source_label(POSITIVE_SOURCES.get(positive.type, "page"))
+        positive.source = source_label(_archive_source(POSITIVE_SOURCES.get(positive.type, "page"), [], features))
     titles = {r.type: r.title for r in parsed.reasons}
     if kind == "shop" and parsed.band != "reliable":
         # Every reason that fired, not only the three shown: an area with a finding is never ticked as fine. (A

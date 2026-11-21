@@ -68,7 +68,8 @@ def fresh_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "network_lookups", True)
     monkeypatch.setattr(settings, "domain_history", True)
     monkeypatch.setattr(settings, "wayback_url", "https://web.archive.org")
-    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(settings, "wayback_per_minute", 8)
+    monkeypatch.setattr(domain_history, "pace", domain_history.new_pace())
     real = domain_history.history
 
     async def history(host: str, today: date | None = None) -> dict[str, Any]:
@@ -213,7 +214,7 @@ async def test_a_pace_of_its_own_and_a_pause_after_a_refusal(monkeypatch: pytest
     with pytest.raises(domain_history.ArchiveBusyError):
         await DomainHistorySkill().run(state("https://other.example/p", SNEAKERS))
 
-    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(domain_history, "pace", domain_history.new_pace())
     calls: list[str] = []
 
     async def refused(url: str, **_: Any) -> bytes:
@@ -443,13 +444,13 @@ async def test_paced_out_or_refused_it_is_skipped_and_not_cached(monkeypatch: py
     async def refused(url: str, **_: Any) -> bytes:
         raise httpx.ConnectError("Connection refused")
 
-    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(domain_history, "pace", domain_history.new_pace())
     monkeypatch.setattr(domain_history, "fetch_public", refused)
     out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
     assert "domain_age.archive_age_years" not in out["features"]
     assert domain_history.pace.paused_until > 0  # the refusal pauses the archive for the history look too
 
-    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(domain_history, "pace", domain_history.new_pace())
     monkeypatch.setattr(domain_history, "fetch_public", _first_copy())
     out = await DomainAgeSkill().run(_age_state("https://trailstone.example/p"))
     assert out["features"]["domain_age.archive_first_year"] == 2009.0  # neither was remembered

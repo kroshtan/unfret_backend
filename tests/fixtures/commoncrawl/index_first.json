@@ -1,0 +1,8 @@
+{
+ "CC-MAIN-2021-43": [
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20211020120000\", \"url\": \"http://www.trailstone.example/\", \"mime\": \"text/html\", \"mime-detected\": \"text/html\", \"status\": \"301\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"5000\", \"filename\": \"crawl-data/CC-MAIN-2021-43/segments/1700000000000.5/warc/CC-MAIN-20260005-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}"
+ ],
+ "CC-MAIN-2023-50": [
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20231201120000\", \"url\": \"https://www.trailstone.example/\", \"mime\": \"text/html\", \"mime-detected\": \"text/html\", \"status\": \"200\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"6000\", \"filename\": \"crawl-data/CC-MAIN-2023-50/segments/1700000000000.6/warc/CC-MAIN-20260006-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}"
+ ]
+}

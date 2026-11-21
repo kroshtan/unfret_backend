@@ -117,6 +117,32 @@
 
 ### Deep checks
 
+* **A shop's earlier copies come from Common Crawl first; the Internet Archive is the fallback.** The Internet
+  Archive refused connections after about 40 requests at 4 a minute, which would cost every later deep check its
+  look. `domain_history` now asks Common Crawl first: the crawls nearest about 1, 3 and 12 months ago (from its
+  `collinfo.json`, kept a day), each crawl's index for the home page, and the page's WARC record by byte range from
+  data.commoncrawl.org, all through `fetch_public` with timeouts and size limits (a record of 1 MB at most, its page
+  of 3 MB). Common Crawl asks clients to stay well under ten requests a second, to slow down on a 503 or a rate-limit
+  refusal and never to retry quickly, and to cache its crawl list: Unfret asks at most `UNFRET_COMMONCRAWL_PER_MINUTE`
+  (20) times a minute per process and not at all for `UNFRET_COMMONCRAWL_PAUSE_S` (10 minutes) after a 403, 429, 503,
+  504 or refused connection. The Internet Archive is asked only when Common Crawl has no usable copy (none, only
+  pages too thin to read, or it can't be asked), now at `UNFRET_WAYBACK_PER_MINUTE` 3 (was 8) and at most
+  `UNFRET_WAYBACK_DAILY_CAP` (100) requests a day per process, with the same pause after a refusal. Each archive's
+  answer is cached per address for a week. The comparison rules and the reason's wording are unchanged; the findings
+  and the source name the archive used ("Common Crawl's copy from October 2026 shows …", source "Earlier copies of the
+  site (Common Crawl, commoncrawl.org)"), and a Common Crawl copy links to its record in Common Crawl's index (it has
+  no page viewer). The privacy page names Common Crawl.
+
+* **An address's first sighting from Common Crawl, the Internet Archive or Unfret itself.** Where the registry gives
+  no date, `domain_age`'s "online since at least" is now the oldest of: Common Crawl's oldest copy of the home page
+  among the crawls nearest 10, 5 and 3 years ago (three index requests at once, cached per address), else the
+  Internet Archive's first copy as before, and Unfret's own first check of the shop. For that the shop store keeps the
+  first day a page Unfret fetched itself showed a shop (`first_fetched`, migration 35; content a client sent never
+  sets it, and existing shops a fetched page described start from their first day), also past a network's daily write
+  limit, where a fetched page now still notes the shop's domain and the day and nothing else. New features
+  `domain_age.first_seen_common_crawl` and `.first_seen_unfret`; `archive_first_capture` and "Established shop" name
+  the source ("per Common Crawl", "per Unfret's own checks").
+
 * **The photo check against the listing's count and size picks its photos from the whole gallery.** With pages now
   giving their gallery (Amazon and other shops, above), `photo_claims` fetches up to 8 of its photos and, when there
   are more than it asks about, shows them to the vision model once as one numbered contact sheet: which photos show a

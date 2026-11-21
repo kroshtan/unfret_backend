@@ -769,6 +769,19 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE api_keys ADD COLUMN developer BOOLEAN NOT NULL DEFAULT FALSE;
         """,
     ),
+    (
+        35,
+        "shop first fetched",
+        """
+        -- The first day a page Unfret fetched itself showed a shop (unfret.shop_store): Unfret's own "seen since" for
+        -- an address's age (unfret.graph.skills.domain_age). The shop's domain and a day, nothing about who checked.
+        -- Content a client sent never sets it. Shops already there whose facts a fetched page set (a platform, a
+        -- template or a fingerprint: rows from client content alone keep none) start from their first_seen.
+        ALTER TABLE shops ADD COLUMN first_fetched DATE;
+        UPDATE shops SET first_fetched = first_seen
+            WHERE fingerprint IS NOT NULL OR skeleton IS NOT NULL OR platform <> 'generic';
+        """,
+    ),
 ]
 
 

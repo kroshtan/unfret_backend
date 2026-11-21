@@ -5,7 +5,7 @@ Identifiers kept from before (migration 32) and seen on pages Unfret fetched cou
 once corroborated, and they never change a shop's facts. The shops here are made up.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import asyncpg
 import pytest
@@ -105,3 +105,35 @@ async def test_only_a_page_unfret_fetched_changes_a_shops_facts(pool: asyncpg.Po
     await store.record(ShopRecord("new.shop", DAY, platform="woocommerce", fingerprint=b"f" * 32, bits=CLIENT_DEEP))
     row = await pool.fetchrow("SELECT platform, apps, fingerprint FROM shops WHERE domain = 'new.shop'")
     assert (row["platform"], row["apps"], row["fingerprint"]) == ("generic", [], None)
+
+
+async def test_first_fetched_is_set_by_fetched_pages_only(pool: asyncpg.Pool) -> None:
+    # Unfret's own "seen since" (domain_age): the first day a page Unfret fetched itself showed the shop.
+    store = PostgresShopStore(pool)
+    client = observations.Provenance(fetched=False, tier="quick").bits
+    await store.record(ShopRecord("forged.shop", DAY, bits=client))
+    assert await store.first_fetched("forged.shop") is None
+    await store.record(ShopRecord("forged.shop", DAY + timedelta(days=5)))
+    await store.record(ShopRecord("forged.shop", DAY + timedelta(days=9)))
+    assert await store.first_fetched("forged.shop") == DAY + timedelta(days=5)
+    # Past the write limit: the day only, for a new shop and for one already there.
+    await store.seen("quiet.shop", DAY)
+    await store.seen("forged.shop", DAY + timedelta(days=20))
+    assert await store.first_fetched("quiet.shop") == DAY
+    assert await store.first_fetched("forged.shop") == DAY + timedelta(days=5)
+    row = await pool.fetchrow("SELECT last_seen, platform, fingerprint FROM shops WHERE domain = 'quiet.shop'")
+    assert tuple(row) == (DAY, "generic", None)
+
+
+async def test_first_fetched_starts_from_first_seen_for_fetched_shops(pool: asyncpg.Pool) -> None:
+    await pool.execute(DROP_ALL)
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 35])
+    await pool.execute(
+        "INSERT INTO shops (domain, first_seen, last_seen, platform) VALUES ('kept.shop', $1, $1, 'shopify'),"
+        " ('client.shop', $1, $1, 'generic')",
+        DAY,
+    )
+    assert 35 in await migrate(pool)
+    store = PostgresShopStore(pool)
+    assert await store.first_fetched("kept.shop") == DAY
+    assert await store.first_fetched("client.shop") is None

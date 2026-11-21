@@ -109,7 +109,9 @@ def _is_public(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return address.is_global
 
 
-def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.Request:
+def _pinned_request(
+    client: httpx.AsyncClient, url: str, address: str, extra: dict[str, str] | None = None
+) -> httpx.Request:
     """
     Build a GET for ``url`` that connects to ``address`` instead of resolving the host again.
 
@@ -120,6 +122,7 @@ def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.
     :param client: The client the request will be sent with.
     :param url: The validated URL.
     :param address: A validated address of the URL's host.
+    :param extra: More request headers (a ``Range``); never ``Host`` or ``Accept-Encoding``.
     :return: The request, ready to send.
     """
     target = httpx.URL(url)
@@ -127,7 +130,7 @@ def _pinned_request(client: httpx.AsyncClient, url: str, address: str) -> httpx.
     return client.build_request(
         "GET",
         target.copy_with(host=address),
-        headers={"Host": host_header, "Accept-Encoding": _ACCEPT_ENCODING},
+        headers=(extra or {}) | {"Host": host_header, "Accept-Encoding": _ACCEPT_ENCODING},
         extensions={"sni_hostname": target.host},
     )
 
@@ -139,6 +142,7 @@ async def fetch_public(
     total_timeout: float = 25.0,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     transport: httpx.AsyncBaseTransport | None = None,
+    headers: dict[str, str] | None = None,
 ) -> bytes:
     """
     GET a public URL, validating the target of every redirect hop.
@@ -153,10 +157,11 @@ async def fetch_public(
     :param total_timeout: The whole fetch, redirects and a slowly trickling body included.
     :param max_bytes: Maximum response body size; larger bodies are rejected.
     :param transport: Optional httpx transport (used to stub the network in tests).
+    :param headers: More request headers, sent on every hop (a ``Range`` for one record of a large file).
     :return: The response body.
     """
     page = await fetch_public_page(
-        url, timeout=timeout, total_timeout=total_timeout, max_bytes=max_bytes, transport=transport
+        url, timeout=timeout, total_timeout=total_timeout, max_bytes=max_bytes, transport=transport, headers=headers
     )
     return page.body
 
@@ -168,6 +173,7 @@ async def fetch_public_page(
     total_timeout: float = 25.0,
     max_bytes: int = _DEFAULT_MAX_BYTES,
     transport: httpx.AsyncBaseTransport | None = None,
+    headers: dict[str, str] | None = None,
 ) -> FetchedPage:
     """
     Like :func:`fetch_public`, and also say where the redirects ended: the page's own address behind a short link.
@@ -179,19 +185,25 @@ async def fetch_public_page(
     :param total_timeout: The whole fetch, redirects and a slowly trickling body included.
     :param max_bytes: Maximum response body size; larger bodies are rejected.
     :param transport: Optional httpx transport (used to stub the network in tests).
+    :param headers: More request headers, sent on every hop.
     :return: The response body and the URL that answered it (``url`` itself without redirects).
     """
     async with asyncio.timeout(total_timeout):
-        return await _fetch(url, timeout=timeout, max_bytes=max_bytes, transport=transport)
+        return await _fetch(url, timeout=timeout, max_bytes=max_bytes, transport=transport, headers=headers)
 
 
 async def _fetch(
-    url: str, *, timeout: float, max_bytes: int, transport: httpx.AsyncBaseTransport | None
+    url: str,
+    *,
+    timeout: float,
+    max_bytes: int,
+    transport: httpx.AsyncBaseTransport | None,
+    headers: dict[str, str] | None = None,
 ) -> FetchedPage:
     async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": _USER_AGENT}, transport=transport) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             address = await _assert_public(url)
-            response = await client.send(_pinned_request(client, url, address), stream=True)
+            response = await client.send(_pinned_request(client, url, address, headers), stream=True)
             try:
                 if response.is_redirect:
                     url = urljoin(url, response.headers["location"])

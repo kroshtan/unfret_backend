@@ -1,0 +1,12 @@
+{
+ "CC-MAIN-2026-43": [
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20261010093000\", \"url\": \"https://www.oudebakker.example/\", \"mime\": \"application/pdf\", \"mime-detected\": \"application/pdf\", \"status\": \"200\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"1000\", \"filename\": \"crawl-data/CC-MAIN-2026-43/segments/1700000000000.1/warc/CC-MAIN-20260001-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}",
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20261011093000\", \"url\": \"https://www.oudebakker.example/\", \"mime\": \"text/html\", \"mime-detected\": \"text/html\", \"status\": \"200\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"2000\", \"filename\": \"crawl-data/CC-MAIN-2026-43/segments/1700000000000.2/warc/CC-MAIN-20260002-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}"
+ ],
+ "CC-MAIN-2026-34": [
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20260808101500\", \"url\": \"https://www.oudebakker.example/\", \"mime\": \"text/html\", \"mime-detected\": \"text/html\", \"status\": \"200\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"3000\", \"filename\": \"crawl-data/CC-MAIN-2026-34/segments/1700000000000.3/warc/CC-MAIN-20260003-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}"
+ ],
+ "CC-MAIN-2025-47": [
+  "{\"urlkey\": \"example,oudebakker)/\", \"timestamp\": \"20251110090101\", \"url\": \"https://oudebakker.example/\", \"mime\": \"text/html\", \"mime-detected\": \"text/html\", \"status\": \"200\", \"digest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\", \"length\": \"9000\", \"offset\": \"4000\", \"filename\": \"crawl-data/CC-MAIN-2025-47/segments/1700000000000.4/warc/CC-MAIN-20260004-00042.warc.gz\", \"languages\": \"nld\", \"encoding\": \"UTF-8\"}"
+ ]
+}

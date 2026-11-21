@@ -54,11 +54,13 @@ jobs:
           else
             echo "new_tag=$tag" >> "$FORGEJO_OUTPUT"
           fi
-          # The repository is public, so its commit statuses can be read without a token.
+          # The repository is public, so its commit statuses can be read without a token. Deploy dev's `Deploy` is
+          # green only for a commit whose tree was tested (deploy-dev.yaml); older commits have CI's own push check.
           curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
             statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
-            abort("::error::CI / check (push) is #{statuses["CI / check (push)"] || "missing"} for this commit") \
-              unless statuses["CI / check (push)"] == "success"
+            ok = ["Deploy dev / Deploy (push)", "Deploy dev / Deploy (workflow_dispatch)", "CI / check (push)"]
+            abort("::error::not tested on main for this commit: " + ok.map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) \
+              unless ok.any? { |c| statuses[c] == "success" }
             puts "CI passed for this commit"'
           echo "sha=$sha" >> "$FORGEJO_OUTPUT"
           echo "version=$version" >> "$FORGEJO_OUTPUT"

@@ -407,8 +407,9 @@ credits, an x402 deep check costs one check, and credits are sold in packs of 25
 (`src/unfret/credits/packs.py`), after the free ones (a new pass's free deep checks, and quick checks). A pack's price
 is its card price, $6 and $20 before the provider's sales tax/VAT (`UNFRET_CARD_PRICES_USD`, set by hand; a pack not
 named there costs its value plus the card provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50); paying
-with SOL or USDC costs the pack's value ($5, $20) plus VAT where it applies, never more than by card (a card price
-below the pack's value is refused at start-up). The card price is shown as *the* price and crypto as the discount
+with SOL or USDC costs the pack's value ($5, $20) **VAT included** (an EU buyer's VAT is worked out of the price,
+never added), never more than by card: not more than the dollar card price before tax (a card price below the pack's
+value is refused at start-up), nor than the euro card price with VAT, while a euro is worth at least a dollar. The card price is shown as *the* price and crypto as the discount
 where there is one, never as a card surcharge (EU rules forbid surcharging consumer card payments). Either way the
 account is credited the pack's value, so a check costs the same in credits however it was bought. Visitors from the
 euro area (Cloudflare's country hint) pay by card in **euros** instead: €6, €20 **including VAT**
@@ -435,7 +436,8 @@ wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.n
 browser wallet or a phone. A background scanner walks the hot wallet's finalized transactions (a second one its USDC
 account) and credits every incoming transfer, top-level or inside a program call: what arrived (USDC at face value,
 SOL at its dollar value at crediting time, Pyth SOL/USD, rounded down; it waits rather than guesses while the price is
-stale) minus its VAT. Each credit leaves a sales record (day, country, net, rate, VAT, asset, amount, signature; no
+stale), all of it: crypto prices include VAT, which is worked out of what arrived at the quote's rate. Each credit
+leaves a sales record (day, country, net, rate, VAT, asset, amount, signature; no
 IP, no wallet column) in the same database transaction, kept ten years; `GET /v1/admin/sales/<YYYY-Qn>` exports a
 quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an unknown country at the Dutch rate;
 the older `unfret:credit:<beneficiary>` memo still names who gets it. The cursor moves by compare-and-swap, so each

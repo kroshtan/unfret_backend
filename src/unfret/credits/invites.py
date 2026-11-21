@@ -6,7 +6,7 @@ worth ``invite_checks`` checks (5 × the price of a check). They are made in the
 credits the purchase: the crypto scanner's when a quote's first payment arrives (:func:`issue_for_quote`), the fiat
 webhook's when an order is paid (:func:`issue_for_checkout`). Only purchases a buyer's page can collect from get
 invites: a quote or card checkout started with a claim token (below). A transfer made by hand, without a quote, gets
-none, and neither does a payment that brings in less than :data:`MIN_PAID_PCT` percent of the pack's value.
+none, and neither does a payment that brings in less than :data:`MIN_PAID_PCT` percent of the pack's price.
 
 **Storage.** An invite is ``ufi_`` + 160 random bits. The ``invites`` table holds only its SHA-256 (nothing to
 brute-force at that entropy), the day it was issued and the day it was redeemed, and a keyed hash of the buying account
@@ -183,7 +183,7 @@ async def issue_for_quote(
     conn: asyncpg.Connection,
     settings: Settings,
     quote_id: str,
-    paid_net_usd_micros: int,
+    paid_usd_micros: int,
     *,
     today: date | None = None,
     buyer: str | None = None,
@@ -194,17 +194,17 @@ async def issue_for_quote(
     :param conn: The connection (inside the crediting transaction).
     :param settings: The service settings.
     :param quote_id: The quote paid.
-    :param paid_net_usd_micros: The net credits the payment brought in.
+    :param paid_usd_micros: What the payment brought in, VAT included (all of it credited).
     :param today: The issue day (injectable for tests).
     :param buyer: The account the purchase credited (which can't redeem them).
     :return: How many invites were issued (0 without a claim token, or for a short payment).
     """
     row = await conn.fetchrow(
-        "SELECT checks, net_usd_micros FROM vat_quotes WHERE id = $1 AND claim_hash IS NOT NULL "
-        "AND invite_codes IS NULL FOR UPDATE",
+        "SELECT checks, net_usd_micros + vat_usd_micros AS price FROM vat_quotes "
+        "WHERE id = $1 AND claim_hash IS NOT NULL AND invite_codes IS NULL FOR UPDATE",
         quote_id,
     )
-    if row is None or paid_net_usd_micros * 100 < row["net_usd_micros"] * MIN_PAID_PCT:
+    if row is None or paid_usd_micros * 100 < row["price"] * MIN_PAID_PCT:
         return 0
     count = count_for(settings, int(row["checks"]))
     if count:

@@ -27,7 +27,7 @@ ADMIN = {"Authorization": "Bearer operator-token"}
 SECRET = "whsec_" + base64.b64encode(b"affiliate-webhook-secret-32bytes").decode()
 CHECK = settings.analysis_price_usd_micros
 PACK_25 = 25 * CHECK  # $5 of checks
-GROSS_NL_25 = 6_050_000  # the 25-pack with Dutch VAT, in lamports at $1,000/SOL
+PRICE_25 = 5_000_000  # the 25-pack, VAT included, in lamports at $1,000/SOL
 
 
 @pytest.fixture(autouse=True)
@@ -412,23 +412,23 @@ async def test_a_crypto_pack_gets_the_bonus_and_earns_on_its_net(
     await affiliate(client)
     issued = await new_pass(client, ref="ANNA")
 
-    await scan(pool, await crypto_quote(pool, issued.account), GROSS_NL_25)
+    await scan(pool, await crypto_quote(pool, issued.account), PRICE_25)
 
     assert await balance(pool, issued.account) == PACK_25 + 5 * CHECK
-    # What arrived less its VAT ($5.00), no payment fee: 25% = 125 cents.
+    # What arrived ($5.00, VAT included) less its VAT: $4.13, no payment fee: 25% = 103 cents.
     assert await earnings(pool) == [
         {
             "source": "crypto",
             "currency": "usd",
-            "net_minor": 500,
-            "commission_minor": 125,
+            "net_minor": 413,
+            "commission_minor": 103,
             "reversed_minor": 0,
             "fee_estimated": False,
         }
     ]
     (earning_id,) = [r["id"] for r in await pool.fetch("SELECT id FROM affiliate_earnings")]
     reversed_ = await client.post(f"/v1/admin/affiliates/earnings/{earning_id}/reverse", headers=ADMIN)
-    assert reversed_.json() == {"earning_id": earning_id, "reversed_minor": 125}  # a refund by hand
+    assert reversed_.json() == {"earning_id": earning_id, "reversed_minor": 103}  # a refund by hand
 
 
 # ── The stats page, the report, payouts ──────────────────────────────────────────────────────────────────────
@@ -538,7 +538,7 @@ async def test_a_crypto_bonus_code_adds_its_checks(pool: asyncpg.Pool) -> None:
     await affiliates.create_code(pool, "MORE20", bonus_pct=20)
     issued = await keys.create(pool)
 
-    await scan(pool, await crypto_quote(pool, issued.account, "MORE20"), GROSS_NL_25)
+    await scan(pool, await crypto_quote(pool, issued.account, "MORE20"), PRICE_25)
 
     assert await balance(pool, issued.account) == PACK_25 + 5 * CHECK  # the same price, 20% more checks
     assert await pool.fetchval("SELECT uses FROM bonus_codes") == 1

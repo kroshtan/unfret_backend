@@ -377,7 +377,7 @@ def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
     prices = home[home.index('id="prices"') : home.index("</ul>", home.index('id="prices"'))]
     assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
     assert 'data-checks="50"' not in prices and "checks=50" not in home
-    assert "$6.00" in prices and "$20.00" in prices and "$11.50" not in home and "$22.00" not in home
+    assert "$6.50" in prices and "$21.00" in prices and "$11.50" not in home and "$22.00" not in home
     assert "with 1 gift code for a friend" in prices and "with 4 gift codes for friends" in prices
     assert "deep checks, then quick checks" in prices
     home_js = (STATIC_DIR / "home.js").read_text()
@@ -385,10 +385,10 @@ def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.index('id="free-first"') < checkout.index('id="packs"')
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
-    assert "25 checks for $6 (€6 in the euro area), with 1 gift code for a friend" in money
-    assert "100 checks for $20 (€20), with 4 gift codes for friends (5 checks each)" in money
-    assert "The euro card prices include VAT" in money and "The dollar card prices are before tax" in money
-    assert money.index("5 free deep checks") < money.index("25 checks for $6")
+    assert "25 checks for $6.50 (€6.50 in the euro area), with 1 gift code for a friend" in money
+    assert "100 checks for $21 (€21), with 4 gift codes for friends (5 checks each)" in money
+    assert "Card prices include tax, in dollars and in euros" in money and "before tax" not in money
+    assert money.index("5 free deep checks") < money.index("25 checks for $6.50")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
     assert "A pass can use one gift code a month" in my_checks
 

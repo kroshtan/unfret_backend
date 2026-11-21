@@ -53,7 +53,7 @@ export function cardPrice(pricing, pack, currency, country) {
  * (euro prices that include VAT need no country to be final).
  */
 export function taxNote(pricing, country, currency = "usd") {
-  if (taxIncluded(pricing, currency)) return "Card prices include VAT.";
+  if (taxIncluded(pricing, currency)) return currency === "eur" ? "Card prices include VAT." : "Card prices include tax.";
   if (!country) return "Choose your country to see the price with VAT.";
   const pct = vatPct(pricing, country);
   if (pct !== null) return `Card prices include ${pct}% VAT for ${countryPhrase(country)}.`;

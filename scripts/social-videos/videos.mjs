@@ -103,7 +103,154 @@ const SHOP_POPS = ["[data-sales-pop]"];
 
 const VIDEO_LIST = [
   {
-    name: "c-piece-count",
+    name: "e-no-refunds",
+    // A new US-style ski jacket shop: "30-day money-back guarantee" on the product page; its returns page says all
+    // purchases are final.
+    expect: "Its returns page says",
+    page: {
+      height: 1500,
+      hide: ["#shopify-pc__banner", "[id^=sticky-atc]"],
+      blur: ["img.header__heading-logo"],
+      marks: {
+        guarantee: { selector: "body", text: "30-day money-back guarantee" },
+      },
+    },
+    popup: { finding: "Its returns page says" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 380, zoom: 1 },
+        { t: 4.6, left: 0, top: 380, zoom: 1 },
+        { t: 5.8, left: 50, top: 1080, zoom: 1.25 },
+        { t: 13.2, left: 50, top: 1080, zoom: 1.25 },
+      ],
+      strokes: [
+        { mark: "guarantee", kind: "underline", at: 7.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A ski jacket, 50% off." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Not happy? No problem:" },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Money back. Really?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Read their returns page", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 540,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Its returns page: no refunds", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1498], lens: [708, 1306] } }),
+    },
+  },
+  {
+    name: "f-was-price",
+    // A robe shop: $44.00, "Regular price" $121.00, -64%.
+    expect: "A 64% discount",
+    page: {
+      height: 1200,
+      hide: ["#shopify-pc__banner", "div.sticky-add-to-cart__bar"],
+      blur: ["img.header-logo__image"],
+      marks: {
+        was: { selector: "body", text: "$121.00" },
+        save: { selector: "body", text: "-64%" },
+      },
+    },
+    popup: { finding: "A 64% discount" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 300, zoom: 1 },
+        { t: 4.6, left: 0, top: 300, zoom: 1 },
+        { t: 5.8, left: 8, top: 540, zoom: 1.3 },
+        { t: 13.2, left: 8, top: 540, zoom: 1.3 },
+      ],
+      strokes: [
+        { mark: "was", kind: "circle", at: 7.4, draw: 0.6 },
+        { mark: "save", kind: "underline", at: 9.4, draw: 0.5 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A silk robe, 64% off." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Look at the “was” price." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Ever $121?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Or just a big number?", tone: "caution" },
+        { from: 11.1, to: 13.2, y: 420, size: 54, text: "A big “was” makes any price look cheap.", tone: "soft" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "It calls out the too-good discount", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
+  {
+    name: "g-imported-reviews",
+    // A sweater with 4.9 stars from 13 reviews, shown by Ali Reviews, an app that imports reviews from AliExpress.
+    expect: "copies reviews from other sites",
+    page: {
+      height: 1500,
+      hide: ["div.sticky-add-to-cart__bar"],
+      blur: ["img.header-logo__image"],
+      marks: {
+        stars: { selector: "p.rating-count", text: "reviews" },
+        review: { selector: "body", text: "Leonard" },
+      },
+    },
+    popup: { finding: "copies reviews from other sites" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 300, zoom: 1 },
+        { t: 4.6, left: 0, top: 300, zoom: 1 },
+        { t: 5.8, left: 8, top: 430, zoom: 1.6 },
+        { t: 8.6, left: 8, top: 430, zoom: 1.6 },
+        { t: 9.8, left: 8, top: 1080, zoom: 1.6 },
+        { t: 13.2, left: 8, top: 1080, zoom: 1.6 },
+      ],
+      strokes: [
+        { mark: "stars", kind: "circle", at: 7.0, draw: 0.6 },
+        { mark: "review", kind: "underline", at: 10.2, draw: 0.5 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A knit sweater, 4.9 stars." },
+        { from: 4.7, to: 7.6, y: 1240, size: 78, text: "From 13 reviews." },
+        { from: 7.8, to: 9.6, y: 1130, size: 100, text: "Real buyers?" },
+        { from: 10.4, to: 13.2, y: 1290, size: 74, text: "Who wrote these?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Reviews copied in by an app", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 7.9, nods: [10.6],
+        blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
+  {
+    // Deprecated: a Dutch page (the market is the US first); kept for the record, its videos in media/videos/non-english.
+    name: "ne-c-piece-count",
     // A real Amazon.nl listing of a felt-tip pen set (in pages.json): "91-delig" (91 pieces), "80 viltstiften en 12
     // clips".
     // Text the real result must contain: the finding the video points at.
@@ -229,9 +376,10 @@ const VIDEO_LIST = [
     },
   },
   // Real pages (addresses in pages.json): each video one trick, on a page where Unfret's deep check on dev shows it on
-  // the card today.
+  // the card today. The market is the US first: English pages, US shops and marketplaces where possible. These three
+  // (ne-…, Czech and Dutch shops) are kept for the record; their videos are in media/videos/non-english.
   {
-    name: "f-was-price",
+    name: "ne-f-was-price",
     // A Czech fashion shop's two-piece set: 1.149 Kč against a "was" price of 5.745 Kč, "80% SLEVA".
     expect: "80% off: discounts this deep",
     page: {
@@ -280,7 +428,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "j-since-1989",
+    name: "ne-j-since-1989",
     // A Dutch bag shop that says "sinds 1989" (since 1989); its web address is months old.
     expect: "but its web address has existed for only",
     page: {
@@ -326,7 +474,7 @@ const VIDEO_LIST = [
     },
   },
   {
-    name: "g-imported-reviews",
+    name: "ne-g-imported-reviews",
     // A Czech shop's memory journal with 1,035 star ratings, shown by Loox, a review app that imports reviews from
     // AliExpress.
     expect: "copies reviews from other sites",

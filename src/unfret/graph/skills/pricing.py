@@ -27,11 +27,12 @@ _ANCHOR_RE = re.compile(
     re.IGNORECASE,
 )
 # Marketplaces print their own reference-price label on every discounted listing (Amazon's "List Price" and
-# "Typical price", bol.com's "Adviesprijs"), whatever the seller does, so on their pages it says nothing by itself.
+# "Typical price", bol.com's "Adviesprijs" and "Meestal"), whatever the seller does, so on their pages it says
+# nothing by itself.
 # A made-up reference price there is caught by the price history (part 2) instead.
 _OWN_LABELS: dict[str, frozenset[str]] = {
     "amazon": frozenset({"list price", "typical price"}),
-    "bol.com": frozenset({"adviesprijs", "adviesverkoopprijs"}),
+    "bol.com": frozenset({"adviesprijs", "adviesverkoopprijs", "meestal"}),
     "walmart": frozenset({"list price", "typical price"}),
 }
 _PERMANENT_SALE_RE = re.compile(

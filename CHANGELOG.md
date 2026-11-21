@@ -40,6 +40,17 @@
 
 ### Fixes
 
+* **A marketplace's own reference price is a note, not a warning.** Amazon prints its reference-price label on
+  every discounted listing, so on amazon.nl, .de, .co.uk and .fr "Adviesprijs", "UVP", "RRP" and "Prix conseillé"
+  gave "Discount on a 'recommended' price" whatever the seller did (only "List Price" and "Typical price" were
+  treated as Amazon's own). Now every locale's label counts as Amazon's own, and so do bol.com's ("Adviesprijs",
+  "Meestal") and Walmart's: the pricing skill gives a `marketplace_reference` finding and the shopper sees a note,
+  "Discount on the marketplace's reference price" (severity low, never moves the band), instead of the
+  `reference_anchor` reason. The reason fires there only once the price history shows the reference price wasn't
+  charged (the "was" price above the product's lowest of the last 30 days). Web shops' "was" prices and a seller's
+  own anchor in a listing's text ("Retail value: …") are unchanged. On the golden set no band
+  changes on either tier (no page there showed the reason or shows the note).
+
 * **A short link is checked as the page it leads to.** A link pasted into a server-side check (the web link checker,
   `POST /v1/check`, the MCP tools) that redirects (a shop's or marketplace's short link, a link shortener) was checked
   under the short link: no product id, and the result cache, price history, fingerprint store and share link keyed on

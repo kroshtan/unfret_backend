@@ -3,6 +3,10 @@ Fake discounts: implausible reductions, reference "was" prices, endless sales, a
 
 The last needs the price store to have a month of observations for the product. Records the page's price in the
 anonymous price store (:mod:`unfret.price_store`) on the way.
+
+A marketplace's own reference-price label (Amazon's "List Price", "Adviesprijs", "UVP", "RRP", …) is a note
+(``marketplace_reference``), not the ``reference_anchor`` reason: the marketplace prints it on every discounted
+listing. It becomes the reason only once the price history shows the price was never charged.
 """
 
 import re
@@ -26,12 +30,24 @@ _ANCHOR_RE = re.compile(
     rf"|retail value|elsewhere|usually|typical price|list price|prix conseillé)\b\s*:?\s*(?:{_PRICE})",
     re.IGNORECASE,
 )
-# Marketplaces print their own reference-price label on every discounted listing (Amazon's "List Price" and
-# "Typical price", bol.com's "Adviesprijs" and "Meestal"), whatever the seller does, so on their pages it says
-# nothing by itself.
-# A made-up reference price there is caught by the price history (part 2) instead.
+# Marketplaces print their own reference-price label on every discounted listing, whatever the seller does, so on
+# their pages it is a note (``marketplace_reference``), not a reason. Amazon's in every locale its pages are read in
+# ("List Price" and "Typical price" on .com, "RRP" on .co.uk, "UVP" or "Unverbindliche Preisempfehlung" on .de,
+# "Adviesprijs" on .nl, "Prix conseillé" on .fr), bol.com's "Adviesprijs" and "Meestal", Walmart's.
+# A made-up reference price there is the reason only once the price history shows it was never charged (part 2).
 _OWN_LABELS: dict[str, frozenset[str]] = {
-    "amazon": frozenset({"list price", "typical price"}),
+    "amazon": frozenset(
+        {
+            "list price",
+            "typical price",
+            "rrp",
+            "recommended retail price",
+            "uvp",
+            "unverbindliche preisempfehlung",
+            "adviesprijs",
+            "prix conseillé",
+        }
+    ),
     "bol.com": frozenset({"adviesprijs", "adviesverkoopprijs", "meestal"}),
     "walmart": frozenset({"list price", "typical price"}),
 }
@@ -79,8 +95,10 @@ class PricingSkill(Skill):
                 Observation(type="implausible_discount", evidence=f"{discount:.0%} off {facts.list_price:g}.")
             )
         own = _OWN_LABELS.get(facts.platform, frozenset())
-        anchors = (m for m in _ANCHOR_RE.finditer(text) if m.group(1).lower() not in own)
-        if discount > 0 and (anchor := next(anchors, None)):
+        anchors = list(_ANCHOR_RE.finditer(text)) if discount > 0 else []
+        anchor = next((m for m in anchors if m.group(1).lower() not in own), None)
+        own_anchor = None if anchor else next((m for m in anchors if m.group(1).lower() in own), None)
+        if anchor:
             features["reference_anchor"] = True
             observations.append(Observation(type="reference_anchor", evidence=f'"{anchor.group(1)}"'))
         if state.get("page_type") == "storefront" and (sale := _PERMANENT_SALE_RE.search(text)):
@@ -108,4 +126,12 @@ class PricingSkill(Skill):
                             f"{facts.list_price:g}.",
                         )
                     )
+        if own_anchor:
+            label = f'"{own_anchor.group(1)}"'
+            if features.get("was_above_30d_low"):
+                # The price history's positive hit: the marketplace's reference price was never charged.
+                features["reference_anchor"] = True
+                observations.append(Observation(type="reference_anchor", evidence=label))
+            else:
+                observations.append(Observation(type="marketplace_reference", evidence=label))
         return self.output(features, observations)

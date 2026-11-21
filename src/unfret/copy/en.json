@@ -105,6 +105,10 @@
       "title": "Discount on a 'recommended' price",
       "detail": "The 'was' price is labelled {anchor}: a reference price, not what this shop charged before."
     },
+    "marketplace_reference": {
+      "title": "Discount on the marketplace's reference price",
+      "detail": "The 'was' price is the marketplace's own {anchor}, shown on every discounted listing: a reference price, not necessarily what anyone paid."
+    },
     "permanent_sale": {
       "title": "Never-ending sale",
       "detail": "The page says {phrase}: shops that are always closing down use this to rush you."

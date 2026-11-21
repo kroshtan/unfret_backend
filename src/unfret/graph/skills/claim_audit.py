@@ -27,10 +27,11 @@ model (``settings.claim_audit_model``, same provider and key as the other calls)
    data field) and ``likely_slip`` (a data or extraction error rather than a selling claim), with a short reason. A
    "7 oz" tube whose item-weight field says 0.01 oz benefits nobody and is buried in the data; "91 pieces" in a title
    over parts that add up differently is the seller's, shown prominently. Only a contradiction that benefits the
-   seller, where the buyer sees it, and isn't a likely slip stays a ``claim_contradicted`` finding; a likely slip in a
-   buried field is dropped (it tells the shopper nothing); every other one is a ``data_inconsistency`` note, which
-   never moves the band (:func:`outcome`). A piece count that is off stays a finding whatever the judgement (its floor
-   is unchanged); the judgement is still counted. The judgements are features for the learned model, never a rule.
+   seller, where the buyer sees it, and isn't a likely slip stays a ``claim_contradicted`` finding; every other one,
+   a slip in a buried data field too (it is real, just not misleading), is a ``data_inconsistency`` note, which never
+   moves the band (:func:`outcome`). Nothing real is dropped: only what isn't on the page is (step 3). A piece count
+   that is off stays a finding whatever the judgement (its floor is unchanged); the judgement is still counted. The
+   judgements are features for the learned model, never a rule.
 
 On a web shop's own site the model also reads the shop's other pages (its returns, shipping, about, contact, imprint
 and terms pages: :mod:`unfret.shop_pages`, at most four, their text bounded), and holds the product page's claims
@@ -300,8 +301,8 @@ class ClaimAuditAnswer(BaseModel):
 
 
 Benefit = Literal["seller", "buyer", "nobody", "unclear"]
-# What a judged contradiction becomes: a finding, a note that never moves the band, or nothing (:func:`outcome`).
-Outcome = Literal["finding", "note", "dropped"]
+# What a judged contradiction becomes: a finding, or a note that never moves the band (:func:`outcome`).
+Outcome = Literal["finding", "note"]
 
 
 class Materiality(BaseModel):
@@ -409,7 +410,7 @@ class ClaimAudit:
 
     def told(self, kind: Outcome) -> list[ClaimProblem]:
         """
-        The problems that become a finding, a note, or are dropped.
+        The problems that become a finding, or a note.
 
         :param kind: Which.
         :return: Those problems, in order.
@@ -424,9 +425,10 @@ def outcome(judgement: Materiality | None, *, counted: bool = False) -> Outcome:
     - ``finding`` (``claim_contradicted``): it favours the seller, where the buyer sees it, and isn't a likely slip;
       also a piece count that is off (``counted``: its floor is the count rule's, unchanged) and a contradiction that
       couldn't be judged (as before the judgement).
-    - ``dropped``: a likely slip in a buried field (a far-off weight in the item data): it tells the shopper nothing.
-    - ``note`` (``data_inconsistency``): every other one (a slip the buyer sees, one that favours the buyer or nobody,
-      or the seller's but buried): told, never a reason to move the band.
+    - ``note`` (``data_inconsistency``): every other one (a slip, in the title or buried in a data field: a phone case
+      of 0.023 oz is a real contradiction, but not a misleading one; one that favours the buyer or nobody; or the
+      seller's but buried): told, never a reason to move the band. Nothing real is dropped (:func:`reported` drops
+      only what isn't on the page).
 
     :param judgement: The contradiction's judgement, or ``None``.
     :param counted: Whether it is about the piece count (:func:`count_problems`).
@@ -436,8 +438,6 @@ def outcome(judgement: Materiality | None, *, counted: bool = False) -> Outcome:
         return "finding"
     if judgement.benefits == "seller" and judgement.buyer_facing and not judgement.likely_slip:
         return "finding"
-    if judgement.likely_slip and not judgement.buyer_facing:
-        return "dropped"
     return "note"
 
 
@@ -989,18 +989,17 @@ class ClaimAuditSkill(Skill):
         "buyer_facing",
         "likely_slips",
         "inconsistencies",
-        "dropped",
     )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
         Audit the page's claims (:func:`listing_claims`) and report the clear contradictions.
 
-        A contradiction judged material is a ``claim_contradicted`` finding, one that isn't a ``data_inconsistency``
-        note, a likely slip in a buried field nothing (:func:`outcome`). ``contradicted``, ``contradictions``,
+        A contradiction judged material is a ``claim_contradicted`` finding, one that isn't (a likely slip, too) a
+        ``data_inconsistency`` note (:func:`outcome`). ``contradicted``, ``contradictions``,
         ``impossible`` and ``across_pages`` count the findings; ``count_off`` every piece-count problem, as before.
         The judgements (``benefits_*``, ``buyer_facing``, ``likely_slips``, of the ``judged`` problems) and what came
-        of them (``inconsistencies``, ``dropped``) are features for the learned model; no rule reads them.
+        of them (``inconsistencies``) are features for the learned model; no rule reads them.
 
         :param state: Current graph state; uses ``facts``, ``cleaned_content``, ``page_type`` and ``url``.
         :return: The skill's features and findings, and the claims for other steps (``listing_claims``).
@@ -1026,7 +1025,6 @@ class ClaimAuditSkill(Skill):
                 "buyer_facing": sum(1 for j in judgements if j.buyer_facing),
                 "likely_slips": sum(1 for j in judgements if j.likely_slip),
                 "inconsistencies": len(notes),
-                "dropped": len(audit.told("dropped")),
             },
             observations,
             note=f"{len(audit.claims)} checkable claims{_read_with(audit.shop_pages)}; none that contradicts itself "

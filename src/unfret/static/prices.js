@@ -1,14 +1,20 @@
-// Card prices as a buyer pays them. The card provider (Polar, the Merchant of Record) adds VAT to a pack's price at
-// checkout, so a price shown without it would go up at the last step: exactly what Unfret warns shoppers about. For
-// a country in the EU the price is shown with that country's standard VAT rate, which is what the provider charges
-// a consumer there (/v1/pricing's vat.card_rates_pct; not eu_rates_pct, which is what Unfret itself charges on a
-// crypto purchase), rounded half up to the cent; elsewhere tax depends on the buyer's state or country, and is
-// named as added at checkout.
+// Card prices as a buyer pays them. Euro card prices include VAT (/v1/pricing's card_tax_inclusive.eur): they are
+// the final price, the same in every euro country, and are shown as they are. Dollar prices are before tax: the card
+// provider (Polar, the Merchant of Record) adds VAT to them at checkout, so a price shown without it would go up at
+// the last step, exactly what Unfret warns shoppers about. For a country in the EU a dollar price is shown with that
+// country's standard VAT rate, which is what the provider charges a consumer there (/v1/pricing's
+// vat.card_rates_pct; not eu_rates_pct, which is what Unfret itself charges on a crypto purchase), rounded half up
+// to the cent; elsewhere tax depends on the buyer's state or country, and is named as added at checkout.
 
 /** The VAT rate (percent, e.g. 21 or 25.5) a buyer from `country` pays by card, or null outside the EU. */
 export function vatPct(pricing, country) {
   const pct = pricing?.vat?.card_rates_pct?.[country];
   return pct === undefined || pct === null ? null : Number(pct);
+}
+
+/** Whether the card prices in `currency` ("eur" or "usd") already include VAT/sales tax. */
+export function taxIncluded(pricing, currency) {
+  return pricing?.card_tax_inclusive?.[currency] === true;
 }
 
 /** `cents` plus `pct` percent VAT, rounded half up to the cent. */
@@ -23,7 +29,7 @@ export function formatCents(cents, currency) {
   return currency === "eur" ? `€${amount}` : `$${amount}`;
 }
 
-/** A pack's card price in `currency` before tax, in cents, or null when it has none in that currency. */
+/** A pack's card price in `currency` as listed (before tax, or with it where it is included), in cents, or null. */
 export function netCents(pack, currency) {
   if (currency === "eur") return Number.isInteger(pack.price_eur_cents) ? pack.price_eur_cents : null;
   return Number.isInteger(pack.price_usd_micros) ? Math.round(pack.price_usd_micros / 10_000) : null;
@@ -31,18 +37,23 @@ export function netCents(pack, currency) {
 
 /**
  * A pack's card price for a buyer from `country` paying in `currency`: { text, cents, vat } with the VAT included
- * for an EU country (vat: the rate), without any tax elsewhere (vat: null). Null when the pack has no such price.
+ * for an EU country (vat: the rate), without any tax elsewhere (vat: null). A price that already includes VAT is
+ * shown as it is. Null when the pack has no such price.
  */
 export function cardPrice(pricing, pack, currency, country) {
   const net = netCents(pack, currency);
   if (net === null) return null;
   const pct = vatPct(pricing, country);
-  const cents = pct === null ? net : withVat(net, pct);
+  const cents = pct === null || taxIncluded(pricing, currency) ? net : withVat(net, pct);
   return { text: formatCents(cents, currency), cents, vat: pct };
 }
 
-/** What the card price includes, in words, for `country` ("" for no country yet). */
-export function taxNote(pricing, country) {
+/**
+ * What the card price includes, in words, for `country` (none chosen yet: asks for one) paying in `currency`
+ * (euro prices that include VAT need no country to be final).
+ */
+export function taxNote(pricing, country, currency = "usd") {
+  if (taxIncluded(pricing, currency)) return "Card prices include VAT.";
   if (!country) return "Choose your country to see the price with VAT.";
   const pct = vatPct(pricing, country);
   if (pct !== null) return `Card prices include ${pct}% VAT for ${countryPhrase(country)}.`;

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Prices
+
+* **Euro card prices include VAT: €6.00 and €20.00.** Buyers in the euro area now pay exactly the price shown for 25
+  and 100 checks, the same in every euro country, instead of €5.50 / €17.50 plus their country's VAT (€6.66 / €21.18
+  in the Netherlands). The packs and their credits are unchanged (25 and 100 checks), and so are the dollar prices
+  ($6 / $20, before sales tax/VAT, as US buyers expect) and the crypto prices. New setting
+  `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (on by default); `UNFRET_CARD_PRICES_EUR` now defaults to `25=6.00,100=20.00`.
+  `/v1/pricing` says which card prices include tax (`card_tax_inclusive`), and the home page, `/nl`, `/checkout`,
+  `/money` and the developer pages show the euro prices as they are, without adding VAT. A tax-inclusive euro order is
+  credited when its amount with VAT is the pack's price; refunds and affiliate commission still count from Polar's
+  amount before VAT. Each Polar product's EUR price must be €6.00 / €20.00 with the tax behaviour *inclusive*: until
+  it is, euro checkouts are refused before anyone pays (and fall back to the dollar checkout).
+
 ### Evaluation
 
 * **A labelling set for the deep check's new findings.** `make deep-candidates` collects unlabelled product pages
@@ -140,16 +153,17 @@
   in the title, the price, the headline bullets or the main photo, not a buried spec or data field), `likely_slip`
   (a data or extraction error rather than a claim made to sell) and a short reason. Only a contradiction that favours
   the seller, where the buyer sees it, and isn't a likely slip stays `claim_contradicted` ("91 pieces" in a title
-  over parts that add up differently). A likely slip in a buried field is not told (an item weight of 0.01 oz on a
-  7 oz tube). Every other one is a new `data_inconsistency` finding and shopper reason ("Details on the page that
-  don't match", low): a note that never moves the band. A piece count that is off stays `claim_contradicted` whatever
+  over parts that add up differently). Every other one is a new `data_inconsistency` finding and shopper reason
+  ("Details on the page that don't match", low): a note that never moves the band. That includes a likely slip
+  buried in a data field (an item weight of 0.023 oz on a phone case): the contradiction is real, so it is told,
+  but it isn't misleading, so the page keeps its band. Nothing real is dropped; only a contradiction whose quotes
+  aren't on the page is, as before. A piece count that is off stays `claim_contradicted` whatever
   the judgement, so its floor is unchanged; a judgement that fails leaves the contradiction told as before.
   `claim_audit.contradicted`, `.contradictions`, `.impossible` and `.across_pages` count the findings only; new
   features `.judged`, `.benefits_seller`, `.benefits_buyer`, `.benefits_nobody`, `.benefits_unclear`,
-  `.buyer_facing`, `.likely_slips`, `.inconsistencies` and `.dropped` are for the learned model, and no rule reads
+  `.buyer_facing`, `.likely_slips` and `.inconsistencies` are for the learned model, and no rule reads
   them. On the 374 corpus pages where `claim_contradicted` had fired, rerun: 342 contradictions told, of which 112
-  stay findings, 74 become notes and 156 are dropped (90 pages keep a finding, 65 have a note only, 112 nothing left
-  told). The judgement costs about €0.006 a page that has a contradiction (about 37% of the audit's cost on those
+  stay findings and 230 become notes (90 pages keep a finding, 177 have notes only). The judgement costs about €0.006 a page that has a contradiction (about 37% of the audit's cost on those
   pages; roughly a fifth of product pages have one) and a second or so.
 
 * **A shop's earlier copies come from Common Crawl first; the Internet Archive is the fallback.** The Internet

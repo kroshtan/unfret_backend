@@ -321,17 +321,26 @@ def with_base(page: str, base_on: bool) -> str:
 
 def packs_line() -> str:
     """
-    The packs on sale and their prices, by card (before tax) and with crypto (before VAT), for the developer pages.
+    The packs on sale and their prices by card and with crypto, for the developer pages.
 
-    :return: E.g. "25 for $6.00 and 100 for $20.00 by card, before tax (…); with crypto 25 for $5.00 and …".
+    By card in dollars (before tax) and in euros (VAT included, while the euro prices include it); with crypto before
+    VAT.
+
+    :return: E.g. "25 for $6.00 and 100 for $20.00 by card, before tax (…); in the euro area €6.00 and €20.00 by card,
+        VAT included; with crypto 25 for $5.00 and …".
     """
     on_sale = packs.packs(settings)
     card = _listed([f"{p.checks} for {format_usd(p.card_usd_micros)}" for p in on_sale])
     crypto = _listed([f"{p.checks} for {format_usd(p.value_usd_micros)}" for p in on_sale])
-    return (
+    line = (
         f"{card} by card, before tax (checkout shows the card price with VAT for an EU country, and adds sales tax "
-        f"where it applies elsewhere); with crypto {crypto}, plus VAT where it applies"
+        "where it applies elsewhere)"
     )
+    if packs.euros_on(settings):
+        euros = _listed([packs.format_eur(p.card_eur_cents or 0) for p in on_sale])
+        inclusive = all(p.tax_inclusive("eur") for p in on_sale)
+        line += f"; in the euro area {euros} by card, " + ("VAT included" if inclusive else "plus VAT")
+    return f"{line}; with crypto {crypto}, plus VAT where it applies"
 
 
 def _listed(items: list[str]) -> str:

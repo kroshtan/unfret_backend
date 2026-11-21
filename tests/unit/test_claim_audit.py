@@ -129,7 +129,6 @@ async def test_a_contradiction_becomes_a_finding_and_the_claims_are_shared(model
         "claim_audit.buyer_facing": 1.0,
         "claim_audit.likely_slips": 0.0,
         "claim_audit.inconsistencies": 0.0,
-        "claim_audit.dropped": 0.0,
     }
     [finding] = out["findings"]
     assert finding.type == "claim_contradicted"
@@ -301,7 +300,8 @@ SLIP = ClaimProblem(
     ("change", "expected"),
     [
         ({}, "finding"),  # "91 pieces" in the title: the seller's, where the buyer sees it
-        ({"likely_slip": True, "buyer_facing": False, "benefits": "nobody"}, "dropped"),  # 0.01 oz in the item data
+        # 0.023 oz for a phone case in the item data: real, so told, but not misleading, so only a note.
+        ({"likely_slip": True, "buyer_facing": False, "benefits": "nobody"}, "note"),
         ({"likely_slip": True, "benefits": "seller"}, "note"),  # a slip, but one the buyer reads: worth telling
         ({"benefits": "buyer"}, "note"),
         ({"benefits": "nobody"}, "note"),
@@ -319,7 +319,7 @@ def test_a_piece_count_or_an_unjudged_problem_stays_a_finding() -> None:
     assert claim_audit.outcome(None) == "finding"
 
 
-async def test_a_slip_is_a_note_a_buried_slip_is_dropped_and_both_are_features(model: FakeModel) -> None:
+async def test_slips_buried_or_not_are_notes_and_the_judgements_are_features(model: FakeModel) -> None:
     fda = ClaimProblem(
         claim="FDA approved",
         check="certification",
@@ -338,10 +338,11 @@ async def test_a_slip_is_a_note_a_buried_slip_is_dropped_and_both_are_features(m
     assert [(f.type, f.evidence.split(";")[0]) for f in out["findings"]] == [
         ("claim_contradicted", 'Says "weighs just 80 g"'),
         ("data_inconsistency", 'Says "FDA approved"'),
+        ("data_inconsistency", 'Says "Capacity: 64GB"'),  # a slip buried in the specs: real, so never dropped
     ]
     features = {k.removeprefix("claim_audit."): v for k, v in out["features"].items()}
     assert features["contradictions"] == 1 and features["impossible"] == 1
-    assert (features["inconsistencies"], features["dropped"], features["judged"]) == (1, 1, 3)
+    assert (features["inconsistencies"], features["judged"]) == (2, 3) and "dropped" not in features
     assert (features["benefits_seller"], features["benefits_buyer"], features["benefits_nobody"]) == (1, 1, 1)
     assert (features["buyer_facing"], features["likely_slips"]) == (2, 1)
     # One judgement call, after the audit, with the page as untrusted data and the contradictions numbered.

@@ -1616,16 +1616,31 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   moves the band; `reference_anchor` again once the price history shows the price was not charged
   (`pricing.was_above_30d_low`).
 
+## Changes (euro card prices include VAT; backwards-compatible)
+
+- The euro card prices are now **€6.00 / €20.00 including VAT** (`price_eur_cents` 600 / 2000), the final price for
+  every buyer in the euro area whatever their country's rate; they were €5.50 / €17.50 with VAT added at checkout.
+  `GET /v1/pricing` adds a top-level `card_tax_inclusive: {"usd": false, "eur": true}`: whether the card prices in
+  each currency include sales tax/VAT. Where it is `true`, show the price as it is (no VAT added for the buyer's
+  country; "€6.00, VAT included"); where `false`, as before (the dollar prices: add `vat.card_rates_pct` for an EU
+  country, sales tax at checkout elsewhere). The dollar prices, the crypto prices, the packs and their credits
+  (25 / 100 checks) are unchanged.
+- A paid euro order credits its pack when it paid the pack's euro price including VAT (Polar's `net_amount +
+  tax_amount`); refunds still count pro rata from the order's amount before tax. A euro checkout is refused before
+  anyone pays when the Polar product's EUR price isn't set to tax-inclusive (or isn't the pack's price).
+- Settings: `UNFRET_CARD_PRICES_EUR` (default `25=6.00,100=20.00`), `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (default
+  `true`; `false` goes back to VAT on top).
+
 ## Changes (the claim audit judges each contradiction's materiality; backwards-compatible)
 
 - Each contradiction the claim audit tells is judged in one follow-up call (only on a page that has any): who
   benefits, where the buyer can see it. New features `claim_audit.judged` (contradictions judged), `.benefits_seller`,
   `.benefits_buyer`, `.benefits_nobody`, `.benefits_unclear`, `.buyer_facing` and `.likely_slips` (how many of the
-  judged ones), `.inconsistencies` (told as a note) and `.dropped` (not told). Not in the scorer.
+  judged ones) and `.inconsistencies` (told as a note). Not in the scorer.
 - Only a contradiction that favours the seller, where the buyer sees it (title, price, headline bullets, main photo),
   and isn't a likely data slip stays a `claim_contradicted` finding; `.contradicted`, `.contradictions`,
-  `.impossible` and `.across_pages` now count those only. A likely slip in a buried field is not told; every other
-  one is a new finding `data_inconsistency`, with the same evidence form (`Says "<claim>"; <why>`). A piece count
+  `.impossible` and `.across_pages` now count those only. Every other one, a likely slip buried in a data field
+  too, is a new finding `data_inconsistency`, with the same evidence form (`Says "<claim>"; <why>`). A piece count
   that is off (`.count_off`, unchanged) stays `claim_contradicted` whatever the judgement; a contradiction that
   couldn't be judged is told as before.
 - A new shopper reason key `data_inconsistency` ("Details on the page that don't match", severity low, area

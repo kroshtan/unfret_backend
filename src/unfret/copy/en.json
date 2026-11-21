@@ -652,7 +652,6 @@
     "claim_audit.buyer_facing": "Contradictions where the buyer sees them",
     "claim_audit.likely_slips": "Contradictions that look like data slips",
     "claim_audit.inconsistencies": "Details on the page that don't match",
-    "claim_audit.dropped": "Data slips left untold",
     "variant_check.options": "Options in the variant picker",
     "variant_check.asked": "Variant options checked",
     "variant_check.grouped": "Different products under one listing",

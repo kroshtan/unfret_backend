@@ -13,9 +13,12 @@ A pack of ``n`` checks (25 and 100 by default) costs:
   (:mod:`unfret.credits.vat`). Crypto is never dearer than the card price, and on the 100-pack it is the same.
 
 Visitors from the euro area pay by card in euros instead (:func:`card_currency`): each pack's euro price is a
-setting of its own (``card_prices_eur``, default €5.50 / €17.50), not converted from the dollar price, so it stays
-round. A euro checkout is what shows "iDEAL | Wero" to Dutch buyers at the provider. The credits are the same: a
-pack's value in dollars, whichever currency paid for it.
+setting of its own (``card_prices_eur``, default €6 / €20), not converted from the dollar price, so it stays round.
+The euro prices **include VAT** (``card_prices_eur_tax_inclusive``, the default): every buyer pays exactly the price
+shown, whatever their country's rate, and the provider takes the VAT out of it (our margin absorbs the difference
+between rates). The dollar prices are before sales tax/VAT, as US buyers expect. A euro checkout is what shows
+"iDEAL | Wero" to Dutch buyers at the provider. The credits are the same: a pack's value in dollars, whichever
+currency paid for it.
 
 The card price is *the* price and crypto is shown as the discount where there is one (EU rules forbid surcharging
 consumer card payments; a discount for paying another way is fine). Either way the account is credited the pack's
@@ -83,7 +86,8 @@ class Pack:
     checks: int
     value_usd_micros: int  # credited to the account, and the crypto price before VAT
     card_usd_micros: int  # the price by card, before the provider's sales tax/VAT
-    card_eur_cents: int | None = None  # the price by card in euros (cents, before VAT); None: dollars only
+    card_eur_cents: int | None = None  # the price by card in euros (cents); None: dollars only
+    card_eur_tax_inclusive: bool = True  # whether card_eur_cents includes VAT (else VAT is added at checkout)
 
     def card_cents(self, currency: str) -> int | None:
         """
@@ -95,6 +99,15 @@ class Pack:
         if currency == "usd":
             return self.card_usd_micros // (USD_MICROS // 100)
         return self.card_eur_cents if currency == "eur" else None
+
+    def tax_inclusive(self, currency: str) -> bool:
+        """
+        Whether the card price in the currency includes sales tax/VAT (the buyer pays exactly that price).
+
+        :param currency: ``usd`` or ``eur``.
+        :return: True for euros when ``card_prices_eur_tax_inclusive``; dollar prices are always before tax.
+        """
+        return currency == "eur" and self.card_eur_tax_inclusive
 
 
 def card_price(value_usd_micros: int, settings: Settings) -> int:
@@ -126,6 +139,7 @@ def packs(settings: Settings) -> list[Pack]:
             n * per_check,
             usd[n] * cent if n in usd else card_price(n * per_check, settings),
             eur.get(n),
+            settings.card_prices_eur_tax_inclusive,
         )
         for n in settings.packs
     ]
@@ -157,7 +171,7 @@ def format_eur(cents: int) -> str:
     Euro cents as a price.
 
     :param cents: The amount.
-    :return: E.g. ``"€5.50"``.
+    :return: E.g. ``"€6.00"``.
     """
     return f"€{cents // 100}.{cents % 100:02d}"
 
@@ -178,7 +192,8 @@ def pack_for_card(settings: Settings, amount_cents: int, currency: str = "usd") 
     The pack whose card price a payment paid exactly.
 
     :param settings: The service settings.
-    :param amount_cents: The amount paid, before tax, in the currency's cents.
+    :param amount_cents: The price paid, in the currency's cents: before tax for dollars, and for euros including VAT
+        when the euro prices do (:meth:`Pack.tax_inclusive`).
     :param currency: The payment's currency (``usd`` or ``eur``).
     :return: The pack, or ``None`` if the amount matches none (or the currency isn't one we sell in).
     """
@@ -195,7 +210,7 @@ def card_credits(settings: Settings, amount_cents: int, currency: str = "usd") -
     value any other amount, so it buys nothing (and is left for a person to look at).
 
     :param settings: The service settings.
-    :param amount_cents: The amount paid, before tax, in the currency's cents.
+    :param amount_cents: The price paid, in the currency's cents (as for :func:`pack_for_card`).
     :param currency: The payment's currency (``usd`` or ``eur``).
     :return: Micro-dollars to credit (zero if it covers no check).
     """

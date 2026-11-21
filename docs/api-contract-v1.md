@@ -1496,3 +1496,27 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `no_archive` reads "The Internet Archive has no earlier copies of the shop's address." when nothing else in the
   area ran.
 - x402 `POST /v1/check` and the MCP server: unchanged in shape.
+
+## Changes (variant options, and the variant check; backwards-compatible)
+
+- `PageFacts` (request `page_facts`, `GET /v1/schema/page-facts`) gains `variants` (optional, `null` when the page has
+  fewer than two options): `{source, dimensions, options, headline, headline_basis, from_price}`. `source` is
+  `amazon`, `walmart`, `shopify`, `woocommerce`, `schema_org` or `picker`. `dimensions` (at most 5): `{name, kind,
+  values}`, `name` as the page labels it (≤100), `kind` one of `size`, `colour`, `count`, `pattern`, `material`,
+  `flavour`, `style`, `other`, `values` (≤100, each ≤200). `options` (≤100): `{label (≤300), values (≤5, one per
+  dimension), price (≥0, the page's currency, or null), available (bool or null), selected (bool)}`. `headline`: the
+  index in `options` of the option the page's price belongs to, or null; `headline_basis`: `selected`, `from` (the
+  page shows a "from" price or a range: the cheapest option), `price` (the option whose price it is) or `""`;
+  `from_price` (bool). A client that extracts facts itself (the extension) sends the same as the server reads from
+  the HTML. `variations` is unchanged.
+- A new skill on product pages (deep tier only; the quick tier is unchanged): `variant_check`, with features
+  `variant_check.options`, `.asked` (0/1: the model was asked), `.grouped` (0/1), `.bait_price` (0/1) and
+  `.price_spread` (how far the prices spread beyond what the options' amounts explain, ≤100), or
+  `variant_check.not_applicable` while it is off (`UNFRET_VARIANT_CHECK=false`) and `variant_check.unavailable` when
+  it failed. Findings: `variant_bait_price` and `variants_grouped`, each with the sentence the shopper reads as its
+  evidence. Not in the scorer.
+- New shopper reason keys: `variant_bait_price` ("The price shown is for a different item", severity medium, area
+  `prices`) and `variants_grouped` ("Different products under one listing", severity low, area `product`), source
+  `ai_read`, next step `check_variant`. Only the first is shown when both fire (its sentence says the grouping too). A
+  bait price makes "Looks fine" "Worth a look" at most, whoever sells it; a grouping alone is a note and never a
+  warning.

@@ -4,6 +4,21 @@
 
 ### Page facts
 
+* **Variant options on any platform** (`facts/variants.py`, new `PageFacts.variants`). A listing's variant picker
+  as facts: each dimension as the page names it ("Größe", "Maat", "Size") with what it varies (`kind`: size, colour,
+  count, pattern, material, flavour, style, other, from its name in any language), each option with its values, its
+  price when the page gives it, whether it is available and selected, and which option the headline price belongs to
+  (`headline`, and how that is known: `selected`, a `from` price or range, or the option whose `price` it is). Read
+  from the first source with two or more options: Amazon's twister data on every locale (`dimensions`,
+  `variationDisplayLabels`, `variationValues`, `dimensionValuesDisplayData`, `selectedVariationValues`, `currentAsin`,
+  with each option's price from its swatch when the signed-out page shows one, and a price range as the "from"
+  price), Walmart's `variantCriteria`/`variantsMap`, Shopify's product JSON (prices in cents; the `?variant=` in the URL
+  or the first available variant on show, as Shopify's themes do), WooCommerce's variations form, a schema.org
+  `ProductGroup`'s `hasVariant` and `variesBy`, else the page's own picker (a select or radio buttons named as a size,
+  colour, style or variant, never quantity, country, currency, delivery or sorting, outside header, menu and footer;
+  a price at the end of an option's label is its price). `variations` (Amazon's swatch labels) is unchanged. On the
+  golden set, 38 of the 180 pages have variants (schema.org 18, Shopify 9, picker 6, Walmart 3, Amazon 2).
+
 * **Every product page gives its gallery first, not only Amazon's.** A new step (`facts/gallery.py`) puts the
   product's photos at the front of `image_urls`, large and in order, on any shop system or marketplace: the main photo
   of the structured data (a schema.org `image` array or one) or the Open Graph image, then AliExpress's
@@ -34,6 +49,28 @@
   then says it ran rather than every step.
 
 ### Deep checks
+
+* **The variant check: different products grouped as a listing's sizes, and a price shown for one of them** (new skill
+  `variant_check`, deep checks only). Sellers put different products under one listing as its "sizes", "colours" or
+  "styles" (a phone case, a screen protector and a charging cable as "Size"), so that all of them share one star
+  rating and review pool and the listing shows the cheapest one's price. Options that are plainly one product's sizes,
+  amounts and colour names (S/M/L, 42 2/3, 500 ml, "2 stuks", "Sea Glass Aura") cost nothing; for the rest one
+  structured call to the claim audit's model (GLM-5.3, same provider, timeout and concurrency) says what the title
+  sells and, for each option, what it is and whether it is that product (another size, colour, amount, model or a
+  bundle with it) or a part, an accessory, a refill, a single unit or a different item. Every option it names must be
+  one of the page's own, its nouns plain words, the grouping confident (`UNFRET_VARIANT_CHECK_MIN_CONFIDENCE`, 0.85)
+  with at least one option that is the title's product and one that isn't. Two reasons, source "Unfret's read of the
+  page": `variants_grouped` ("Different products under one listing", low: "This listing groups different products as
+  sizes: “Hülle” (€19.99), “Panzerglas 2 Stück” (€8.99) and “Ladekabel USB-C 1 m” (€6.99); the €8.99 option is a
+  screen protector; the €6.99 option is a charging cable. Its star rating covers all of them."), a note that never
+  changes the band; and `variant_bait_price` ("The price shown is for a different item", medium: "The price shown,
+  €6.99, is for “Ladekabel USB-C 1 m”, a charging cable, not the phone case in the title; the phone case itself is
+  from €19.99. …"), when the "from" price, the selected option or the option the headline price is belongs to an
+  item that isn't the title's product (and, when the page prices both, costs at most 60% of it): a page the scorer
+  calls fine is "Worth a look" with it, whoever sells it. Next step "Pick the option you actually want and check its
+  own price, photos and reviews". How far the prices spread beyond what the options' own amounts explain is a feature
+  and context for the model, never told by itself. `UNFRET_VARIANT_CHECK=false` turns it off; each call logs its
+  tokens and cost (`variant_check_usage`).
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery

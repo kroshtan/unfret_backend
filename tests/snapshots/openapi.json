@@ -2377,6 +2377,15 @@
       "title": "Detail",
       "type": "string"
      },
+     "links": {
+      "description": "Up to three links to the evidence elsewhere (archived copies on web.archive.org).",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 3,
+      "title": "Links",
+      "type": "array"
+     },
      "severity": {
       "enum": [
        "high",

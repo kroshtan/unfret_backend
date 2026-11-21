@@ -171,6 +171,7 @@ flowchart LR
     C -. service provider .-> SV
     subgraph PR [product subgraph]
         S[cheap skills<br/><sub>in parallel</sub>] --> T{triage} -- photo check worth it --> R[reverse_image] --> T
+        T -- old address, doubtful page --> H[domain_history] --> T
         T --> J[judge<br/><sub>scorer + LLM headline</sub>]
     end
     subgraph PP [p2p subgraph]
@@ -197,7 +198,8 @@ page class then runs in its own subgraph (`src/unfret/graph/__init__.py`), which
 `page_types` include the page's type (LangGraph's `Send` API, so they run concurrently), then a triage, then a judge:
 
 - **product** (marketplace listings and storefronts): the cheap skills, the triage (rules first, the LLM only for
-  unclear cases) that decides whether the reverse image search is worth it, and the judge (the trained scorer's
+  unclear cases) that decides whether the reverse image search is worth it (and, by rules alone, whether to look at
+  the shop's earlier copies in the Internet Archive: `domain_history`), and the judge (the trained scorer's
   band; an LLM writes the headline). The four bands read "Looks fine" (`reliable`), "Worth a look" (`concerns`),
   "Think twice" (`careful`) and "Serious concerns" (`junk_or_scam`); "Serious concerns" only when the scorer is sure
   (`UNFRET_VERDICT_SERIOUS_MIN_CONFIDENCE`, 0.6; the quick tier's scorer 0.7), otherwise "Think twice". Every band
@@ -237,8 +239,8 @@ an ad), and the platform's other pages (search, home) go to the LLM rather than 
 rules, structured data naming a trade (`Plumber`, `Locksmith`, `HomeAndConstructionBusiness`, …) makes a
 `service_site`. The LLM classifies whatever is left, with the new types in its prompt only while the flag is on.
 
-Nodes that call the LLM or fetch outside data (classify, the content, reviews, domain_age, eu_registry and
-reverse_image skills, the triage, the judge) have LangGraph's built-in **RetryPolicy**: a transient error (dropped
+Nodes that call the LLM or fetch outside data (classify, the content, reviews, domain_age, domain_history,
+eu_registry and reverse_image skills, the triage, the judge) have LangGraph's built-in **RetryPolicy**: a transient error (dropped
 connection, provider 5xx, rate limit) gets `UNFRET_GRAPH_RETRY_ATTEMPTS` attempts (default 2) before a skill counts
 as unavailable. LangGraph, langchain-core and langchain-openai are pinned to their minor release and upgraded
 deliberately; no LangSmith or other hosted LangChain service is used (its tracing is forced off).
@@ -256,6 +258,7 @@ deliberately; no LangSmith or other hosted LangChain service is used (its tracin
 | `us_identity` | US storefronts and service sites: a named company (LLC, Inc.), a US business address and phone number; an address that is only a mailbox (PO Box, PMB). Not in the scorer yet |
 | `shop_policies` | Storefronts: delivery ranges of 15+ days, returns sent abroad, a return address given only on request, restocking fees above 20%, and "Made in USA" on goods shipped from overseas. Not in the scorer yet |
 | `domain_age` | Storefronts and service sites: domain registration via RDAP and the first certificate in the CT logs; a "since 1998" / "founded 20 years ago" claim about the shop itself on a domain younger than a year by both measures (claims vs facts) |
+| `domain_history` | Storefronts, deep tier only, when the triage plans it: on an address at least 3 years old (where "Established shop" starts) whose page already looks doubtful by the cheap skills (the verdict they alone would give, by the same scorer and rules as the judge, isn't "Looks fine"), the home page's copies in the Internet Archive from about 1, 3 and 12 months ago (the CDX index, then up to three raw `id_` copies through `fetch_public`; no LLM). A copy that is a parked page (the address for sale, by its title or a short page saying so) or an empty placeholder ("coming soon" as its title or nearly all it says), or a different site (two of: another language, not a shop, almost no words in common; the shop's own site or company name in the copy makes it the same shop, and with only the address's own name in it all three must hold) becomes the reason "Older address, new shop", with links to the copies on web.archive.org; the address's age then no longer counts for the shop ("Established shop" isn't shown, and the verdict is "Worth a look" at best). No copies, or copies too thin to read, say nothing. Planned once, next to the photo search and outside its budget; cached per address for a week. The archive is asked a few times a minute at most, and not at all for a while after it refuses a connection (`UNFRET_WAYBACK_PER_MINUTE`, `UNFRET_WAYBACK_PAUSE_S`). Off with `UNFRET_DOMAIN_HISTORY=false`; not in the scorer |
 | `shop_links` | Storefronts and service sites: other web shops (or service sites) with the same analytics/pixel IDs, payment account or (hashed) contact details, one hop, from the shop fingerprint store; how many of them are young (their own registration dates). Service sites are recorded like shops and also linked on their published phone numbers (national formats too) and their e-mail domain (not webmail), hashed: one call centre behind many "local" brands. Another shop's identifiers seen only in client-supplied content count once corroborated (see "What free checks record"). Local lookup, also in the quick tier; not in the scorer yet |
 | `payment_methods` | Storefronts: only payments that can't be reversed (bank transfer, crypto, Western Union, MoneyGram; gift cards don't count alone) and no card, PayPal, iDEAL, Klarna or other protected method in the text, logo alt texts or a payment provider's script (Shopify shops never: their checkout takes cards); protected methods offered (a positive). Not in the scorer yet |
 | `claims` | Storefronts: claims against the facts: "a Dutch company", "family business in Amsterdam", "based in Germany" while every address the shop gives is in another country (told from the address text: country names, Dutch postcodes, US state and ZIP, UK postcodes; no geocoding); "visit our showroom" with no address, postcode or phone number anywhere. Not in the scorer yet |
@@ -1030,6 +1033,10 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_CLAIM_AUDIT` / `UNFRET_CLAIM_AUDIT_MODEL` | `true` / `glm-5.3` | The claim audit (deep checks): off reports nothing and costs nothing; its model, same provider and key, must support tool calling. `UNFRET_CLAIM_AUDIT_REASONING_EFFORT` (`none`) is sent as `reasoning_effort` (empty: the model's default), `UNFRET_CLAIM_AUDIT_MIN_CONFIDENCE` (`0.85`) drops less sure problems, `UNFRET_CLAIM_AUDIT_ATTEMPT_TIMEOUT_S` (`20`) and `UNFRET_CLAIM_AUDIT_MAX_OUTPUT_TOKENS` (`3000`) bound one attempt; `UNFRET_CLAIM_AUDIT_INPUT_EUR_PER_MTOK` / `_OUTPUT_EUR_PER_MTOK` (`1.80` / `5.50`) only price the cost it logs (`claim_audit_usage`); `UNFRET_CLAIM_AUDIT_SHOP_PAGES` (`true`) has it read a web shop's returns, shipping, about and contact pages too (`false`: the product page only) |
 | `UNFRET_EMBEDDING_MODEL` | `bge-multilingual-gemma2` | Review/title similarity, same provider |
 | `UNFRET_NETWORK_LOOKUPS` | `true` | RDAP, certificate transparency and EU VIES lookups about the shop, Wikidata and RDAP about the brand |
+| `UNFRET_DOMAIN_HISTORY` | `true` | The deep check's look at an old, doubtful shop's earlier copies in the Internet Archive (`domain_history`); also needs network lookups |
+| `UNFRET_WAYBACK_URL` | `https://web.archive.org` | The Internet Archive's Wayback Machine (its CDX index and raw copies) |
+| `UNFRET_WAYBACK_PER_MINUTE` | `8` | Requests to the Internet Archive a minute per process at most (a look takes up to four); past it, the look is skipped. The archive blocks clients that ask too often |
+| `UNFRET_WAYBACK_PAUSE_S` | `900` | No requests to the Internet Archive for this long after it refused a connection or said "too many requests" |
 | `UNFRET_FINGERPRINTS` / `UNFRET_CONTACT_HASH_KEY` | `true` / derived from the session secret | Shop and review fingerprint stores; the key for contact and address hashes (no key and no session secret: contacts and addresses aren't stored) |
 | `UNFRET_OBSERVATION_MIN_SOURCES` | `3` | Independent sources (a pass and a network, counted per day in memory) before a photo, price or review fingerprint or a shop identifier seen only in client-supplied content counts in a verdict; one from a page Unfret fetched counts at once |
 | `UNFRET_OBSERVATION_PAGES_PER_NETWORK_PER_DAY` | `300` | Quick checks and client-supplied pages per visitor network a day that may record observations (in memory, salted hashes); past it a check answers as always and records nothing |

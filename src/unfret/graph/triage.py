@@ -6,6 +6,12 @@ record or supplier traces make a reverse image search worthwhile; a recognised b
 need one. Only the unclear middle goes to the LLM, as one small structured question. Each analysis may spend at
 most ``triage_max_expensive_runs`` expensive skill runs, and gets one re-triage after them (e.g. the photo search
 came back empty but every other signal still points to a supplier product: try the second photo).
+
+The look at the shop's earlier copies in the Internet Archive (``domain_history``) is planned by rules alone, once,
+next to the photo plan and outside its budget (it costs no money, only a few seconds, and runs in parallel with the
+photo search): on a web shop whose address is old enough to count as "established"
+(:data:`unfret.shopper.ESTABLISHED_DOMAIN_YEARS`) and whose page already looks doubtful by the cheap skills
+(:func:`looks_doubtful`), the case where an address's age would otherwise vouch for a shop that took it over.
 """
 
 import math
@@ -15,9 +21,12 @@ from typing import Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from unfret import scoring, shopper
 from unfret.config import settings
+from unfret.facts import PageFacts
 from unfret.graph.state import AnalysisState
 from unfret.llm import get_structured_llm
+from unfret.market import shop_market
 
 Decision = Literal["run", "skip", "unclear"]
 
@@ -101,20 +110,89 @@ async def ask_llm(state: AnalysisState) -> _TriageAnswer:
 
 async def plan(state: AnalysisState, available: set[str]) -> TriagePlan:
     """
-    Decide which expensive skills to run next.
+    Decide which expensive skills to run next: the photo search (:func:`photo_plan`) and the domain history.
 
     :param state: The graph state (``features``, ``findings``, ``triage_round``, ``expensive_runs``).
     :param available: Names of the expensive skills registered in this graph.
     :return: The plan; ``run`` is empty when nothing more is worth spending on.
     """
-    spent = len(state.get("expensive_runs", []))
+    photo = await photo_plan(state, available)
+    history = history_plan(state, available)
+    if not history.run:
+        return photo
+    return TriagePlan(photo.run + history.run, f"{photo.reason} {history.reason}")
+
+
+async def photo_plan(state: AnalysisState, available: set[str]) -> TriagePlan:
+    """
+    Decide whether to run the photo search (again).
+
+    :param state: The graph state (``features``, ``findings``, ``triage_round``, ``expensive_runs``).
+    :param available: Names of the expensive skills registered in this graph.
+    :return: The plan; ``run`` is empty when nothing more is worth spending on.
+    """
+    spent = len([r for r in state.get("expensive_runs", []) if r != HISTORY])
     if spent >= settings.triage_max_expensive_runs:
         return TriagePlan((), "Per-analysis budget for expensive checks used.")
     if "reverse_image" not in available or not state["facts"].image_urls:
         return TriagePlan((), "No reverse image search available for this page.")
     if state.get("triage_round", 0) == 0:
         return await _first_round(state)
+    if not spent:
+        return TriagePlan((), "Done.")  # the round before ran only the domain history
     return _retriage(state, spent)
+
+
+HISTORY = "domain_history"
+
+
+def looks_doubtful(state: AnalysisState) -> bool:
+    """
+    Whether the page already looks doubtful by the cheap skills: the verdict they alone would give isn't "Looks fine".
+
+    The same scorer and verdict rules as the judge (:func:`unfret.shopper.build`), on the features so far. Without a
+    shipped scorer (the LLM judge), the routing level: :func:`suspicion` past the photo rule's "skip".
+
+    :param state: The graph state after the cheap skills.
+    :return: ``True`` when it does.
+    """
+    features = state.get("features", {})
+    findings = state.get("findings", [])
+    model = scoring.load_model()
+    assessment = scoring.score(features, findings, model)
+    if model is None or assessment is None:
+        return suspicion(features) >= 0.25
+    facts = state.get("facts") or PageFacts()
+    verdict = shopper.build(
+        round(100 * (1 - assessment.risk_score)),
+        features=features,
+        findings=findings,
+        facts=facts,
+        page_type=state.get("page_type", "storefront"),
+        headline="-",
+        market=shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")),
+        confidence=assessment.confidence,
+        needs_reason=model.needs_reason,
+    )
+    return verdict.band != "reliable"
+
+
+def history_plan(state: AnalysisState, available: set[str]) -> TriagePlan:
+    """
+    Whether to look at the shop's earlier copies in the Internet Archive: once, on an old address that looks doubtful.
+
+    :param state: The graph state after the cheap skills.
+    :param available: Names of the expensive skills registered in this graph.
+    :return: The plan.
+    """
+    if HISTORY not in available or HISTORY in state.get("expensive_runs", []):
+        return TriagePlan((), "")
+    if not (settings.domain_history and settings.network_lookups) or state.get("page_type") != "storefront":
+        return TriagePlan((), "")
+    years = state.get("features", {}).get("domain_age.age_years", 0.0)
+    if years < shopper.ESTABLISHED_DOMAIN_YEARS or not looks_doubtful(state):
+        return TriagePlan((), "")
+    return TriagePlan((HISTORY,), f"An address of {int(years)} years on a doubtful page: check its earlier copies.")
 
 
 async def _first_round(state: AnalysisState) -> TriagePlan:

@@ -163,7 +163,7 @@ async def read(url: str) -> ReadPage | None:
     key = (id(loop), hashlib.sha256(url.encode()).hexdigest())
     now = time.monotonic()
     entry = _READS.get(key)
-    if entry is None or entry[0] < now:
+    if entry is None or entry[0] < now or entry[1].get_loop() is not loop:  # a loop's id can be reused
         entry = (now + _READ_TTL_S, loop.create_task(_fetch(url)))
         _READS[key] = entry
         while len(_READS) > _READS_KEPT:

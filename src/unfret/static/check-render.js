@@ -21,11 +21,23 @@ export function listOf(items) {
 // A reason or a good point: its title, what it means right below it (as the extension shows it: nothing to tap
 // open) and where the evidence comes from. Photos matched on other shops fold out, since they're a closer look rather
 // than the point.
-export function card(className, title, detail, thumbs = [], source = "") {
+export function card(className, title, detail, thumbs = [], source = "", links = []) {
   const li = el("li", `card ${className}`);
   li.append(el("span", "title", title));
   if (detail) li.append(el("p", "detail", detail));
   if (source) li.append(el("p", "source", `Source: ${source}`));
+  const archived = archiveLinks(links);
+  if (archived.length) {
+    const row = el("p", "source", archived.length === 1 ? "The earlier copy: " : "The earlier copies: ");
+    archived.forEach((href, i) => {
+      const a = el("a", undefined, monthOf(href));
+      a.href = href;
+      a.rel = "noopener noreferrer nofollow";
+      a.target = "_blank";
+      row.append(...(i ? [", ", a] : [a]));
+    });
+    li.append(row);
+  }
   if (thumbs.length) {
     const photos = el("details");
     photos.append(el("summary", undefined, thumbs.length === 1 ? "See the matching photo" : "See the matching photos"));
@@ -45,6 +57,21 @@ export function card(className, title, detail, thumbs = [], source = "") {
     li.append(photos);
   }
   return li;
+}
+
+/** A reason's links: archived copies of the shop's address on web.archive.org only, at most three. */
+export function archiveLinks(links) {
+  if (!Array.isArray(links)) return [];
+  return links.filter((u) => typeof u === "string" && u.startsWith("https://web.archive.org/web/")).slice(0, 3);
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+  "November", "December"];
+
+/** "March 2026" for an archived copy's link (its timestamp), else "web.archive.org". */
+export function monthOf(href) {
+  const m = /\/web\/(\d{4})(\d{2})/.exec(href);
+  return m && +m[2] >= 1 && +m[2] <= 12 ? `${MONTHS[+m[2] - 1]} ${m[1]}` : "web.archive.org";
 }
 
 /**
@@ -203,7 +230,7 @@ export function resultNodes(result, { band, label, symbol }) {
   const reasons = view.reasons.length
     ? [
         el("h2", undefined, "What we noticed"),
-        listOf(view.reasons.map((r) => card(r.severity, r.title, r.detail, r.thumbs, r.source))),
+        listOf(view.reasons.map((r) => card(r.severity, r.title, r.detail, r.thumbs, r.source, r.links))),
       ]
     : [];
   const positives = view.positives.length

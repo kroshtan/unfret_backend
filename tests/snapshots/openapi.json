@@ -3585,7 +3585,7 @@
       "type": "string"
      },
      "net_usd_micros": {
-      "description": "The pack's price, credited to the account.",
+      "description": "The price less its VAT (the VAT is worked out of the price).",
       "title": "Net Usd Micros",
       "type": "integer"
      },
@@ -3594,7 +3594,7 @@
       "type": "string"
      },
      "total_usd_micros": {
-      "description": "What is charged: net plus VAT.",
+      "description": "What is charged, VAT included: the pack's crypto price, all of it credited to the account.",
       "title": "Total Usd Micros",
       "type": "integer"
      },
@@ -3603,6 +3603,7 @@
       "type": "string"
      },
      "vat_usd_micros": {
+      "description": "The VAT included in the price (zero outside the EU).",
       "title": "Vat Usd Micros",
       "type": "integer"
      }
@@ -4708,7 +4709,7 @@
   },
   "/v1/credits/purchase-tx": {
    "post": {
-    "description": "Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.\n\nThe pack costs its crypto price plus the VAT of the buyer's country (see ``vat`` in ``/v1/pricing``); the\ntransaction's memo names the stored quote. Credits arrive once the transfer is finalized (about 15\u201330 seconds):\nwhat arrived, minus its VAT, credited to the paying wallet unless ``beneficiary`` or ``key_id`` says otherwise.\nNo sign-in needed: anyone may fund any wallet or API key.\n\n:param body: Which pack, for whom, paid how, from where.\n:param request: The incoming request.\n:return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.",
+    "description": "Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.\n\nThe pack costs its crypto price, VAT included: the buyer's country (see ``vat`` in ``/v1/pricing``) only decides\nhow much of it is VAT. The transaction's memo names the stored quote. Credits arrive once the transfer is finalized\n(about 15\u201330 seconds): everything that arrived, credited to the paying wallet unless ``beneficiary`` or ``key_id``\nsays otherwise.\nNo sign-in needed: anyone may fund any wallet or API key.\n\n:param body: Which pack, for whom, paid how, from where.\n:param request: The incoming request.\n:return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.",
     "operationId": "purchase_tx_v1_credits_purchase_tx_post",
     "requestBody": {
      "content": {

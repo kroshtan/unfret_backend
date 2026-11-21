@@ -323,8 +323,8 @@ def packs_line() -> str:
     """
     The packs on sale and their prices by card and with crypto, for the developer pages.
 
-    By card in dollars (before tax) and in euros (VAT included, while the euro prices include it); with crypto before
-    VAT.
+    By card in dollars (before tax) and in euros (VAT included, while the euro prices include it); with crypto VAT
+    included.
 
     :return: E.g. "25 for $6.00 and 100 for $20.00 by card, before tax (…); in the euro area €6.00 and €20.00 by card,
         VAT included; with crypto 25 for $5.00 and …".
@@ -340,7 +340,7 @@ def packs_line() -> str:
         euros = _listed([packs.format_eur(p.card_eur_cents or 0) for p in on_sale])
         inclusive = all(p.tax_inclusive("eur") for p in on_sale)
         line += f"; in the euro area {euros} by card, " + ("VAT included" if inclusive else "plus VAT")
-    return f"{line}; with crypto {crypto}, plus VAT where it applies"
+    return f"{line}; with crypto {crypto}, VAT included"
 
 
 def _listed(items: list[str]) -> str:

@@ -1630,3 +1630,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   anyone pays when the Polar product's EUR price isn't set to tax-inclusive (or isn't the pack's price).
 - Settings: `UNFRET_CARD_PRICES_EUR` (default `25=6.00,100=20.00`), `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (default
   `true`; `false` goes back to VAT on top).
+
+## Changes (crypto prices include VAT; backwards-compatible)
+
+- A pack's crypto price, `crypto_usd` ($5.00 / $20.00), now **includes VAT**: every buyer pays it, whatever their
+  country, and is credited all of it. Before, an EU buyer paid it plus VAT ($6.05 / $24.20 at the Dutch 21%) and was
+  credited the pack's value. Crypto stays at or below the card price everywhere (the euro card prices include VAT too).
+- `POST /v1/credits/purchase-tx`: `price.total_usd_micros` is the pack's crypto price for every country;
+  `price.net_usd_micros` is that price less its VAT (`total / (1 + rate)`, rounded down) and `price.vat_usd_micros`
+  the VAT in it. `amount` is unchanged in meaning (the total in the currency's base units). The Solana Pay QR's
+  `X-Unfret-Total-Usd` likewise. Show the total as the price ("$5.00, including 21% VAT ($0.87)").
+- `label` reads "pay with crypto: $5.00, VAT included". `vat.eu_rates_pct` keeps its meaning: how much of the price
+  is VAT in each EU country.
+- The scanner credits everything that arrives (manual transfers too) and records the VAT worked out of it. A quote
+  made before this change still credits what was paid.

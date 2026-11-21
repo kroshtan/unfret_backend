@@ -9,8 +9,9 @@ A pack of ``n`` checks (25 and 100 by default) costs:
   provider's sales tax/VAT. A pack not named there costs its value plus the provider's worst-case cut, rounded up to
   ``card_price_step_usd``: ``ceil_step((value + card_fee_flat) / (1 − card_fee_pct))`` (:func:`card_price`; at
   $0.20 a check with 6.5% + $0.50 and a $0.50 step: 25 → $6, 100 → $22).
-- **with crypto** (SOL or USDC): just the pack's value, ``n × price_per_check`` ($5, $20), plus VAT where it applies
-  (:mod:`unfret.credits.vat`). Crypto is never dearer than the card price, and on the 100-pack it is the same.
+- **with crypto** (SOL or USDC): just the pack's value, ``n × price_per_check`` ($5, $20), VAT included (worked out
+  of the price for an EU buyer: :mod:`unfret.credits.vat`). Crypto is never dearer than the card price: not than the
+  dollar price before tax, nor than the euro price with VAT (while a euro is worth at least a dollar).
 
 Visitors from the euro area pay by card in euros instead (:func:`card_currency`): each pack's euro price is a
 setting of its own (``card_prices_eur``, default €6 / €20), not converted from the dollar price, so it stays round.
@@ -84,7 +85,7 @@ class Pack:
     """A pack of checks and its price on each route."""
 
     checks: int
-    value_usd_micros: int  # credited to the account, and the crypto price before VAT
+    value_usd_micros: int  # credited to the account, and the crypto price (VAT included)
     card_usd_micros: int  # the price by card, before the provider's sales tax/VAT
     card_eur_cents: int | None = None  # the price by card in euros (cents); None: dollars only
     card_eur_tax_inclusive: bool = True  # whether card_eur_cents includes VAT (else VAT is added at checkout)

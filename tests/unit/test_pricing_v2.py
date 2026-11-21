@@ -199,16 +199,21 @@ def test_cloudflares_country_only_from_cloudflares_edge() -> None:
 def test_quotes_and_splits() -> None:
     s = Settings()
     quote = vat.price_quote(s, 25, 5_000_000, "BE", edge="NL", beneficiary=None)
-    assert (quote.vat_rate_bps, quote.vat_usd_micros, quote.gross_usd_micros) == (2100, 1_050_000, 6_050_000)
+    # The crypto price includes VAT: $5.00 is $4.132231 net plus $0.867769 VAT at the Dutch 21%.
+    assert (quote.vat_rate_bps, quote.net_usd_micros, quote.vat_usd_micros) == (2100, 4_132_231, 867_769)
+    assert quote.gross_usd_micros == 5_000_000
+    outside = vat.price_quote(s, 100, 20_000_000, "US", edge=None, beneficiary=None)
+    assert (outside.net_usd_micros, outside.vat_usd_micros, outside.gross_usd_micros) == (20_000_000, 0, 20_000_000)
     assert quote.country_mismatch and len(quote.id) == 20 and quote.memo == f"unfret:quote:{quote.id}"
     assert not vat.price_quote(s, 25, 5_000_000, "BE", edge=None, beneficiary=None).country_mismatch
     assert vat.split_gross(6_050_000, 2100) == (5_000_000, 1_050_000)
     assert vat.split_gross(1, 2100) == (0, 1)  # dust credits nothing
     # A payment that arrives a little short of its quote (SOL moved) is split at the quote's rate.
-    sale = vat.sale_for(s, 6_000_000, quote)
-    assert (sale.country, sale.country_mismatch, sale.net_usd_micros + sale.vat_usd_micros) == ("BE", True, 6_000_000)
+    sale = vat.sale_for(s, 4_900_000, quote)
+    assert (sale.country, sale.country_mismatch, sale.credited_usd_micros) == ("BE", True, 4_900_000)
     unknown = vat.sale_for(s, 6_050_000, None)
     assert (unknown.country, unknown.vat_rate_bps, unknown.net_usd_micros) == ("unknown", 2100, 5_000_000)
+    assert unknown.credited_usd_micros == 6_050_000  # everything that arrived is credited, VAT included
 
 
 @pytest.mark.parametrize(
@@ -226,3 +231,21 @@ def test_quarters(quarter: str, bounds: tuple[date, date]) -> None:
 def test_bad_quarters(bad: str) -> None:
     with pytest.raises(ValueError):
         vat.quarter_bounds(bad)
+
+
+@pytest.mark.parametrize("country", ["NL", "DE", "HU", "FI", "US", "unknown"])
+@pytest.mark.parametrize("mode", ["nl_under_threshold", "per_country"])
+def test_crypto_prices_include_vat_and_are_never_dearer_than_card(country: str, mode: str) -> None:
+    s = Settings(vat_mode=mode)  # type: ignore[arg-type]
+    for p in packs(s):
+        quote = vat.price_quote(s, p.checks, p.value_usd_micros, country, edge=None, beneficiary=None)
+        # The same price for every country, VAT included, and all of it credited.
+        assert (
+            quote.gross_usd_micros
+            == p.value_usd_micros
+            == vat.sale_for(s, p.value_usd_micros, quote).credited_usd_micros
+        )
+        assert quote.net_usd_micros + quote.vat_usd_micros == p.value_usd_micros
+        # Never more than by card: the dollar price before tax, nor the euro price with VAT (a euro ≥ a dollar).
+        assert p.value_usd_micros <= p.card_usd_micros
+        assert p.card_eur_cents is not None and p.value_usd_micros <= p.card_eur_cents * 10_000

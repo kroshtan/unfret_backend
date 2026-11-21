@@ -134,7 +134,7 @@ def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
     :param pack: The pack.
     :param settings: The service settings (for the gift codes; without them, none are mentioned).
     :return: ``{"en": …}`` (keyed by language for the clients that read it that way), e.g. ``"25 checks — $6.00 ·
-        pay with crypto: $5.00 + VAT where applicable · with 1 gift code for a friend (5 checks)"``.
+        pay with crypto: $5.00, VAT included · with 1 gift code for a friend (5 checks)"``.
     """
     count = invites.count_for(settings, pack.checks) if settings else 0
     text = catalogue()["pricing"]
@@ -162,12 +162,12 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     """
     The public price list (``GET /v1/pricing``): the price of a check, the packs on both routes, and live amounts.
 
-    Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd``
-    is the price (by card, before the provider's sales tax/VAT), ``price_eur`` the card price in euros for visitors
-    from the euro area (``None`` while euro prices are off; VAT included while ``card_tax_inclusive.eur`` is true: the
-    final price, the same for every buyer), and ``crypto_usd`` the lower price when paying with
-    SOL or USDC (before VAT where it applies: ``vat``), and ``invites`` the gift codes it comes with to give away (the
-    25-pack: one of 5 checks; the 100-pack: four).
+    Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd`` is
+    the price (by card, before the provider's sales tax/VAT), ``price_eur`` the card price in euros for visitors from
+    the euro area (``None`` while euro prices are off; VAT included while ``card_tax_inclusive.eur`` is true: the final
+    price, the same for every buyer), and ``crypto_usd`` the lower price when paying with SOL or USDC (VAT included;
+    ``vat`` says how much of it is VAT for each country), and ``invites`` the gift codes it comes with to give away
+    (the 25-pack: one of 5 checks; the 100-pack: four).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.

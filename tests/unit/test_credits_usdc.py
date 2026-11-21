@@ -61,7 +61,7 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
         5_000_000,
     )
     assert first["label"]["en"] == (
-        "25 checks — $6.00 · pay with crypto: $5.00 + VAT where applicable · with 1 gift code for a friend (5 checks)"
+        "25 checks — $6.00 · pay with crypto: $5.00, VAT included · with 1 gift code for a friend (5 checks)"
     )
     assert set(first["label"]) == {"en"}  # the app is in English; the map stays for clients that read it
     # One 5-check gift code per 25 checks bought: 1 with the 25-pack, 4 with the 100-pack.
@@ -70,8 +70,7 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
         {"count": 4, "checks_each": 5, "checks": 20},
     ]
     assert doc["packs"][1]["label"]["en"] == (
-        "100 checks — $20.00 · pay with crypto: $20.00 + VAT where applicable"
-        " · with 4 gift codes for friends (5 checks each)"
+        "100 checks — $20.00 · pay with crypto: $20.00, VAT included · with 4 gift codes for friends (5 checks each)"
     )
     assert doc["invites"] == {
         "checks_each": 5,

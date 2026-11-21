@@ -4,6 +4,12 @@ VAT on crypto credit purchases: which rate applies, the binding price quote, and
 Card purchases are sold by the Merchant of Record, which charges and remits their VAT/sales tax; nothing here applies
 to them. Crypto purchases are sold by us, so we charge VAT and keep a record of each sale.
 
+**Prices include VAT.** A pack's crypto price (its value, ``n × price_per_check``: $5 and $20) is what every buyer
+pays, VAT included: the VAT is worked out of the price (``net = price / (1 + rate)``), never added on top, and the
+account is credited the whole price, so a pack buys the same checks everywhere. Outside the EU the rate is zero and
+the whole price is net. With the euro card prices VAT-inclusive too (€6 / €20), crypto stays at or below the card
+price in every country (while a euro is worth at least a dollar).
+
 **Which rate.** The buyer states their country at checkout. It is prefilled from Cloudflare's ``CF-IPCountry``
 header, but only for a request that reached our edge from Cloudflare (Caddy passes the peer it saw on as
 ``X-Edge-Peer``; it is checked against Cloudflare's published ranges, vendored in ``cloudflare_ips.json``). The
@@ -14,10 +20,11 @@ each EU country pays its own standard rate, from ``vat_rates.json`` (vendored fr
 ``scripts/update_vat_rates.py``; no network calls at request time).
 
 **The quote.** ``/v1/credits/purchase-tx`` and the Solana Pay link price a pack for a country and store that as a
-quote (a random id; the pack, country, rate, net and VAT, and who to credit), valid ``vat_quote_ttl_s``. The
-transaction's memo is ``unfret:quote:<id>``, so the scanner credits the right account and records the right VAT
-for whatever actually arrives. A transfer without a (known) quote, a manual one, is treated conservatively: country
-``unknown`` at the Dutch rate, ``net = received / (1 + rate)``.
+quote (a random id; the pack, country, rate, the price's net and VAT, and who to credit), valid
+``vat_quote_ttl_s``. The transaction's memo is ``unfret:quote:<id>``, so the scanner credits the right account and
+records the right VAT for whatever actually arrives: everything that arrived is credited, and its VAT is worked out of
+it at the quote's rate. A transfer without a (known) quote, a manual one, is treated the same way, conservatively:
+country ``unknown`` at the Dutch rate, ``net = received / (1 + rate)``.
 
 **The record.** Each crypto credit purchase leaves one ``crypto_sales`` row: day, country, mismatch flag, net, rate,
 VAT, asset, amount, transaction signature. No IP and no wallet (the transaction on chain already shows who paid).
@@ -142,17 +149,6 @@ def effective_rates(settings: Settings) -> dict[str, str]:
     return {code: format(Decimal(rate_bps(settings, code)) / 100, "f") for code in standard_rates()}
 
 
-def vat_on(net_usd_micros: int, bps: int) -> int:
-    """
-    The VAT on a net amount, rounded half up to the micro-dollar.
-
-    :param net_usd_micros: The net amount.
-    :param bps: The rate.
-    :return: Micro-dollars.
-    """
-    return (net_usd_micros * bps + 5_000) // 10_000
-
-
 def split_gross(gross_usd_micros: int, bps: int) -> tuple[int, int]:
     """
     Split an amount received, VAT included, into net and VAT.
@@ -194,7 +190,7 @@ class Quote:
 def price_quote(
     settings: Settings,
     checks: int,
-    net_usd_micros: int,
+    price_usd_micros: int,
     country: str,
     *,
     edge: str | None,
@@ -206,7 +202,7 @@ def price_quote(
 
     :param settings: The service settings.
     :param checks: The pack size.
-    :param net_usd_micros: The pack's price before VAT.
+    :param price_usd_micros: The pack's crypto price, VAT included (what the buyer pays and is credited).
     :param country: The buyer's stated country (normalised).
     :param edge: Cloudflare's country for the request, if known.
     :param beneficiary: Who to credit (``None``: whoever pays).
@@ -214,14 +210,15 @@ def price_quote(
     :return: The quote.
     """
     bps = rate_bps(settings, country)
+    net, tax = split_gross(price_usd_micros, bps)
     return Quote(
         id="".join(secrets.choice(_QUOTE_ID_CHARS) for _ in range(20)),
         checks=checks,
         country=country,
         country_mismatch=edge is not None and edge != country,
         vat_rate_bps=bps,
-        net_usd_micros=net_usd_micros,
-        vat_usd_micros=vat_on(net_usd_micros, bps),
+        net_usd_micros=net,
+        vat_usd_micros=tax,
         beneficiary=beneficiary,
         # A fresh public key nobody holds the private key of: only this purchase's transaction will carry it.
         reference=str(Keypair().pubkey()),
@@ -313,13 +310,18 @@ async def quote_status(db: asyncpg.Pool, quote_id: str) -> tuple[bool, int] | No
 
 @dataclass(frozen=True)
 class Sale:
-    """How a crypto payment splits into credits and VAT, and the record it leaves."""
+    """How a crypto payment splits into net and VAT (all of it credited), and the record it leaves."""
 
     country: str
     country_mismatch: bool
     vat_rate_bps: int
     net_usd_micros: int
     vat_usd_micros: int
+
+    @property
+    def credited_usd_micros(self) -> int:
+        """What the account is credited: everything that arrived (prices include VAT)."""
+        return self.net_usd_micros + self.vat_usd_micros
 
 
 def sale_for(settings: Settings, received_usd_micros: int, quote: Quote | None) -> Sale:

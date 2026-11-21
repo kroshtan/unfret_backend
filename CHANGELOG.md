@@ -58,6 +58,23 @@
 
 ### Fixes
 
+* **A recommended price on the brand's own shop, or next to the 30-day low, is a note.** Since "UVP: 109,95 €"
+  with the currency after the number is read, a brand's own shop showing its recommended price gave "Discount on a
+  'recommended' price", although there it is the maker's own recommended price. A recommended-retail label ("UVP",
+  "RRP", "MSRP", "Adviesprijs", "Prix conseillé", "Prezzo consigliato", "PVPR", … in every language read) now gives
+  a note instead of the `reference_anchor` reason on a web shop that is the brand's own (the shop's domain is the
+  brand's name, or the seller is the brand, by the existing brand comparisons; not for a brand that looks generated):
+  the `brand_reference` finding, "Discount on the brand's recommended price". The same label on any web shop that
+  discloses the lowest price of the last 30 days (the EU's price-reduction rule: "30 Tage Bestpreis", "Laagste prijs
+  van de afgelopen 30 dagen", "Lowest price in the last 30 days", "Prix le plus bas des 30 derniers jours" and the
+  Italian, Spanish, Portuguese, Polish, Swedish, Danish, Norwegian, Finnish and Czech wording), with today's price
+  at or below that low and the low at or below the "was" price, gives the `disclosed_reference` note, "Discount on a
+  recommended price, below the 30-day low". Both are severity low and never move the band; the price history's
+  `was_above_30d_low` still makes them the reason. Other web shops' labels, and "Compare at", "Usually", "Elsewhere"
+  and the like on any shop, stay the reason. On the golden set one band changes: on the quick
+  tier a German brand's own shop ("UVP: 109,95 €", "30 Tage Bestpreis: 88,95 €") goes back from Think twice to Worth
+  a look; on the deep tier the same page shows the note instead of the reason, its band unchanged.
+
 * **A marketplace's own reference price is a note, not a warning.** Amazon prints its reference-price label on
   every discounted listing, so on amazon.nl, .de, .co.uk and .fr "Adviesprijs", "UVP", "RRP" and "Prix conseillé"
   gave "Discount on a 'recommended' price" whatever the seller did (only "List Price" and "Typical price" were

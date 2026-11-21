@@ -198,6 +198,28 @@ def test_a_marketplaces_own_reference_price_is_a_note() -> None:
     assert "“Adviesprijs”" in verdict.reasons[0].detail
 
 
+def test_the_brands_own_recommended_price_is_a_note() -> None:
+    findings = [Finding(skill="pricing", type="brand_reference", evidence='"UVP"')]
+    facts = PageFacts(currency="EUR", price=77.95, list_price=109.95)
+    verdict = build(90, {"listing.discount_pct": 0.29}, findings=findings, facts=facts)
+
+    assert verdict.band == "reliable"
+    assert [r.type for r in verdict.reasons] == ["brand_reference"]
+    assert verdict.reasons[0].severity == "low"
+    assert "“UVP”" in verdict.reasons[0].detail
+
+
+def test_a_recommended_price_with_the_30_day_low_is_a_note() -> None:
+    evidence = '"UVP"; lowest price in the last 30 days: 88.95'
+    findings = [Finding(skill="pricing", type="disclosed_reference", evidence=evidence)]
+    facts = PageFacts(currency="EUR", price=77.95, list_price=109.95)
+    verdict = build(90, {"listing.discount_pct": 0.29}, findings=findings, facts=facts)
+
+    assert verdict.band == "reliable"
+    assert [r.type for r in verdict.reasons] == ["disclosed_reference"]
+    assert "€88.95" in verdict.reasons[0].detail
+
+
 def test_strongest_reasons_first_and_groups_collapse() -> None:
     verdict = build(10, ALL_REASON_FEATURES, findings=ALL_FINDINGS, facts=FACTS)
     severities = [r.severity for r in verdict.reasons]

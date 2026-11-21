@@ -1601,3 +1601,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - The card note `no_archive` reads "The web archives (Common Crawl, the Internet Archive) have no earlier copies of
   the shop's address."
 - x402 `POST /v1/check` and the MCP server: unchanged in shape.
+
+## Changes (a recommended price on the brand's own shop, or next to the 30-day low, is a note; backwards-compatible)
+
+- On a web shop, a recommended-retail label ("UVP", "RRP", "MSRP", "Unverbindliche Preisempfehlung", "Adviesprijs",
+  "Prix conseillé" and the other languages' recommended-price labels) no longer gives `pricing.reference_anchor` and
+  the `reference_anchor` reason when the shop is the brand's own (its domain is the brand's name, or the seller is
+  the brand). It gives a `pricing` finding `brand_reference` (the label, quoted) and the shopper reason key
+  `brand_reference` ("Discount on the brand's recommended price"). On another web shop that discloses the lowest
+  price of the last 30 days, with today's price at or below it and it at or below the "was" price, it gives a
+  `pricing` finding `disclosed_reference` (evidence: the label, quoted, then `; lowest price in the last 30 days:
+  <amount>`) and the reason key `disclosed_reference` ("Discount on a recommended price, below the 30-day low"; detail
+  placeholder `{low}`). Both: severity low, area `prices`, source `page`, next step `compare_price`, a note that never
+  moves the band; `reference_anchor` again once the price history shows the price was not charged
+  (`pricing.was_above_30d_low`).

@@ -33,3 +33,9 @@ node render.mjs c-piece-count --mascot            # the same with the animated m
   and nods per beat; `dark: true` switches to the dark-background colours. Keep it in free space, clear of the
   captions, the marker strokes and the marked finding, and use it in a few deliberate moments, not every shot.
   `node mascot.mjs out.svg [dark]` writes pose C as a still.
+- **The test shop videos** (`b-`, `f-`, `g-`, `h-`, `i-`) show `/test-shop` on dev, one trick each; the page is the
+  same, so one deep check of it (`node capture.mjs b-countdown`, then copy `out/results/b-countdown.json` to the
+  others) gives each its result. A mark can be a whole element (no `text`); with `style: true` its font and
+  background are kept, so `script.clocks` can run a live countdown in its place, and `script.reloads` flash the page
+  as it reloads (the clock starts over). `popup.expand` opens the popup's "Show details" when the finding is a signal
+  listed there.

@@ -8,8 +8,9 @@ claims, and the history, variation and cross-page checks as they land) should fi
 1. ``check``: run the deep check on each page, as a deep check runs it (every skill but the paid reverse image search
    and the fingerprint store; network lookups on, since the pages are live; the URL given), with the scorer the
    service runs (``<corpus>/models/current.json``). LLM answers are recorded in the corpus's ``llm_cache.sqlite``
-   (so a re-run, say after a new check lands, pays only for what is new). What each model call costs is added up
-   from its token usage and the prices below; the run stops before the set (earlier runs included) would pass
+   (so a re-run, say after a new check lands, pays only for what is new). What each recorded model call costs (an
+   answer the cache stores, at the prices below; one replayed is free) is added up; the run stops before the set
+   (earlier runs and ``evals.new_findings`` included) would pass
    ``--budget-eur``. Per page: ``reports/deep-findings/results.jsonl`` (features, findings, which new findings
    fired, score, band, confidence), and ``reports/deep-findings/features.jsonl`` for ``evals.train --extra-features``.
 2. ``queue``: order the pages by value (active learning) into ``deep_label_queue.jsonl``: first the pages where a new
@@ -31,10 +32,12 @@ Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 55] [
 
 import argparse
 import asyncio
+import contextvars
 import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import textwrap
 import time
@@ -44,7 +47,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.globals import get_llm_cache
 
 from evals.corpus import Corpus, LabelRecord, QueueItem, dump_json, now_iso
 from evals.label import read_key
@@ -68,7 +71,7 @@ BLIND_ONE_IN = 5
 PINS = "deep_label_pins.json"
 EXCLUDED = ("reverse_image", "shop_links")  # paid per search; needs the fingerprint database
 # The deep check's newer checks, by skill name (also those still being built: a name that contains one of these).
-NEW_SKILLS: tuple[str, ...] = ("claim_audit", "photo_claims", "domain_history", "wayback", "variation", "cross_page")
+NEW_SKILLS: tuple[str, ...] = ("claim_audit", "photo_claims", "domain_history", "variant", "cross_page")
 # Findings of those that only give context (what an archive copy showed), not something found: not asked about.
 NEUTRAL_FINDINGS: frozenset[str] = frozenset({"archive_copy", "no_archive_copies"})
 # Feature suffixes that mean a new check found something, also without a finding (a count the photos don't show).
@@ -81,6 +84,8 @@ FIRED_FEATURES: tuple[str, ...] = (
     "mismatch",
     "changed",
     "parked",
+    "grouped",
+    "bait_price",
 )
 UNSURE = 0.4  # scorer confidence below this is "unsure"
 SURE_FINE = 35  # a score below this is the scorer saying the page is fine
@@ -146,6 +151,55 @@ def cost(usage: dict[str, Any]) -> Decimal:
             rate_in * tokens.get("input_tokens", 0) / 1_000_000 + rate_out * tokens.get("output_tokens", 0) / 1_000_000
         )
     return total
+
+
+# What the current page's recorded model calls cost: each new answer the cache stores is a call that was paid for.
+_METER: contextvars.ContextVar[list[Decimal] | None] = contextvars.ContextVar("meter", default=None)
+_MODEL_RE = re.compile(r'"model_name":\s*"([^"]+)"')
+
+
+def miss_cost(llm_string: str, generations: Any) -> Decimal:
+    """
+    What one model call cost, from the answer the cache is about to store.
+
+    :param llm_string: The cache's model key (holds ``model_name``).
+    :param generations: The answer's generations (their messages carry the token usage).
+    :return: Euros.
+    """
+    found = _MODEL_RE.search(llm_string)
+    tokens = {"input_tokens": 0, "output_tokens": 0}
+    for generation in generations or []:
+        usage = getattr(getattr(generation, "message", None), "usage_metadata", None) or {}
+        tokens["input_tokens"] += int(usage.get("input_tokens", 0))
+        tokens["output_tokens"] += int(usage.get("output_tokens", 0))
+    return cost({found.group(1) if found else "": tokens})
+
+
+def meter_misses() -> None:
+    """
+    Count what the recording cache stores, so a run's spend is the calls it paid for (an answer replayed is free).
+
+    Call after :func:`evals.run.configure`; a page's calls add up in the list :func:`metered` sets.
+    """
+    cache = get_llm_cache()
+    if cache is None or getattr(cache, "_unfret_metered", False):
+        return
+    original = cache.update
+
+    def update(prompt: str, llm_string: str, return_val: Any) -> None:
+        original(prompt, llm_string, return_val)
+        if (spent := _METER.get()) is not None:
+            spent.append(miss_cost(llm_string, return_val))
+
+    cache.update = update  # type: ignore[method-assign]
+    cache._unfret_metered = True  # type: ignore[attr-defined]
+
+
+def metered() -> list[Decimal]:
+    """Start counting the current task's paid calls; the returned list fills as they are recorded."""
+    spent: list[Decimal] = []
+    _METER.set(spent)
+    return spent
 
 
 def fired(features: dict[str, float], findings: list[dict[str, Any]]) -> list[str]:
@@ -325,15 +379,15 @@ async def check(
     :return: The run's summary.
     """
     configure(corpus, replay=False)
+    meter_misses()
     settings.network_lookups = True  # live pages: photos, domain age and registries are today's
     model = current_model(corpus)
     graph = build_graph([s for s in SKILLS if s.name not in EXCLUDED])
     results = read_results(corpus)
     todo = to_check(corpus, results, rerun=rerun, ids=ids, limit=limit)
-    # The budget is for the whole set: what earlier runs spent counts (a re-run's cached answers are counted again,
-    # so it errs on the safe side).
-    redo = {r.id for r in todo}
-    before = Decimal(str(sum(row.get("cost_eur", 0) for k, row in results.items() if k not in redo)))
+    # The budget is for the whole set: what earlier runs paid counts (a row's cost is what its page's calls cost,
+    # summed over runs; an answer replayed from the cache costs nothing).
+    before = Decimal(str(total_spent(corpus)))
     before += other_spend(corpus)
     spent = before
     worst = Decimal("0.10")  # a page's cost at most until pages have been seen
@@ -350,22 +404,21 @@ async def check(
                     stopped = True
                 if stopped:
                     return
-            usage = UsageMetadataCallbackHandler()
+            paid = metered()
             start = time.perf_counter()
             row: dict[str, Any] = {"id": record.id, "checked_at": now_iso(), "model": model}
             try:
                 async with asyncio.timeout(settings.analysis_timeout_s * 3):
                     result = await graph.ainvoke(
                         {"page_content": corpus.read_page(record.id), "url": record.origin_url, "flags": []},
-                        config={"callbacks": [usage]},
                     )
             except Exception as exc:  # noqa: BLE001 - one bad page must not end the run
                 row["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
             else:
                 row |= result_row(result)
-            page_cost = cost(usage.usage_metadata)
-            row["cost_eur"] = float(page_cost)
-            row["usage"] = usage.usage_metadata
+            page_cost = sum(paid, Decimal(0))
+            earlier = results.get(record.id, {}).get("cost_eur", 0)
+            row["cost_eur"] = float(page_cost) + earlier
             row["seconds"] = round(time.perf_counter() - start, 1)
             async with lock:
                 spent += page_cost

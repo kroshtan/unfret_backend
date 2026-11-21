@@ -12,18 +12,24 @@ retrain's replay) is free:
   replay reads it (facts parsed without the URL, as :mod:`evals.run` withholds it);
 - **the photo check** (:mod:`unfret.graph.skills.photo_claims`) where the listing states a count or size. A page
   from the Internet Archive has its photos fetched from the archive too (``im_`` copies from the capture's date),
-  never from today's shop: a long-gone shop's dead photos would otherwise teach "photo found" as "still in business".
+  never from today's shop: a long-gone shop's dead photos would otherwise teach "photo found" as "still in business";
+- **the variant check** (:mod:`unfret.graph.skills.variant_check`) on the page's own options.
+
+``--only`` runs some of them and keeps a page's other results (a check that lands later is added for its own cost
+only); ``--candidates`` adds them to the deep-check candidates' results instead (:mod:`evals.candidates`).
 
 Left out on purpose: the history check (:mod:`unfret.graph.skills.domain_history`) compares a shop with its archive
 copies before *today*, which for a page captured years ago measures what became of the domain since, not the page;
 it runs on the live candidates (:mod:`evals.candidates`) only. The skills that look up today's registries stay off
 for the same reason. The page's class must be a product page (``page_type`` as labelled; no classification call).
 
-Spend is added up from each answer's token usage at the settings' prices and counted together with the candidates'
-(:mod:`evals.candidates`): the run stops before the total would pass ``--budget-eur``. Output:
+Spend is what the calls the recording cache stores cost, at the settings' prices (:func:`evals.candidates.miss_cost`:
+an answer replayed costs nothing), counted together with the candidates': the run stops before the total would pass
+``--budget-eur``. Output:
 ``reports/new-findings/results.jsonl`` (features, findings, cost per page) and ``reports/new-findings/features.jsonl``.
 
-Usage: ``uv run python -m evals.new_findings [--limit N] [--budget-eur 55] [--concurrency 6] [--rerun]``
+Usage: ``uv run python -m evals.new_findings [--limit N] [--budget-eur 55] [--concurrency 6] [--rerun]
+[--only variant_check] [--candidates]``
 (``make new-findings``).
 """
 
@@ -38,7 +44,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import structlog
-from langchain_core.callbacks import get_usage_metadata_callback
 
 from evals import candidates as cand
 from evals.corpus import Corpus, LabelRecord, dump_json, is_product, now_iso
@@ -48,6 +53,7 @@ from unfret.graph.nodes import preprocess_node
 from unfret.graph.skills import SkillOutput, photo_claims
 from unfret.graph.skills.claim_audit import ClaimAuditSkill
 from unfret.graph.skills.photo_claims import PhotoClaimsSkill
+from unfret.graph.skills.variant_check import VariantCheckSkill
 from unfret.graph.state import AnalysisState
 
 logger = structlog.get_logger("unfret.evals")
@@ -108,78 +114,105 @@ def write_results(corpus: Corpus, results: dict[str, dict[str, Any]]) -> None:
     )
 
 
-async def one(corpus: Corpus, record: LabelRecord) -> dict[str, Any]:
+SKILL_NAMES: tuple[str, ...] = ("claim_audit", "variant_check", "photo_claims")
+
+
+async def one(
+    corpus: Corpus, record: LabelRecord, *, skills: tuple[str, ...], previous: dict[str, Any] | None, with_url: bool
+) -> dict[str, Any]:
     """
-    The new checks on one page.
+    The new checks on one page, merged into its earlier result when only some are run.
 
     :param corpus: The corpus.
     :param record: The page.
+    :param skills: The checks to run (of :data:`SKILL_NAMES`; the photo check runs the claim audit too, replayed).
+    :param previous: The page's earlier result, if any (its other checks' features and findings are kept).
+    :param with_url: Read the facts with the page's URL (live candidates, as their deep check did).
     :return: Its result row (features, findings, cost), or one with ``error``.
     """
     start = time.perf_counter()
-    row: dict[str, Any] = {"id": record.id, "checked_at": now_iso(), "label": record.label}
+    base = previous if previous and "error" not in previous else {}
+    row: dict[str, Any] = {**base, "id": record.id, "checked_at": now_iso(), "label": record.label}
+    row.pop("error", None)
     if record.source == "wayback":
         _CAPTURE.set(record.collected_at or "2023")
-    state: dict[str, Any] = {"page_content": corpus.read_page(record.id), "url": "", "flags": []}
+    paid = cand.metered()
+    url = record.origin_url if with_url else ""
+    state: dict[str, Any] = {"page_content": corpus.read_page(record.id), "url": url, "flags": []}
     state |= await preprocess_node(cast("AnalysisState", state))
     state["page_type"] = record.page_type or "storefront"
-    state["url"] = record.origin_url  # the photos' addresses only: the facts were read without it
+    state["url"] = record.origin_url  # the photos' addresses
     try:
-        with get_usage_metadata_callback() as usage:
-            audit, photos = await _checks(state)
+        outputs = await _checks(state, skills)
     except Exception as exc:  # noqa: BLE001 - one bad page must not end the run
-        row["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
-        usage_metadata: dict[str, Any] = {}
+        row = {"id": record.id, "checked_at": row["checked_at"], "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
     else:
-        usage_metadata = dict(usage.usage_metadata)
-        findings = [f.model_dump() for f in [*audit["findings"], *photos["findings"]]]
-        features = {**audit["features"], **photos["features"]}
-        row |= {
-            "features": features,
-            "findings": findings,
-            "fired": cand.fired(features, findings),
-            "piece_count": audit.get("listing_piece_count"),
-        }
-    row["usage"] = usage_metadata
-    row["cost_eur"] = float(cand.cost(usage_metadata))
+        ran = set(outputs)
+        features = {k: v for k, v in base.get("features", {}).items() if k.split(".")[0] not in ran}
+        findings = [f for f in base.get("findings", []) if f["skill"] not in ran]
+        for output in outputs.values():
+            features |= output["features"]
+            findings += [f.model_dump() for f in output["findings"]]
+        row |= {"features": features, "findings": findings, "fired": cand.fired(features, findings)}
+        if "claim_audit" in outputs:
+            row["piece_count"] = outputs["claim_audit"].get("listing_piece_count")
+    row["cost_eur"] = float(sum(paid, Decimal(0))) + (previous or {}).get("cost_eur", 0)
     row["seconds"] = round(time.perf_counter() - start, 1)
     return row
 
 
-async def _checks(state: dict[str, Any]) -> tuple[SkillOutput, SkillOutput]:
+async def _checks(state: dict[str, Any], skills: tuple[str, ...]) -> dict[str, SkillOutput]:
     """
-    The claim audit, then the photo check with the claims it read.
+    The chosen checks on one page: the claim audit first when the photo check needs its claims.
 
     :param state: The page's state after preprocessing.
-    :return: Both skills' outputs.
+    :param skills: The checks to run.
+    :return: Each check's output, by skill name.
     """
-    audit = await ClaimAuditSkill().run(cast("AnalysisState", state))
-    state |= {k: v for k, v in audit.items() if k in {"listing_claims", "listing_piece_count"}}
-    photos = await PhotoClaimsSkill().run(cast("AnalysisState", state))
-    return audit, photos
+    outputs: dict[str, SkillOutput] = {}
+    if "claim_audit" in skills or "photo_claims" in skills:
+        audit = await ClaimAuditSkill().run(cast("AnalysisState", state))
+        state |= {k: v for k, v in audit.items() if k in {"listing_claims", "listing_piece_count"}}
+        outputs["claim_audit"] = audit
+    if "variant_check" in skills:
+        outputs["variant_check"] = await VariantCheckSkill().run(cast("AnalysisState", state))
+    if "photo_claims" in skills:
+        outputs["photo_claims"] = await PhotoClaimsSkill().run(cast("AnalysisState", state))
+    return outputs
 
 
-async def run(corpus: Corpus, *, limit: int | None, budget: Decimal, concurrency: int, rerun: bool) -> dict[str, Any]:
+async def run(
+    corpus: Corpus,
+    *,
+    limit: int | None,
+    budget: Decimal,
+    concurrency: int,
+    rerun: bool,
+    skills: tuple[str, ...] = SKILL_NAMES,
+    on_candidates: bool = False,
+) -> dict[str, Any]:
     """
-    Run the new checks on the labelled product pages not done yet, within the budget.
+    Run the new checks on the corpus's product pages (or the candidates) not done yet, within the budget.
 
     :param corpus: The corpus.
     :param limit: Pages at most.
-    :param budget: Euros at most, together with the candidates' spend.
+    :param budget: Euros at most, everything recorded so far included (candidates and this replay).
     :param concurrency: Pages at the same time.
     :param rerun: Do pages with a result again (recorded answers cost nothing).
+    :param skills: The checks to run; with fewer than all, a page's other checks' results are kept.
+    :param on_candidates: Run on the deep-check candidates and add to their results instead.
     :return: The summary.
     """
     configure(corpus, replay=False)
+    cand.meter_misses()
     settings.network_lookups = True  # the photo check fetches photos (from the archive for archived pages)
     photo_claims._fetch = _fetch
-    results = read_results(corpus)
-    todo = [r for r in pages(corpus) if rerun or r.id not in results or "error" in results[r.id]]
+    load, save = (cand.read_results, cand.write_results) if on_candidates else (read_results, write_results)
+    results = load(corpus)
+    records = cand.candidates(corpus) if on_candidates else pages(corpus)
+    todo = [r for r in records if rerun or r.id not in results or "error" in results[r.id]]
     todo = todo[:limit] if limit else todo
-    redo = {r.id for r in todo}
-    elsewhere = Decimal(str(cand.total_spent(corpus)))
-    mine = Decimal(str(sum(r.get("cost_eur", 0) for k, r in results.items() if k not in redo)))
-    spent = elsewhere + mine
+    spent = Decimal(str(cand.total_spent(corpus))) + cand.other_spend(corpus)
     worst = Decimal("0.05")
     semaphore = asyncio.Semaphore(concurrency)
     lock = asyncio.Lock()
@@ -193,25 +226,29 @@ async def run(corpus: Corpus, *, limit: int | None, budget: Decimal, concurrency
                 stopped = stopped or spent + worst * concurrency > budget
                 if stopped:
                     return
-            row = await asyncio.create_task(one(corpus, record), context=contextvars.copy_context())
+            before = results.get(record.id, {}).get("cost_eur", 0)
+            task = one(corpus, record, skills=skills, previous=results.get(record.id), with_url=on_candidates)
+            row = await asyncio.create_task(task, context=contextvars.copy_context())
+            paid = Decimal(str(row.get("cost_eur", 0) - before))
             async with lock:
-                spent += Decimal(str(row["cost_eur"]))
-                worst = max(worst, Decimal(str(row["cost_eur"])) * Decimal("1.5"))
+                spent += paid
+                worst = max(worst, paid * Decimal("1.5"))
                 results[record.id] = row
                 done += 1
                 if done % 25 == 0:
-                    write_results(corpus, results)
+                    save(corpus, results)
                     logger.info("new_findings_progress", done=done, total=len(todo), spent_eur=round(float(spent), 3))
 
     await asyncio.gather(*(page(r) for r in todo))
-    write_results(corpus, results)
-    summary = summarise(corpus, results) | {
+    save(corpus, results)
+    summary = (cand.summarise(corpus, cand.read_results(corpus)) if on_candidates else summarise(corpus, results)) | {
         "run_pages": done,
+        "run_skills": list(skills),
         "stopped_for_budget": stopped,
         "budget_eur": float(budget),
-        "spent_eur_all_runs_and_candidates": round(float(spent), 3),
+        "spent_eur_everything": round(float(spent), 3),
     }
-    dump_json(corpus.root / REPORTS / "summary.json", summary)
+    dump_json(corpus.root / (cand.REPORTS if on_candidates else REPORTS) / "summary.json", summary)
     return summary
 
 
@@ -256,13 +293,23 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=6)
     parser.add_argument("--rerun", action="store_true")
     parser.add_argument("--summary", action="store_true", help="print the numbers and stop")
+    parser.add_argument("--only", nargs="+", choices=SKILL_NAMES, default=list(SKILL_NAMES), help="checks to run")
+    parser.add_argument("--candidates", action="store_true", help="the deep-check candidates instead of the corpus")
     args = parser.parse_args()
     corpus = Corpus()
     if args.summary:
         summary = summarise(corpus, read_results(corpus))
     else:
         summary = asyncio.run(
-            run(corpus, limit=args.limit, budget=args.budget_eur, concurrency=args.concurrency, rerun=args.rerun)
+            run(
+                corpus,
+                limit=args.limit,
+                budget=args.budget_eur,
+                concurrency=args.concurrency,
+                rerun=args.rerun,
+                skills=tuple(args.only),
+                on_candidates=args.candidates,
+            )
         )
     print(json.dumps(summary, indent=1))  # noqa: T201 - command-line report
 

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration
 
 from evals import candidates as cand
 from evals.corpus import Corpus, Label, LabelRecord
@@ -158,3 +160,10 @@ def test_blind_screen_hides_the_scorer(tmp_path: Path) -> None:
     cand.decide(Corpus(tmp_path), record, "junk", hidden=True)
     logged = json.loads((tmp_path / cand.DECISIONS).read_text())
     assert logged["blind"] is True and logged["label"] == "junk" and logged["before"] is None
+
+
+def test_miss_cost_reads_the_model_and_tokens_the_cache_stores() -> None:
+    message = AIMessage(content="", usage_metadata={"input_tokens": 1_000_000, "output_tokens": 0, "total_tokens": 1})
+    key = json.dumps({"kwargs": {"model_name": cand.settings.claim_audit_model}})
+    assert cand.miss_cost(key, [ChatGeneration(message=message)]) == cand.settings.claim_audit_input_eur_per_mtok
+    assert cand.miss_cost(key, []) == Decimal(0)

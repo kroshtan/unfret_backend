@@ -300,7 +300,7 @@ class Site:
             return None, "robots"
         await self._turn()
         try:
-            return await fetch_page(url), ""
+            return (await fetch_page(url)).html, ""
         except PageUnreadableError as exc:
             return None, exc.reason
         except Exception as exc:  # noqa: BLE001 - one bad site must not end the run

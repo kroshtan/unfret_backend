@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     variant_check_min_confidence: float = Field(default=0.85, ge=0, le=1)
     claim_audit_input_eur_per_mtok: Decimal = Field(default=Decimal("1.80"), ge=0)
     claim_audit_output_eur_per_mtok: Decimal = Field(default=Decimal("5.50"), ge=0)
+    # On a web shop's own site, the claim audit also reads the shop's returns, shipping, about and contact pages (at
+    # most four, unfret.shop_pages) and holds the claims against them; off reads the product page only.
+    claim_audit_shop_pages: bool = True
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.
     analyze_fetch_per_minute: int = Field(default=10, ge=1)

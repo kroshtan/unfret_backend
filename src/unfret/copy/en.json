@@ -109,6 +109,14 @@
       "title": "Discount on the marketplace's reference price",
       "detail": "The 'was' price is the marketplace's own {anchor}, shown on every discounted listing: a reference price, not necessarily what anyone paid."
     },
+    "brand_reference": {
+      "title": "Discount on the brand's recommended price",
+      "detail": "The 'was' price is the brand's own {anchor}, on the brand's own shop: its recommended price, not necessarily what anyone paid."
+    },
+    "disclosed_reference": {
+      "title": "Discount on a recommended price, below the 30-day low",
+      "detail": "The 'was' price is labelled {anchor}, and the page gives the lowest price of the last 30 days, {low}: today's price is at or below it."
+    },
     "permanent_sale": {
       "title": "Never-ending sale",
       "detail": "The page says {phrase}: shops that are always closing down use this to rush you."
@@ -485,7 +493,7 @@
     },
     "established_archive": {
       "title": "Established shop",
-      "detail": "This web shop's address has been online since at least {year}, per the Internet Archive, and its earlier copies show the same shop."
+      "detail": "This web shop's address has been online since at least {year}, per {source}, and its earlier copies show the same shop."
     },
     "trust_info_present": {
       "title": "Shop details present",
@@ -724,9 +732,11 @@
     "claims.store_without_address": "Mentions a store, gives no address",
     "domain_age.founded_claim_years": "Years in business claimed",
     "domain_age.founded_contradicted": "Long-established claim on a new site",
-    "domain_age.archive_age_years": "Online since at least (Internet Archive)",
-    "domain_age.archive_first_year": "First copy in the Internet Archive",
-    "domain_age.age_from_archive": "Age from the Internet Archive, not the registry",
+    "domain_age.archive_age_years": "Online since at least (first sighting)",
+    "domain_age.archive_first_year": "First sighting (a web archive's first copy, or Unfret's first check)",
+    "domain_age.age_from_archive": "Age from its first sighting, not the registry",
+    "domain_age.first_seen_common_crawl": "First sighting in Common Crawl",
+    "domain_age.first_seen_unfret": "First sighting by Unfret's own checks",
     "market_price.other_shops": "Other shops with this product",
     "market_price.below_market": "Below the usual price",
     "market_price.far_below": "Far below the usual price",
@@ -870,6 +880,7 @@
     "legal_pages": "The shop's terms and legal pages",
     "rdap": "Domain registry (RDAP)",
     "archive": "Earlier copies of the site (Internet Archive, web.archive.org)",
+    "archive_cc": "Earlier copies of the site (Common Crawl, commoncrawl.org)",
     "vies": "EU VAT register (VIES)",
     "price_history": "Unfret's price history",
     "market_prices": "Prices at other shops (Unfret's price records)",
@@ -911,7 +922,7 @@
     "notes": {
       "no_reviews": "The page shows no reviews.",
       "registry_silent": "The domain registry doesn't say how old the address is.",
-      "no_archive": "The Internet Archive has no earlier copies of the shop's address.",
+      "no_archive": "The web archives (Common Crawl, the Internet Archive) have no earlier copies of the shop's address.",
       "no_photo": "No product photo could be read.",
       "unavailable": "Couldn't be checked this time.",
       "not_applicable": "Doesn't apply to this page.",

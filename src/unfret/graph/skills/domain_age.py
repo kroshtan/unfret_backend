@@ -6,10 +6,19 @@ certificate ever logged for the domain (crt.sh) gives a second, registry-indepen
 registration data is redacted. Both are store-level facts, cached across callers by :mod:`unfret.fact_cache`.
 
 Many registries (.nl, .de and other EU country domains) publish no registration date at all. For a web shop there,
-the Internet Archive's first copy of its home page (:func:`unfret.graph.skills.domain_history.first_capture`, one
-paced index request, cached per address) says the address has been online since at least that day. That is a
-minimum, never the registration date, so it is kept apart (``archive_age_years``, ``age_from_archive``) and only
-counts for the shop once the deep check's look at the address's earlier copies didn't contradict it
+the oldest sighting of the address says it has been online since at least that day. Three sources, the oldest
+counting:
+
+- **Common Crawl's** oldest copy of the home page among a few crawls years apart
+  (:func:`unfret.graph.skills.common_crawl.first_capture`, cached per address);
+- else (Common Crawl has none, or can't be asked) **the Internet Archive's** first copy
+  (:func:`unfret.graph.skills.domain_history.first_capture`, one request within its pace and daily cap);
+- **Unfret's own** first check of the shop: the day a page Unfret fetched itself first showed it, from the shop store
+  (:meth:`unfret.shop_store.ShopStore.first_fetched`: the shop's domain and a day, nothing about who checked).
+
+That is a minimum, never the registration date, so it is kept apart (``archive_age_years``, ``age_from_archive``,
+and which source: ``first_seen_common_crawl``, ``first_seen_unfret``, else the Internet Archive) and only counts for
+the shop once the deep check's look at the address's earlier copies didn't contradict it
 (:func:`unfret.shopper.address_years`): an expired address bought again keeps its old copies.
 """
 
@@ -21,12 +30,25 @@ from urllib.parse import quote
 
 import httpx
 
+from unfret import shop_store, shopper
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
-from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput, domain_history
+from unfret.graph.skills import (
+    SERVICE_SITES,
+    STOREFRONTS,
+    Observation,
+    Skill,
+    SkillOutput,
+    common_crawl,
+    domain_history,
+)
 from unfret.graph.skills.claims import claimed_founding
 from unfret.graph.state import AnalysisState
 from unfret.net import fetch_public, hostname
+from unfret.price_store import registrable_domain
+
+# The first-seen sources (unfret.shopper names them; it imports the graph, so not imported from there).
+COMMON_CRAWL, WAYBACK, UNFRET = "commoncrawl", "wayback", "unfret"
 
 _RDAP_TIMEOUT_S = 10.0
 _CRTSH_TIMEOUT_S = 15.0
@@ -141,23 +163,64 @@ async def first_certificate(domain: str) -> str | None:
     return earliest_certificate(entries) if isinstance(entries, list) else None
 
 
-async def _archive_first_seen(host: str, state: AnalysisState) -> str | None:
-    """
-    The Internet Archive's first copy of a web shop's home page, when the deep check's archive look is on.
+_HOW = {
+    COMMON_CRAWL: "the oldest copy of {domain} found there",
+    WAYBACK: "its first copy of {domain}",
+    UNFRET: "the first time Unfret checked {domain}",
+}
 
-    Within the archive's own pace (:data:`unfret.graph.skills.domain_history.pace`): paced out, refused lately or
-    unreachable, it is skipped this time (not cached) and the age stays unknown.
+
+async def _archive_first_seen(host: str) -> tuple[str, str] | None:
+    """
+    The oldest copy of a web shop's home page in the web archives: Common Crawl, else the Internet Archive.
+
+    Each within its own pace: paced out, refused or unreachable, it is skipped this time (not cached).
+
+    :param host: The shop's host.
+    :return: ``(ISO date, source)``, or ``None``.
+    """
+    try:
+        found = await cached_fact("commoncrawl_first", host, lambda: common_crawl.first_capture(host))
+    except Exception:  # noqa: BLE001  (paced out, refused or unreachable: the Internet Archive instead)
+        found = None
+    if found:
+        return found, COMMON_CRAWL
+    try:
+        found = await cached_fact("wayback_first", host, lambda: domain_history.first_capture(host))
+    except Exception:  # noqa: BLE001  (paced out, refused or unreachable: no age from the archives this time)
+        return None
+    return (found, WAYBACK) if found else None
+
+
+async def _unfret_first_seen(host: str) -> tuple[str, str] | None:
+    """
+    The day a page Unfret fetched itself first showed the shop (the shop store), when the store is on.
+
+    :param host: The shop's host.
+    :return: ``(ISO date, "unfret")``, or ``None`` (a shop Unfret hasn't fetched before, or a failing store).
+    """
+    if not settings.fingerprints:
+        return None
+    try:
+        day = await shop_store.store().first_fetched(registrable_domain(host))
+    except Exception:  # noqa: BLE001  (an optional store: no age from it this time)
+        return None
+    return (day.isoformat(), UNFRET) if day else None
+
+
+async def _first_seen(host: str, state: AnalysisState) -> tuple[str, str] | None:
+    """
+    The oldest sighting of a web shop's address: the web archives' (when the archive look is on) or Unfret's own.
 
     :param host: The shop's host.
     :param state: Current graph state; uses ``page_type``.
-    :return: ISO date, or ``None``.
+    :return: ``(ISO date, source)``, or ``None``.
     """
-    if not settings.domain_history or state.get("page_type") != "storefront":
+    if state.get("page_type") != "storefront":
         return None
-    try:
-        return await cached_fact("wayback_first", host, lambda: domain_history.first_capture(host))
-    except Exception:  # noqa: BLE001  (paced out, refused or unreachable: no age from the archive this time)
-        return None
+    archived = await _archive_first_seen(host) if settings.domain_history else None
+    own = await _unfret_first_seen(host)
+    return min((s for s in (archived, own) if s), key=lambda s: s[0], default=None)
 
 
 def _days_since(iso: str | None, today: date) -> int | None:
@@ -183,13 +246,16 @@ class DomainAgeSkill(Skill):
         "archive_age_years",
         "archive_first_year",
         "age_from_archive",
+        "first_seen_common_crawl",
+        "first_seen_unfret",
     )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Look up the page's domain in RDAP, the CT logs and, if need be, the Internet Archive (cached per domain).
+        Look up the page's domain in RDAP, the CT logs and, if need be, its first sighting (cached per domain).
 
-        The archive's first copy of the home page is asked for only on a web shop whose registry gives no date.
+        The web archives' first copy of the home page, and Unfret's own first check, are looked up only on a web
+        shop whose registry gives no date.
 
         :param state: Current graph state; uses ``url`` and ``page_type``.
         :return: The skill's features and findings.
@@ -206,7 +272,8 @@ class DomainAgeSkill(Skill):
         rdap = None if isinstance(rdap_result, BaseException) else rdap_result
         cert = None if isinstance(cert_result, BaseException) else cert_result
         registered = (rdap or {}).get("registered")
-        first_seen = await _archive_first_seen(domain, state) if registered is None else None
+        seen = await _first_seen(domain, state) if registered is None else None
+        first_seen, source = seen or (None, WAYBACK)
         today = datetime.now(tz=UTC).date()
         archive_age = _days_since(first_seen, today)
         archive: dict[str, float | bool] = {}
@@ -215,13 +282,15 @@ class DomainAgeSkill(Skill):
                 "archive_age_years": archive_age / 365,
                 "archive_first_year": float(first_seen[:4]),
                 "age_from_archive": archive_age > (_days_since(cert, today) or 0),
+                "first_seen_common_crawl": source == COMMON_CRAWL,
+                "first_seen_unfret": source == UNFRET,
             }
         archived = (
             [
                 Observation(
                     type="archive_first_capture",
-                    evidence=f"Online since at least {first_seen}, per the Internet Archive (its first copy of "
-                    f"{domain}; a minimum, not the registration date).",
+                    evidence=f"Online since at least {first_seen}, per {shopper.SEEN_BY[source]} "
+                    f"({_HOW[source].format(domain=domain)}; a minimum, not the registration date).",
                 )
             ]
             if archive

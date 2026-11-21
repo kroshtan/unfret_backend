@@ -7,11 +7,11 @@ need one. Only the unclear middle goes to the LLM, as one small structured quest
 most ``triage_max_expensive_runs`` expensive skill runs, and gets one re-triage after them (e.g. the photo search
 came back empty but every other signal still points to a supplier product: try the second photo).
 
-The look at the shop's earlier copies in the Internet Archive (``domain_history``) is planned by rules alone, once,
+The look at the shop's earlier copies in the web archives (``domain_history``) is planned by rules alone, once,
 next to the photo plan and outside its budget (it costs no money, only a few seconds, and runs in parallel with the
 photo search): on a web shop whose address is old enough to count as "established"
-(:data:`unfret.shopper.ESTABLISHED_DOMAIN_YEARS`; by its registration, or where the registry gives no date, the
-Internet Archive's first copy of it: :func:`unfret.shopper.address_years`) and whose page already looks doubtful
+(:data:`unfret.shopper.ESTABLISHED_DOMAIN_YEARS`; by its registration, or where the registry gives no date, its
+first sighting: :func:`unfret.shopper.address_years`) and whose page already looks doubtful
 by the cheap skills (:func:`looks_doubtful`), the case where an address's age would otherwise vouch for a shop
 that took it over.
 """
@@ -181,7 +181,7 @@ def looks_doubtful(state: AnalysisState) -> bool:
 
 def history_plan(state: AnalysisState, available: set[str]) -> TriagePlan:
     """
-    Whether to look at the shop's earlier copies in the Internet Archive: once, on an old address that looks doubtful.
+    Whether to look at the shop's earlier copies in the web archives: once, on an old address that looks doubtful.
 
     :param state: The graph state after the cheap skills.
     :param available: Names of the expensive skills registered in this graph.
@@ -194,7 +194,8 @@ def history_plan(state: AnalysisState, available: set[str]) -> TriagePlan:
     years, from_archive = shopper.address_years(state.get("features", {}))
     if years < shopper.ESTABLISHED_DOMAIN_YEARS or not looks_doubtful(state):
         return TriagePlan((), "")
-    age = f"at least {int(years)} years (Internet Archive)" if from_archive else f"{int(years)} years"
+    features = state.get("features", {})
+    age = f"at least {int(years)} years ({shopper.seen_by(features)})" if from_archive else f"{int(years)} years"
     return TriagePlan((HISTORY,), f"An address of {age} on a doubtful page: check its earlier copies.")
 
 

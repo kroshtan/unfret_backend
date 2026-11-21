@@ -57,6 +57,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "implausible_discount": "high",
     "reference_anchor": "medium",
     "marketplace_reference": "low",
+    "brand_reference": "low",
+    "disclosed_reference": "low",
     "permanent_sale": "medium",
     "seller_lookalike": "medium",
     "seller_not_brand": "low",
@@ -213,7 +215,8 @@ class Reason(BaseModel):
     links: list[str] = Field(
         default_factory=list,
         max_length=3,
-        description="Up to three links to the evidence elsewhere (archived copies on web.archive.org).",
+        description="Up to three links to the evidence elsewhere (archived copies: a web.archive.org copy, or the "
+        "copy's record in Common Crawl's index, index.commoncrawl.org).",
     )
 
 
@@ -697,6 +700,13 @@ def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     elif own := e.first("marketplace_reference"):
         # A note: the marketplace's own reference-price label, on every discounted listing (see the pricing skill).
         fired["marketplace_reference"] = {"anchor": _quoted(own) or "…"}
+    elif maker := e.first("brand_reference"):
+        # A note: the brand's recommended price on the brand's own shop.
+        fired["brand_reference"] = {"anchor": _quoted(maker) or "…"}
+    elif disclosed := e.first("disclosed_reference"):
+        # A note: a recommended price next to the 30-day low the page discloses, today's price at or below it.
+        low = (_NUMBERS_RE.findall(disclosed.evidence) or ["?"])[-1]
+        fired["disclosed_reference"] = {"anchor": _quoted(disclosed) or "…", "low": e.money(low)}
     if e.storefront and e.f("pricing.permanent_sale") >= 1:
         fired["permanent_sale"] = {"phrase": _quoted(e.first("permanent_sale")) or "…"}
 
@@ -890,7 +900,8 @@ def _shop(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 
 
 _REPURPOSED_RE = re.compile(
-    r"copy from (?P<month>[A-Z][a-z]+ \d{4}) shows (?P<what>.+?)\. (?P<links>https://web\.archive\.org/\S+(?: \S+)*)$"
+    r"copy from (?P<month>[A-Z][a-z]+ \d{4}) shows (?P<what>.+?)\. "
+    r"(?P<links>https://(?:web\.archive\.org|index\.commoncrawl\.org)/\S+(?: \S+)*)$"
 )
 
 
@@ -914,12 +925,41 @@ def _age_vouches(e: _Evidence) -> bool:
     return e.f("domain_history.changed") < 1
 
 
+COMMON_CRAWL, WAYBACK, UNFRET = "commoncrawl", "wayback", "unfret"
+# Who saw an address first (domain_age's first-seen day), in words.
+SEEN_BY = {COMMON_CRAWL: "Common Crawl", WAYBACK: "the Internet Archive", UNFRET: "Unfret's own checks"}
+
+
+def seen_source(features: Mapping[str, float]) -> str:
+    """
+    Which source gave the address's first-seen day (``domain_age.archive_first_year``).
+
+    :param features: Skill features.
+    :return: ``commoncrawl``, ``unfret`` or ``wayback`` (results from before the source was kept).
+    """
+    if features.get("domain_age.first_seen_common_crawl", 0.0) >= 1:
+        return COMMON_CRAWL
+    if features.get("domain_age.first_seen_unfret", 0.0) >= 1:
+        return UNFRET
+    return WAYBACK
+
+
+def seen_by(features: Mapping[str, float]) -> str:
+    """
+    The first-seen source in words ("Common Crawl", "the Internet Archive", "Unfret's own checks").
+
+    :param features: Skill features.
+    :return: The name.
+    """
+    return SEEN_BY[seen_source(features)]
+
+
 def address_years(features: dict[str, float]) -> tuple[float, bool]:
     """
-    How old the shop's address is: by its registration (or first certificate), or else the archive's first copy.
+    How old the shop's address is: by its registration (or first certificate), or else its first sighting.
 
-    The Internet Archive's first copy counts when the registry gives no date and that copy is older. It is a
-    minimum ("online since at least"), never the registration date.
+    The first sighting (a web archive's first copy, or Unfret's own first check) counts when the registry gives no
+    date and it is older. It is a minimum ("online since at least"), never the registration date.
 
     :param features: Skill features.
     :return: The age in years, and whether it comes from the archive.
@@ -1161,7 +1201,10 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
     if e.storefront and e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS and _age_vouches(e):
         fired["established_domain"] = {"years": str(int(e.f("domain_age.age_years")))}
     elif e.storefront and _vouching_years(e) >= ESTABLISHED_DOMAIN_YEARS:
-        fired["established_archive"] = {"year": str(int(e.f("domain_age.archive_first_year")))}
+        fired["established_archive"] = {
+            "year": str(int(e.f("domain_age.archive_first_year"))),
+            "source": seen_by(e.features),
+        }
     if e.storefront and _trust_info_present(e):
         fired["trust_info_present"] = {}
     natural = (
@@ -1375,6 +1418,7 @@ def build(
     weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
     weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
     weighed.discard("marketplace_reference")  # a note: the marketplace's own reference price, never a warning alone
+    weighed -= {"brand_reference", "disclosed_reference"}  # notes too: the maker's price, or one the 30-day low backs
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score

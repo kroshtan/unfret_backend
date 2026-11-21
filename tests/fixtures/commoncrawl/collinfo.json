@@ -1,0 +1,71 @@
+[
+ {
+  "id": "CC-MAIN-2026-43",
+  "name": "October 2026 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2026-43/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2026-43-index",
+  "from": "2026-10-05T10:56:23",
+  "to": "2026-10-18T05:34:47"
+ },
+ {
+  "id": "CC-MAIN-2026-39",
+  "name": "September 2026 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2026-39/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2026-39-index",
+  "from": "2026-09-04T13:16:03",
+  "to": "2026-09-17T05:59:21"
+ },
+ {
+  "id": "CC-MAIN-2026-34",
+  "name": "August 2026 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2026-34/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2026-34-index",
+  "from": "2026-08-03T09:12:44",
+  "to": "2026-08-16T02:20:10"
+ },
+ {
+  "id": "CC-MAIN-2025-47",
+  "name": "November 2025 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2025-47/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2025-47-index",
+  "from": "2025-11-06T08:01:12",
+  "to": "2025-11-19T23:40:05"
+ },
+ {
+  "id": "CC-MAIN-2023-50",
+  "name": "November/December 2023 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2023-50/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2023-50-index",
+  "from": "2023-11-28T10:00:00",
+  "to": "2023-12-11T12:00:00"
+ },
+ {
+  "id": "CC-MAIN-2021-43",
+  "name": "October 2021 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2021-43/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2021-43-index",
+  "from": "2021-10-15T10:00:00",
+  "to": "2021-10-28T12:00:00"
+ },
+ {
+  "id": "CC-MAIN-2016-44",
+  "name": "October 2016 Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2016-44/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2016-44-index",
+  "from": "2016-10-20T10:00:00",
+  "to": "2016-10-28T12:00:00"
+ },
+ {
+  "id": "CC-MAIN-2012",
+  "name": "2012 ARC Files Index",
+  "timegate": "https://index.commoncrawl.org/CC-MAIN-2012/",
+  "cdx-api": "https://index.commoncrawl.org/CC-MAIN-2012-index",
+  "from": "2012-01-27T17:41:51",
+  "to": "2012-06-05T06:28:50"
+ },
+ {
+  "id": "broken",
+  "name": "no dates",
+  "cdx-api": "https://index.commoncrawl.org/broken-index"
+ }
+]

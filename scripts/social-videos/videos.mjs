@@ -90,6 +90,62 @@ const VIDEO_LIST = [
       },
       // The end card, to the end.
       end: { at: 19.8 },
+      // The mascot (render.mjs --mascot; the track's format is in mascot.mjs), in two appearances. The title close-up:
+      // it hops in from the right along the white band under the title (as C, "Leaning in"), turns into A ("Close
+      // inspection") at the left, under the title and left of "91 pieces?" (feet at 160, 1105), reads the title with
+      // the glass, does a double-take at "91 pieces?" and nods at the sum; the check slides in over it. The check: C
+      // hops in to the card's lower right (870, 1498) and holds the glass up to the finding; as the end card comes, it
+      // rises into the logo's place and turns into the logo.
+      mascot: {
+        scale: 1.65,
+        behind: [{ from: 0, to: 13.75, id: "check" }],
+        keys: [
+          { t: 0, x: 1300, y: 1052, pose: 0, look: [-3, 0], lean: 0, mag: 0, reach: 0, hand: "rest", track: 0, flat: 0,
+            brow: 0, wide: 0, grin: 0 },
+          // "Now read the title": hops in as C while the camera goes up to the title.
+          { t: 5.2, x: 1300, y: 1052 },
+          { t: 5.62, ease: "linear", x: 720, y: 1072 },
+          { t: 6.1, ease: "linear", x: 160, y: 1105 },
+          // Turns into A, the glass up to its eye, looking up at the title.
+          { t: 6.25, pose: 0, look: [-3, 0] },
+          { t: 6.6, pose: 1, look: [0, -3] },
+          // Reads the title with the glass, eyes following it.
+          { t: 6.65, hand: "rest", mag: 0, reach: 0, lean: 0, track: 0 },
+          { t: 6.98, lens: [140, 822], mag: 40, reach: 1, lean: 5, track: 1 },
+          { t: 7.5, lens: [270, 822], mag: 40, reach: 1, lean: 6, track: 1 },
+          // "91 pieces?" pops up on its right: the glass back to the eye, a glance, a double-take.
+          { t: 7.78, ease: "out", hand: "rest", mag: 0, reach: 0, lean: 0, track: 0, look: [3, 3], flat: 0, brow: 0,
+            wide: 0 },
+          { t: 7.92, look: [-2, -3], wide: 0, brow: 0, flat: 0, lean: 0 },
+          { t: 8.12, ease: "back", look: [3, 3], wide: 1, brow: 1, flat: 1, lean: -5 },
+          { t: 9.6, look: [3, 3], wide: 1, brow: 1, flat: 1, lean: -5 },
+          // "80 pens + 12 clips = 92", below: got it; nods.
+          { t: 9.95, ease: "out", look: [2, 4], wide: 0, brow: 0, flat: 0, lean: 0 },
+          { t: 11.2, look: [3, 5] },
+          // Under the check now; out of sight it goes back to C, off to the right.
+          { t: 13.7, x: 160, y: 1105, pose: 1, look: [3, 5] },
+          { t: 13.72, ease: "linear", x: 1300, y: 1498, pose: 0, look: [-3, 0] },
+          // The check: hops in to the card's corner, holds the glass up to the finding.
+          { t: 14.5, x: 1300, y: 1498 },
+          { t: 14.95, ease: "linear", x: 870, y: 1498 },
+          { t: 15.0, look: [-3, 0], hand: "rest", mag: 0, reach: 0, lean: 0 },
+          { t: 15.45, lens: [708, 1306], mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
+          { t: 19.3, lens: [708, 1306], mag: -22, reach: 0.5, lean: -4, look: [-5, -5] },
+          // The end card: lowers the glass, then turns into the logo (become, below).
+          { t: 19.7, ease: "out", hand: "rest", mag: 0, reach: 0, lean: 0, look: [-3, 0] },
+        ],
+        hops: [
+          { at: 5.2, dur: 0.42, height: 60 },
+          { at: 5.67, dur: 0.43, height: 50 },
+          { at: 6.32, dur: 0.26, height: 16 },
+          { at: 7.98, dur: 0.2, height: 14 },
+          { at: 14.5, dur: 0.45, height: 60 },
+        ],
+        blinks: [6.9, 8.9, 11.7, 12.7, 16.6, 18.3],
+        nods: [{ at: 10.05 }, { at: 10.5 }, { at: 15.75, depth: 0.6 }],
+        // As the end card fades in it rises into the logo's place and becomes the logo; the words come after.
+        become: { at: 19.75, dur: 1.05, logo: "#end img", then: "#end .name, #end .line, #end .web, #end .free", arc: 40 },
+      },
     },
   },
 ];

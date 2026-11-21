@@ -5,6 +5,7 @@ import ipaddress
 import socket
 import zlib
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -47,6 +48,14 @@ class RefusedError(httpx.HTTPStatusError):
         """
         super().__init__(f"HTTP {response.status_code}", request=response.request, response=response)
         self.head = head.decode("utf-8", errors="replace")
+
+
+@dataclass(frozen=True)
+class FetchedPage:
+    """A fetched body and the address it came from, after any redirects (a short link's destination)."""
+
+    body: bytes
+    url: str
 
 
 def hostname(url: str) -> str:
@@ -146,11 +155,39 @@ async def fetch_public(
     :param transport: Optional httpx transport (used to stub the network in tests).
     :return: The response body.
     """
+    page = await fetch_public_page(
+        url, timeout=timeout, total_timeout=total_timeout, max_bytes=max_bytes, transport=transport
+    )
+    return page.body
+
+
+async def fetch_public_page(
+    url: str,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT,
+    total_timeout: float = 25.0,
+    max_bytes: int = _DEFAULT_MAX_BYTES,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> FetchedPage:
+    """
+    Like :func:`fetch_public`, and also say where the redirects ended: the page's own address behind a short link.
+
+    Every hop goes through the same check of its address, within the same redirect limit.
+
+    :param url: Absolute http(s) URL to fetch.
+    :param timeout: Per-request timeout in seconds (each read, connect, …).
+    :param total_timeout: The whole fetch, redirects and a slowly trickling body included.
+    :param max_bytes: Maximum response body size; larger bodies are rejected.
+    :param transport: Optional httpx transport (used to stub the network in tests).
+    :return: The response body and the URL that answered it (``url`` itself without redirects).
+    """
     async with asyncio.timeout(total_timeout):
         return await _fetch(url, timeout=timeout, max_bytes=max_bytes, transport=transport)
 
 
-async def _fetch(url: str, *, timeout: float, max_bytes: int, transport: httpx.AsyncBaseTransport | None) -> bytes:
+async def _fetch(
+    url: str, *, timeout: float, max_bytes: int, transport: httpx.AsyncBaseTransport | None
+) -> FetchedPage:
     async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": _USER_AGENT}, transport=transport) as client:
         for _ in range(_MAX_REDIRECTS + 1):
             address = await _assert_public(url)
@@ -162,7 +199,7 @@ async def _fetch(url: str, *, timeout: float, max_bytes: int, transport: httpx.A
                 if response.is_error:
                     raise RefusedError(response, await _read_head(response, _REFUSAL_HEAD_BYTES))
                 response.raise_for_status()
-                return await _read_bounded(response, max_bytes, url)
+                return FetchedPage(await _read_bounded(response, max_bytes, url), url)
             finally:
                 await response.aclose()
     raise httpx.TooManyRedirects(f"More than {_MAX_REDIRECTS} redirects fetching {url}")

@@ -15,8 +15,20 @@ from urllib.parse import parse_qs, urljoin, urlparse, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from unfret.facts import amazon, bolcom, business, gallery, markup, p2p, service_platforms, testimonials, walmart
-from unfret.facts._parse import parse_date, parse_number, parse_rating
+from unfret.facts import (
+    amazon,
+    bolcom,
+    business,
+    gallery,
+    markup,
+    p2p,
+    service_platforms,
+    testimonials,
+    variants,
+    walmart,
+    widgets,
+)
+from unfret.facts._parse import parse_count, parse_date, parse_number, parse_rating
 from unfret.facts.brand import clean_brand
 from unfret.facts.schema import P2P_PLATFORMS, PRIVATE_SELLER_PLATFORMS, Checkbox, PageFacts, Platform, Review
 from unfret.html_cleaner import strip_to_text
@@ -67,6 +79,12 @@ _POLICY_KINDS: dict[str, re.Pattern[str]] = {
     "terms": re.compile(r"terms|conditions|voorwaarden|\bagb\b|cgv|condiciones|termini", re.IGNORECASE),
     "privacy": re.compile(r"privacy|datenschutz|confidentialit|privacidad", re.IGNORECASE),
     "contact": re.compile(r"contact|kontakt|contacto|contatti", re.IGNORECASE),
+    # The shop's own story ("About us", /pages/about, "Over ons"): where it says who it is and where it makes things.
+    "about": re.compile(
+        r"about[ -]us|/about\b|/pages/about|our[ -]story|over[ -]ons|über[ -]uns|ueber-uns|qui[ -]sommes|chi[ -]siamo"
+        r"|qui[eé]nes[ -]somos",
+        re.IGNORECASE,
+    ),
     "imprint": re.compile(
         r"impressum|imprint|legal notice|mentions légales|colofon|aviso legal|bedrijfsgegevens|company details",
         re.IGNORECASE,
@@ -106,6 +124,8 @@ _VARIANT_PRICE_RE = re.compile(r'"price"\s*:\s*("?)(\d+(?:\.\d+)?)\1')
 _VARIANT_ID_RE = re.compile(r'"id"\s*:\s*"?(\d{6,})')
 _VARIANT_WINDOW = 1_500  # chars around a compare-at price that belong to the same variant object
 _WS_RE = re.compile(r"\s+")
+# A priceSpecification's priceType for a reference price ("https://schema.org/ListPrice", "StrikethroughPrice").
+_REFERENCE_TYPE_RE = re.compile(r"(?:ListPrice|StrikethroughPrice|MSRP|SRP)$", re.IGNORECASE)
 _SKIP_HIDDEN = {"script", "style", "noscript", "template", "head", "meta", "link", "svg", "input"}
 
 _MAX_HIDDEN_CHARS = 300
@@ -153,6 +173,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         walmart.extract(soup, facts)
     elif facts.platform == "shopify":
         _shopify(html, facts, url)
+    variants.extract(soup, url, facts)  # the variant picker's options, on any platform
     facts.brand = clean_brand(facts.brand)  # one brand string for every check: no byline phrase, no sentence
     if not facts.title:
         facts.title = _text(soup.find("h1")) or _meta(soup, "og:title")
@@ -160,6 +181,7 @@ def extract_facts(soup: BeautifulSoup, html: str, url: str = "") -> PageFacts:
         facts.image_urls = [urljoin(url, image)]
     if facts.platform in PRIVATE_SELLER_PLATFORMS:
         p2p.extract(soup, facts)  # the ad and the seller's account, never their name
+    widgets.extract(soup, facts)  # reviews and a "was" price the structured data left out
     if facts.platform in P2P_PLATFORMS:
         facts.seller, facts.json_ld = "", without_seller(facts.json_ld)  # a private seller's name is never kept
     business.extract(soup, url, facts)
@@ -435,6 +457,10 @@ def _structured_data(soup: BeautifulSoup, facts: PageFacts) -> list[str]:
     if facts.price is None and products:
         # A ProductGroup's own price is its variants' (the page's Open Graph price, read above, is the one on show).
         _apply_offer(_variant_offers(products[0]), facts)
+    if products and facts.list_price is None and facts.price is not None:
+        facts.list_price = reference_price(products[0].get("offers"), facts.price)
+    if facts.rating is None or facts.rating_count is None:
+        _microdata_rating(soup, facts)
     if not facts.reviews:
         _microdata_reviews(soup, facts)
     return photos if products else []
@@ -450,6 +476,37 @@ def _apply_offer(offers: object, facts: PageFacts) -> None:
     seller = offer.get("seller")
     if isinstance(seller, dict) and not facts.seller:
         facts.seller = str(seller.get("name") or "")[:300]
+
+
+def reference_price(offers: object, price: float) -> float | None:
+    """
+    The offer's reference price in its structured data, above the price on offer.
+
+    A ``priceSpecification`` whose ``priceType`` is a list or strike-through price (Google's markup for a "was" price).
+
+    :param offers: The product's ``offers``.
+    :param price: The price on offer.
+    :return: The reference price, or ``None``.
+    """
+    offer = offers[0] if isinstance(offers, list) and offers else offers
+    specs = offer.get("priceSpecification") if isinstance(offer, dict) else None
+    for spec in specs if isinstance(specs, list) else [specs]:
+        if not isinstance(spec, dict) or not _REFERENCE_TYPE_RE.search(str(spec.get("priceType") or "")):
+            continue
+        if (was := _number(spec.get("price"))) is not None and was > price:
+            return was
+    return None
+
+
+def _microdata_rating(soup: BeautifulSoup, facts: PageFacts) -> None:
+    rating = soup.find(itemprop="aggregateRating")
+    if not isinstance(rating, Tag):
+        return
+    value, count = rating.find(itemprop="ratingValue"), rating.find(itemprop=["reviewCount", "ratingCount"])
+    if facts.rating is None and isinstance(value, Tag):
+        facts.rating = parse_rating(str(value.get("content") or _text(value)))
+    if facts.rating_count is None and isinstance(count, Tag):
+        facts.rating_count = parse_count(str(count.get("content") or _text(count)))
 
 
 def _apply_rating(rating: object, facts: PageFacts) -> None:

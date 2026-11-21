@@ -370,7 +370,10 @@ valid 7 days. Nothing is stored when a check runs.
   of visible text with no price and no product JSON-LD: a shell its scripts fill in) or `INVALID_URL` (not a public
   http(s) address). Fetches are limited per account (`UNFRET_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
   The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back
-  `{"url": …}` and the server fetches the page again for the review queue.
+  `{"url": …}` and the server fetches the page again for the review queue. A `url` that redirects (a short link) is
+  checked as the page it leads to (each hop a public address, at most five): the result cache, the `share_token`
+  (and so the shared page's `product_url`) and `POST /v1/check`'s verdict store use that page's address without
+  fragment and tracking parameters; the `report_token` is still for the request as sent.
 - Requests that send the page (the extension) are unchanged.
 
 ## Changes (the "Spotted recently" showcase, backwards-compatible; retired, see the end)
@@ -1452,6 +1455,24 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   track record or known brand vouches for, a claim physics, the price or an authority rules out
   (`claim_audit.impossible`) makes "Looks fine" "Worth a look" at most; it never makes a warning by itself.
 
+## Changes (an address's age from the Internet Archive where the registry gives none; backwards-compatible)
+
+- On a web shop whose domain registry publishes no registration date (common for .nl, .de and other EU country
+  domains), a deep check may ask the Internet Archive for the first copy of the shop's home page. Its date is a
+  minimum for the address's age, never its registration date.
+- `domain_age` adds `.archive_age_years`, `.archive_first_year` and `.age_from_archive` (the address's oldest age is
+  the archive's, not the registry's or the first certificate's); `.age_years` and `.known` keep their meaning
+  (registry or first certificate only). New finding `archive_first_capture`: "Online since at least <date>, per the
+  Internet Archive (its first copy of <address>; a minimum, not the registration date)."
+- An archive age of at least 3 years plans the `domain_history` look on a doubtful page, as a registered one does.
+- A new positive `type` **`established_archive`**: title "Established shop", detail "This web shop's address has been
+  online since at least <year>, per the Internet Archive, and its earlier copies show the same shop.", `source`
+  "Earlier copies of the site (Internet Archive, web.archive.org)". Given only when the address has no registration
+  age of 3 years, its archive age is 3 years or more, and `domain_history` compared copies with none showing another
+  site, a parked page or a placeholder; never together with `established_domain`.
+- `domain_repurposed` on an archive age reads "This web address is at least <n> years old, but …".
+- x402 `POST /v1/check` and the MCP server: unchanged in shape.
+
 ## Changes (the product photos against the listing's own claims; backwards-compatible)
 
 - Two new reason types on product pages (deep checks only), severity medium, source "The listing's photos (Unfret's
@@ -1496,3 +1517,44 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `no_archive` reads "The Internet Archive has no earlier copies of the shop's address." when nothing else in the
   area ran.
 - x402 `POST /v1/check` and the MCP server: unchanged in shape.
+
+## Changes (the claim audit reads the shop's other pages; backwards-compatible)
+
+- On a web shop's own site (`storefront`, not on a marketplace platform), the deep tier's `claim_audit` also reads the
+  shop's returns, shipping, about and contact pages (then imprint and terms; at most four, linked from the page on
+  the shop's own domain) and holds the product page's claims against them, and the pages against each other.
+  Marketplace listings and the quick tier are unchanged.
+- Findings `claim_contradicted` that quote another of the shop's pages have evidence
+  `Says "<claim>"; Its <returns page> says '<other side>'. <why>`, or, when the claim itself is on another page,
+  `Says "<claim>"; That's on the shop's <about page>; its <returns page> says '<other side>'. <why>`. The shopper
+  reason reads `The page says “<claim>”. Its returns page says '…'. <why>`. Such a contradiction is the shop
+  contradicting itself: told, the band unchanged (it never counts as `claim_audit.impossible`).
+- Two new features: `claim_audit.shop_pages` (how many of the shop's other pages were read) and
+  `claim_audit.across_pages` (how many of the findings quote one of them). Not in the scorer.
+- `page_facts.policy_links` may carry a new kind, `about` ("About us", "Our story", `/pages/about`). A client that
+  doesn't send it gets the server's reading of the page's HTML for it; other kinds are taken from the client as before.
+- `UNFRET_CLAIM_AUDIT_SHOP_PAGES=false` reads the product page only.
+
+## Changes (variant options, and the variant check; backwards-compatible)
+
+- `PageFacts` (request `page_facts`, `GET /v1/schema/page-facts`) gains `variants` (optional, `null` when the page has
+  fewer than two options): `{source, dimensions, options, headline, headline_basis, from_price}`. `source` is
+  `amazon`, `walmart`, `shopify`, `woocommerce`, `schema_org` or `picker`. `dimensions` (at most 5): `{name, kind,
+  values}`, `name` as the page labels it (≤100), `kind` one of `size`, `colour`, `count`, `pattern`, `material`,
+  `flavour`, `style`, `other`, `values` (≤100, each ≤200). `options` (≤100): `{label (≤300), values (≤5, one per
+  dimension), price (≥0, the page's currency, or null), available (bool or null), selected (bool)}`. `headline`: the
+  index in `options` of the option the page's price belongs to, or null; `headline_basis`: `selected`, `from` (the
+  page shows a "from" price or a range: the cheapest option), `price` (the option whose price it is) or `""`;
+  `from_price` (bool). A client that extracts facts itself (the extension) sends the same as the server reads from
+  the HTML. `variations` is unchanged.
+- A new skill on product pages (deep tier only; the quick tier is unchanged): `variant_check`, with features
+  `variant_check.options`, `.asked` (0/1: the model was asked), `.grouped` (0/1), `.bait_price` (0/1) and
+  `.price_spread` (how far the prices spread beyond what the options' amounts explain, ≤100), or
+  `variant_check.not_applicable` while it is off (`UNFRET_VARIANT_CHECK=false`) and `variant_check.unavailable` when
+  it failed. Findings: `variant_bait_price` and `variants_grouped`, each with the sentence the shopper reads as its
+  evidence. Not in the scorer.
+- New shopper reason keys: `variant_bait_price` ("The price shown is for a different item", severity medium, area
+  `prices`) and `variants_grouped` ("Different products under one listing", severity low, area `product`), source
+  `ai_read`, next step `check_variant`. Only the first is shown when both fire (its sentence says the grouping too). A
+  bait price makes "Looks fine" "Worth a look" at most, whoever sells it; a grouping alone is a note and never a
+  warning.

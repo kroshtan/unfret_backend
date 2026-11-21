@@ -125,6 +125,7 @@ def _params() -> dict[str, str]:
         "brand": "“INSOON”",
         "claim": "“99%”",
         "why": "The FDA does not approve phone cases.",
+        "text": "This listing groups different products as sizes: “Case” (€19.99) and “Cable” (€7.99).",
         "seller": "“HUAXINGDA”",
         "place": "China",
         "sites": "aliexpress.com",

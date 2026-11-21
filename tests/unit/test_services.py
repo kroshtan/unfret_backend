@@ -10,6 +10,7 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, SecretStr
 
+from tests.conftest import page_fetcher
 from unfret import fact_cache, page_fetch, shop_store, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts, parse_page
@@ -912,7 +913,7 @@ async def test_a_link_to_a_withheld_profile_is_blocked_before_any_check(monkeypa
     async def frame(url: str, **_: Any) -> bytes:
         return HOUZZ_FRAME.encode()
 
-    monkeypatch.setattr(page_fetch, "fetch_public", frame)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(frame))
     with pytest.raises(page_fetch.PageUnreadableError) as raised:
         await page_fetch.fetch_page(HOUZZ_PRO)
 

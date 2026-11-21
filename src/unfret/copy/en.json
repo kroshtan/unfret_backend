@@ -73,6 +73,14 @@
       "title": "A claim that doesn't add up",
       "detail": "The page says {claim}. {why}"
     },
+    "variant_bait_price": {
+      "title": "The price shown is for a different item",
+      "detail": "{text}"
+    },
+    "variants_grouped": {
+      "title": "Different products under one listing",
+      "detail": "{text}"
+    },
     "implausible_claims": {
       "title": "Hard-to-believe claims",
       "detail": "The page makes claims that are hard to believe for this product: {claim}."
@@ -471,6 +479,10 @@
       "title": "Established shop",
       "detail": "This web shop's address has existed for {years} years."
     },
+    "established_archive": {
+      "title": "Established shop",
+      "detail": "This web shop's address has been online since at least {year}, per the Internet Archive, and its earlier copies show the same shop."
+    },
     "trust_info_present": {
       "title": "Shop details present",
       "detail": "Return policy and company details are on the page."
@@ -614,6 +626,13 @@
     "claim_audit.contradictions": "Claims that don't add up",
     "claim_audit.impossible": "A claim that can't be true",
     "claim_audit.count_off": "A piece count that's padded or doesn't add up",
+    "claim_audit.shop_pages": "The shop's other pages read with it",
+    "claim_audit.across_pages": "Claims its other pages contradict",
+    "variant_check.options": "Options in the variant picker",
+    "variant_check.asked": "Variant options checked",
+    "variant_check.grouped": "Different products under one listing",
+    "variant_check.bait_price": "Price shown for a different item",
+    "variant_check.price_spread": "Spread of the options' prices",
     "content.missing_trust_info": "Little shop information",
     "content.addresses_ai": "Text aimed at AI",
     "content.title_word_soup": "Title full of search terms",
@@ -701,6 +720,9 @@
     "claims.store_without_address": "Mentions a store, gives no address",
     "domain_age.founded_claim_years": "Years in business claimed",
     "domain_age.founded_contradicted": "Long-established claim on a new site",
+    "domain_age.archive_age_years": "Online since at least (Internet Archive)",
+    "domain_age.archive_first_year": "First copy in the Internet Archive",
+    "domain_age.age_from_archive": "Age from the Internet Archive, not the registry",
     "market_price.other_shops": "Other shops with this product",
     "market_price.below_market": "Below the usual price",
     "market_price.far_below": "Far below the usual price",
@@ -909,6 +931,7 @@
     "same_product": "Compare before you buy: the same product is sold elsewhere, maybe for less.",
     "compare_elsewhere": "Search for the product under other names: the same item is often sold elsewhere, for less.",
     "check_listing": "Go by the measurements and the number of pieces in the listing's text, not the photos, and look for buyers' own photos in the reviews.",
+    "check_variant": "Pick the option you actually want and check its own price, photos and reviews: the listing's star rating covers every option.",
     "real_brand": "If you want the brand's product, buy it from the brand itself or a shop you know.",
     "compare_price": "Compare the price at a shop you know: a discount this good is rarely real.",
     "shop_reviews": "Look for reviews of the shop itself on other sites before you pay, and pay with buyer protection.",

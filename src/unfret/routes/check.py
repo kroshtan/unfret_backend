@@ -33,8 +33,8 @@ from pydantic import BaseModel, Field
 from unfret import __version__, clients_info, observations, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
-from unfret.net import fetch_public
-from unfret.page_fetch import is_challenge_page
+from unfret.net import fetch_public_page
+from unfret.page_fetch import final_address, is_challenge_page
 from unfret.prices import format_usd
 from unfret.visitors import RateLimit
 from unfret.x402.base import (
@@ -226,22 +226,28 @@ def _provenance(request: Request, body: CheckRequest, account: str | None = None
     return observations.for_request(ip, account, fetched=not body.page_content, tier=body.tier)
 
 
-async def _page_html(body: CheckRequest) -> str:
+async def _page_html(body: CheckRequest) -> tuple[str, CheckRequest]:
     if body.page_content:
-        return body.page_content
-    raw = await fetch_public(body.url, max_bytes=settings.max_page_bytes)
-    return raw.decode("utf-8", errors="replace")
+        return body.page_content, body
+    fetched = await fetch_public_page(body.url, max_bytes=settings.max_page_bytes)
+    html = fetched.body.decode("utf-8", errors="replace")
+    address = final_address(body.url, fetched.url)
+    return html, body if address == body.url else body.model_copy(update={"url": address})
 
 
-async def _readable_page(body: CheckRequest) -> str | Response:
+async def _readable_page(body: CheckRequest) -> tuple[str, CheckRequest] | Response:
     """
     The page to analyse, or the (free) error response when it can't be read.
 
+    A link that redirected (a short link) is checked under the page's own address
+    (:func:`unfret.page_fetch.final_address`).
+
     :param body: The request body.
-    :return: The HTML, or a 422 response.
+    :return: The HTML and the request as analysed (``body``, with the page's own address after a redirect), or a 422
+        response.
     """
     try:
-        html = await _page_html(body)
+        html, body = await _page_html(body)
     except Exception as exc:  # noqa: BLE001
         logger.info("check_page_fetch_failed", error=type(exc).__name__)
         return JSONResponse(
@@ -260,7 +266,7 @@ async def _readable_page(body: CheckRequest) -> str | Response:
             },
             status_code=422,
         )
-    return html
+    return html, body
 
 
 async def _credit_if_it_lands(x402: X402, pool: Any, signature: str, payer: str, usd_micros: int) -> None:
@@ -597,7 +603,7 @@ async def _paid_check_base(  # noqa: C901, PLR0911
     analysed = await _analyse_before_settling(body, request)
     if isinstance(analysed, Response):
         return analysed
-    result, answer, verdict = analysed
+    result, answer, verdict, body = analysed  # body: at the page's own address, if the link redirected
 
     try:
         settlement = await base.settle(pre, resource, extensions)
@@ -652,22 +658,24 @@ async def _paid_check_base(  # noqa: C901, PLR0911
 
 async def _analyse_before_settling(
     body: CheckRequest, request: Request
-) -> Response | tuple[dict[str, Any] | None, Verdict | None, dict[str, Any]]:
+) -> Response | tuple[dict[str, Any] | None, Verdict | None, dict[str, Any], CheckRequest]:
     """
     The answer to a Base payment's check, before anything is settled: from the verdict store, or a fresh analysis.
 
     :param body: The request body.
     :param request: The incoming request.
     :return: A response to send without settling (an unreadable page, a failed analysis, a page that can't be
-        assessed: none of them is charged), or the analysis result (``None`` from the store), verdict and its JSON.
+        assessed: none of them is charged), or the analysis result (``None`` from the store), verdict, its JSON and
+        the request as analysed (at the page's own address when the link redirected).
     """
     fast = None if body.page_content else await verdict_store.recall(body.url, body.tier, body.policy)
     if fast is not None:
         logger.info("check_fast_path", tier=body.tier)
-        return None, None, fast.model_dump(mode="json")
-    page = await _readable_page(body)
-    if isinstance(page, Response):
-        return page
+        return None, None, fast.model_dump(mode="json"), body
+    readable = await _readable_page(body)
+    if isinstance(readable, Response):
+        return readable
+    page, body = readable
     graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
@@ -689,7 +697,7 @@ async def _analyse_before_settling(
     answer = to_verdict(result, policy=body.policy, tier=body.tier)
     if result.get("score") == -1:  # the page couldn't be assessed: not settled, so not charged
         return JSONResponse({**answer.model_dump(mode="json"), "charged": False})
-    return result, answer, answer.model_dump(mode="json")
+    return result, answer, answer.model_dump(mode="json"), body
 
 
 # What /v1/check does, in the 402's resource (the Bazaar and x402scan show it): what it checks and when it's useful.
@@ -814,10 +822,10 @@ async def _paid_check(  # noqa: PLR0911
     graph: Any = None
     if fast is None:
         # Get the page before any money moves, so a page we can't read costs the caller nothing.
-        page = await _readable_page(body)
-        if isinstance(page, Response):
-            return page
-        html = page
+        readable = await _readable_page(body)
+        if isinstance(readable, Response):
+            return readable
+        html, body = readable  # at the page's own address, if the link redirected
         graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
         if graph is None:
             return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)

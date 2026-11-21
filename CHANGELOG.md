@@ -22,6 +22,21 @@
 
 ### Page facts
 
+* **Variant options on any platform** (`facts/variants.py`, new `PageFacts.variants`). A listing's variant picker
+  as facts: each dimension as the page names it ("Größe", "Maat", "Size") with what it varies (`kind`: size, colour,
+  count, pattern, material, flavour, style, other, from its name in any language), each option with its values, its
+  price when the page gives it, whether it is available and selected, and which option the headline price belongs to
+  (`headline`, and how that is known: `selected`, a `from` price or range, or the option whose `price` it is). Read
+  from the first source with two or more options: Amazon's twister data on every locale (`dimensions`,
+  `variationDisplayLabels`, `variationValues`, `dimensionValuesDisplayData`, `selectedVariationValues`, `currentAsin`,
+  with each option's price from its swatch when the signed-out page shows one, and a price range as the "from"
+  price), Walmart's `variantCriteria`/`variantsMap`, Shopify's product JSON (prices in cents; the `?variant=` in the URL
+  or the first available variant on show, as Shopify's themes do), WooCommerce's variations form, a schema.org
+  `ProductGroup`'s `hasVariant` and `variesBy`, else the page's own picker (a select or radio buttons named as a size,
+  colour, style or variant, never quantity, country, currency, delivery or sorting, outside header, menu and footer;
+  a price at the end of an option's label is its price). `variations` (Amazon's swatch labels) is unchanged. On the
+  golden set, 38 of the 180 pages have variants (schema.org 18, Shopify 9, picker 6, Walmart 3, Amazon 2) (#285).
+
 * **Every product page gives its gallery first, not only Amazon's.** A new step (`facts/gallery.py`) puts the
   product's photos at the front of `image_urls`, large and in order, on any shop system or marketplace: the main photo
   of the structured data (a schema.org `image` array or one) or the Open Graph image, then AliExpress's
@@ -43,6 +58,30 @@
 
 ### Fixes
 
+* **A short link is checked as the page it leads to.** A link pasted into a server-side check (the web link checker,
+  `POST /v1/check`, the MCP tools) that redirects (a shop's or marketplace's short link, a link shortener) was checked
+  under the short link: no product id, and the result cache, price history, fingerprint store and share link keyed on
+  the short link. The page fetch now returns where the redirects ended (`unfret.net.fetch_public_page`; every hop
+  through the same public-address check, at most five), and the check uses that address, without fragment,
+  credentials or tracking parameters, for the facts, platform and product id, the result cache, what an account paid
+  for, the verdict and price stores and the share token. The report token stays bound to the request as sent, and a
+  report's re-fetch keeps the page's own address. Neither address is logged.
+
+* **Reference prices and reviews from the page itself, on every layout.** What a phone gets from Amazon (and the
+  Android app's WebView, whose facts the server takes) is the mobile page, where the price's offscreen copy is empty:
+  the price was missing, so a discount against Amazon's "Adviesprijs" ("List Price", "Typical price", "RRP", "UVP")
+  went unseen and the app's check said "Worth a look" where the server's own read said "Think twice". The price to
+  pay now comes from its accessibility label or its visible parts, before the older selectors (which also caught a
+  sponsored product's price); the reference price is the price box's basis price or struck price above the price
+  (not a price per unit). The mobile page's rating, review count, seller row and top reviews are read too, and on
+  both layouts the reviews' titles and texts under Amazon's current hooks (they were empty). bol.com: the offer's
+  price and reference price ("Adviesprijs", "Meestal") from its screen-reader sentence, a partner seller's name and
+  score, the star distribution and the reviews on the page ("Meestal" joins bol.com's own labels for the pricing
+  check). Any shop: a `StrikethroughPrice`/`ListPrice` price specification in its JSON-LD, a microdata rating;
+  WooCommerce's sale price, rating and reviews; Judge.me's average, count, histogram and reviews; Loox and Stamped
+  badges; eBay's struck "List price". Nine new fixture pages (`tests/fixtures/pages`), which the extension's parity
+  test reads too.
+
 * **The answer is backed by what the screen shows.** A "Worth a look" (or lower) that no single reason explained
   said "Several small signals" while every area of "What we checked" was ticked fine: the scorer's signals that set
   the band (a discount below "big", a little pushy copy, a title full of search terms) were weighed but shown
@@ -52,6 +91,63 @@
   then says it ran rather than every step.
 
 ### Deep checks
+
+* **The photo check against the listing's count and size picks its photos from the whole gallery.** With pages now
+  giving their gallery (Amazon and other shops, above), `photo_claims` fetches up to 8 of its photos and, when there
+  are more than it asks about, shows them to the vision model once as one numbered contact sheet: which photos show a
+  person or common object next to the product (for a size: the lifestyle shots) and which lay out the whole set (for
+  a count). Photo 1 and those go to its three questions (one of each in turn), the rest in gallery order; without an
+  answer, the first photos as before. A finding names the photo's place in the gallery. The false-alarm rules are
+  unchanged. On the evaluation (`python -m evals.photo_claims --corpus --abo 150`): 0 flags on 179 checks before, 0
+  on 201 after (more corpus pages state a count or size now that their facts are read better); photos asked about
+  per corpus check 1.38 → 2.10; cost per check €0.00064 → €0.00072 (the sheet is one call more on 117 of 201
+  checks; €0.00031 → €0.00058 on the corpus's pages, which had one photo). On an Amazon.nl felt-tip set: 1 photo
+  before, the gallery's 4 now (3 asked about, chosen by the sheet), €0.00026 → €0.00085, no flag.
+
+* **The claim audit reads the shop's other pages too.** On a web shop's own site (not a marketplace listing), the
+  deep check's claim audit now also reads the shop's returns, shipping, about and contact pages (then imprint and
+  terms: at most four, linked from the page on the shop's own domain, never a PDF; fetched in parallel through the
+  safe fetch, 6 s each; visible text only, of a long page the lines about returns, shipping, addresses and the company,
+  at most 4,000 characters a page and 12,000 in all) and holds the product page's claims against them, and the pages
+  against each other: "Proudly made in the USA" or "family business in Ohio" against a return address in Shenzhen,
+  "30-day free returns" against "14 days, return shipping at the buyer's cost", "ships from our US warehouse" against
+  "delivery takes 10-25 business days", a company or address that differs between imprint, terms and contact page.
+  Both quotes must be on the pages they're told from, and the shopper is told which page says what ("The page says
+  “30-day free returns”. Its returns page says '…'."). A contradiction across the shop's pages is the shop
+  contradicting itself: told, the band unchanged. The VAT check's contact and terms pages are read through the same
+  fetch, once per page for both (6 s rather than 8; a bot check is now a page not read). New features `claim_audit.shop_pages` and `claim_audit.across_pages`; a page's
+  `policy_links` may name its `about` page. `UNFRET_CLAIM_AUDIT_SHOP_PAGES=false` reads the product page only.
+  `evals.shop_pages` records the shop pages of the golden set and a junk and scam sample and compares the deep check
+  with and without them: on the golden set of well-known sellers (180 pages, 158 web shops whose pages were read)
+  it adds one note across pages (a prize valued differently on a product page and in the terms) and changes no band
+  (174 Looks fine, 3 Worth a look, 3 Think twice, as before); on 40 junk and scam shops it catches "delivery 3-6
+  working days" against a shipping page's "4 to 45 working days". The audit reads about 1,400 more tokens (about
+  €0.003 more a check, €0.013 in all); the pages are fetched while the other checks run (0.5 s median, 1.9 s at the
+  90th percentile, 6 s at most) (#280).
+
+* **The variant check: different products grouped as a listing's sizes, and a price shown for one of them** (new skill
+  `variant_check`, deep checks only). Sellers put different products under one listing as its "sizes", "colours" or
+  "styles" (a phone case, a screen protector and a charging cable as "Size"), so that all of them share one star
+  rating and review pool and the listing shows the cheapest one's price. Options that are plainly one product's sizes,
+  amounts and colour names (S/M/L, 42 2/3, 500 ml, "2 stuks", "Sea Glass Aura") cost nothing; for the rest one
+  structured call to the claim audit's model (GLM-5.3, same provider, timeout and concurrency) says what the title
+  sells and, for each option, what it is and whether it is that product (another size, colour, amount, model or a
+  bundle with it) or a part, an accessory, a refill, a single unit or a different item. Every option it names must be
+  one of the page's own, its nouns plain words, the grouping confident (`UNFRET_VARIANT_CHECK_MIN_CONFIDENCE`, 0.85)
+  with at least one option that is the title's product and one that isn't. Two reasons, source "Unfret's read of the
+  page": `variants_grouped` ("Different products under one listing", low: "This listing groups different products as
+  sizes: “Hülle” (€19.99), “Panzerglas 2 Stück” (€8.99) and “Ladekabel USB-C 1 m” (€6.99); the €8.99 option is a
+  screen protector; the €6.99 option is a charging cable. Its star rating covers all of them."), a note that never
+  changes the band; and `variant_bait_price` ("The price shown is for a different item", medium: "The price shown,
+  €6.99, is for “Ladekabel USB-C 1 m”, a charging cable, not the phone case in the title; the phone case itself is
+  from €19.99. …"), when the "from" price, the selected option or the option the headline price is belongs to an
+  item that isn't the title's product (and, when the page prices both, costs at most 60% of it): a page the scorer
+  calls fine is "Worth a look" with it, whoever sells it. Next step "Pick the option you actually want and check its
+  own price, photos and reviews". How far the prices spread beyond what the options' own amounts explain is a feature
+  and context for the model, never told by itself. `UNFRET_VARIANT_CHECK=false` turns it off; each call logs its
+  tokens and cost (`variant_check_usage`) (#285). The model is told plainly that a refill, a spare part or an accessory of the
+  title's product isn't the same product, even from the same brand and line (brush heads under a toothbrush's title),
+  and an option's noun takes the article it sounds like ("a USB-C cable", "brush head refills").
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery
@@ -90,6 +186,21 @@
   most `UNFRET_WAYBACK_PER_MINUTE` (8) times a minute and not at all for `UNFRET_WAYBACK_PAUSE_S` (15 minutes) after a
   refused connection; a look that doesn't fit is skipped. Off with `UNFRET_DOMAIN_HISTORY=false`. Quick checks are
   unchanged (#272).
+
+* **An address's age from the Internet Archive where the registry gives none.** Many registries (.nl, .de and other
+  EU country domains) publish no registration date: 107 of the 169 golden storefronts had no age. On a web shop whose
+  registry gives no date, `domain_age` now asks the archive's index once for the home page's first copy (one request,
+  within the same `UNFRET_WAYBACK_PER_MINUTE` pace and pause as the look at earlier copies, cached per address; paced
+  out, refused or unreachable, it is skipped and asked again next time). That date is a minimum ("online since at
+  least 2009, per the Internet Archive"), never the registration date: it is kept apart (`domain_age.archive_age_years`,
+  `.archive_first_year`, `.age_from_archive`, finding `archive_first_capture`), and `age_years` stays the registry's
+  (or the first certificate's). An age of 3 years or more from the archive plans the look at earlier copies on a
+  doubtful page like a registered one. Because an expired address bought again keeps its old copies, an archive-only
+  age gives "Established shop" (new positive `established_archive`, source "Earlier copies of the site (Internet
+  Archive, web.archive.org)": "This web shop's address has been online since at least 2009, per the Internet Archive,
+  and its earlier copies show the same shop.") and counts as a decade-old address only once that look compared copies
+  and none showed another site; when one did, "Older address, new shop" reads "This web address is at least 17 years
+  old, …". Service sites, quick checks and `UNFRET_DOMAIN_HISTORY=false` never ask.
 
 ### The product photos against the listing's own claims
 

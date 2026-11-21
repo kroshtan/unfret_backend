@@ -83,8 +83,17 @@ class Settings(BaseSettings):
     # Sent as the OpenAI "reasoning_effort" for a model that reasons before it answers: "none" (GLM-5.3 then answers
     # in 1-5 s, as well on the measured pages as with its reasoning); "": the model's default.
     claim_audit_reasoning_effort: str = "none"
+    # The variant check (unfret.graph.skills.variant_check), deep checks only: whether a listing's options are one
+    # product or different products grouped as its sizes, and whether the price shown is a different item's. One call
+    # to the claim audit's model, only for pages whose options aren't plainly sizes, amounts and colours; a grouping
+    # the model is less sure of than variant_check_min_confidence is dropped. Off: it reports nothing, costs nothing.
+    variant_check: bool = True
+    variant_check_min_confidence: float = Field(default=0.85, ge=0, le=1)
     claim_audit_input_eur_per_mtok: Decimal = Field(default=Decimal("1.80"), ge=0)
     claim_audit_output_eur_per_mtok: Decimal = Field(default=Decimal("5.50"), ge=0)
+    # On a web shop's own site, the claim audit also reads the shop's returns, shipping, about and contact pages (at
+    # most four, unfret.shop_pages) and holds the claims against them; off reads the product page only.
+    claim_audit_shop_pages: bool = True
     # Pages the server fetches per account per minute for requests that send only a URL (the web link checker);
     # a page it can't read is free, so this bounds the free fetches.
     analyze_fetch_per_minute: int = Field(default=10, ge=1)
@@ -172,8 +181,9 @@ class Settings(BaseSettings):
     # same OpenAI-compatible provider is asked plain questions about the first few product photos (how many of the
     # main items are visible, is there a person or object for scale). Off: the skill reports nothing and costs
     # nothing. The model is Scaleway's Mistral Small 3.2 by default (it reads images; the same model as llm_model),
-    # one call per photo, each photo downscaled to photo_claims_image_px on its longest side. The prices (euros per
-    # million tokens) are only for the cost the skill logs per check.
+    # one call per photo (plus one contact sheet to choose them from a bigger gallery), each photo downscaled to
+    # photo_claims_image_px on its longest side. The prices (euros per million tokens) are only for the cost the skill
+    # logs per check.
     photo_claims: bool = True
     photo_claims_model: str = "mistral-small-3.2-24b-instruct-2506"
     photo_claims_max_images: int = Field(default=3, ge=1, le=5)

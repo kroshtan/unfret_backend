@@ -15,14 +15,15 @@ import httpx
 import pytest
 from structlog.testing import capture_logs
 
+from tests.conftest import page_fetcher
 from tests.integration.conftest import FakeGraph
 from tests.integration.test_free_checks import free_pass
 from tests.integration.test_keys import bearer
-from unfret import page_fetch
+from unfret import page_fetch, shares
 from unfret.config import settings
 from unfret.credits import free
 from unfret.main import app
-from unfret.net import RefusedError, UnsafeURLError
+from unfret.net import FetchedPage, RefusedError, UnsafeURLError
 from unfret.routes import analyze
 
 PRICE = settings.analysis_price_usd_micros
@@ -57,7 +58,7 @@ def shop(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         body: bytes = answer["body"]
         return body
 
-    monkeypatch.setattr(page_fetch, "fetch_public", fake_fetch)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(fake_fetch))
     monkeypatch.setattr(analyze, "_fetch_rate", analyze.RateLimit(1000))
     return answer
 
@@ -271,3 +272,76 @@ async def test_a_blocked_page_answers_a_quick_check_without_running_it(
     assert response.status_code == 422
     assert response.json()["error_code"] == "PAGE_BLOCKED"
     assert quick.calls == []
+
+
+SHORT = "https://short.test/d/AbC123"
+LANDED = "https://secret-shop.test/products/wool-sweater?variant=7&utm_source=share&tag=aff-21#reviews"
+PAGE_ADDRESS = "https://secret-shop.test/products/wool-sweater?variant=7"
+
+
+@pytest.fixture
+def short_link(monkeypatch: pytest.MonkeyPatch, shop: dict[str, Any]) -> dict[str, Any]:
+    """The shop's page behind a short link: fetching :data:`SHORT` lands on :data:`LANDED` (redirects mocked)."""
+
+    async def fetch(url: str, **_: Any) -> FetchedPage:
+        shop["calls"].append(url)
+        return FetchedPage(PRODUCT_HTML.encode(), LANDED if url == SHORT else url)
+
+    monkeypatch.setattr(page_fetch, "fetch_public_page", fetch)
+    return shop
+
+
+@pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
+async def test_a_short_link_is_checked_under_the_pages_own_address(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Wallet, short_link: dict[str, Any], path: str
+) -> None:
+    _, headers = await wallet(2 * PRICE)
+
+    with capture_logs() as logs:
+        response = await client.post(path, json={"url": SHORT}, headers=headers)
+
+    assert response.status_code == 200
+    assert graph.calls[0]["url"] == PAGE_ADDRESS  # facts, platform, product id, price store: the page's address
+    assert "short.test" not in json.dumps(logs, default=str) and "secret-shop" not in json.dumps(logs, default=str)
+    # The result is the page's: the page's own address asked for later is the same result, no second analysis.
+    again = await client.post("/v1/analyze", json={"url": PAGE_ADDRESS}, headers=headers)
+    assert again.status_code == 200 and again.json()["charged"] is False
+    assert len(graph.calls) == 1
+
+
+async def test_a_short_links_share_token_names_the_page_and_its_report_token_the_link(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, wallet: Wallet, short_link: dict[str, Any]
+) -> None:
+    _, headers = await wallet(2 * PRICE)
+    result = (await client.post("/v1/analyze", json={"url": SHORT}, headers=headers)).json()
+
+    shown = {k: v for k, v in result.items() if k != "share_token"}
+    secret = settings.session_secret.get_secret_value()
+    shares.check_token(secret, result["share_token"], url=PAGE_ADDRESS, response=shown, ttl_s=3600)
+    with pytest.raises(shares.ShareError):
+        shares.check_token(secret, result["share_token"], url=SHORT, response=shown, ttl_s=3600)
+    # The caller reports with the request as they sent it: the short link.
+    report = {
+        "report_token": result["report_token"],
+        "reason": "real_brand",
+        "consent": True,
+        "request": {"url": SHORT},
+        "explanation": result["explanation"],
+    }
+    response = await client.post("/v1/reports", json=report, headers=headers)
+    assert response.status_code == 201, response.text
+    data = json.loads(await pool.fetchval("SELECT payload FROM reports"))
+    assert data["url"] == "https://secret-shop.test/products/wool-sweater"  # the page, never the short link
+
+
+async def test_a_page_checked_before_is_found_behind_a_short_link(
+    client: httpx.AsyncClient, graph: FakeGraph, pool: asyncpg.Pool, wallet: Wallet, short_link: dict[str, Any]
+) -> None:
+    address, headers = await wallet(2 * PRICE)
+    await client.post("/v1/analyze", json={"url": PAGE_ADDRESS}, headers=headers)
+
+    again = await client.post("/v1/analyze", json={"url": SHORT}, headers=headers)
+
+    assert again.status_code == 200 and again.json()["charged"] is False  # this account's own repeat
+    assert len(graph.calls) == 1 and short_link["calls"] == [PAGE_ADDRESS, SHORT]
+    assert await balance(pool, address) == PRICE

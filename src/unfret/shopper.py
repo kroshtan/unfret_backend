@@ -49,6 +49,8 @@ REASON_SEVERITY: dict[str, Severity] = {
     "generic_product": "medium",
     "claim_contradicted": "medium",
     "implausible_claims": "medium",
+    "variant_bait_price": "medium",
+    "variants_grouped": "low",
     "pushy_copy": "medium",
     "big_discount": "medium",
     "was_never_charged": "high",
@@ -117,6 +119,7 @@ POSITIVE_KEYS = (
     "vat_registered",
     "us_business",
     "established_domain",
+    "established_archive",
     "trust_info_present",
     "natural_reviews",
     "protected_payment",
@@ -177,6 +180,8 @@ _GROUPS = (
     ("returns_abroad", "return_address_withheld"),
     # The claim audit's quoted contradiction says what the content read's impression of "hard to believe" says, better.
     ("claim_contradicted", "implausible_claims"),
+    # The bait price's sentence says the grouping too.
+    ("variant_bait_price", "variants_grouped"),
 )
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
 # A fee on top of the price ("service fee", "Bearbeitungsgebühr"): "costs revealed later". Shipping costs worked out
@@ -889,11 +894,11 @@ def _repurposed(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """An old address that showed a different site, a parked page or a placeholder not long ago (domain_history)."""
     finding = e.first("domain_repurposed")
     match = _REPURPOSED_RE.search(finding.evidence) if finding else None
-    years = int(e.f("domain_age.age_years"))
-    if e.f("domain_history.changed") < 1 or match is None or years < 1:
+    years, from_archive = address_years(e.features)
+    if e.f("domain_history.changed") < 1 or match is None or int(years) < 1:
         return  # an address under a year old gets no trust from its age to take back
     fired["domain_repurposed"] = {
-        "age": e.age(years * 365),
+        "age": ("at least " if from_archive else "") + e.age(int(years) * 365),
         "month": match["month"],
         "what": match["what"],
         "links": " ".join(match["links"].split()[:3]),
@@ -903,6 +908,39 @@ def _repurposed(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
 def _age_vouches(e: _Evidence) -> bool:
     """Whether the address's age speaks for the shop: not when it showed another site until recently."""
     return e.f("domain_history.changed") < 1
+
+
+def address_years(features: dict[str, float]) -> tuple[float, bool]:
+    """
+    How old the shop's address is: by its registration (or first certificate), or else the archive's first copy.
+
+    The Internet Archive's first copy counts when the registry gives no date and that copy is older. It is a
+    minimum ("online since at least"), never the registration date.
+
+    :param features: Skill features.
+    :return: The age in years, and whether it comes from the archive.
+    """
+    years = features.get("domain_age.age_years", 0.0)
+    archived = features.get("domain_age.archive_age_years", 0.0)
+    if features.get("domain_age.age_from_archive", 0.0) >= 1 and archived > years:
+        return archived, True
+    return years, False
+
+
+def _vouching_years(e: _Evidence) -> float:
+    """
+    How many years of the address's age speak for the shop (0 when its earlier copies show another site).
+
+    Its registration (or first certificate) counts as it is. An age from the archive's first copy alone counts only
+    once the deep check looked at the address's recent copies and none showed another site, a parked page or a
+    placeholder: an expired address bought again keeps its old copies, and that look is what tells.
+    """
+    if not _age_vouches(e):
+        return 0.0
+    years, from_archive = address_years(e.features)
+    if from_archive and e.f("domain_history.snapshots") < 1:
+        return e.f("domain_age.age_years")
+    return years
 
 
 # A web shop whose address has existed this long is "established" (the positive), and never "registered for a year".
@@ -916,7 +954,7 @@ def _trust_info_present(e: _Evidence) -> bool:
 
 def _vouched_shop(e: _Evidence) -> bool:
     """A web shop with a track record: its address has existed for years, or it shows its return policy and company."""
-    established = e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS and _age_vouches(e)
+    established = _vouching_years(e) >= ESTABLISHED_DOMAIN_YEARS
     return e.storefront and (established or _trust_info_present(e))
 
 
@@ -945,7 +983,7 @@ LONG_ESTABLISHED_YEARS = 10
 def _long_established(e: _Evidence) -> bool:
     """The shop's domain has existed for a decade, or it is the brand's own site and the brand is on Wikidata."""
     own_site = e.f("brand_presence.shop_is_brand") >= 1 and e.f("brand_presence.wikidata") >= 1
-    return (e.f("domain_age.age_years") >= LONG_ESTABLISHED_YEARS and _age_vouches(e)) or own_site
+    return _vouching_years(e) >= LONG_ESTABLISHED_YEARS or own_site
 
 
 def _imprint_really_missing(e: _Evidence) -> bool:
@@ -1077,6 +1115,16 @@ def _photo_claims(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         }
 
 
+def _variants(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """Different products grouped as one listing's sizes, and a price shown for one that isn't the title's product."""
+    bait = e.first("variant_bait_price")
+    if bait and e.f("variant_check.bait_price") >= 1:
+        fired["variant_bait_price"] = {"text": bait.evidence}
+    grouped = e.first("variants_grouped")
+    if grouped and e.f("variant_check.grouped") >= 1:
+        fired["variants_grouped"] = {"text": grouped.evidence}
+
+
 def _manipulation(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Text aimed at AI tools, hidden or visible."""
     if e.f("injection.instruction_hidden") >= 1:
@@ -1108,6 +1156,8 @@ def _positive_params(e: _Evidence) -> dict[str, dict[str, str]]:
         fired["us_business"] = {"company": _quote(company.evidence.removeprefix("Company: "))}
     if e.storefront and e.f("domain_age.age_years") >= ESTABLISHED_DOMAIN_YEARS and _age_vouches(e):
         fired["established_domain"] = {"years": str(int(e.f("domain_age.age_years")))}
+    elif e.storefront and _vouching_years(e) >= ESTABLISHED_DOMAIN_YEARS:
+        fired["established_archive"] = {"year": str(int(e.f("domain_age.archive_first_year")))}
     if e.storefront and _trust_info_present(e):
         fired["trust_info_present"] = {}
     natural = (
@@ -1206,6 +1256,7 @@ def _fired(evidence: _Evidence) -> dict[str, dict[str, str]]:
         _payment_and_market,
         _product_facts,
         _photo_claims,
+        _variants,
         _manipulation,
     )
     for rules in rules_in_order:
@@ -1238,8 +1289,11 @@ def fired_reasons(
 
 # Reasons that make a page "Worth a look" at best: relabelled generic goods (worth a price comparison); the listing's
 # own photos contradicting its count or size; an old address that showed another site until recently (its age vouches
-# for nothing). None makes a warning by itself.
-_WORTH_A_LOOK = frozenset({"rebranded_photo", "photo_count_mismatch", "photo_size_mismatch", "domain_repurposed"})
+# for nothing); a price shown for another item than the title's (a variant's), whoever sells it. None makes a warning
+# by itself.
+_WORTH_A_LOOK = frozenset(
+    {"rebranded_photo", "photo_count_mismatch", "photo_size_mismatch", "domain_repurposed", "variant_bait_price"}
+)
 
 
 def build(
@@ -1315,6 +1369,7 @@ def build(
     # warning the band would otherwise drop.
     moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
     weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
+    weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score

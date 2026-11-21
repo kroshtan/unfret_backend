@@ -57,12 +57,44 @@ _PRICE_SELECTORS = (
     "#corePrice_feature_div .a-offscreen, #corePriceDisplay_desktop_feature_div .a-offscreen, "
     "#priceblock_ourprice, #priceblock_dealprice, .a-price .a-offscreen"
 )
-_LIST_PRICE_SELECTORS = ".basisPrice .a-offscreen, .a-text-price .a-offscreen, #listPrice, #priceblock_listprice"
+# The price box of the current layouts (desktop and mobile). The price to pay comes first: its accessibility label
+# ("€ 20,99 met een besparing van 30 procent"), then its offscreen copy, then its visible parts (symbol, whole,
+# fraction): the mobile page (what a phone, and the Android app's WebView, is sent) leaves the offscreen copy empty.
+# Only then the older layouts' selectors, which also match a sponsored product's price or a price per unit.
+_CORE_PRICE = (
+    "#corePrice_feature_div",
+    "#corePriceDisplay_desktop_feature_div",
+    "#corePriceDisplay_mobile_feature_div",
+    "#corePrice_desktop",
+    "#corePrice_mobile_feature_div",
+)
+_PRICE_TO_PAY_LABEL = "#apex-pricetopay-accessibility-label"
+_PRICE_TO_PAY_OFFSCREEN = ", ".join(f"{box} .priceToPay .a-offscreen" for box in _CORE_PRICE)
+_PRICE_TO_PAY = ", ".join(f"{box} .priceToPay" for box in _CORE_PRICE)
+# The reference price, under whatever label the locale gives it ("List Price", "Typical price", "RRP", "UVP",
+# "Adviesprijs", "Prix conseillé", "Was"): Amazon marks it as the basis price and strikes it through. A struck price
+# in the price box is the fallback, then the older layouts' list price. Each must be above the price to pay (the
+# price box also holds a price per unit, "0,04 €/Stück"). A page without the price box (an older layout) has its
+# struck price anywhere: the last resort there.
+_LIST_PRICE_CANDIDATES = (
+    ".basisPrice .a-offscreen",
+    ", ".join(f'{box} [data-a-strike="true"] .a-offscreen' for box in _CORE_PRICE),
+    "#listPrice, #priceblock_listprice",
+    ", ".join(f"{box} .a-text-price .a-offscreen" for box in _CORE_PRICE),
+)
+_OLD_LIST_PRICE = ".a-text-price .a-offscreen"
+_RATING_SELECTORS = (
+    "#averageCustomerReviews .a-icon-alt, #acrCustomerReviewLink .a-icon-alt, "
+    '[data-hook="average-stars-rating-anywhere"] .a-icon-alt'
+)
+_RATING_COUNT_SELECTORS = '#acrCustomerReviewText, [data-hook="total-rating-count"]'
 _DETAIL_ROW_SELECTORS = (
     "#prodDetails tr, #productDetails_detailBullets_sections1 tr, #productDetails_techSpec_section_1 tr"
 )
+# The mobile page names a feature's text element by ``offer-display-attribute-name`` instead.
 _OFFER_BLOCK_SELECTORS = (
-    '[offer-display-feature-name$="-fulfiller-info"], [offer-display-feature-name$="-merchant-info"]'
+    '[offer-display-feature-name$="-fulfiller-info"], [offer-display-feature-name$="-merchant-info"], '
+    '[offer-display-attribute-name$="-fulfiller-info"], [offer-display-attribute-name$="-merchant-info"]'
 )
 _VARIATION_SELECTORS = "#twister li, #variation_color_name li, #variation_size_name li, #inline-twister li"
 # The product gallery, in its order. The desktop page names it in its image block's script
@@ -80,7 +112,12 @@ _PRODUCT_IMAGE_RE = re.compile(
     re.IGNORECASE,
 )
 _SIZE_MODIFIER_RE = re.compile(r"\._[^/]*_\.(jpe?g|png|webp)$", re.IGNORECASE)
+# The top reviews: the desktop page's (``review``) and the mobile page's (``mobley-review-content``), with the
+# title and text under their older hooks or the current ones (``reviewTitle``, ``reviewRichContentContainer``).
+_REVIEW_SELECTORS = '[data-hook="review"], [data-hook="mobley-review-content"]'
 _REVIEW_STAR_SELECTORS = '[data-hook="review-star-rating"], [data-hook="cmps-review-star-rating"], .a-icon-alt'
+_REVIEW_TITLE_SELECTORS = '[data-hook="review-title"], [data-hook="reviewTitle"]'
+_REVIEW_BODY_SELECTORS = '[data-hook="review-body"], [data-hook="reviewRichContentContainer"]'
 
 
 def extract(soup: BeautifulSoup, facts: PageFacts) -> None:
@@ -137,20 +174,45 @@ def _byline_param(byline: object) -> str:
 
 
 def _prices(soup: BeautifulSoup, facts: PageFacts) -> None:
-    if price_tag := soup.select_one(_PRICE_SELECTORS):
-        price, currency = parse_price(_text(price_tag))
-        facts.price = price if price is not None else facts.price
-        facts.currency = currency or facts.currency
-    if list_tag := soup.select_one(_LIST_PRICE_SELECTORS):
-        list_price, _ = parse_price(_text(list_tag))
-        if list_price is not None and (facts.price is None or list_price > facts.price):
-            facts.list_price = list_price
+    price, currency = parse_price(_text(soup.select_one(_PRICE_TO_PAY_LABEL)))
+    if price is None:
+        price, currency = _first_price(soup.select(_PRICE_TO_PAY_OFFSCREEN))
+    if price is None:
+        price, currency = next(
+            (found for tag in soup.select(_PRICE_TO_PAY) if (found := _price_parts(tag))[0] is not None), (None, "")
+        )
+    if price is None:
+        price, currency = _first_price(soup.select(_PRICE_SELECTORS))
+    facts.price = price if price is not None else facts.price
+    facts.currency = currency or facts.currency
+    old_layout = soup.select_one(", ".join(_CORE_PRICE)) is None
+    for selectors in (*_LIST_PRICE_CANDIDATES, _OLD_LIST_PRICE) if old_layout else _LIST_PRICE_CANDIDATES:
+        amounts = [amount for tag in soup.select(selectors) if (amount := parse_price(_text(tag))[0]) is not None]
+        if above := [amount for amount in amounts if facts.price is None or amount > facts.price]:
+            facts.list_price = above[0]
+            return
+
+
+def _first_price(tags: list[Tag]) -> tuple[float | None, str]:
+    return next(
+        (found for tag in tags if (found := parse_price(_text(tag)))[0] is not None),
+        (None, ""),
+    )
+
+
+def _price_parts(tag: object) -> tuple[float | None, str]:
+    # The visible price: "€", "20,", "99" (the whole part may group thousands: "1.299,").
+    if not isinstance(tag, Tag) or (whole := parse_count(_text(tag.select_one(".a-price-whole")))) is None:
+        return None, ""
+    fraction = re.sub(r"\D", "", _text(tag.select_one(".a-price-fraction")))[:2]
+    _, currency = parse_price(_text(tag.select_one(".a-price-symbol")))
+    return float(f"{whole}.{fraction or 0}"), currency
 
 
 def _ratings(soup: BeautifulSoup, facts: PageFacts) -> None:
-    if (rating := parse_rating(_text(soup.select_one("#averageCustomerReviews .a-icon-alt")))) is not None:
+    if (rating := parse_rating(_text(soup.select_one(_RATING_SELECTORS)))) is not None:
         facts.rating = rating
-    if (count := parse_count(_text(soup.find(id="acrCustomerReviewText")))) is not None:
+    if (count := parse_count(_text(soup.select_one(_RATING_COUNT_SELECTORS)))) is not None:
         facts.rating_count = count
     facts.rating_histogram = _histogram(soup) or facts.rating_histogram
 
@@ -174,17 +236,23 @@ def _seller(soup: BeautifulSoup, facts: PageFacts) -> None:
 
 
 def _reviews(soup: BeautifulSoup, facts: PageFacts) -> None:
-    reviews = [
-        Review(
-            rating=parse_rating(_text(node.select_one(_REVIEW_STAR_SELECTORS))),
-            posted=parse_date(_text(node.select_one('[data-hook="review-date"]'))),
-            title=_text(node.select_one('[data-hook="review-title"]'))[:300],
-            body=_text(node.select_one('[data-hook="review-body"]'))[:2000],
-            verified=node.select_one('[data-hook^="avp-badge"]') is not None,
+    seen: set[str] = set()
+    reviews: list[Review] = []
+    for node in soup.select(_REVIEW_SELECTORS):
+        review_id = str(node.get("id") or "")
+        if review_id and review_id in seen:
+            continue  # the same review twice (a page with both layouts' widgets)
+        seen.add(review_id)
+        reviews.append(
+            Review(
+                rating=parse_rating(_text(node.select_one(_REVIEW_STAR_SELECTORS))),
+                posted=parse_date(_text(node.select_one('[data-hook="review-date"]'))),
+                title=_text(node.select_one(_REVIEW_TITLE_SELECTORS))[:300],
+                body=_text(node.select_one(_REVIEW_BODY_SELECTORS))[:2000],
+                verified=node.select_one('[data-hook^="avp-badge"]') is not None,
+            )
         )
-        for node in soup.select('[data-hook="review"]')[:100]
-    ]
-    facts.reviews = reviews or facts.reviews
+    facts.reviews = reviews[:100] or facts.reviews
 
 
 def _variations_and_images(soup: BeautifulSoup, facts: PageFacts) -> None:
@@ -305,7 +373,7 @@ def _offer_display_rows(soup: BeautifulSoup) -> dict[str, str]:
     labels: dict[str, str] = {}
     values: dict[str, str] = {}
     for block in soup.select(_OFFER_BLOCK_SELECTORS):
-        feature = str(block.get("offer-display-feature-name", ""))
+        feature = str(block.get("offer-display-feature-name") or block.get("offer-display-attribute-name") or "")
         classes: list[str] = list(block.get("class") or [])
         label = _text(block.select_one(".offer-display-feature-label"))
         value = _text(block.select_one(".offer-display-feature-text-message, .offer-display-feature-text"))

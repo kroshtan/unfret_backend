@@ -8,6 +8,7 @@ import httpx
 import pytest
 from solders.keypair import Keypair
 
+from tests.conftest import page_fetcher
 from tests.unit.x402_helpers import (
     FakeRpc,
     configured,
@@ -91,7 +92,7 @@ async def client(
         fetched.append(url)
         return SHOP_HTML.encode()
 
-    monkeypatch.setattr("unfret.routes.check.fetch_public", fetch)
+    monkeypatch.setattr("unfret.routes.check.fetch_public_page", page_fetcher(fetch))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c:
         c.fetched = fetched  # type: ignore[attr-defined]
         yield c

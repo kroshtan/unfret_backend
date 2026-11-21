@@ -36,7 +36,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import asyncpg
 import structlog
@@ -87,15 +87,11 @@ def share_url(url: str) -> str:
     :raises ShareError: ``NOT_SHAREABLE`` if it isn't an absolute http(s) address of a reasonable length.
     """
     try:
-        parts = urlsplit(clean_url(url))
-        port = parts.port
+        cleaned = clean_url(url)
+        _ = urlsplit(cleaned).port
     except ValueError as exc:
         raise ShareError("NOT_SHAREABLE", "Only a check of a web page's address can be shared.") from exc
-    netloc = (parts.hostname or "") + (f":{port}" if port else "")
-    query = urlencode(
-        [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not result_cache.is_tracking_param(k, v)]
-    )
-    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+    return result_cache.without_tracking(cleaned)
 
 
 def _canonical(value: Any) -> Any:

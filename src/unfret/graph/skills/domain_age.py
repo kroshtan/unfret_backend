@@ -4,6 +4,13 @@ How long the shop's domain has existed: RDAP registration data and the first cer
 RDAP is the registries' structured successor to WHOIS (ICANN retired WHOIS for gTLDs in 2025). The first TLS
 certificate ever logged for the domain (crt.sh) gives a second, registry-independent age, which still works when
 registration data is redacted. Both are store-level facts, cached across callers by :mod:`unfret.fact_cache`.
+
+Many registries (.nl, .de and other EU country domains) publish no registration date at all. For a web shop there,
+the Internet Archive's first copy of its home page (:func:`unfret.graph.skills.domain_history.first_capture`, one
+paced index request, cached per address) says the address has been online since at least that day. That is a
+minimum, never the registration date, so it is kept apart (``archive_age_years``, ``age_from_archive``) and only
+counts for the shop once the deep check's look at the address's earlier copies didn't contradict it
+(:func:`unfret.shopper.address_years`): an expired address bought again keeps its old copies.
 """
 
 import asyncio
@@ -16,7 +23,7 @@ import httpx
 
 from unfret.config import settings
 from unfret.fact_cache import cached_fact
-from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput
+from unfret.graph.skills import SERVICE_SITES, STOREFRONTS, Observation, Skill, SkillOutput, domain_history
 from unfret.graph.skills.claims import claimed_founding
 from unfret.graph.state import AnalysisState
 from unfret.net import fetch_public, hostname
@@ -134,6 +141,25 @@ async def first_certificate(domain: str) -> str | None:
     return earliest_certificate(entries) if isinstance(entries, list) else None
 
 
+async def _archive_first_seen(host: str, state: AnalysisState) -> str | None:
+    """
+    The Internet Archive's first copy of a web shop's home page, when the deep check's archive look is on.
+
+    Within the archive's own pace (:data:`unfret.graph.skills.domain_history.pace`): paced out, refused lately or
+    unreachable, it is skipped this time (not cached) and the age stays unknown.
+
+    :param host: The shop's host.
+    :param state: Current graph state; uses ``page_type``.
+    :return: ISO date, or ``None``.
+    """
+    if not settings.domain_history or state.get("page_type") != "storefront":
+        return None
+    try:
+        return await cached_fact("wayback_first", host, lambda: domain_history.first_capture(host))
+    except Exception:  # noqa: BLE001  (paced out, refused or unreachable: no age from the archive this time)
+        return None
+
+
 def _days_since(iso: str | None, today: date) -> int | None:
     return (today - date.fromisoformat(iso)).days if iso else None
 
@@ -154,13 +180,18 @@ class DomainAgeSkill(Skill):
         "cert_age_years",
         "founded_claim_years",
         "founded_contradicted",
+        "archive_age_years",
+        "archive_first_year",
+        "age_from_archive",
     )
 
     async def run(self, state: AnalysisState) -> SkillOutput:
         """
-        Look up the page's domain in RDAP and the CT logs (cached per domain).
+        Look up the page's domain in RDAP, the CT logs and, if need be, the Internet Archive (cached per domain).
 
-        :param state: Current graph state; uses ``url``.
+        The archive's first copy of the home page is asked for only on a web shop whose registry gives no date.
+
+        :param state: Current graph state; uses ``url`` and ``page_type``.
         :return: The skill's features and findings.
         """
         domain = hostname(state.get("url", ""))
@@ -174,14 +205,35 @@ class DomainAgeSkill(Skill):
         )
         rdap = None if isinstance(rdap_result, BaseException) else rdap_result
         cert = None if isinstance(cert_result, BaseException) else cert_result
-        if rdap is None and cert is None:
-            return self.output({"known": False}, note=f"No registration or certificate data for {domain}.")
-
+        registered = (rdap or {}).get("registered")
+        first_seen = await _archive_first_seen(domain, state) if registered is None else None
         today = datetime.now(tz=UTC).date()
-        age = _days_since((rdap or {}).get("registered"), today)
+        archive_age = _days_since(first_seen, today)
+        archive: dict[str, float | bool] = {}
+        if first_seen is not None and archive_age is not None:
+            archive = {
+                "archive_age_years": archive_age / 365,
+                "archive_first_year": float(first_seen[:4]),
+                "age_from_archive": archive_age > (_days_since(cert, today) or 0),
+            }
+        archived = (
+            [
+                Observation(
+                    type="archive_first_capture",
+                    evidence=f"Online since at least {first_seen}, per the Internet Archive (its first copy of "
+                    f"{domain}; a minimum, not the registration date).",
+                )
+            ]
+            if archive
+            else []
+        )
+        if rdap is None and cert is None:
+            note = f"No registration or certificate data for {domain}."
+            return self.output({"known": False} | archive, archived, note=note)
+
+        age = _days_since(registered, today)
         cert_age = _days_since(cert, today)
         expires = (rdap or {}).get("expires")
-        registered = (rdap or {}).get("registered")
         term = (
             (date.fromisoformat(expires) - date.fromisoformat(registered)).days / 365
             if expires and registered
@@ -197,6 +249,7 @@ class DomainAgeSkill(Skill):
             observations.append(
                 Observation(type="first_certificate", evidence=f"First certificate for {domain}: {cert}.")
             )
+        observations += archived
         if rdap and rdap.get("redacted"):
             observations.append(Observation(type="registrant", evidence="Registrant details are redacted."))
         if term is not None and term <= 1.1:
@@ -210,14 +263,15 @@ class DomainAgeSkill(Skill):
             "term_years": term if term is not None else 0.0,
             "redacted": bool(rdap and rdap.get("redacted")),
             "cert_age_years": (cert_age or 0) / 365,
-        }
+        } | archive
         # Claims vs facts: "since 1998" on a domain that has existed for months. The oldest evidence of the domain
-        # counts (a re-registered domain keeps its old certificates), so only a domain young by every measure does.
+        # counts (a re-registered domain keeps its old certificates), so only a domain young by every measure does,
+        # the archive's first copy included (which only ever makes a domain older, never young).
         founded = claimed_founding(state["facts"], state.get("cleaned_content", ""), today.year)
         if founded is not None:
             year, quote = founded
             claimed = today.year - year
-            oldest = max(d for d in (age, cert_age) if d is not None)
+            oldest = max(d for d in (age, cert_age, archive_age) if d is not None)
             features["founded_claim_years"] = claimed
             if claimed >= FOUNDED_MIN_YEARS and oldest < FOUNDED_DOMAIN_MAX_DAYS:
                 features["founded_contradicted"] = True

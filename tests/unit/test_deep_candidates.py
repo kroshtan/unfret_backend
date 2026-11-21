@@ -105,3 +105,52 @@ def test_pinned_page_from_elsewhere_goes_first(tmp_path: Path) -> None:
     assert queue[0].reason == "pinned: is the count finding right?"
     corpus.update([golden.model_copy(update={"label_source": "human"})])
     assert [i.id for i in cand.build_queue(corpus, seed=1, random_share=0)] == ["dfc-000"]
+
+
+def test_relabel_tier_unlabelled_corpus_pages_and_nothing_dropped(tmp_path: Path) -> None:
+    corpus = Corpus(tmp_path)
+    records = [
+        LabelRecord(id="mend-1", label="legit", label_source="agreed", source="wayback", origin_dataset="m"),
+        LabelRecord(id="mend-2", label="scam", label_source="agreed", source="wayback", origin_dataset="m"),
+        LabelRecord(id="coi-3", source="wayback", origin_dataset="c"),
+        LabelRecord(id="coi-4", source="wayback", origin_dataset="c"),
+        *(_record(i) for i in range(30)),
+    ]
+    corpus.add_many((r, "<html></html>") for r in records)
+    fired_row = {"features": {}, "findings": [], "fired": ["claim_audit"]}
+    quiet: dict[str, Any] = {"features": {}, "findings": [], "fired": []}
+    (tmp_path / "reports" / "new-findings").mkdir(parents=True)
+    rows = {"mend-1": fired_row, "mend-2": fired_row, "coi-3": fired_row, "coi-4": quiet}
+    (tmp_path / "reports" / "new-findings" / "results.jsonl").write_text(
+        "".join(json.dumps({"id": k, **v}) + "\n" for k, v in rows.items())
+    )
+    cand.write_results(
+        corpus,
+        {f"dfc-{i:03d}": {"id": f"dfc-{i:03d}", "score": 20, "confidence": 0.9, "fired": []} for i in range(30)},
+    )
+    queue = cand.build_queue(corpus, seed=1)
+    ids = [i.id for i in queue]
+    assert ids[0] == "mend-1" and queue[0].reason.startswith(cand.RELABEL)
+    assert ids[1] == "coi-3"
+    assert "mend-2" not in ids  # scam labels stand
+    assert len(ids) == 2 + 1 + 30  # every unlabelled page is ranked, none dropped
+
+
+def test_blind_is_about_one_in_five_and_fixed() -> None:
+    share = sum(cand.blind(f"dfc-{i:05d}") for i in range(5000)) / 5000
+    assert 0.17 < share < 0.23
+    assert cand.blind("dfc-00001") == cand.blind("dfc-00001")
+
+
+def test_blind_screen_hides_the_scorer(tmp_path: Path) -> None:
+    record = _record(1)
+    row = {"score": 42, "band": "careful", "confidence": 0.3, "new_findings": [], "findings": []}
+    item = cand.QueueItem(id=record.id, reason="claim_audit fired; scorer unsure (0.30)", priority=3.7)
+    html = "<html><title>t</title><body>text</body></html>"
+    shown = cand.describe(record, row, item, n=1, total=1, html=html)
+    hidden = cand.describe(record, row, item, n=1, total=1, html=html, hidden=True)
+    assert "scorer: 42" in shown and "unsure" in shown
+    assert "scorer" not in hidden.replace("the scorer's answer is hidden", "") and "unsure" not in hidden
+    cand.decide(Corpus(tmp_path), record, "junk", hidden=True)
+    logged = json.loads((tmp_path / cand.DECISIONS).read_text())
+    assert logged["blind"] is True and logged["label"] == "junk" and logged["before"] is None

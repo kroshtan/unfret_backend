@@ -13,7 +13,12 @@
   corpus's cache and stops before a budget (`--budget-eur`, 25 by default) would be passed; `make deep-queue` orders
   them for labelling (a new finding fired and the scorer is unsure, then a new finding against a sure answer, then
   a random slice); `make deep-label BATCH=50` labels a batch, one key per page and one per new finding (correct,
-  wrong, unsure), the finding labels kept apart so each check's precision can be tuned on its own.
+  wrong, unsure), the finding labels kept apart so each check's precision can be tuned on its own. One page in five
+  is labelled blind (the scorer's answer hidden), and every decision is logged with whether it was, to measure
+  anchoring. `make new-findings` runs the claim audit and the photo check on every product page already in the
+  corpus (an archived page's photos from the archive, as of its capture), recorded, as training features for
+  `evals.train --extra-features`; the queue then also holds the `legit` pages on which a new check fired, to be
+  relabelled by hand, and ranks every unlabelled page, none left out.
 
 ### Page facts
 

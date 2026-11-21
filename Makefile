@@ -83,13 +83,16 @@ new-classes:  ## Collect labelled p2p and service pages (pattern sources, synthe
 deep-candidates:  ## Collect unlabelled candidate pages for the deep check's new findings (live, robots.txt respected; DEEP_ARGS="--pool coi-recent --target coi-recent=130")
 	uv run python -m evals.sources.deep_candidates $(DEEP_ARGS)
 
+new-findings:  ## The claim audit and photo check on every corpus product page, recorded (features for evals.train --extra-features; NEW_ARGS="--budget-eur 55 --limit 200")
+	uv run python -m evals.new_findings $(NEW_ARGS)
+
 deep-check:  ## Deep-check the candidates, recording LLM answers in the corpus, within a budget (DEEP_ARGS="--budget-eur 25 --limit 100")
 	uv run python -m evals.candidates check $(DEEP_ARGS)
 
 deep-queue:  ## Order the checked candidates for labelling: new finding + unsure scorer, then disagreements, then a random slice
 	uv run python -m evals.candidates queue $(DEEP_ARGS)
 
-deep-label:  ## Label the next batch of candidates, page and new findings, one keypress each (BATCH=50)
+deep-label:  ## Label the next batch: page and new findings, one keypress each; 1 in 5 pages blind (BATCH=50)
 	uv run python -m evals.candidates label --batch $(or $(BATCH),50)
 
 markets:  ## Per-market metrics (EU, US, other) of the shipped scorers; no LLM calls (MARKETS_ARGS="--train")

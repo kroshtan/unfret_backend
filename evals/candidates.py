@@ -25,12 +25,13 @@ claims, and the history, variation and cross-page checks as they land) should fi
    findings judged (``check --pin ID --why TEXT``, kept in ``deep_label_pins.json``); its label then becomes a
    human one.
 
-Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 25] [--concurrency 3] [--rerun]``,
+Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 55] [--concurrency 3] [--rerun]``,
 ``... queue [--seed 7]``, ``... label [--batch 50]`` (``make deep-check``, ``make deep-queue``, ``make deep-label``).
 """
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import random
@@ -60,6 +61,9 @@ logger = structlog.get_logger("unfret.evals")
 REPORTS = Path("reports") / "deep-findings"
 QUEUE = "deep_label_queue.jsonl"
 FINDING_LABELS = "finding_labels.jsonl"
+# One line per decision: page, label, the label before, whether the scorer's answer was hidden (anchoring).
+DECISIONS = "label_decisions.jsonl"
+BLIND_ONE_IN = 5
 # Pages from elsewhere in the corpus put at the front of the queue, with why (``check --pin ID --why TEXT``).
 PINS = "deep_label_pins.json"
 EXCLUDED = ("reverse_image", "shop_links")  # paid per search; needs the fingerprint database
@@ -79,6 +83,25 @@ SURE_FINE = 35  # a score below this is the scorer saying the page is fine
 _EXCERPT_CHARS = 900
 FINDING_KEYS = {"c": "correct", "w": "wrong", "u": "unsure", "\r": "unsure", "\n": "unsure"}
 PAGE_KEYS = {"l": "legit", "j": "junk", "s": "scam"}
+
+
+def notes_of(record: LabelRecord) -> dict[str, Any]:
+    """A record's ``notes`` as a dict (empty when they aren't a JSON object)."""
+    try:
+        notes = json.loads(record.notes or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return notes if isinstance(notes, dict) else {}
+
+
+def blind(page: str) -> bool:
+    """
+    Whether a page is labelled blind: without the scorer's answer, one page in five, fixed by its id.
+
+    :param page: The page id.
+    :return: ``True`` for about one page in five.
+    """
+    return int(hashlib.sha256(page.encode()).hexdigest()[:8], 16) % BLIND_ONE_IN == 0
 
 
 def is_new(skill: str) -> bool:
@@ -188,6 +211,25 @@ def read_results(corpus: Corpus) -> dict[str, dict[str, Any]]:
     return {row["id"]: row for row in rows}
 
 
+def total_spent(corpus: Corpus) -> float:
+    """What the candidates' deep checks have cost so far, in euros (from their recorded token usage)."""
+    return float(sum(row.get("cost_eur", 0) for row in read_results(corpus).values()))
+
+
+def other_spend(corpus: Corpus) -> Decimal:
+    """
+    What the corpus's other recorded runs of the new checks cost (``evals.new_findings``), which share the budget.
+
+    :param corpus: The corpus.
+    :return: Euros.
+    """
+    path = corpus.root / "reports" / "new-findings" / "results.jsonl"
+    if not path.exists():
+        return Decimal(0)
+    rows = (json.loads(x) for x in path.read_text().splitlines() if x.strip())
+    return Decimal(str(sum(row.get("cost_eur", 0) for row in rows)))
+
+
 def write_results(corpus: Corpus, results: dict[str, dict[str, Any]]) -> None:
     """Rewrite the results and the features file for training."""
     folder = corpus.root / REPORTS
@@ -256,7 +298,7 @@ async def check(
 
     :param corpus: The corpus.
     :param limit: Pages at most.
-    :param budget: Euros at most for the whole set, earlier runs included.
+    :param budget: Euros at most for the whole set, earlier runs and ``evals.new_findings`` included.
     :param concurrency: Pages checked at the same time.
     :param rerun: Check pages that have a result already (cached answers cost nothing).
     :param ids: Check only these pages (any in the corpus, checked again if they have a result).
@@ -272,6 +314,7 @@ async def check(
     # so it errs on the safe side).
     redo = {r.id for r in todo}
     before = Decimal(str(sum(row.get("cost_eur", 0) for k, row in results.items() if k not in redo)))
+    before += other_spend(corpus)
     spent = before
     worst = Decimal("0.10")  # a page's cost at most until pages have been seen
     semaphore = asyncio.Semaphore(concurrency)
@@ -319,6 +362,7 @@ async def check(
     summary |= {
         "run_pages": done,
         "run_spent_eur": round(float(spent - before), 3),
+        "spent_eur_with_new_findings": round(float(spent), 3),
         "stopped_for_budget": stopped,
         "budget_eur": float(budget),
         "model": model,
@@ -336,7 +380,7 @@ def summarise(corpus: Corpus, results: dict[str, dict[str, Any]]) -> dict[str, A
     :return: The summary.
     """
     records = candidates(corpus)
-    notes = {r.id: json.loads(r.notes or "{}") for r in records}
+    notes = {r.id: notes_of(r) for r in records}
     checked = [results[r.id] for r in records if r.id in results and "error" not in results[r.id]]
     per_skill: Counter[str] = Counter()
     per_type: Counter[str] = Counter()
@@ -367,51 +411,100 @@ def summarise(corpus: Corpus, results: dict[str, dict[str, Any]]) -> dict[str, A
     }
 
 
-def build_queue(corpus: Corpus, seed: int, random_share: int) -> list[QueueItem]:
-    """
-    Order the checked, unlabelled candidates by value.
+RELABEL = "relabel"  # a queue reason's prefix: a labelled page that goes through the queue again
+PINNED = "pinned"
 
-    Tier 1 (priority 3–4): a new check fired and the scorer is unsure, least sure first. Tier 2 (2–3): a new check
-    fired but the scorer says the page is fine, or is sure either way; the lower the score, the bigger the
-    disagreement. Tier 3 (below 1): a seeded random slice of the rest, ``random_share`` pages.
+
+def corpus_rows(corpus: Corpus) -> dict[str, dict[str, Any]]:
+    """
+    The new checks' results on the rest of the corpus (:mod:`evals.new_findings`), shaped like a candidate's row.
 
     :param corpus: The corpus.
-    :param seed: The random slice's seed.
-    :param random_share: Pages in the random slice.
+    :return: Rows by page id, without a score (that replay runs the new checks only).
+    """
+    from evals import new_findings  # noqa: PLC0415 - it imports this module
+
+    return {
+        k: row | {"new_findings": row.get("findings", []), "score": None}
+        for k, row in new_findings.read_results(corpus).items()
+        if "error" not in row
+    }
+
+
+def label_rows(corpus: Corpus) -> dict[str, dict[str, Any]]:
+    """Every page's row for the labelling screen: a candidate's deep check, else the new checks' replay."""
+    return corpus_rows(corpus) | read_results(corpus)
+
+
+def _candidate_item(record: LabelRecord, row: dict[str, Any]) -> tuple[QueueItem, bool]:
+    confidence = 1.0 if row.get("confidence") is None else float(row["confidence"])
+    names = ", ".join(row["fired"])
+    if row["fired"] and confidence < UNSURE:
+        reason = f"{names} fired; scorer unsure ({confidence:.2f})"
+        return QueueItem(id=record.id, reason=reason, priority=4 - confidence), True
+    if row["fired"]:
+        gap = 0.99 * (1 - row["score"] / 100)
+        why = "says fine" if row["score"] < SURE_FINE else f"score {row['score']}"
+        return QueueItem(id=record.id, reason=f"{names} fired; scorer {why}", priority=2 + gap), True
+    return QueueItem(id=record.id, reason="random slice", priority=0.0), False
+
+
+def _corpus_item(record: LabelRecord, row: dict[str, Any]) -> QueueItem | None:
+    names = ", ".join(row["fired"])
+    if record.label == "legit" and record.label_source != "human" and row["fired"]:
+        return QueueItem(id=record.id, reason=f"{RELABEL}: legit, {names} fired", priority=5.5)
+    if record.label is None and row["fired"]:
+        return QueueItem(id=record.id, reason=f"unlabelled, {names} fired", priority=1.5)
+    if record.label is None:
+        return QueueItem(id=record.id, reason="random slice (unlabelled)", priority=0.0)
+    return None
+
+
+def build_queue(corpus: Corpus, seed: int, random_share: int | None = None) -> list[QueueItem]:
+    """
+    Order the pages to label by value. Nothing is dropped unless ``random_share`` limits the last tier.
+
+    - Pinned pages (10): pages from anywhere in the corpus whose findings a label should decide.
+    - Relabels (5–6): ``legit`` pages (not labelled by a human yet) on which a new check fired in the corpus replay
+      (:mod:`evals.new_findings`): their label is checked by hand; ``scam`` and ``junk`` labels stand as they are.
+    - Candidates where a new check fired and the scorer is unsure (3–4), least sure first; then those where a new
+      check fired but the scorer is sure (2–3), the lower the score the bigger the disagreement.
+    - The corpus's other unlabelled product pages on which a new check fired (1–2).
+    - The rest of the unlabelled pages, candidates and others, in a seeded random order (below 1).
+
+    :param corpus: The corpus.
+    :param seed: The random order's seed.
+    :param random_share: Pages in the random tier at most (``None``: all of them).
     :return: The queue.
     """
     results = read_results(corpus)
+    others = corpus_rows(corpus)
     items: list[QueueItem] = []
     rest: list[QueueItem] = []
     known = corpus.labels()
     for page, why in read_pins(corpus).items():
-        if page in results and page in known and known[page].label_source != "human":
-            items.append(QueueItem(id=page, reason=f"pinned: {why}", priority=10.0))
-    for record in candidates(corpus):
-        row = results.get(record.id)
-        if record.label is not None or row is None or "error" in row or row["score"] < 0:
+        if page in label_rows(corpus) and page in known and known[page].label_source != "human":
+            items.append(QueueItem(id=page, reason=f"{PINNED}: {why}", priority=10.0))
+    pinned = {i.id for i in items}
+    for record in known.values():
+        if record.id in pinned or notes_of(record).get("rejected"):
             continue
-        if json.loads(record.notes or "{}").get("rejected"):
+        if record.origin_dataset == DATASET:
+            row = results.get(record.id)
+            if record.label is not None or row is None or "error" in row or row["score"] < 0:
+                continue
+            item, fired_here = _candidate_item(record, row)
+            (items if fired_here else rest).append(item)
             continue
-        confidence = 1.0 if row.get("confidence") is None else float(row["confidence"])
-        names = ", ".join(row["fired"])
-        if row["fired"] and confidence < UNSURE:
-            items.append(
-                QueueItem(
-                    id=record.id, reason=f"{names} fired; scorer unsure ({confidence:.2f})", priority=4 - confidence
-                )
-            )
-        elif row["fired"]:
-            gap = 0.99 * (1 - row["score"] / 100)
-            why = "says fine" if row["score"] < SURE_FINE else f"score {row['score']}"
-            items.append(QueueItem(id=record.id, reason=f"{names} fired; scorer {why}", priority=2 + gap))
-        else:
-            rest.append(QueueItem(id=record.id, reason="random slice", priority=0.0))
+        if (row := others.get(record.id)) is not None and (found := _corpus_item(record, row)) is not None:
+            (items if found.priority else rest).append(found)
     rng = random.Random(seed)
+    rest.sort(key=lambda i: i.id)
     rng.shuffle(rest)
-    for n, item in enumerate(rest[:random_share]):
-        items.append(item.model_copy(update={"priority": 0.9 - n / (10 * max(1, random_share))}))
-    return sorted(items, key=lambda i: -i.priority)
+    kept = rest if random_share is None else rest[:random_share]
+    for n, item in enumerate(kept):
+        items.append(item.model_copy(update={"priority": 0.9 - 0.8 * n / max(1, len(kept))}))
+    return sorted(items, key=lambda i: (-i.priority, i.id))
 
 
 def read_queue(corpus: Corpus) -> list[QueueItem]:
@@ -424,7 +517,9 @@ def read_queue(corpus: Corpus) -> list[QueueItem]:
     )
 
 
-def describe(record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: int, total: int, html: str) -> str:
+def describe(
+    record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: int, total: int, html: str, hidden: bool = False
+) -> str:
     """
     One page as a compact screen of text.
 
@@ -434,25 +529,29 @@ def describe(record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: in
     :param n: Its position in the batch.
     :param total: The batch's size.
     :param html: The page's HTML.
+    :param hidden: Leave out the scorer's answer and why the page was queued (a blind page).
     :return: The text.
     """
     facts, _ = parse_page(html, record.origin_url)
-    notes = json.loads(record.notes or "{}")
+    notes = notes_of(record)
     text = textwrap.shorten(" ".join(clean_html(html).split()), _EXCERPT_CHARS, placeholder=" …")
     where = notes.get("marketplace") or "own shop"
     seller = notes.get("marketplace_seller") or facts.seller
     conf = row.get("confidence")
     lines = [
         f"── {n}/{total} " + "─" * 60,
-        f"{record.id}  ·  {where}  ·  {notes.get('pool', '')}  ·  {notes.get('category', '')}  ·  why: {item.reason}",
+        f"{record.id}  ·  {where}  ·  {notes.get('pool', '')}  ·  {notes.get('category', '')}  ·  "
+        + ("blind: the scorer's answer is hidden on this page" if hidden else f"why: {item.reason}"),
         f"url: {record.origin_url}",
         f"title: {facts.title[:150]}",
         (
             f"price: {facts.price} {facts.currency} (was {facts.list_price})  ·  seller: {seller}  ·  "
             f"brand: {facts.brand}"
         ),
-        f"scorer: {row['score']}  ·  {row.get('band', '')}  ·  confidence {conf if conf is None else round(conf, 2)}",
     ]
+    if not hidden and row.get("score") is not None:
+        sure = conf if conf is None else round(conf, 2)
+        lines.append(f"scorer: {row['score']}  ·  {row.get('band', '')}  ·  confidence {sure}")
     if record.label:
         lines.insert(3, f"in the corpus as {record.label} ({record.label_source}, {record.origin_dataset})")
     if row.get("piece_count"):
@@ -468,13 +567,37 @@ def describe(record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: in
     return "\n".join(lines)
 
 
-def save_finding_labels(corpus: Corpus, record: LabelRecord, verdicts: list[tuple[dict[str, Any], str]]) -> None:
+def decide(corpus: Corpus, record: LabelRecord, label: str | None, *, hidden: bool) -> None:
+    """
+    Log one decision: the page, its new label (``None``: rejected), the label before, and whether it was blind.
+
+    :param corpus: The corpus.
+    :param record: The page as it was.
+    :param label: The decision.
+    :param hidden: Whether the scorer's answer was hidden.
+    """
+    row = {
+        "id": record.id,
+        "label": label,
+        "before": record.label,
+        "before_source": record.label_source,
+        "blind": hidden,
+        "decided_at": now_iso(),
+    }
+    with (corpus.root / DECISIONS).open("a") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+def save_finding_labels(
+    corpus: Corpus, record: LabelRecord, verdicts: list[tuple[dict[str, Any], str]], *, hidden: bool = False
+) -> None:
     """
     Append the finding labels of one page (one record per finding).
 
     :param corpus: The corpus.
     :param record: The page.
     :param verdicts: Each finding and its verdict (correct, wrong, unsure).
+    :param hidden: Whether the page was labelled blind.
     """
     stamp = now_iso()
     with (corpus.root / FINDING_LABELS).open("a") as f:
@@ -485,6 +608,7 @@ def save_finding_labels(corpus: Corpus, record: LabelRecord, verdicts: list[tupl
                 "type": finding["type"],
                 "evidence": finding["evidence"],
                 "verdict": verdict,
+                "blind": hidden,
                 "labelled_at": stamp,
             }
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -514,15 +638,18 @@ def label(corpus: Corpus, batch: int) -> None:
     :param corpus: The corpus.
     :param batch: Pages in this batch.
     """
-    results = read_results(corpus)
+    results = label_rows(corpus)
     known = corpus.labels()
-    pins = read_pins(corpus)
     queue = [
         i
         for i in read_queue(corpus)
         if i.id in known
-        and (known[i.id].label is None or (i.id in pins and known[i.id].label_source != "human"))
-        and not json.loads(known[i.id].notes or "{}").get("rejected")
+        and i.id in results
+        and (
+            known[i.id].label is None
+            or (i.reason.startswith((PINNED, RELABEL)) and known[i.id].label_source != "human")
+        )
+        and not notes_of(known[i.id]).get("rejected")
     ]
     if not queue:
         print("Nothing to label: run `make deep-queue` after `make deep-check`.")  # noqa: T201
@@ -533,7 +660,9 @@ def label(corpus: Corpus, batch: int) -> None:
     for n, item in enumerate(todo, start=1):
         record = corpus.labels()[item.id]
         row = results[item.id]
-        print("\n" + describe(record, row, item, n=n, total=len(todo), html=corpus.read_page(record.id)))  # noqa: T201
+        hidden = blind(record.id)
+        screen = describe(record, row, item, n=n, total=len(todo), html=corpus.read_page(record.id), hidden=hidden)
+        print("\n" + screen)  # noqa: T201 - interactive tool
         while True:
             key = read_key().lower()
             if key != "o":
@@ -542,8 +671,9 @@ def label(corpus: Corpus, batch: int) -> None:
         if key == "q":
             break
         if key == "r":
-            notes = json.loads(record.notes or "{}") | {"rejected": True}
+            notes = notes_of(record) | {"rejected": True}
             corpus.update([record.model_copy(update={"notes": json.dumps(notes, sort_keys=True)})])
+            decide(corpus, record, None, hidden=hidden)
             tally["rejected"] += 1
             print("→ rejected")  # noqa: T201 - interactive tool
             continue
@@ -553,7 +683,8 @@ def label(corpus: Corpus, batch: int) -> None:
         page_label = PAGE_KEYS[key]
         print(f"→ {page_label}")  # noqa: T201 - interactive tool
         if row.get("new_findings"):
-            save_finding_labels(corpus, record, ask_findings(row["new_findings"]))
+            save_finding_labels(corpus, record, ask_findings(row["new_findings"]), hidden=hidden)
+        decide(corpus, record, page_label, hidden=hidden)
         corpus.update([record.model_copy(update={"label": page_label, "label_source": "human", "confidence": 1.0})])
         tally[page_label] += 1
     left = len(queue) - sum(tally[k] for k in ("legit", "junk", "scam", "rejected"))
@@ -566,14 +697,14 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("check", help="deep-check the candidates (records LLM answers)")
     run.add_argument("--limit", type=int, default=None)
-    run.add_argument("--budget-eur", type=Decimal, default=Decimal(25))
+    run.add_argument("--budget-eur", type=Decimal, default=Decimal(55))
     run.add_argument("--concurrency", type=int, default=3)
     run.add_argument("--rerun", action="store_true", help="check pages with a result again (new checks)")
     run.add_argument("--pin", nargs="+", default=[], metavar="ID", help="check these corpus pages, first in the queue")
     run.add_argument("--why", default="", help="what the pinned pages' labels should decide")
     queue = sub.add_parser("queue", help="order the checked pages for labelling")
     queue.add_argument("--seed", type=int, default=7)
-    queue.add_argument("--random", type=int, default=100, help="pages in the random slice")
+    queue.add_argument("--random", type=int, default=None, help="pages in the random tier at most (default: all)")
     lab = sub.add_parser("label", help="label the next batch")
     lab.add_argument("--batch", type=int, default=int(os.getenv("BATCH", "50")))
     sub.add_parser("summary", help="print the set's numbers")

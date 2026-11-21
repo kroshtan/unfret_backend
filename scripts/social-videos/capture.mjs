@@ -7,6 +7,7 @@
 //
 // Needs the sibling extension checkout, built (`make build` in ../unfret_extension). Usage:
 //   node capture.mjs [video ...]      (default: every video below)
+//   node capture.mjs name=https://…   (a probe: any page, before it has a video; the result goes to out/results too)
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,8 +15,13 @@ import { chromium } from "playwright";
 import { EXTENSION, OUT, VIDEOS } from "./videos.mjs";
 
 const DEV = "https://dev.unfret.net";
-const wanted = process.argv.slice(2);
-const videos = wanted.length ? VIDEOS.filter((v) => wanted.includes(v.name)) : VIDEOS;
+const args = process.argv.slice(2);
+const probes = args.filter((a) => a.includes("=")).map((a) => {
+  const at = a.indexOf("=");
+  return { name: a.slice(0, at), url: a.slice(at + 1), expect: "" };
+});
+const wanted = args.filter((a) => !a.includes("="));
+const videos = [...(wanted.length || probes.length ? VIDEOS.filter((v) => wanted.includes(v.name)) : VIDEOS), ...probes];
 if (videos.length === 0) throw new Error(`no such video; one of ${VIDEOS.map((v) => v.name).join(", ")}`);
 for (const v of videos) if (!v.url) throw new Error(`${v.name}: no page address; add it to pages.json (videos.mjs)`);
 

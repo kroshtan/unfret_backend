@@ -9,6 +9,7 @@ marker strokes, captions, timings).
 cd scripts/social-videos && npm install           # Playwright; needs `npx playwright install chromium`
 (cd ../../../unfret_extension && make build)      # the popup (dist/chrome) and Unfret Dev (dist/chrome-dev)
 node capture.mjs e-no-refunds                     # a real deep check on dev.unfret.net → out/results/
+node capture.mjs probe=https://…                  # a probe: any page, before it has a video
 node shoot.mjs e-no-refunds                       # the page on a phone + the popup with that result → out/<video>/
 FFMPEG=… node render.mjs e-no-refunds             # → out/<video>/<video>.mp4 and .gif, copied to ../media/videos
 node render.mjs e-no-refunds --frames 2,8.5,15    # single frames as PNGs, to check a change
@@ -21,7 +22,8 @@ node render.mjs e-no-refunds --mascot             # the same with the animated m
   welcome page (two a day per network) or `UNFRET_DEV_PASS`; never an admin token. It fails if the result doesn't
   contain the video's `expect` text.
 - **Real shops are blurred** as the content guide asks: the brand's name, logo and byline, the platform's header,
-  badges and address, ads for other brands. The test shop (`/test-shop`) needs none of that: its banner says it's
+  badges and address, ads for other brands. People (reviewers' names and photos, faces) go in `page.redact`,
+  blurred past recognising. The test shop (`/test-shop`) needs none of that: its banner says it's
   made up.
 - **ffmpeg**: any build with libx264, e.g. `uv run --no-project --with imageio-ffmpeg python -c "import
   imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"`.

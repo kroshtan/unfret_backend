@@ -206,9 +206,11 @@ const VIDEO_LIST = [
       height: 1500,
       hide: ["div.sticky-add-to-cart__bar"],
       blur: ["img.header-logo__image"],
+      // The reviewers' names and their photos (people).
+      redact: [".AirReviews-Blocks__AuthorName", ".AirReviews-Thumbnail"],
       marks: {
         stars: { selector: "p.rating-count", text: "reviews" },
-        review: { selector: "body", text: "Leonard" },
+        review: { selector: ".AirReviews-Blocks__CustomerReview", text: "very impressed with this sweater" },
       },
     },
     popup: { finding: "copies reviews from other sites" },
@@ -221,8 +223,8 @@ const VIDEO_LIST = [
         { t: 4.6, left: 0, top: 300, zoom: 1 },
         { t: 5.8, left: 8, top: 430, zoom: 1.6 },
         { t: 8.6, left: 8, top: 430, zoom: 1.6 },
-        { t: 9.8, left: 8, top: 1080, zoom: 1.6 },
-        { t: 13.2, left: 8, top: 1080, zoom: 1.6 },
+        { t: 9.8, left: 8, top: 1130, zoom: 1.6 },
+        { t: 13.2, left: 8, top: 1130, zoom: 1.6 },
       ],
       strokes: [
         { mark: "stars", kind: "circle", at: 7.0, draw: 0.6 },
@@ -245,6 +247,207 @@ const VIDEO_LIST = [
       },
       end: { at: 19.8 },
       mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 7.9, nods: [10.6],
+        blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
+  {
+    name: "k-since-1979",
+    // A US jewellery shop: "Handmade by our family since 1979" in its announcement bar; its web address is a year old.
+    expect: "but its web address has existed for only",
+    page: {
+      height: 1500,
+      dismiss: ["button.gd-pop__no"],
+      hide: ["[class^=gd-pop]", "div.sticky-add-to-cart"],
+      blur: ["img.header-logo__image"],
+      // The reviewers' names (people).
+      redact: [".home-reviews__verified"],
+      marks: {
+        since: { selector: "p.announcement-bar__text", text: "since 1979" },
+      },
+    },
+    popup: { finding: "but its web address has existed for only" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 560, zoom: 1 },
+        { t: 4.6, left: 0, top: 560, zoom: 1 },
+        { t: 5.8, left: 66, top: 0, zoom: 1.55 },
+        { t: 13.2, left: 66, top: 0, zoom: 1.55 },
+      ],
+      strokes: [
+        { mark: "since", kind: "circle", at: 7.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A diamond necklace, $339." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Read the top of the page." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "Since 1979?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "How old is the website?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Its web address: 12 months old", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
+    },
+  },
+  {
+    name: "l-search-word-title",
+    // A three-month-old shop's doll, $33.22: its title is a string of search words, not a product name.
+    expect: "The title is a string of search terms",
+    page: {
+      height: 1300,
+      blur: ["img.logo-wap-img", "a.inline-flex img"],
+      marks: {
+        title: { selector: "h1.control-product_detail-title", text: "New Cheap Reborn" },
+        again: { selector: "h1.control-product_detail-title", text: "Reborn Baby Dolls Toys Kids" },
+      },
+    },
+    popup: { finding: "The title is a string of search terms" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 300, zoom: 1 },
+        { t: 4.6, left: 0, top: 300, zoom: 1 },
+        { t: 5.8, left: 10, top: 430, zoom: 1.08 },
+        { t: 13.2, left: 10, top: 430, zoom: 1.08 },
+      ],
+      strokes: [
+        { mark: "title", kind: "underline", at: 7.2, draw: 0.5 },
+        { mark: "again", kind: "underline", at: 9.0, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A lifelike doll, $33.22." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Now read its name." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "A name?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Or a pile of search words?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Search words, not a name", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1498], lens: [708, 1306] } }),
+    },
+  },
+  {
+    name: "m-24-7-support",
+    // A jewellery shop's "24/7 customer service" on the product page; its contact page gives opening hours.
+    expect: "available 24/7",
+    page: {
+      height: 2700,
+      // Opens the "24/7 Customer Service" tab, as a reader would.
+      dismiss: ["[aria-controls='Product-content-tab_3PTHE715991271719244']"],
+      blur: ["a.site-header__logo-link img"],
+      // People: the model's face on the gallery's next photo (peeking in at the left, and its thumbnail), the
+      // "Victoria Y. and 28,000+ women" avatar and name, the reviewers' names.
+      redact: ["a.product__thumb:not(.is-active) img", ".follower-proof img", ".follower-proof__text strong",
+        ".ai-review__name"],
+      blurBoxes: [{ selector: ".flickity-viewport", left: 0, top: 0, width: 0.13, height: 1 }],
+      marks: {
+        always: { selector: "#Product-content-tab_3PTHE715991271719244 strong", text: "24/7" },
+      },
+    },
+    popup: { finding: "available 24/7" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 500, zoom: 1 },
+        { t: 4.6, left: 0, top: 500, zoom: 1 },
+        { t: 5.8, left: 20, top: 2040, zoom: 1.15 },
+        { t: 13.2, left: 20, top: 2040, zoom: 1.15 },
+      ],
+      strokes: [
+        { mark: "always", kind: "underline", at: 7.4, draw: 0.6 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "A gold ring for $0.00." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "Questions? Ask any time:" },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "24/7. Really?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "Read their contact page", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Its contact page: office hours", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
+        blinks: [11.7], check: { spot: [870, 1498], lens: [708, 1306] } }),
+    },
+  },
+  {
+    name: "n-brand-new-copycat",
+    // A shop dressed as a well-known sock brand's own (its logo, 70% off); the web address is days old.
+    expect: "registered only",
+    page: {
+      height: 1300,
+      // The phone's bottom bar of the shop, fixed (it would stand in the middle of a full-page still).
+      hide: ["nav.htw-mobile-bottom-nav"],
+      blur: ["a img.attachment-full.size-full"],
+      // The brand's marks on the sock (cuff, toe) and the magazine badge in the main photo.
+      blurBoxes: [{ selector: "img.wp-post-image", left: 0.5, top: 0.28, width: 0.5, height: 0.5 },
+        { selector: "img.wp-post-image", left: 0.62, top: 0.78, width: 0.3, height: 0.12 },
+        { selector: "img.wp-post-image", left: 0.18, top: 0.19, width: 0.26, height: 0.12 }],
+      marks: {
+        logo: { selector: "a img.attachment-full.size-full" },
+        off: { selector: ".badge-container.is-larger", text: "70% OFF" },
+      },
+    },
+    popup: { finding: "registered only" },
+    script: {
+      duration: 23,
+      camera: [
+        { t: 0.0, left: 0, top: 0, zoom: 1 },
+        { t: 1.0, left: 0, top: 0, zoom: 1 },
+        { t: 3.0, left: 0, top: 560, zoom: 1 },
+        { t: 4.6, left: 0, top: 560, zoom: 1 },
+        { t: 5.8, left: 0, top: 60, zoom: 1.3 },
+        { t: 13.2, left: 0, top: 60, zoom: 1.3 },
+      ],
+      strokes: [
+        { mark: "logo", kind: "circle", at: 7.2, draw: 0.6 },
+        { mark: "off", kind: "underline", at: 9.0, draw: 0.5 },
+      ],
+      captions: [
+        { from: 0.4, to: 4.5, y: 1240, size: 78, text: "Socks: $7.80, not $26." },
+        { from: 4.7, to: 7.8, y: 1240, size: 78, text: "The brand's own logo." },
+        { from: 8.0, to: 13.2, y: 1130, size: 100, text: "The brand's shop?" },
+        { from: 9.7, to: 13.2, y: 1290, size: 74, text: "When did it open?", tone: "caution" },
+      ],
+      check: {
+        at: 13.2,
+        findingY: 860,
+        mark: 14.6,
+        captions: [
+          { from: 13.5, to: 19.8, y: 300, size: 66, text: "Unfret checks the same page" },
+          { from: 15.4, to: 19.8, y: 1560, size: 60, text: "Its web address: 3 days old", tone: "caution" },
+        ],
+      },
+      end: { at: 19.8 },
+      mascot: mascotTrack({ enter: 5.0, spot: [150, 1662], look: [330, 1370], doubleTake: 8.1, nods: [9.95],
         blinks: [11.7], check: { spot: [870, 1417], lens: [720, 1195] } }),
     },
   },

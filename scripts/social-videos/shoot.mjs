@@ -75,14 +75,19 @@ async function shootPage() {
 /**
  * In the page: hide and blur what the video config says, and measure the callouts' targets.
  *
- * @param {{hide?: string[], blur?: string[], blurText?: string[], blurBoxes?: object[], marks: object}} spec
+ * @param {{hide?: string[], blur?: string[], redact?: string[], blurText?: string[], blurBoxes?: object[],
+ *   css?: string[], marks: object}} spec
  */
 function prepare(spec) {
   const style = document.createElement("style");
   style.textContent = [
     ...(spec.hide ?? []).map((s) => `${s} { display: none !important; }`),
     ...(spec.blur ?? []).map((s) => `${s} { filter: blur(7px) !important; }`),
+    // People (a reviewer's name, a customer's photo): blurred past recognising.
+    ...(spec.redact ?? []).map((s) => `${s} { filter: blur(14px) !important; }`),
     ".unfret-blur { filter: blur(6px); }",
+    // Anything else the page needs to hold still (a rotating announcement bar on the slide that matters).
+    ...(spec.css ?? []),
   ].join("\n");
   document.head.append(style);
   // Text to blur wherever it stands (a brand name inside a title): each match in its own blurred span.

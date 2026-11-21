@@ -614,6 +614,8 @@
     "claim_audit.contradictions": "Claims that don't add up",
     "claim_audit.impossible": "A claim that can't be true",
     "claim_audit.count_off": "A piece count that's padded or doesn't add up",
+    "claim_audit.shop_pages": "The shop's other pages read with it",
+    "claim_audit.across_pages": "Claims its other pages contradict",
     "content.missing_trust_info": "Little shop information",
     "content.addresses_ai": "Text aimed at AI",
     "content.title_word_soup": "Title full of search terms",

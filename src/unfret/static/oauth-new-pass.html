@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Your new Unfret pass · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/code-copy.js"></script>
+</head>
+<body>
+  {{header}}
+  <main class="mine">
+    <h1>Your new Unfret pass</h1>
+    <p class="lead">It comes with {{free_checks}} free deep checks, and {{asker}} can use it once you continue.</p>
+    <section class="panel save-backup" aria-labelledby="keep-heading">
+      <h2 id="keep-heading">Keep these somewhere safe</h2>
+      <p>We show them only this once and store neither. Your pass lets you add checks or use them elsewhere (the
+        browser extension, your phone); the backup code gets you a new pass with the same checks if you lose it, and
+        disconnects {{asker}} until you connect again.</p>
+      <p class="small"><strong>Your pass</strong></p>
+      <div class="secret-value"><code id="new-pass">{{key}}</code>
+        <button type="button" data-copy="new-pass">Copy</button></div>
+      <p class="small"><strong>Backup code</strong></p>
+      <div class="secret-value"><code id="new-backup">{{recovery_code}}</code>
+        <button type="button" data-copy="new-backup">Copy</button></div>
+    </section>
+    <p class="buttons"><a class="button primary" href="{{continue_url}}">I've saved them: continue to
+      {{back_to}}</a></p>
+    <p class="small muted">The link to continue works for a few minutes.</p>
+  </main>
+  {{footer}}
+</body>
+</html>

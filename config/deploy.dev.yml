@@ -30,6 +30,8 @@ env:
     # UNFRET_BASE_FORMER_COLD_UNTIL (README, "Changing the Base cold address").
     UNFRET_X402_BASE_ENABLED: "false"
     UNFRET_BASE_NETWORK: base-sepolia
+    # OAuth sign-in for the remote MCP server (/mcp, unfret.oauth), for Claude's connector directory: on in dev.
+    UNFRET_MCP_OAUTH_ENABLED: "true"
     UNFRET_X402_BASE_ALLOW_MAINNET: "false"
   secret:
     - UNFRET_LLM_API_KEY

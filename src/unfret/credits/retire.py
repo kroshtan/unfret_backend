@@ -3,8 +3,9 @@ Retiring passes: the operator's fresh start (``python -m unfret.admin_cli retire
 
 Every pass made before a moment is deleted, with every row that names it: its balance and flags (``wallets``), its
 free checks (a column of ``api_keys``), an affiliate's attribution, open card checkouts and crypto quotes for it, its
-open reports and the keyed hashes behind the report limits, and the buyer hash on gift codes it bought. Wallet
-(crypto) accounts go the same way: a wallet keeps no date, so every wallet account is retired, whatever the moment.
+open reports and the keyed hashes behind the report limits, the MCP server's OAuth codes and grants for it, and the
+buyer hash on gift codes it bought. Wallet (crypto) accounts go the same way: a wallet keeps no date, so every wallet
+account is retired, whatever the moment.
 Rows of passes that no longer exist (a refund that landed after a pass was deleted, say) go too. What stays are
 anonymous counts: how many passes and wallets were retired on a day (``usage_counters``), and the aggregate tables that
 never named anyone (affiliate earnings).
@@ -55,6 +56,8 @@ ACCOUNT_COLUMNS = {
     ("vat_quotes", "beneficiary"),
     ("affiliate_passes", "account"),
     ("invites", "buyer_hash"),
+    ("oauth_grants", "key_id"),
+    ("oauth_codes", "key_id"),
 }
 
 
@@ -256,6 +259,9 @@ async def _delete(
         ("wallets", "pubkey"),
     ):
         await conn.execute(f"DELETE FROM {table} WHERE {column} = ANY($1::text[])", accounts)  # noqa: S608 - fixed
+    # The MCP server's OAuth grants and codes for these passes (they would go with the pass anyway: ON DELETE CASCADE).
+    await conn.execute("DELETE FROM oauth_codes WHERE key_id = ANY($1::text[])", selected)
+    await conn.execute("DELETE FROM oauth_grants WHERE key_id = ANY($1::text[])", selected)
     await conn.execute("DELETE FROM api_keys WHERE id = ANY($1::text[])", selected)
     for name, n in ((PASSES_COUNTER, report.passes), (WALLETS_COUNTER, report.wallets)):
         if n:

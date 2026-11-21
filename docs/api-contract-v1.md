@@ -1661,3 +1661,12 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - A new shopper reason key `data_inconsistency` ("Details on the page that don't match", severity low, area
   `product`, source `ai_read`): `The page says “<claim>”. <why> Check which is right before you buy.` A note: it
   never moves the band and keeps no "Worth a look" by itself.
+
+## Changes (OAuth sign-in for the remote MCP server, backwards-compatible)
+
+- New, outside the OpenAPI document and 404 while `UNFRET_MCP_OAUTH_ENABLED` is off:
+  `/.well-known/oauth-protected-resource[/mcp]`, `/.well-known/oauth-authorization-server`, `POST /oauth/register`,
+  `GET`/`POST /oauth/authorize`, `POST /oauth/token` and `POST /oauth/revoke` (README, "Signing in with OAuth"). Their access tokens (`ufat_…`) work at `/mcp` only.
+- `/mcp`: a 401 adds `resource_metadata` and `scope` to `WWW-Authenticate` while OAuth is on; `Bearer ufk_…` works as
+  before.
+- `POST /v1/keys`: unchanged (its description now names its 400 and 429 in prose).

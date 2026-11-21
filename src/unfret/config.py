@@ -384,6 +384,27 @@ class Settings(BaseSettings):
     # /terms shows a visible "draft" note at the top, for a new version of the terms that isn't approved yet.
     terms_draft: bool = False
 
+    # OAuth for the remote MCP server (unfret.oauth, /oauth/*, the /.well-known/oauth-* documents): hosted clients
+    # such as Claude's connectors sign in and pick an Unfret pass instead of sending one in a header. Off: /mcp takes
+    # passes only, as before. Codes go only to mcp_oauth_redirect_uris (exactly) and, with
+    # mcp_oauth_loopback_redirects, to loopback addresses on any port (Claude Code and other local clients). Access
+    # tokens live mcp_oauth_access_ttl_s; refresh tokens rotate on use and lapse after mcp_oauth_refresh_ttl_s unused.
+    # Dynamic client registrations: at most mcp_oauth_registrations_per_minute per network (Claude registers from
+    # Anthropic's servers, so this is generous) and mcp_oauth_registrations_daily_cap a UTC day in all; a registered
+    # client with no grant left is deleted after mcp_oauth_client_idle_days.
+    mcp_oauth_enabled: bool = False
+    mcp_oauth_redirect_uris: list[str] = [
+        "https://claude.ai/api/mcp/auth_callback",
+        "https://claude.com/api/mcp/auth_callback",
+    ]
+    mcp_oauth_loopback_redirects: bool = True
+    mcp_oauth_access_ttl_s: int = Field(default=3600, ge=60)
+    mcp_oauth_refresh_ttl_s: int = Field(default=30 * 24 * 3600, ge=3600)
+    mcp_oauth_code_ttl_s: int = Field(default=300, ge=30, le=600)
+    mcp_oauth_registrations_per_minute: int = Field(default=60, ge=1)
+    mcp_oauth_registrations_daily_cap: int = Field(default=20_000, ge=1)
+    mcp_oauth_client_idle_days: int = Field(default=30, ge=1)
+
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
     # Links the link checker (/check) offers to try, as [label, address] pairs (an address on this site may be a
@@ -680,6 +701,7 @@ class Settings(BaseSettings):
             "sign_in": bool(self.session_secret.get_secret_value()),
             "admin_token": bool(self.admin_token.get_secret_value()),
             "fiat": self.polar_environment if self.polar_configured else "off",
+            "mcp_oauth": self.mcp_oauth_enabled,
             "prices_usd_micros": {
                 "analysis": self.analysis_price_usd_micros,
                 "quick": self.x402_price_quick_usd_micros,

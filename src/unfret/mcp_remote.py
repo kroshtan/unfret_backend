@@ -7,11 +7,13 @@ limited and charged by exactly the code that serves ``/v1/check`` with a pass, w
 network and no copy of the rules to keep in step. The MCP transport runs **stateless** with JSON responses: every
 request stands on its own, so any process can answer it, a deploy drops nothing, and nothing is kept between calls.
 
-**Authentication: an Unfret pass only** (``Authorization: Bearer ufk_…``), checked before the request reaches the
-MCP layer; anything else is 401 with ``WWW-Authenticate: Bearer``. This server never pays from a wallet and has no
-code that could: deep checks are paid from the pass, quick checks are free. (The stdio package in ``mcp/`` keeps its
-wallet mode for agents that run it themselves.) Too many bad passes from one network are answered 429 before any
-lookup.
+**Authentication: an Unfret pass**, sent as ``Authorization: Bearer ufk_…``, or, while ``mcp_oauth_enabled`` is on, an
+OAuth access token for one (``Bearer ufat_…``, :mod:`unfret.oauth`: how Claude's connector directory signs in). Both
+are checked before the request reaches the MCP layer; anything else is 401 with ``WWW-Authenticate: Bearer`` (with
+``resource_metadata``, where to sign in, while OAuth is on). The OAuth tokens work here only, never on the rest of the
+API. This server never pays from a wallet and has no code that could: deep checks are paid from the pass, quick
+checks are free. (The stdio package in ``mcp/`` keeps its wallet mode for agents that run it themselves.) Too many
+bad passes or tokens from one network are answered 429 before any lookup.
 
 The tools only ever call the three routes in :data:`ROUTES`, with nothing but the caller's pass: no route that buys,
 tops up or pays (x402, wallets, card checkout) is reachable from here, and a payment header sent to ``/mcp`` is never
@@ -34,7 +36,7 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from unfret import __version__
+from unfret import __version__, oauth
 from unfret.api import UnfretAPI
 from unfret.config import settings
 from unfret.credits import keys
@@ -109,9 +111,22 @@ async def _call(ctx: Context, method: str, path: str, body: dict[str, Any] | Non
     authorization, client = _caller(ctx)
     transport = httpx.ASGITransport(app=_api, client=client)
     timeout = httpx.Timeout(settings.analysis_timeout_s + 30)
+    token = authorization.partition(" ")[2].strip()
     async with httpx.AsyncClient(transport=transport, base_url=_INTERNAL, timeout=timeout) as http:
-        # Only the pass goes along: never a payment header, so /v1/check always charges the pass (never x402).
-        return await http.request(method, path, json=body, headers={"Authorization": authorization})
+        if not token.startswith(oauth.ACCESS_PREFIX):
+            # Only the pass goes along: never a payment header, so /v1/check always charges the pass (never x402).
+            return await http.request(method, path, json=body, headers={"Authorization": authorization})
+        # An OAuth caller: the pass itself was never seen (only its hash is kept), so the routes get a stand-in for
+        # it that works in this process, for this call only.
+        try:
+            account = await oauth.authenticate(_api.db_pool, token) if _api.db_pool is not None else None
+        except keys.ApiKeyError:
+            account = None
+        if account is None:
+            problem = {"detail": "The sign-in expired or was revoked; sign in again.", "error_code": "INVALID_API_KEY"}
+            return httpx.Response(401, json=problem)
+        with keys.internal_pass(account) as stand_in:
+            return await http.request(method, path, json=body, headers={"Authorization": f"Bearer {stand_in}"})
 
 
 def _error(response: httpx.Response) -> dict[str, Any]:
@@ -302,9 +317,13 @@ async def get_pricing(ctx: Context) -> dict[str, Any]:
 
 
 def _unauthorized(detail: str, *, error: str = "invalid_token") -> JSONResponse:
-    challenge = f'Bearer realm="Unfret", error="{error}", error_description="{detail}"'
-    if error == "invalid_request":
+    if settings.mcp_oauth_enabled:
+        # Where to sign in (RFC 9728 §5.1): Claude starts its OAuth flow from this 401.
+        challenge = oauth.challenge_header(None if error == "invalid_request" else error, detail)
+    elif error == "invalid_request":
         challenge = 'Bearer realm="Unfret"'  # no credentials at all: no error code (RFC 6750 §3.1)
+    else:
+        challenge = f'Bearer realm="Unfret", error="{error}", error_description="{detail}"'
     return JSONResponse(
         {"detail": detail, "error_code": "INVALID_API_KEY" if error == "invalid_token" else "UNAUTHORIZED"},
         status_code=401,
@@ -317,7 +336,7 @@ class _Endpoint:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """
-        Refuse anything without a valid Unfret pass, then hand the request to the MCP transport.
+        Refuse anything without a valid Unfret pass (or OAuth token for one), then hand the request to MCP.
 
         :param scope: The ASGI scope.
         :param receive: The ASGI receive channel.
@@ -336,9 +355,9 @@ class _Endpoint:
 endpoint = _Endpoint()
 
 
-async def _gate(scope: Scope) -> JSONResponse | None:
+async def _gate(scope: Scope) -> JSONResponse | None:  # noqa: PLR0911 - one return per refusal
     """
-    Check the request's pass.
+    Check the request's pass or OAuth access token.
 
     :param scope: The ASGI scope.
     :return: The refusal, or ``None`` to go on.
@@ -356,8 +375,9 @@ async def _gate(scope: Scope) -> JSONResponse | None:
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         _bad_passes.retry_after(ip)
+        how = "Sign in, or set the connector up" if settings.mcp_oauth_enabled else "Set the connector up"
         return _unauthorized(
-            "Set the connector up with an Unfret pass: Authorization: Bearer ufk_... "
+            f"{how} with an Unfret pass: Authorization: Bearer ufk_... "
             f"(a developer pass with free checks: {settings.public_base_url.rstrip('/')}/developers).",
             error="invalid_request",
         )
@@ -365,9 +385,14 @@ async def _gate(scope: Scope) -> JSONResponse | None:
     if pool is None:
         return JSONResponse({"detail": "Unfret passes are not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
     try:
-        await keys.authenticate(pool, token)
+        if settings.mcp_oauth_enabled and token.startswith(oauth.ACCESS_PREFIX):
+            await oauth.authenticate(pool, token)
+        else:
+            await keys.authenticate(pool, token if token.startswith(keys.KEY_PREFIX) else "-")
     except keys.ApiKeyError:
         _bad_passes.retry_after(ip)
+        if token.startswith(oauth.ACCESS_PREFIX):
+            return _unauthorized("The sign-in expired or was revoked (refresh it, or sign in again).")
         return _unauthorized("Not a valid Unfret pass (unknown, mistyped or replaced by a backup code).")
     return None
 
@@ -385,8 +410,8 @@ async def running(api: UnfretAPI) -> AsyncIterator[None]:
         streamable_http_path=PATH,
         stateless_http=True,
         json_response=True,
-        # A pass in a header is the only credential (no cookies, nothing ambient), so DNS rebinding gains nothing;
-        # the SDK's localhost-only host check would refuse every real host name.
+        # A bearer token in a header is the only credential (no cookies, nothing ambient), so DNS rebinding gains
+        # nothing; the SDK's localhost-only host check would refuse every real host name.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     async with server.session_manager.run():

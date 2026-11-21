@@ -86,7 +86,7 @@ async def require_account(request: Request) -> str:
     """
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     token = token.strip()
-    if scheme.lower() != "bearer" or not token.startswith(keys.KEY_PREFIX):
+    if scheme.lower() != "bearer" or not keys.is_pass_token(token):
         return require_wallet(request)
     if not get_credits(request).sign_in_enabled or request.app.db_pool is None:
         raise ServiceUnavailableError("API keys are not available yet.")

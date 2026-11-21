@@ -12,6 +12,17 @@
   payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
   descriptions and that no tool can pay.
 
+* **Sign in to the remote MCP server with OAuth, for Claude's connector directory.** With
+  `UNFRET_MCP_OAUTH_ENABLED` (on in dev, off in production until it's switched on) Unfret is its own OAuth 2.1
+  authorization server for `/mcp`: discovery documents (RFC 9728, RFC 8414), public clients by Client ID Metadata
+  Document or dynamic registration, codes only to Claude's callbacks and loopback addresses, PKCE S256, the `iss`
+  response parameter, one-hour access tokens and rotating refresh tokens, and revocation. The sign-in page
+  (`/oauth/authorize`) lets the person paste a pass or make a new free pass (the same proof of work, limits and free
+  checks as a new extension pass). A token stands for that pass at `/mcp` only, and ends when the pass is replaced
+  from its backup code or retired. Only hashes of codes and tokens are stored, tied to the pass; nothing about the
+  person (privacy page updated). `Bearer ufk_…` keeps working at `/mcp`, and a 401 there now says where to sign in
+  (`resource_metadata`). Migration 36 adds `oauth_clients`, `oauth_codes` and `oauth_grants`.
+
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 
 ### Prices

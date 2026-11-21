@@ -182,8 +182,8 @@
           hints: the free check is read-only, the deep one uses one of the pass's checks, and both read a third-party page.</p>
 
         <h3>Remote, with a pass</h3>
-        <p>Streamable HTTP at <code>{{base_url}}/mcp</code>, authenticated with an Unfret pass. It never pays from a
-          wallet. Tools: <code>check_store_quick</code> (free), <code>check_store_deep</code> (one of the pass's checks),
+        <p>Streamable HTTP at <code>{{base_url}}/mcp</code>, authenticated with an Unfret pass<!-- oauth-on --> or by
+          signing in<!-- /oauth-on -->. It never pays from a wallet. Tools: <code>check_store_quick</code> (free), <code>check_store_deep</code> (one of the pass's checks),
           <code>get_checks_left</code> and <code>get_pricing</code>. In Claude Code:</p>
         <div class="code-block">
           <pre class="terminal" id="mcp-remote-cli"><span class="k">claude</span> mcp add --transport http unfret {{base_url}}/mcp \
@@ -197,6 +197,14 @@
   "headers": {"Authorization": "Bearer ufk_…"}}}}</pre>
           <button type="button" class="copy" data-copy="mcp-remote">Copy</button>
         </div>
+        <!-- oauth-on --><p id="mcp-oauth"><strong>Or sign in, without a header.</strong> Claude's connectors
+          (claude.ai, Claude Desktop and mobile), Claude Code and other clients that speak MCP's OAuth just add
+          <code>{{base_url}}/mcp</code>: Unfret's sign-in page lets you paste a pass or make a new free one, and the
+          client gets a token for that pass. It works at <code>/mcp</code> only, lasts an hour and is renewed by the
+          client; disconnect in the client, or replace the pass with its backup code, to end it. No payment is part
+          of signing in. For client developers: discovery at <code>/.well-known/oauth-protected-resource/mcp</code>,
+          public clients only (PKCE S256), with a Client ID Metadata Document or dynamic registration; codes go only
+          to Claude's callback and loopback addresses.</p><!-- /oauth-on -->
 
         <h3>Local, with a pass or a wallet</h3>
         <p><code>unfret-mcp</code> (on PyPI, and in the MCP registry as <code>net.unfret/mcp</code>) runs next to

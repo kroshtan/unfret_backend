@@ -56,6 +56,7 @@ REASON_SEVERITY: dict[str, Severity] = {
     "was_never_charged": "high",
     "implausible_discount": "high",
     "reference_anchor": "medium",
+    "marketplace_reference": "low",
     "permanent_sale": "medium",
     "seller_lookalike": "medium",
     "seller_not_brand": "low",
@@ -693,6 +694,9 @@ def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["implausible_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}
     if e.f("pricing.reference_anchor") >= 1:
         fired["reference_anchor"] = {"anchor": _quoted(e.first("reference_anchor")) or "…"}
+    elif own := e.first("marketplace_reference"):
+        # A note: the marketplace's own reference-price label, on every discounted listing (see the pricing skill).
+        fired["marketplace_reference"] = {"anchor": _quoted(own) or "…"}
     if e.storefront and e.f("pricing.permanent_sale") >= 1:
         fired["permanent_sale"] = {"phrase": _quoted(e.first("permanent_sale")) or "…"}
 
@@ -1370,6 +1374,7 @@ def build(
     moves = evidence.f("claim_audit.impossible") >= 1 or evidence.f("claim_audit.count_off") >= 1
     weighed = set(fired) - ({"claim_contradicted"} if not moves else set())
     weighed.discard("variants_grouped")  # a note: options grouped under one rating are told, never a warning alone
+    weighed.discard("marketplace_reference")  # a note: the marketplace's own reference price, never a warning alone
     band = _with_reasons(band, score, weighed, confidence, concrete_only=concrete_only, needs_reason=needs_reason)
     if band in {"reliable", "concerns"} and evidence.storefront and evidence.first("vat_fake"):
         band = "careful"  # a made-up VAT number is a false statement about who the seller is, whatever the score

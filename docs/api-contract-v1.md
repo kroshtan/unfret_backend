@@ -1558,3 +1558,15 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `ai_read`, next step `check_variant`. Only the first is shown when both fire (its sentence says the grouping too). A
   bait price makes "Looks fine" "Worth a look" at most, whoever sells it; a grouping alone is a note and never a
   warning.
+
+## Changes (a marketplace's own reference price is a note; backwards-compatible)
+
+- A marketplace's own reference-price label (Amazon's in every locale: "List Price", "Typical price", "RRP",
+  "Recommended retail price", "UVP", "Unverbindliche Preisempfehlung", "Adviesprijs", "Prix conseillé"; bol.com's
+  "Adviesprijs", "Adviesverkoopprijs" and "Meestal"; Walmart's "List price" and "Typical price") no longer gives
+  `pricing.reference_anchor` and the `reference_anchor` reason. It gives a `pricing` finding `marketplace_reference`
+  (the label, quoted, as its evidence) and the new shopper reason key `marketplace_reference` ("Discount on the
+  marketplace's reference price", severity low, area `prices`, source `page`, next step `compare_price`): a note that
+  never moves the band. It is `reference_anchor` again once the product's price history shows the reference price
+  was not charged (`pricing.was_above_30d_low`). A web shop's labels, and a seller's own anchor in a marketplace
+  listing's text, are unchanged.

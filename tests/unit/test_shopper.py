@@ -187,6 +187,17 @@ def test_fake_discount_reasons() -> None:
     assert never.detail == "This product sold for €19.95 in the past 30 days, yet the 'was' price is €79.95."
 
 
+def test_a_marketplaces_own_reference_price_is_a_note() -> None:
+    findings = [Finding(skill="pricing", type="marketplace_reference", evidence='"Adviesprijs"')]
+    facts = PageFacts(platform="amazon", currency="EUR", price=39.95, list_price=49.95)
+    verdict = build(90, {"listing.discount_pct": 0.2}, findings=findings, facts=facts, page_type="aggregate_listing")
+
+    assert verdict.band == "reliable"
+    assert [r.type for r in verdict.reasons] == ["marketplace_reference"]
+    assert verdict.reasons[0].severity == "low"
+    assert "“Adviesprijs”" in verdict.reasons[0].detail
+
+
 def test_strongest_reasons_first_and_groups_collapse() -> None:
     verdict = build(10, ALL_REASON_FEATURES, findings=ALL_FINDINGS, facts=FACTS)
     severities = [r.severity for r in verdict.reasons]

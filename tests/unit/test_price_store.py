@@ -85,14 +85,71 @@ async def test_fake_discount_wording() -> None:
         # Wording from archived amazon.com and Walmart listings (US-market fixtures), and bol.com's own label.
         ("amazon", "Paperback $10.90 Print List Price: $14.39 $14.39"),
         ("amazon", "-25% $10.90 Typical price: $14.39"),
-        ("walmart", "Current price is USD Now $89.00 You save $40.99 was $129.99 $129.99"),
+        ("walmart", "Current price is USD Now $89.00 You save $40.99 Typical price $129.99"),
         ("bol.com", "Adviesprijs € 14,39 € 10,90"),
+        ("bol.com", "Meestal € 14,39 € 10,90"),
+        # Amazon's own label on its other locales: .nl, .de, .co.uk, .fr.
+        ("amazon", "-24% € 10,90 Adviesprijs: € 14,39"),
+        ("amazon", "-24% 10,90 € UVP: €14,39"),
+        ("amazon", "-24% 10,90 € Unverbindliche Preisempfehlung: €14,39"),
+        ("amazon", "-24% £10.90 RRP: £14.39"),
+        ("amazon", "-24% 10,90 € Prix conseillé : €14,39"),
     ],
 )
-async def test_a_marketplaces_own_reference_price_is_not_an_anchor(platform: Platform, text: str) -> None:
+async def test_a_marketplaces_own_reference_price_is_a_note(platform: Platform, text: str) -> None:
     facts = PageFacts(platform=platform, price=10.9, list_price=14.39)
     out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
-    assert out["features"] == {}
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [o.type for o in out["findings"]] == ["marketplace_reference"]
+
+
+async def test_a_marketplaces_own_reference_price_never_charged_is_the_reason(store: MemoryPriceStore) -> None:
+    url = "https://www.amazon.nl/dp/B0ABC12345"
+    facts = PageFacts(platform="amazon", price=39.95, list_price=79.95, currency="EUR")
+    key = price_store.product_key(url, facts)
+    assert key is not None
+    today = price_store.today()
+    await store.record(
+        key, Observation(today - timedelta(days=settings.price_history_min_days + 5), 39.0, "EUR", None)
+    )
+    await store.record(key, Observation(today - timedelta(days=10), 34.95, "EUR", None))
+    text = "-50% € 39,95 Adviesprijs: € 79,95"
+
+    out = await PricingSkill().run(state(facts, url=url, text=text, page_type="aggregate_listing"))
+
+    assert out["features"]["pricing.was_above_30d_low"] == 1.0
+    assert out["features"]["pricing.reference_anchor"] == 1.0
+    assert [o.type for o in out["findings"]] == ["was_never_charged", "reference_anchor"]
+
+
+async def test_a_marketplaces_own_reference_price_charged_recently_stays_a_note(store: MemoryPriceStore) -> None:
+    url = "https://www.amazon.nl/dp/B0ABC12345"
+    facts = PageFacts(platform="amazon", price=39.95, list_price=79.95, currency="EUR")
+    key = price_store.product_key(url, facts)
+    assert key is not None
+    today = price_store.today()
+    for days in (settings.price_history_min_days + 5, 3):
+        await store.record(key, Observation(today - timedelta(days=days), 79.95, "EUR", None))
+    text = "-50% € 39,95 Adviesprijs: € 79,95"
+
+    out = await PricingSkill().run(state(facts, url=url, text=text, page_type="aggregate_listing"))
+
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [o.type for o in out["findings"]] == ["marketplace_reference"]
+
+
+async def test_an_anchor_label_on_a_web_shop_is_still_the_reason() -> None:
+    facts = PageFacts(price=10.9, list_price=14.39)
+    out = await PricingSkill().run(state(facts, text="Adviesprijs € 14,39 € 10,90"))
+    assert out["features"] == {"pricing.reference_anchor": 1.0}
+    assert [o.type for o in out["findings"]] == ["reference_anchor"]
+
+
+async def test_a_marketplaces_plain_was_price_says_nothing() -> None:
+    facts = PageFacts(platform="walmart", price=89.0, list_price=129.99)
+    text = "Current price is USD Now $89.00 You save $40.99 was $129.99 $129.99"
+    out = await PricingSkill().run(state(facts, text=text, page_type="aggregate_listing"))
+    assert (out["features"], out["findings"]) == ({}, [])
 
 
 async def test_a_sellers_own_anchor_still_counts_on_a_marketplace() -> None:

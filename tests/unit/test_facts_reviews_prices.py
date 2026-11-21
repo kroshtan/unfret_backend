@@ -100,13 +100,15 @@ def test_review_apps_and_microdata() -> None:
     assert jsonld.image_urls[0] == "https://bergzeit-outdoor.example/media/rucksack-30.jpg"
 
 
-async def test_the_mobile_amazon_page_gives_the_reference_price_reason() -> None:
+async def test_the_mobile_amazon_page_gives_the_reference_price_note() -> None:
     # Floris's case: the app read amazon.nl's mobile page without a price, so the "Adviesprijs" discount went unseen.
+    # Amazon's own "Adviesprijs" is a note, not the reason, until the price history shows it was never charged.
     facts, text = _facts("amazon-nl-mobile-reference.html", "https://www.amazon.nl/dp/B0MOBREF01")
 
     out = await PricingSkill(history=False).run({"facts": facts, "cleaned_content": text, "url": ""})  # type: ignore[typeddict-item]
 
-    assert out["features"].get("pricing.reference_anchor") == 1.0
+    assert "pricing.reference_anchor" not in out["features"]
+    assert [(f.type, f.evidence) for f in out["findings"]] == [("marketplace_reference", '"Adviesprijs"')]
 
 
 async def test_bolcom_own_reference_labels_say_nothing_by_themselves() -> None:

@@ -140,7 +140,7 @@ async def test_the_price_list_has_the_euro_card_prices_next_to_the_dollar_ones()
     ]
     # Both are final prices (tax included).
     assert doc["card_tax_inclusive"] == {"usd": True, "eur": True}
-    before = Settings(card_prices_eur_tax_inclusive=False)
+    before = Settings(card_prices_eur_tax_inclusive=False, card_prices_usd_tax_inclusive=False)
     doc = await pricing(before, None, PriceBook(before, StaticOracle("100")), USDC_MINTS["solana-devnet"])
     assert doc["card_tax_inclusive"] == {"usd": False, "eur": False}
     off = Settings(card_prices_eur="")

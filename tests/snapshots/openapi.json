@@ -2389,7 +2389,7 @@
       "type": "string"
      },
      "links": {
-      "description": "Up to three links to the evidence elsewhere (archived copies on web.archive.org).",
+      "description": "Up to three links to the evidence elsewhere (archived copies: a web.archive.org copy, or the copy's record in Common Crawl's index, index.commoncrawl.org).",
       "items": {
        "type": "string"
       },

@@ -96,7 +96,7 @@ SKILLS: list[Skill] = [
     TestimonialsSkill(),
     PlatformProfileSkill(),
     ReverseImageSkill(),
-    # The shop's earlier copies in the Internet Archive: planned by the triage on an old address that looks doubtful.
+    # The shop's earlier copies in the web archives: planned by the triage on an old address that looks doubtful.
     DomainHistorySkill(),
     # Peer-to-peer ads
     SellerProfileSkill(),

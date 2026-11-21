@@ -59,19 +59,29 @@ export function card(className, title, detail, thumbs = [], source = "", links =
   return li;
 }
 
-/** A reason's links: archived copies of the shop's address on web.archive.org only, at most three. */
+const WAYBACK_LINK = "https://web.archive.org/web/";
+const COMMON_CRAWL_LINK = "https://index.commoncrawl.org/CC-MAIN-";
+
+/**
+ * A reason's links: archived copies of the shop's address only (web.archive.org, or the copy's record in Common
+ * Crawl's index), at most three.
+ */
 export function archiveLinks(links) {
   if (!Array.isArray(links)) return [];
-  return links.filter((u) => typeof u === "string" && u.startsWith("https://web.archive.org/web/")).slice(0, 3);
+  const archived = (u) => u.startsWith(WAYBACK_LINK) || u.startsWith(COMMON_CRAWL_LINK);
+  return links.filter((u) => typeof u === "string" && archived(u)).slice(0, 3);
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
   "November", "December"];
 
-/** "March 2026" for an archived copy's link (its timestamp), else "web.archive.org". */
+/** "March 2026" for an archived copy's link (its timestamp), else the archive's name. */
 export function monthOf(href) {
-  const m = /\/web\/(\d{4})(\d{2})/.exec(href);
-  return m && +m[2] >= 1 && +m[2] <= 12 ? `${MONTHS[+m[2] - 1]} ${m[1]}` : "web.archive.org";
+  const m = /\/web\/(\d{4})(\d{2})|[?&]from=(\d{4})(\d{2})/.exec(href);
+  const year = m && (m[1] || m[3]);
+  const month = m && +(m[2] || m[4]);
+  if (year && month >= 1 && month <= 12) return `${MONTHS[month - 1]} ${year}`;
+  return href.startsWith(COMMON_CRAWL_LINK) ? "commoncrawl.org" : "web.archive.org";
 }
 
 /**

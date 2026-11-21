@@ -1575,3 +1575,29 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   "Listpris", "Unverb. Preisempf." and the Portuguese, Danish, Norwegian, Finnish and Czech equivalents), and so does
   eBay's struck "List price". On a web shop the new labels give `reference_anchor`, as "RRP" does. A reference price
   written with its currency after the number ("UVP: 14,39 €") now matches as well; it never did before.
+
+## Changes (Common Crawl first for a shop's earlier copies, and Unfret's own first sighting; backwards-compatible)
+
+- `domain_history` asks Common Crawl first and the Internet Archive only when Common Crawl has no usable copy. Its
+  findings name the archive: `archive_copy` reads "Common Crawl copy of <address> from <month>: …" or "Internet
+  Archive copy of …"; `domain_repurposed` "… but Common Crawl's copy from <month> shows …" or "… but the Internet
+  Archive's copy …"; `no_archive_copies` "Common Crawl and the Internet Archive have no copies of <address> …" (or the
+  one archive asked). The comparison rules and the reason's wording are unchanged.
+- `reasons[].links` may now also hold a Common Crawl copy's record in its index
+  (`https://index.commoncrawl.org/CC-MAIN-<crawl>-index?url=<address>&from=<timestamp>&limit=1`; Common Crawl has no
+  page viewer), at most three as before. Shared results keep links of either archive only. The `source` of
+  `domain_repurposed` and `established_archive` names the archive: "Earlier copies of the site (Common Crawl,
+  commoncrawl.org)" or "Earlier copies of the site (Internet Archive, web.archive.org)"; an `established_archive` by
+  Unfret's own first check has source "Shops Unfret has checked".
+- The address's first sighting (`domain_age.archive_age_years`, `.archive_first_year`, `.age_from_archive`, finding
+  `archive_first_capture`) is the oldest of Common Crawl's oldest copy among a few crawls (else the Internet
+  Archive's first copy) and Unfret's own first check of the shop (the first day a page Unfret fetched itself showed
+  it). New features `domain_age.first_seen_common_crawl` and `.first_seen_unfret` say which (neither: the Internet
+  Archive). `archive_first_capture` reads "Online since at least <date>, per Common Crawl (the oldest copy of
+  <address> found there; …)", "per the Internet Archive (its first copy of <address>; …)" or "per Unfret's own
+  checks (the first time Unfret checked <address>; …)".
+- `established_archive`'s detail names its source: "This web shop's address has been online since at least <year>,
+  per <Common Crawl | the Internet Archive | Unfret's own checks>, and its earlier copies show the same shop."
+- The card note `no_archive` reads "The web archives (Common Crawl, the Internet Archive) have no earlier copies of
+  the shop's address."
+- x402 `POST /v1/check` and the MCP server: unchanged in shape.

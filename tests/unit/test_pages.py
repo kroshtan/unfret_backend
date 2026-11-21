@@ -80,7 +80,7 @@ async def test_assets_are_served(client: httpx.AsyncClient, asset: str) -> None:
 # Links the user may click to reopen /connect inside a wallet app's browser: navigations, never requests.
 WALLET_UNIVERSAL_LINKS = ("https://phantom.app/ul/browse/", "https://solflare.com/ul/v1/browse/")
 # A reason's links to archived copies of a shop's address (domain_history): links the user may open, never requests.
-ARCHIVE_LINK = '"https://web.archive.org/web/"'
+ARCHIVE_LINKS = ('"https://web.archive.org/web/"', '"https://index.commoncrawl.org/CC-MAIN-"')
 
 
 # The link checker completes a typed bare domain ("shop.example/item") to a link; it is checked, never fetched here.
@@ -89,7 +89,9 @@ BARE_DOMAIN_PREFIX = "`https://${value}`"
 
 def test_scripts_make_no_third_party_requests() -> None:
     for script in STATIC_DIR.glob("*.js"):
-        text = script.read_text().replace(BARE_DOMAIN_PREFIX, "").replace(ARCHIVE_LINK, '""')
+        text = script.read_text().replace(BARE_DOMAIN_PREFIX, "")
+        for archive in ARCHIVE_LINKS:
+            text = text.replace(archive, '""')
         for link in WALLET_UNIVERSAL_LINKS:
             text = text.replace(f"`{link}", "`")
         assert "https://" not in text and "http://" not in text, script.name

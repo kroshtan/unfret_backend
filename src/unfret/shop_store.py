@@ -2,7 +2,9 @@
 The shop fingerprint store: what Unfret has seen of web shops, so shops run by one operator can be linked.
 
 Shops only, never shoppers. A row is keyed by the shop's registrable domain and holds facts any visitor can see:
-the first and last day an analysis saw it (days, never times), its platform and apps, its template hash, the
+the first and last day an analysis saw it (days, never times), the first day a page Unfret fetched itself showed it
+(``first_fetched``: Unfret's own "seen since", a third source of an address's age next to the web archives, in
+:mod:`unfret.graph.skills.domain_age`), its platform and apps, its template hash, the
 registration and first-certificate dates already looked up, and the account identifiers on its pages
 (:mod:`unfret.fingerprint`). Nothing records who checked it, which page, or what Unfret concluded: no URL, caller,
 wallet, IP address, score or verdict is stored, so the store can't feed its own verdicts back as evidence.
@@ -150,6 +152,22 @@ class ShopStore(Protocol):
         :return: 32 bytes, or ``None`` for an unknown shop.
         """
 
+    async def first_fetched(self, domain: str) -> date | None:
+        """
+        The first day a page Unfret fetched itself showed the shop.
+
+        :param domain: A registrable domain.
+        :return: The day, or ``None`` for a shop Unfret hasn't fetched (only seen in content a client sent).
+        """
+
+    async def seen(self, domain: str, day: date) -> None:
+        """
+        Note that a page Unfret fetched showed the shop today, and nothing else (past the network's write limit).
+
+        :param domain: A registrable domain.
+        :param day: Today.
+        """
+
     async def forget_shop(self, domain: str) -> bool:
         """
         Delete a shop and its identifiers.
@@ -173,6 +191,7 @@ class _Shop:
     first_seen: date
     last_seen: date
     rec: ShopRecord
+    first_fetched: date | None = None
 
 
 class MemoryShopStore:
@@ -196,6 +215,7 @@ class MemoryShopStore:
             old.first_seen if old else rec.day,
             max(old.last_seen, rec.day) if old else rec.day,
             (_merged(old.rec, rec) if _trusted(rec) else _filled(old.rec, rec)) if old else new,
+            (old.first_fetched if old else None) or (rec.day if _trusted(rec) else None),
         )
         for kind, values in rec.links.items():
             for value in values:
@@ -280,6 +300,29 @@ class MemoryShopStore:
         shop = self.shops.get(domain)
         return shop.rec.fingerprint if shop else None
 
+    async def first_fetched(self, domain: str) -> date | None:
+        """
+        The first day a fetched page showed it.
+
+        :param domain: The shop.
+        :return: The day.
+        """
+        shop = self.shops.get(domain)
+        return shop.first_fetched if shop else None
+
+    async def seen(self, domain: str, day: date) -> None:
+        """
+        A fetched sighting, nothing else.
+
+        :param domain: The shop.
+        :param day: Today.
+        """
+        old = self.shops.get(domain)
+        if old is None:
+            self.shops[domain] = _Shop(day, day, ShopRecord(domain, day), day)
+        else:
+            old.last_seen, old.first_fetched = max(old.last_seen, day), old.first_fetched or day
+
     async def forget_shop(self, domain: str) -> bool:
         """
         Delete a shop.
@@ -337,6 +380,7 @@ class PostgresShopStore:
                 shop.registrar,
                 shop.first_cert,
                 shop.fingerprint,
+                rec.day if _trusted(rec) else None,
             )
             if rows:
                 await conn.executemany(
@@ -448,6 +492,32 @@ class PostgresShopStore:
         value = await self.pool.fetchval("SELECT fingerprint FROM shops WHERE domain = $1", domain)
         return bytes(value) if value is not None else None
 
+    async def first_fetched(self, domain: str) -> date | None:
+        """
+        The first day a fetched page showed it.
+
+        :param domain: The shop.
+        :return: The day.
+        """
+        day: date | None = await self.pool.fetchval("SELECT first_fetched FROM shops WHERE domain = $1", domain)
+        return day
+
+    async def seen(self, domain: str, day: date) -> None:
+        """
+        A fetched sighting, nothing else.
+
+        :param domain: The shop.
+        :param day: Today.
+        """
+        await self.pool.execute(
+            "INSERT INTO shops (domain, first_seen, last_seen, platform, first_fetched)"
+            " VALUES ($1, $2, $2, 'generic', $2)"
+            " ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
+            " first_fetched = COALESCE(shops.first_fetched, EXCLUDED.first_fetched)",
+            domain,
+            day,
+        )
+
     async def forget_shop(self, domain: str) -> bool:
         """
         Delete a shop (its identifiers go with it).
@@ -472,8 +542,9 @@ class PostgresShopStore:
 
 _SHOP_UPSERT = (
     "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
-    " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
+    " first_cert, fingerprint, first_fetched) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
     "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
+    " first_fetched = COALESCE(shops.first_fetched, EXCLUDED.first_fetched),"
     " platform = EXCLUDED.platform, apps = EXCLUDED.apps,"
     " skeleton = COALESCE(EXCLUDED.skeleton, shops.skeleton),"
     " registered = COALESCE(EXCLUDED.registered, shops.registered),"
@@ -481,10 +552,11 @@ _SHOP_UPSERT = (
     " first_cert = COALESCE(EXCLUDED.first_cert, shops.first_cert), fingerprint = EXCLUDED.fingerprint"
 )
 # An observation that doesn't count at once (client content, unless a page Unfret fetched showed it): the shop is
-# added with its looked-up dates only, and an existing one keeps its facts (its looked-up dates are filled in).
+# added with its looked-up dates only, and an existing one keeps its facts (its looked-up dates are filled in). Its
+# first_fetched is NULL ($10 is): only a page Unfret fetched itself says since when the shop is online.
 _SHOP_KEEP = (
     "INSERT INTO shops (domain, first_seen, last_seen, platform, apps, skeleton, registered, registrar,"
-    " first_cert, fingerprint) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9) "
+    " first_cert, fingerprint, first_fetched) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
     "ON CONFLICT (domain) DO UPDATE SET last_seen = GREATEST(shops.last_seen, EXCLUDED.last_seen),"
     " registered = COALESCE(shops.registered, EXCLUDED.registered),"
     " registrar = COALESCE(shops.registrar, EXCLUDED.registrar),"
@@ -747,18 +819,38 @@ async def observe(state: dict[str, Any]) -> None:
         logger.warning("shop_store_failed", error=type(exc).__name__)
 
 
+async def _seen(state: dict[str, Any]) -> None:
+    """
+    Note the shop's fetched sighting only (:meth:`ShopStore.seen`). Never raises.
+
+    :param state: The final analysis state.
+    """
+    try:
+        if (domain := shop_domain(state)) is not None:
+            await _store.seen(domain, today())
+    except Exception as exc:  # noqa: BLE001 - optional, after the answer
+        logger.warning("shop_store_failed", error=type(exc).__name__)
+
+
 def observe_later(state: dict[str, Any]) -> None:
     """
     Record the shop in the background, after the analysis has answered (off when ``fingerprints`` is off).
 
-    Never the test shop (:mod:`unfret.test_shop`): its tricks are made up. Nothing past the network's daily write
-    limit (:func:`unfret.observations.for_request`). The task inherits the analysis's provenance.
+    Never the test shop (:mod:`unfret.test_shop`): its tricks are made up. Past the network's daily write limit
+    (:func:`unfret.observations.for_request`) only a page Unfret fetched itself is noted, as the shop's domain and the
+    day (:meth:`ShopStore.seen`), so every shop Unfret fetches has its first-seen day. The task inherits the
+    analysis's provenance.
 
     :param state: The final analysis state.
     """
     if not settings.fingerprints or is_test_shop(str(state.get("url") or "")):
         return
-    if not observations.current().record:
+    provenance = observations.current()
+    if not provenance.record:
+        if provenance.fetched:  # past the write limit, a page Unfret fetched still notes since when the shop is online
+            task = asyncio.create_task(_seen(dict(state)))
+            _pending.add(task)
+            task.add_done_callback(_pending.discard)
         return
     task = asyncio.create_task(observe(dict(state)))
     _pending.add(task)

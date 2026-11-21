@@ -62,14 +62,17 @@ def no_photo_model_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def no_archive_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test reaches the Internet Archive (a web shop without a registry date asks it for its first copy)."""
-    from unfret.graph.skills import domain_history  # noqa: PLC0415 - keep the graph out of import time
+    """No test reaches Common Crawl or the Internet Archive (a shop without a registry date asks for a first copy)."""
+    from unfret.graph.skills import common_crawl, domain_history  # noqa: PLC0415 - keep the graph out of import time
 
     async def offline(url: str, **_: object) -> bytes:
-        raise ConnectionError("No Internet Archive in tests: pass recorded answers (tests/fixtures/wayback).")
+        raise ConnectionError("No web archives in tests: pass recorded answers (tests/fixtures/wayback, commoncrawl).")
 
     monkeypatch.setattr(domain_history, "fetch_public", offline)
-    monkeypatch.setattr(domain_history, "pace", domain_history.Pace())
+    monkeypatch.setattr(common_crawl, "fetch_public", offline)
+    monkeypatch.setattr(domain_history, "pace", domain_history.new_pace())
+    monkeypatch.setattr(common_crawl, "pace", common_crawl.new_pace())
+    monkeypatch.setattr(common_crawl, "_crawls", None)
 
 
 @pytest.fixture(autouse=True)

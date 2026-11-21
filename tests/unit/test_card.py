@@ -19,7 +19,8 @@ ALL_POSITIVES = set(shopper.POSITIVE_KEYS) | set(services.POSITIVE_KEYS)
 def test_every_finding_has_a_source_in_words() -> None:
     assert set(card.REASON_SOURCES) >= ALL_REASONS, ALL_REASONS - set(card.REASON_SOURCES)
     assert set(card.POSITIVE_SOURCES) >= ALL_POSITIVES, ALL_POSITIVES - set(card.POSITIVE_SOURCES)
-    used = set(card.REASON_SOURCES.values()) | set(card.POSITIVE_SOURCES.values())
+    # The archives' reasons and positives name the archive (or Unfret's own records) their evidence came from.
+    used = set(card.REASON_SOURCES.values()) | set(card.POSITIVE_SOURCES.values()) | set(card._SEEN_SOURCES.values())
     assert used <= set(COPY["sources"]) and set(COPY["sources"]) <= used | {"page"}
     assert COPY["sources"]["rdap"] == "Domain registry (RDAP)"
 

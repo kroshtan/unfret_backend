@@ -27,8 +27,9 @@ PUBLIC_BANDS: dict[shopper.Band, tuple[PublicBand, str, str]] = {
 }
 # Words a public result never uses: it states what a page showed, it doesn't call a shop names.
 FORBIDDEN_RE = re.compile(r"scam|fraud", re.IGNORECASE)
-# The only links a reason may carry: archived copies of the shop's address (domain_history).
-_ARCHIVE_PREFIX = "https://web.archive.org/web/"
+# The only links a reason may carry: archived copies of the shop's address (domain_history), in the Internet Archive
+# or as their record in Common Crawl's index.
+_ARCHIVE_PREFIX = ("https://web.archive.org/web/", "https://index.commoncrawl.org/CC-MAIN-")
 
 
 def clean_url(url: str) -> str:

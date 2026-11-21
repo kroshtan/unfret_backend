@@ -18,6 +18,8 @@ from unfret.graph.skills.claim_audit import (
     ClaimAuditSkill,
     ClaimProblem,
     ListingClaim,
+    Materiality,
+    MaterialityAnswer,
     Part,
     PieceCount,
 )
@@ -51,17 +53,30 @@ def _answer(*problems: ClaimProblem) -> ClaimAuditAnswer:
     )
 
 
+def _material(number: int = 1, **change: Any) -> Materiality:
+    judgement = {"benefits": "seller", "buyer_facing": True, "likely_slip": False, "reason": "Sells it as lighter."}
+    return Materiality.model_validate({"number": number, **judgement, **change})
+
+
 class FakeModel:
-    """Answers every audit with the same canned answer and counts the calls (and keeps the last prompt)."""
+    """
+    Answers every audit with the same canned answer and counts the calls (and keeps the last prompt).
+
+    The materiality judgement (a second schema) answers with :attr:`judgement`, by default every contradiction the
+    seller's, where the buyer sees it; ``None`` fails that call.
+    """
 
     def __init__(self, answer: ClaimAuditAnswer | None, delay: float = 0.0) -> None:
         self.answer = answer
         self.delay = delay
         self.calls = 0
+        self.judge_calls = 0
+        self.judgement: MaterialityAnswer | None = MaterialityAnswer(judgements=[_material(n) for n in range(1, 4)])
         self.messages: list[BaseMessage] = []
+        self.judge_messages: list[BaseMessage] = []
 
     def __call__(self, schema: type[Any]) -> RunnableLambda:
-        assert schema is ClaimAuditAnswer
+        assert schema in {ClaimAuditAnswer, MaterialityAnswer}
 
         async def answer(messages: list[BaseMessage]) -> dict[str, Any]:
             self.calls += 1
@@ -72,7 +87,15 @@ class FakeModel:
             )
             return {"raw": raw, "parsed": self.answer, "parsing_error": None}
 
-        return RunnableLambda(lambda _: None, afunc=answer)
+        async def judge(messages: list[BaseMessage]) -> dict[str, Any]:
+            self.judge_calls += 1
+            self.judge_messages = messages
+            if self.judgement is None:
+                raise TimeoutError
+            raw = AIMessage(content="", usage_metadata={"input_tokens": 3500, "output_tokens": 150, "total_tokens": 0})
+            return {"raw": raw, "parsed": self.judgement, "parsing_error": None}
+
+        return RunnableLambda(lambda _: None, afunc=answer if schema is ClaimAuditAnswer else judge)
 
 
 @pytest.fixture
@@ -98,6 +121,15 @@ async def test_a_contradiction_becomes_a_finding_and_the_claims_are_shared(model
         "claim_audit.count_off": 0.0,
         "claim_audit.shop_pages": 0.0,
         "claim_audit.across_pages": 0.0,
+        "claim_audit.judged": 1.0,
+        "claim_audit.benefits_seller": 1.0,
+        "claim_audit.benefits_buyer": 0.0,
+        "claim_audit.benefits_nobody": 0.0,
+        "claim_audit.benefits_unclear": 0.0,
+        "claim_audit.buyer_facing": 1.0,
+        "claim_audit.likely_slips": 0.0,
+        "claim_audit.inconsistencies": 0.0,
+        "claim_audit.dropped": 0.0,
     }
     [finding] = out["findings"]
     assert finding.type == "claim_contradicted"
@@ -252,6 +284,136 @@ def test_usage_cost_at_the_configured_prices(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(settings, "claim_audit_input_eur_per_mtok", Decimal("1.80"))
     monkeypatch.setattr(settings, "claim_audit_output_eur_per_mtok", Decimal("5.50"))
     assert claim_audit.Usage(3000, 400).cost_eur() == Decimal("0.0076")
+
+
+# ── Materiality: who benefits, where the buyer can see it ──────────────────────────────────────────────────────
+
+SLIP = ClaimProblem(
+    claim="Capacity: 64GB",
+    check="consistency",
+    against="128GB",
+    why="The title says 128GB.",
+    confidence=0.9,
+)
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        ({}, "finding"),  # "91 pieces" in the title: the seller's, where the buyer sees it
+        ({"likely_slip": True, "buyer_facing": False, "benefits": "nobody"}, "dropped"),  # 0.01 oz in the item data
+        ({"likely_slip": True, "benefits": "seller"}, "note"),  # a slip, but one the buyer reads: worth telling
+        ({"benefits": "buyer"}, "note"),
+        ({"benefits": "nobody"}, "note"),
+        ({"benefits": "unclear"}, "note"),
+        ({"buyer_facing": False}, "note"),  # the seller's, but buried in a data field
+    ],
+)
+def test_only_the_sellers_claim_where_the_buyer_sees_it_stays_a_finding(change: dict[str, Any], expected: str) -> None:
+    assert claim_audit.outcome(_material(**change)) == expected
+
+
+def test_a_piece_count_or_an_unjudged_problem_stays_a_finding() -> None:
+    slip = _material(likely_slip=True, buyer_facing=False, benefits="nobody")
+    assert claim_audit.outcome(slip, counted=True) == "finding"
+    assert claim_audit.outcome(None) == "finding"
+
+
+async def test_a_slip_is_a_note_a_buried_slip_is_dropped_and_both_are_features(model: FakeModel) -> None:
+    fda = ClaimProblem(
+        claim="FDA approved",
+        check="certification",
+        why="The FDA does not approve antibacterial coatings on consumer goods.",
+        confidence=0.9,
+    )
+    model.answer = _answer(POWER_BANK, SLIP, fda)
+    model.judgement = MaterialityAnswer(
+        judgements=[
+            _material(1),
+            _material(2, benefits="nobody", buyer_facing=True, reason="No reading sells it better."),
+            _material(3, benefits="buyer", likely_slip=True, buyer_facing=False, reason="A spec from another size."),
+        ]
+    )
+    out = await ClaimAuditSkill().run(_state())  # type: ignore[arg-type]
+    assert [(f.type, f.evidence.split(";")[0]) for f in out["findings"]] == [
+        ("claim_contradicted", 'Says "weighs just 80 g"'),
+        ("data_inconsistency", 'Says "FDA approved"'),
+    ]
+    features = {k.removeprefix("claim_audit."): v for k, v in out["features"].items()}
+    assert features["contradictions"] == 1 and features["impossible"] == 1
+    assert (features["inconsistencies"], features["dropped"], features["judged"]) == (1, 1, 3)
+    assert (features["benefits_seller"], features["benefits_buyer"], features["benefits_nobody"]) == (1, 1, 1)
+    assert (features["buyer_facing"], features["likely_slips"]) == (2, 1)
+    # One judgement call, after the audit, with the page as untrusted data and the contradictions numbered.
+    assert model.calls == 1 and model.judge_calls == 1
+    system, human = model.judge_messages
+    assert UNTRUSTED_NOTICE in str(system.content) and "WHO BENEFITS" in str(system.content)
+    content = str(human.content)
+    assert content.startswith("<untrusted_page>") and "</untrusted_page>" in content
+    assert '1. Claim: "weighs just 80 g". Check: physics.' in content
+    # Those that rule the claim out first, as reported.
+    assert '3. Claim: "Capacity: 64GB". Against: "128GB". Check: consistency.' in content
+
+
+async def test_no_contradiction_no_judgement(model: FakeModel) -> None:
+    model.answer = _answer()
+    out = await ClaimAuditSkill().run(_state())  # type: ignore[arg-type]
+    assert model.judge_calls == 0 and out["features"]["claim_audit.judged"] == 0
+
+
+async def test_a_failed_or_partial_judgement_tells_the_contradiction_as_before(model: FakeModel) -> None:
+    model.judgement = None
+    out = await ClaimAuditSkill().run(_state())  # type: ignore[arg-type]
+    assert [f.type for f in out["findings"]] == ["claim_contradicted"]
+    assert out["features"]["claim_audit.judged"] == 0
+    claim_audit._CALLS.clear()
+    model.judgement = MaterialityAnswer(judgements=[_material(7, benefits="nobody")])  # a number it wasn't given
+    out = await ClaimAuditSkill().run(_state())  # type: ignore[arg-type]
+    assert [f.type for f in out["findings"]] == ["claim_contradicted"]
+
+
+async def test_the_judgement_never_costs_the_audit_its_time(model: FakeModel) -> None:
+    judgements, usage = await claim_audit.judged("Title: x", [POWER_BANK], within_s=0.5)
+    assert judgements == (None,) and usage == claim_audit.Usage() and model.judge_calls == 0
+
+
+async def test_a_judged_count_problem_keeps_its_floor(model: FakeModel) -> None:
+    facts, text = parse_page(PAGE.read_text(), "https://www.example.nl/dp/B000000000")
+    model.answer = ClaimAuditAnswer(piece_count=PIECE_COUNT)
+    model.judgement = MaterialityAnswer(
+        judgements=[_material(n, benefits="nobody", likely_slip=True, buyer_facing=False) for n in (1, 2)]
+    )
+    state = {"facts": facts, "cleaned_content": text, "page_type": "aggregate_listing", "url": "", "flags": []}
+    out = await ClaimAuditSkill().run(state)  # type: ignore[arg-type]
+    assert [f.type for f in out["findings"]] == ["claim_contradicted"] * 2
+    assert out["features"]["claim_audit.count_off"] == 2 and out["features"]["claim_audit.likely_slips"] == 2
+
+
+def test_the_audit_costs_both_calls() -> None:
+    assert claim_audit.Usage(3000, 400, 1.0) + claim_audit.Usage(500, 100, 0.5) == claim_audit.Usage(3500, 500, 1.5)
+
+
+NOTE = Finding(
+    skill="claim_audit",
+    type="data_inconsistency",
+    evidence='Says "Item Weight: 0.01 Ounces"; The title says the tube holds 7 oz.',
+)
+
+
+def test_a_data_inconsistency_is_a_low_note_that_never_moves_the_band() -> None:
+    features = {"claim_audit.inconsistencies": 1.0, "claim_audit.contradicted": 0.0}
+    verdict = shopper.build(90, features=features, findings=[NOTE], facts=PageFacts(), page_type="aggregate_listing")
+    assert verdict.band == "reliable"
+    [reason] = verdict.reasons
+    assert (reason.type, reason.severity) == ("data_inconsistency", "low")
+    assert reason.detail == (
+        "The page says “Item Weight: 0.01 Ounces”. The title says the tube holds 7 oz. Check which is right before "
+        "you buy."
+    )
+    kept = shopper.build(
+        70, features=features, findings=[NOTE], facts=PageFacts(), page_type="storefront", needs_reason=True
+    )
+    assert kept.band == "reliable"  # nothing else to look at: the note alone keeps no "Worth a look"
 
 
 # ── The verdict ────────────────────────────────────────────────────────────────────────────────────────────

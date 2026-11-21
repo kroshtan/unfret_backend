@@ -23,7 +23,7 @@ class LocalMethod:
     """One country's local payment method at the provider."""
 
     id: str  # what clients send as ``payment_method`` (lower case, stable)
-    label: str  # the method's name as the buyer knows it, for the button ("Pay €5.50 with <label>")
+    label: str  # the method's name as the buyer knows it, for the button ("Pay €6.00 with <label>")
     billing_country: str  # prefilled as the checkout's billing country (ISO 3166 alpha-2): what makes Polar show it
     currency: CardCurrency  # the checkout's currency; the method is offered only while that currency is on
 

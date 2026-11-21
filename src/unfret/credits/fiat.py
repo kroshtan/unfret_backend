@@ -12,7 +12,8 @@ account mapping ourselves (``fiat_checkouts``), since a provider may not echo ch
 mapping wins when both are present.
 
 What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`; the
-amount is the order's amount before the provider's sales tax/VAT, in the order's currency: dollars or euros). The
+price as the price list shows it, in the order's currency: before sales tax for dollars, VAT included for euros while
+the euro prices include it). The order's amount before tax is what is stored, and what refunds are counted against. The
 provider is the seller of record and handles the tax, so no VAT record is kept here. A paid pack also issues its
 invites (:mod:`unfret.credits.invites`) in the crediting transaction, for the buyer's page to collect once with its
 claim token. The same transaction applies the checkout's code and the pass's affiliate
@@ -79,13 +80,25 @@ class FiatEvent:
     kind: Literal["paid", "refunded", "disputed"]
     provider: str
     order_id: str
-    amount_cents: int = 0  # in the order's currency's cents
+    amount_cents: int = 0  # in the order's currency's cents, before tax (what refunds are counted against)
     refunded_cents: int = 0  # refunded: the total refunded on the order so far
     currency: str = "usd"  # paid: the order's currency, lower case
     checkout_id: str | None = None
     account: str | None = None  # from the checkout metadata, when the provider echoes it
     site: str | None = None  # the site that made the checkout (checkout metadata), when the provider echoes it
     fee_cents: int | None = None  # paid: the provider's fee in the order's currency (None: not reported)
+    # paid: the price paid as the price list shows it: the pre-tax amount, or with the VAT for a tax-inclusive price
+    # (euros); None: amount_cents.
+    price_cents: int | None = None
+
+    @property
+    def paid_price_cents(self) -> int:
+        """
+        The price the order paid, to match against the packs' card prices.
+
+        :return: :attr:`price_cents`, else :attr:`amount_cents`.
+        """
+        return self.amount_cents if self.price_cents is None else self.price_cents
 
 
 class FiatProvider(Protocol):
@@ -469,7 +482,7 @@ async def _credit_order(
     )
     if not fresh:
         return "duplicate"
-    matched = pack_for_card(settings, event.amount_cents, event.currency)
+    matched = pack_for_card(settings, event.paid_price_cents, event.currency)
     bonus = await affiliates.on_purchase(
         conn,
         settings,
@@ -516,7 +529,7 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
     if event.currency not in CARD_CURRENCIES:
         return "unknown_currency"
     code = await _checkout_code(conn, event)
-    credits = card_credits(settings, event.amount_cents, event.currency)
+    credits = card_credits(settings, event.paid_price_cents, event.currency)
     if credits <= 0:
         return "too_small"
     return await _credit_order(conn, event, settings, account, code=code, credits=credits)

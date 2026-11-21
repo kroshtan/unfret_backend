@@ -385,8 +385,9 @@ def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.index('id="free-first"') < checkout.index('id="packs"')
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
-    assert "25 checks for $6, with 1 gift code for a friend" in money
-    assert "100 checks for $20, with 4 gift codes for friends (5 checks each)" in money
+    assert "25 checks for $6 (€6 in the euro area), with 1 gift code for a friend" in money
+    assert "100 checks for $20 (€20), with 4 gift codes for friends (5 checks each)" in money
+    assert "The euro card prices include VAT" in money and "The dollar card prices are before tax" in money
     assert money.index("5 free deep checks") < money.index("25 checks for $6")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
     assert "A pass can use one gift code a month" in my_checks

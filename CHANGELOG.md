@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Prices
+
+* **Euro card prices include VAT: €6.00 and €20.00.** Buyers in the euro area now pay exactly the price shown for 25
+  and 100 checks, the same in every euro country, instead of €5.50 / €17.50 plus their country's VAT (€6.66 / €21.18
+  in the Netherlands). The packs and their credits are unchanged (25 and 100 checks), and so are the dollar prices
+  ($6 / $20, before sales tax/VAT, as US buyers expect) and the crypto prices. New setting
+  `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (on by default); `UNFRET_CARD_PRICES_EUR` now defaults to `25=6.00,100=20.00`.
+  `/v1/pricing` says which card prices include tax (`card_tax_inclusive`), and the home page, `/nl`, `/checkout`,
+  `/money` and the developer pages show the euro prices as they are, without adding VAT. A tax-inclusive euro order is
+  credited when its amount with VAT is the pack's price; refunds and affiliate commission still count from Polar's
+  amount before VAT. Each Polar product's EUR price must be €6.00 / €20.00 with the tax behaviour *inclusive*: until
+  it is, euro checkouts are refused before anyone pays (and fall back to the dollar checkout).
+
 ### Evaluation
 
 * **A labelling set for the deep check's new findings.** `make deep-candidates` collects unlabelled product pages

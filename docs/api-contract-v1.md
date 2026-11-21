@@ -1615,3 +1615,18 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   placeholder `{low}`). Both: severity low, area `prices`, source `page`, next step `compare_price`, a note that never
   moves the band; `reference_anchor` again once the price history shows the price was not charged
   (`pricing.was_above_30d_low`).
+
+## Changes (euro card prices include VAT; backwards-compatible)
+
+- The euro card prices are now **€6.00 / €20.00 including VAT** (`price_eur_cents` 600 / 2000), the final price for
+  every buyer in the euro area whatever their country's rate; they were €5.50 / €17.50 with VAT added at checkout.
+  `GET /v1/pricing` adds a top-level `card_tax_inclusive: {"usd": false, "eur": true}`: whether the card prices in
+  each currency include sales tax/VAT. Where it is `true`, show the price as it is (no VAT added for the buyer's
+  country; "€6.00, VAT included"); where `false`, as before (the dollar prices: add `vat.card_rates_pct` for an EU
+  country, sales tax at checkout elsewhere). The dollar prices, the crypto prices, the packs and their credits
+  (25 / 100 checks) are unchanged.
+- A paid euro order credits its pack when it paid the pack's euro price including VAT (Polar's `net_amount +
+  tax_amount`); refunds still count pro rata from the order's amount before tax. A euro checkout is refused before
+  anyone pays when the Polar product's EUR price isn't set to tax-inclusive (or isn't the pack's price).
+- Settings: `UNFRET_CARD_PRICES_EUR` (default `25=6.00,100=20.00`), `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` (default
+  `true`; `false` goes back to VAT on top).

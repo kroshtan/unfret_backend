@@ -75,14 +75,27 @@ def test_a_card_payment_buys_its_packs_value() -> None:
 
 def test_euro_card_prices_buy_the_same_packs() -> None:
     s = Settings()
-    assert [(p.checks, p.card_eur_cents) for p in packs(s)] == [(25, 550), (100, 1750)]
-    assert [card_credits(s, cents, "eur") for cents in (550, 1750)] == [5_000_000, 20_000_000]
-    assert card_credits(s, 1000, "eur") == card_credits(s, 1900, "eur") == 0  # the old 50 and 100 euro prices
-    assert [p.checks if p else None for p in (pack_for_card(s, 550, "eur"), pack_for_card(s, 550))] == [25, None]
+    # €6 and €20, VAT included: the same 25 and 100 checks as $6 and $20 before tax.
+    assert [(p.checks, p.card_eur_cents) for p in packs(s)] == [(25, 600), (100, 2000)]
+    assert [p.checks for p in packs(s)] == [25, 100]
+    assert [card_credits(s, cents, "eur") for cents in (600, 2000)] == [5_000_000, 20_000_000]
+    assert [card_credits(s, cents, "usd") for cents in (600, 2000)] == [5_000_000, 20_000_000]
+    # The old euro prices (before VAT, and the 50-pack's and 100-pack's before that) buy nothing.
+    assert [card_credits(s, cents, "eur") for cents in (550, 1750, 1000, 1900)] == [0, 0, 0, 0]
+    assert [p.checks if p else None for p in (pack_for_card(s, 600, "eur"), pack_for_card(s, 550))] == [25, None]
     # No exchange rate here: a euro amount that is no pack's euro price buys nothing (a person looks at it).
-    assert card_credits(s, 600, "eur") == card_credits(s, 2000, "eur") == 0
-    assert card_credits(s, 550, "gbp") == 0 and pack_for_card(s, 600, "gbp") is None
-    assert format_eur(550) == "€5.50" and format_eur(1750) == "€17.50" and format_eur(5) == "€0.05"
+    assert card_credits(s, 726, "eur") == card_credits(s, 2200, "eur") == 0
+    assert card_credits(s, 600, "gbp") == 0 and pack_for_card(s, 600, "gbp") is None
+    assert format_eur(600) == "€6.00" and format_eur(1750) == "€17.50" and format_eur(5) == "€0.05"
+
+
+def test_euro_card_prices_include_vat_and_dollar_prices_dont() -> None:
+    s = Settings()
+    assert s.card_prices_eur_tax_inclusive
+    assert all(p.tax_inclusive("eur") and not p.tax_inclusive("usd") for p in packs(s))
+    assert not any(p.tax_inclusive("gbp") for p in packs(s))
+    off = Settings(card_prices_eur_tax_inclusive=False)
+    assert not any(p.tax_inclusive("eur") for p in packs(off))
 
 
 @pytest.mark.parametrize(
@@ -118,9 +131,14 @@ async def test_the_price_list_has_the_euro_card_prices_next_to_the_dollar_ones()
     s = Settings()
     doc = await pricing(s, None, PriceBook(s, StaticOracle("100")), USDC_MINTS["solana-devnet"])
     assert [(p["price_usd"], p["price_eur"], p["price_eur_cents"]) for p in doc["packs"]] == [
-        ("$6.00", "€5.50", 550),
-        ("$20.00", "€17.50", 1750),
+        ("$6.00", "€6.00", 600),
+        ("$20.00", "€20.00", 2000),
     ]
+    # The euro prices are final (VAT included); the dollar prices are before sales tax/VAT.
+    assert doc["card_tax_inclusive"] == {"usd": False, "eur": True}
+    before = Settings(card_prices_eur_tax_inclusive=False)
+    doc = await pricing(before, None, PriceBook(before, StaticOracle("100")), USDC_MINTS["solana-devnet"])
+    assert doc["card_tax_inclusive"] == {"usd": False, "eur": False}
     off = Settings(card_prices_eur="")
     doc = await pricing(off, None, PriceBook(off, StaticOracle("100")), USDC_MINTS["solana-devnet"])
     assert {(p["price_eur"], p["price_eur_cents"]) for p in doc["packs"]} == {(None, None)}

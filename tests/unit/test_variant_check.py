@@ -175,6 +175,20 @@ def test_plain_sizes_and_amounts(value: str) -> None:
     assert plain(value)
 
 
+@pytest.mark.parametrize(
+    ("item", "said"),
+    [
+        ("usb-c cable", "a usb-c cable"),
+        ("accessory", "an accessory"),
+        ("umbrella", "an umbrella"),
+        ("unit", "a unit"),
+        ("lid", "a lid"),
+    ],
+)
+def test_the_article_goes_by_the_sound(item: str, said: str) -> None:
+    assert variant_check._a(item) == said
+
+
 @pytest.mark.parametrize("value", ["Screen protector", "Hülle", "Brush head refill (4 pack)", "Single Chair"])
 def test_items_are_not_plain(value: str) -> None:
     assert not plain(value)

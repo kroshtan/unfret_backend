@@ -82,13 +82,16 @@ or set that includes it (a case for another phone model is still a phone case: s
   single_unit: one piece where the title sells a set or a multi-pack;
   different: another kind of product altogether.
 - grouping: same_product when every option is the title's product in another size, colour, amount, model or \
-bundle; different_products when the listing groups different kinds of items.
+bundle; different_products when any option is a part, an accessory, a refill, a single unit or another kind of item \
+than the title's product.
 - confidence: how sure you are of the grouping (0-1).
 
 Be conservative. Sizes, colours, flavours, scents, pack sizes, capacities, models for different devices, editions \
 and bundles of the same product are same_product. Product lines sold as one family (a 2-person and a 4-person tent; \
 a 500 ml and a 1 l bottle) are same_product. Only say different_products when an option is plainly a different kind \
-of item than the title's product. When unsure, say same_product.
+of item than the title's product. A refill, a spare part or an accessory of the title's product is NOT the same \
+product, even from the same brand and product line (brush heads under an electric toothbrush's title, a strap under a \
+watch's). When unsure, say same_product.
 
 {UNTRUSTED_NOTICE}\
 """
@@ -306,7 +309,9 @@ def _label(option: VariantOption, currency: str) -> str:
 
 
 def _a(item: str) -> str:
-    return f"an {item}" if item[:1] in "aeiou" else f"a {item}"
+    # "an accessory", "a USB-C cable", "a unit": by the sound, for the nouns a listing's options have.
+    vowel = item[:1] in "aeio" or (item[:1] == "u" and not item.startswith(("us", "uni", "use", "ut")))
+    return f"an {item}" if vowel else f"a {item}"
 
 
 def _is(option: VariantOption, item: str, currency: str) -> str:

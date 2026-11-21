@@ -3,12 +3,14 @@
 // out/<video>/ and are copied to DELIVER (media/videos in the metarepo).
 //
 // ffmpeg: $FFMPEG, else `ffmpeg` on the PATH (any build with libx264; `uv run --with imageio-ffmpeg` ships one).
-// Usage: node render.mjs <video> [--frames t1,t2,...]   (--frames: only those stills, as PNGs, for checking)
+// Usage: node render.mjs <video> [--mascot] [--frames t1,t2,...]   (--frames: only those stills, as PNGs, for
+// checking; --mascot: with the animated mascot from the script's `mascot` track, as <video>-mascot.mp4 and .gif)
 import { spawn } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
+import { mascotMarkup, mascotRuntime } from "./mascot.mjs";
 import { DELIVER, HERE, OUT, VIDEOS } from "./videos.mjs";
 
 const W = 1080;
@@ -26,6 +28,10 @@ const args = process.argv.slice(2);
 const video = VIDEOS.find((v) => v.name === args[0]);
 if (!video) throw new Error(`usage: node render.mjs <video>; one of ${VIDEOS.map((v) => v.name).join(", ")}`);
 const only = args.includes("--frames") ? args[args.indexOf("--frames") + 1].split(",").map(Number) : null;
+const withMascot = args.includes("--mascot");
+if (withMascot && !video.script.mascot) throw new Error(`${video.name} has no mascot track in videos.mjs`);
+const mascot = withMascot ? video.script.mascot : null;
+const output = video.name + (withMascot ? "-mascot" : "");
 const dir = join(OUT, video.name);
 const marks = JSON.parse(readFileSync(join(dir, "page.json"), "utf8"));
 const popup = JSON.parse(readFileSync(join(dir, "popup.json"), "utf8"));
@@ -97,8 +103,9 @@ html, body { margin: 0; width: ${W}px; height: ${H}px; overflow: hidden; backgro
   <div class="free">Quick checks are free.</div>
 </section>
 <div id="caps"></div>
+${mascot ? mascotMarkup(mascot, W, H) : ""}
 <script>
-const S = ${JSON.stringify({ script: video.script, marks, popup, W, H, SCALE, VIEW_TOP })};
+const S = ${JSON.stringify({ script: video.script, marks, popup, W, H, SCALE, VIEW_TOP, mascot })};
 const { script } = S;
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const ease = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
@@ -202,7 +209,10 @@ function camera(t) {
   return keys[keys.length - 1];
 }
 
+const mascot = S.mascot ? (${mascotRuntime.toString()})(S.mascot) : null;
+
 window.frame = (t) => {
+  if (mascot) mascot(t);
   const c = camera(t);
   document.getElementById("layer").style.transform =
     \`scale(\${c.zoom}) translate(\${-c.left * S.SCALE}px, \${-c.top * S.SCALE}px)\`;
@@ -232,11 +242,11 @@ window.frame = (t) => {
 };
 </script></body></html>`;
 
-writeFileSync(join(dir, "stage.html"), stage);
+writeFileSync(join(dir, `${withMascot ? "mascot-" : ""}stage.html`), stage);
 const browser = await chromium.launch({ channel: "chromium" });
 try {
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
-  await page.goto(url(join(dir, "stage.html")));
+  await page.goto(url(join(dir, `${withMascot ? "mascot-" : ""}stage.html`)));
   await page.evaluate(() => document.fonts.ready);
   await page.waitForLoadState("load");
   await page.evaluate(() => window.frame(0));
@@ -244,11 +254,11 @@ try {
   if (only) {
     for (const t of only) {
       await page.evaluate((t) => window.frame(t), t);
-      await page.screenshot({ path: join(dir, `frame-${t.toFixed(2)}.png`) });
+      await page.screenshot({ path: join(dir, `${withMascot ? "mascot-" : ""}frame-${t.toFixed(2)}.png`) });
     }
     console.log(`frames in ${dir}`);
   } else {
-    const mp4 = join(dir, `${video.name}.mp4`);
+    const mp4 = join(dir, `${output}.mp4`);
     const ffmpeg = spawn(
       FFMPEG,
       ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "png", "-i", "-",
@@ -267,7 +277,7 @@ try {
     }
     ffmpeg.stdin.end();
     await done;
-    const gif = join(dir, `${video.name}.gif`);
+    const gif = join(dir, `${output}.gif`);
     await run(FFMPEG, ["-y", "-loglevel", "error", "-i", mp4, "-vf",
       "fps=12,scale=540:-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];" +
         "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", gif]);

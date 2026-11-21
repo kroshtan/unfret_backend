@@ -120,7 +120,7 @@
   and context for the model, never told by itself. `UNFRET_VARIANT_CHECK=false` turns it off; each call logs its
   tokens and cost (`variant_check_usage`) (#285). The model is told plainly that a refill, a spare part or an accessory of the
   title's product isn't the same product, even from the same brand and line (brush heads under a toothbrush's title),
-  and an option's noun takes the article it sounds like ("a USB-C cable").
+  and an option's noun takes the article it sounds like ("a USB-C cable", "brush head refills").
 
 * **The claim audit: a stronger model reads every checkable claim on a product page and says which don't add up.**
   A new deep-check step (`claim_audit`) lists the page's checkable claims (piece counts, sizes and specs, battery

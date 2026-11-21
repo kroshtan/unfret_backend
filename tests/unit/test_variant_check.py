@@ -183,6 +183,9 @@ def test_plain_sizes_and_amounts(value: str) -> None:
         ("umbrella", "an umbrella"),
         ("unit", "a unit"),
         ("lid", "a lid"),
+        ("one chair", "a one chair"),
+        ("brush heads", "brush heads"),
+        ("glass", "a glass"),
     ],
 )
 def test_the_article_goes_by_the_sound(item: str, said: str) -> None:
@@ -263,7 +266,7 @@ def test_a_refill_on_show_on_a_shop() -> None:
     )
     grouped, bait = findings(answer, facts.variants, facts)
     assert bait.startswith(
-        "The option on show, “Brush head refill (4 pack)”, is a brush heads, not the electric toothbrush in the "
+        "The option on show, “Brush head refill (4 pack)”, is brush heads, not the electric toothbrush in the "
         "title; the electric toothbrush itself is from $39.99."
     )
     assert grouped.startswith("This listing groups different products as styles: “Toothbrush” ($39.99) and")

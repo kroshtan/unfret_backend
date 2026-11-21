@@ -309,8 +309,11 @@ def _label(option: VariantOption, currency: str) -> str:
 
 
 def _a(item: str) -> str:
-    # "an accessory", "a USB-C cable", "a unit": by the sound, for the nouns a listing's options have.
-    vowel = item[:1] in "aeio" or (item[:1] == "u" and not item.startswith(("us", "uni", "use", "ut")))
+    # "an accessory", "a USB-C cable", "a unit", "brush head refills": by the sound, none for a plural.
+    if item.endswith("s") and not item.endswith(("ss", "us", "is")):
+        return item
+    sounds_vowel = item[:1] in "aeio" and not item.startswith(("one", "eu"))
+    vowel = sounds_vowel or (item[:1] == "u" and not item.startswith(("us", "uni", "use", "ut")))
     return f"an {item}" if vowel else f"a {item}"
 
 

@@ -1,0 +1,9 @@
+{
+  "name": "unfret-social-videos",
+  "private": true,
+  "type": "module",
+  "description": "Portrait social videos of Unfret catching one trick each (see README.md).",
+  "dependencies": {
+    "playwright": "1.65.0"
+  }
+}

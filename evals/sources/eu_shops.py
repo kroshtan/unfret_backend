@@ -363,7 +363,7 @@ async def collect(url: str) -> tuple[str | None, str]:
     if not await robots_allows(url):
         return None, "robots"
     try:
-        html = await fetch_page(url)
+        html = (await fetch_page(url)).html
     except PageUnreadableError as exc:
         return None, exc.reason
     if not looks_like_shop(html):

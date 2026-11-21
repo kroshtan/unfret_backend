@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from unfret import net
-from unfret.net import UnsafeURLError, fetch_public, hostname
+from unfret.net import UnsafeURLError, fetch_public, fetch_public_page, hostname
 
 
 @pytest.mark.parametrize(
@@ -65,6 +65,60 @@ async def test_blocks_redirect_to_internal_address(fake_dns: dict[str, str]) -> 
     )
     with pytest.raises(UnsafeURLError):
         await fetch_public("https://shop.test/img.jpg", transport=transport)
+
+
+async def test_a_short_link_gives_the_address_it_leads_to(fake_dns: dict[str, str]) -> None:
+    fake_dns["short.test"] = "93.184.216.34"
+    fake_dns["shop.test"] = "93.184.216.35"
+    hosts: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.headers["host"])
+        if request.headers["host"] == "short.test":
+            return httpx.Response(301, headers={"location": "https://shop.test/go?to=1"})
+        if request.url.path == "/go":
+            return httpx.Response(302, headers={"location": "/products/lamp?utm_source=x"})  # relative
+        return httpx.Response(200, content=b"page")
+
+    page = await fetch_public_page("https://short.test/d/abc", transport=httpx.MockTransport(respond))
+
+    assert page.body == b"page"
+    assert page.url == "https://shop.test/products/lamp?utm_source=x"
+    assert hosts == ["short.test", "shop.test", "shop.test"]
+
+
+async def test_without_redirects_the_address_is_the_one_asked_for(fake_dns: dict[str, str]) -> None:
+    fake_dns["shop.test"] = "93.184.216.34"
+    transport = httpx.MockTransport(lambda _: httpx.Response(200, content=b"page"))
+    page = await fetch_public_page("https://shop.test/p/1", transport=transport)
+    assert (page.body, page.url) == (b"page", "https://shop.test/p/1")
+
+
+async def test_a_redirect_chain_is_capped(fake_dns: dict[str, str]) -> None:
+    fake_dns["short.test"] = "93.184.216.34"
+    seen: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(302, headers={"location": f"/hop{len(seen)}"})
+
+    with pytest.raises(httpx.TooManyRedirects):
+        await fetch_public_page("https://short.test/d/abc", transport=httpx.MockTransport(respond))
+    assert len(seen) == net._MAX_REDIRECTS + 1
+
+
+async def test_a_short_link_to_an_internal_address_is_refused(fake_dns: dict[str, str]) -> None:
+    fake_dns["short.test"] = "93.184.216.34"
+    fake_dns["router.test"] = "192.168.1.1"
+    transport = httpx.MockTransport(
+        lambda request: (
+            httpx.Response(302, headers={"location": "http://router.test/admin"})
+            if request.headers["host"] == "short.test"
+            else httpx.Response(200, content=b"admin")
+        )
+    )
+    with pytest.raises(UnsafeURLError):
+        await fetch_public_page("https://short.test/d/abc", transport=transport)
 
 
 async def test_connects_to_the_validated_address(fake_dns: dict[str, str]) -> None:

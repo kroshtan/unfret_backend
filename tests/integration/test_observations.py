@@ -12,6 +12,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
+from tests.conftest import page_fetcher
 from tests.integration.conftest import FakeGraph
 from tests.unit.test_image_index import StubEmbedder, encode, product_photo
 from tests.unit.test_observations import GTIN, PAGE, PHOTO, REVIEW_TEXTS
@@ -197,7 +198,7 @@ def witness(monkeypatch: pytest.MonkeyPatch) -> WitnessGraph:
     async def fetch(url: str, **_: Any) -> bytes:
         return PAGE.encode()
 
-    monkeypatch.setattr(page_fetch, "fetch_public", fetch)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(fetch))
     return graph
 
 
@@ -244,7 +245,7 @@ async def test_a_quick_check_records_its_page_and_keeps_nothing_that_names_it(
     async def fetch(target: str, **_: Any) -> bytes:
         return {url: PAGE.encode(), PHOTO: photo}[target]
 
-    monkeypatch.setattr(page_fetch, "fetch_public", fetch)
+    monkeypatch.setattr(page_fetch, "fetch_public_page", page_fetcher(fetch))
     monkeypatch.setattr(reverse_image, "fetch_public", fetch)
 
     response = await client.post("/v1/analyze", json={"url": url, "tier": "quick"})

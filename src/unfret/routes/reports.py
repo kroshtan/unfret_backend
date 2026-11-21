@@ -88,10 +88,10 @@ async def _with_page(analysed: AnalyzeRequest) -> AnalyzeRequest:
     if not analysed.url_only or is_test_shop(analysed.url):  # a test shop report is never kept: nothing to fetch
         return analysed
     try:
-        html = await page_fetch.fetch_page(analysed.url.strip())
+        page = await page_fetch.fetch_page(analysed.url.strip())
     except page_fetch.PageUnreadableError:
         return analysed
-    return analysed.model_copy(update={"page_content": html})
+    return analysed.model_copy(update={"page_content": page.html, "url": page.url})  # by the page's own address
 
 
 @router.post("", response_model=ReportResponse, status_code=201)

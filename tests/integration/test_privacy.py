@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from solders.keypair import Keypair
 from structlog.testing import capture_logs
 
+from tests.conftest import page_fetcher
 from tests.unit.x402_helpers import (
     FakeRpc,
     configured,
@@ -100,6 +101,8 @@ def outside(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     for name, module in list(sys.modules.items()):
         if name.startswith("unfret") and hasattr(module, "fetch_public"):
             monkeypatch.setattr(module, "fetch_public", fetch_public)
+        if name.startswith("unfret") and hasattr(module, "fetch_public_page"):
+            monkeypatch.setattr(module, "fetch_public_page", page_fetcher(fetch_public))
 
     async def no_network(*_: Any, **__: Any) -> httpx.Response:
         raise httpx.ConnectError("no network in tests")

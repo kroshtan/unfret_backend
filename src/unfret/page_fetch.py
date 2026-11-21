@@ -8,15 +8,17 @@ later. Each of those is a :class:`PageUnreadableError`, raised before any money 
 Nothing here logs or keeps the URL: the error's ``detail`` is a fixed sentence.
 """
 
+from dataclasses import dataclass
 from typing import Literal
 
 import httpx
 
+from unfret import result_cache
 from unfret.config import settings
 from unfret.facts.extract import parse_page
 from unfret.facts.service_platforms import SERVICE_PLATFORMS
 from unfret.graph.platforms import platform_rule
-from unfret.net import RefusedError, UnresolvableHostError, UnsafeURLError, fetch_public
+from unfret.net import RefusedError, UnresolvableHostError, UnsafeURLError, fetch_public_page
 
 Reason = Literal["PAGE_UNAVAILABLE", "PAGE_BLOCKED", "PAGE_TOO_THIN", "INVALID_URL"]
 
@@ -62,6 +64,25 @@ _PROFILE_WITHHELD = (
 )
 _UNREACHABLE = "The site couldn't be reached: its address doesn't lead anywhere (any more)."
 _NO_ANSWER = "The shop didn't answer an automatic check of this page."
+
+
+@dataclass(frozen=True)
+class FetchedPage:
+    """A page fetched for a check, and its own address."""
+
+    html: str
+    url: str  # where the redirects ended (a short link's destination, without tracking parameters), else as asked
+
+
+def final_address(asked: str, landed: str) -> str:
+    """
+    The address to check a page under: where a short link (or any redirect) led, cleaned like a shared address.
+
+    :param asked: The URL that was fetched.
+    :param landed: The URL that answered, after redirects.
+    :return: ``asked`` when nothing redirected, else ``landed`` without fragment, credentials or tracking parameters.
+    """
+    return asked if landed == asked else result_cache.without_tracking(landed)
 
 
 class PageUnreadableError(Exception):
@@ -149,28 +170,30 @@ def _detail_for(exc: Exception) -> str:
     return ""
 
 
-async def fetch_page(url: str) -> str:
+async def fetch_page(url: str) -> FetchedPage:
     """
     Fetch a page for analysis, refusing anything that isn't the real, readable page.
 
     A shop that keeps the connection waiting is given up on after :data:`FETCH_TIMEOUT_S` (``PAGE_BLOCKED``), the
-    whole fetch after :data:`FETCH_TOTAL_S`.
+    whole fetch after :data:`FETCH_TOTAL_S`. Redirects are followed (each hop checked, at most five), so a short link
+    gives the page it leads to, under that page's own address (:func:`final_address`).
 
     :param url: The page's absolute http(s) URL.
-    :return: Its HTML.
+    :return: Its HTML and its address.
     :raises PageUnreadableError: If it can't be fetched, the shop refuses us, it is a bot check or it is too thin.
     """
     try:
-        raw = await fetch_public(
+        fetched = await fetch_public_page(
             url, timeout=FETCH_TIMEOUT_S, total_timeout=FETCH_TOTAL_S, max_bytes=settings.max_page_bytes
         )
     except Exception as exc:
         raise PageUnreadableError(_reason_for(exc), _detail_for(exc)) from exc
-    html = raw.decode("utf-8", errors="replace")
+    html = fetched.body.decode("utf-8", errors="replace")
+    address = final_address(url, fetched.url)
     if is_challenge_page(html):
         raise PageUnreadableError("PAGE_BLOCKED")
-    if is_too_thin(html, url):
+    if is_too_thin(html, address):
         raise PageUnreadableError("PAGE_TOO_THIN")
-    if is_withheld_profile(html, url):
+    if is_withheld_profile(html, address):
         raise PageUnreadableError("PAGE_BLOCKED", _PROFILE_WITHHELD)
-    return html
+    return FetchedPage(html, address)

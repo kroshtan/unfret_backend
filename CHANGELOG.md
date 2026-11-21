@@ -40,6 +40,15 @@
 
 ### Fixes
 
+* **A short link is checked as the page it leads to.** A link pasted into a server-side check (the web link checker,
+  `POST /v1/check`, the MCP tools) that redirects (a shop's or marketplace's short link, a link shortener) was checked
+  under the short link: no product id, and the result cache, price history, fingerprint store and share link keyed on
+  the short link. The page fetch now returns where the redirects ended (`unfret.net.fetch_public_page`; every hop
+  through the same public-address check, at most five), and the check uses that address, without fragment,
+  credentials or tracking parameters, for the facts, platform and product id, the result cache, what an account paid
+  for, the verdict and price stores and the share token. The report token stays bound to the request as sent, and a
+  report's re-fetch keeps the page's own address. Neither address is logged.
+
 * **Reference prices and reviews from the page itself, on every layout.** What a phone gets from Amazon (and the
   Android app's WebView, whose facts the server takes) is the mobile page, where the price's offscreen copy is empty:
   the price was missing, so a discount against Amazon's "Adviesprijs" ("List Price", "Typical price", "RRP", "UVP")

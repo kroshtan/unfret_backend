@@ -370,7 +370,10 @@ valid 7 days. Nothing is stored when a check runs.
   of visible text with no price and no product JSON-LD: a shell its scripts fill in) or `INVALID_URL` (not a public
   http(s) address). Fetches are limited per account (`UNFRET_ANALYZE_FETCH_PER_MINUTE`, 10; over it `429`).
   The result cache and the `report_token` are keyed on the URL-only request; a report of such a check sends back
-  `{"url": …}` and the server fetches the page again for the review queue.
+  `{"url": …}` and the server fetches the page again for the review queue. A `url` that redirects (a short link) is
+  checked as the page it leads to (each hop a public address, at most five): the result cache, the `share_token`
+  (and so the shared page's `product_url`) and `POST /v1/check`'s verdict store use that page's address without
+  fragment and tracking parameters; the `report_token` is still for the request as sent.
 - Requests that send the page (the extension) are unchanged.
 
 ## Changes (the "Spotted recently" showcase, backwards-compatible; retired, see the end)

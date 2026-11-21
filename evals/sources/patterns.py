@@ -296,7 +296,7 @@ async def check_sources(corpus: Corpus) -> dict[str, dict[str, object]]:
             row["error"] = "robots"
         else:
             try:
-                text = clean_html(await fetch_page(url))
+                text = clean_html((await fetch_page(url)).html)
             except PageUnreadableError as exc:
                 row["error"] = exc.reason
             else:

@@ -218,23 +218,25 @@ async def _debit(request: Request, account: str, *, api: bool = False) -> Charge
 
 async def _fetch_if_url_only(
     request: Request, body: AnalyzeRequest, account: str | None, state: dict[str, object]
-) -> None:
+) -> AnalyzeRequest:
     """
     For a request with only a URL, fetch the page into the graph input, before anything is charged.
 
     For a deep check the caller's checks are looked at first (an empty account gets its 402 without a fetch), and a
     page that can't be read (unreachable, refused, a bot check, an empty shell) is answered with a free 422. Nothing
-    about the URL is logged.
+    about the URL is logged. A link that redirected (a short link) is checked under the page's own address: the graph,
+    the result cache, the share token and what is paid for all see that address.
 
     :param request: The FastAPI request.
     :param body: The request body.
     :param account: The account, or ``None`` (a quick check without a pass).
-    :param state: The graph input; its ``page_content`` is set to the fetched HTML.
+    :param state: The graph input; its ``page_content`` is set to the fetched HTML and its ``url`` to its address.
+    :return: The request as analysed: ``body``, with the page's own address when the link redirected.
     :raises TooManyRequestsError: If the account (or network) fetched too many pages in the last minute.
     :raises UnreadablePageError: If the page can't be checked from a server-side fetch (``error_code`` says why).
     """
     if not body.url_only:
-        return
+        return body
     if account is not None and body.tier == "deep":
         await _can_pay(request, account)
     if (wait := _fetch_rate.retry_after(account or _ip(request))) is not None:
@@ -242,10 +244,16 @@ async def _fetch_if_url_only(
             "Too many links checked in a minute; wait a moment.", metadata={"retry_after_s": max(1, int(wait) + 1)}
         )
     try:
-        state["page_content"] = await page_fetch.fetch_page(body.url.strip())
+        page = await page_fetch.fetch_page(body.url.strip())
     except page_fetch.PageUnreadableError as exc:
         logger.info("analysis_page_unreadable", reason=exc.reason)
         raise UnreadablePageError(f"{exc.detail} No check was used.", error_code=exc.reason) from exc
+    state["page_content"] = page.html
+    if page.url == body.url.strip():
+        return body
+    logger.info("analysis_link_redirected")  # that it did, never where from or to
+    state["url"] = page.url
+    return body.model_copy(update={"url": page.url})
 
 
 async def _caller(request: Request, body: AnalyzeRequest, account: str | None) -> str | None:
@@ -479,7 +487,9 @@ async def _offered(request: Request, account: str | None, response: AnalyzeRespo
     return response
 
 
-async def _cached(request: Request, body: AnalyzeRequest, account: str | None, key: str) -> AnalyzeResponse | None:
+async def _cached(
+    request: Request, body: AnalyzeRequest, account: str | None, key: str, *, sent: AnalyzeRequest | None = None
+) -> AnalyzeResponse | None:
     """
     The same input analysed recently: its result again, paid for like a fresh check.
 
@@ -492,6 +502,8 @@ async def _cached(request: Request, body: AnalyzeRequest, account: str | None, k
     :param body: The request body.
     :param account: The account, or ``None`` (a quick check without one).
     :param key: The result cache key.
+    :param sent: The request as the caller sent it, when ``body`` is at the page's own address (a short link): the
+        report token is for what the caller will send back.
     :return: The response, or ``None`` on a miss.
     """
     cached = result_cache.get(key)
@@ -503,22 +515,30 @@ async def _cached(request: Request, body: AnalyzeRequest, account: str | None, k
         else:
             charge = await _charge(request, body, account)
             logger.info("analysis_cache_hit", charged=charge.charged)
-            return await _finished(request, body, charge, cached)
+            return await _finished(request, body, charge, cached, sent=sent)
     logger.info("analysis_cache_hit", charged=False)
     balance = None if account is None else await _balance(request, account)
-    token = _report_token(body, account, cached)
+    token = _report_token(sent or body, account, cached)
     response = _response(cached, balance, charged=False, tier=body.tier, report_token=token, shared_from=body)
     return await _offered(request, account, response)
 
 
-async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, result: dict[str, Any]) -> AnalyzeResponse:
+async def _finished(
+    request: Request,
+    body: AnalyzeRequest,
+    charge: Charge,
+    result: dict[str, Any],
+    *,
+    sent: AnalyzeRequest | None = None,
+) -> AnalyzeResponse:
     """
     The response to a finished analysis: a page that couldn't be analysed (score -1) is given back.
 
     :param request: The FastAPI request.
-    :param body: The request body.
+    :param body: The request as analysed (at the page's own address).
     :param charge: What the analysis took.
     :param result: The result (as cached).
+    :param sent: The request as sent, when that was a link to elsewhere (for the report token).
     :return: The response.
     """
     if result["score"] == -1:
@@ -534,7 +554,7 @@ async def _finished(request: Request, body: AnalyzeRequest, charge: Charge, resu
         charged=charge.charged,
         tier=body.tier,
         free_check=charge.spent is not None,
-        report_token=_report_token(body, charge.account, result),
+        report_token=_report_token(sent or body, charge.account, result),
         shared_from=body,
     )
     return await _offered(request, charge.account, response)
@@ -590,7 +610,11 @@ async def analyze_page(
 
     if body.tier == "deep" and account is not None:
         _check_free_outcomes(account)
-    await _fetch_if_url_only(request, body, account, state)
+    sent, body = body, await _fetch_if_url_only(request, body, account, state)
+    if body is not sent:  # a short link: the page may have been checked under its own address
+        key = _cache_key(body)
+        if (hit := await _cached(request, body, account, key, sent=sent)) is not None:
+            return hit
     charge = await _charge(request, body, account)
     usage = UsageMetadataCallbackHandler()
     try:
@@ -617,7 +641,7 @@ async def analyze_page(
         m.group(1) for entry in result.get("skill_results", []) if (m := _SKILL_TAG_RE.match(entry))
     )
     logger.info("skills_used", **skill_counts)
-    return await _finished(request, body, charge, result if result["score"] == -1 else kept)
+    return await _finished(request, body, charge, result if result["score"] == -1 else kept, sent=sent)
 
 
 def _event(name: str, data: dict[str, Any]) -> str:
@@ -689,9 +713,13 @@ async def analyze_page_stream(
 
     if body.tier == "deep" and account is not None:
         _check_free_outcomes(account)
-    await _fetch_if_url_only(request, body, account, state)
+    sent, body = body, await _fetch_if_url_only(request, body, account, state)
+    if body is not sent:  # a short link: the page may have been checked under its own address
+        key = _cache_key(body)
+        if (hit := await _cached(request, body, account, key, sent=sent)) is not None:
+            return _stream(_replay(hit))
     charge = await _charge(request, body, account)
-    return _stream(_live_events(request, body, charge, graph, state, key=key))
+    return _stream(_live_events(request, body, charge, graph, state, key=key, sent=sent))
 
 
 def _stream(events: AsyncIterator[str]) -> StreamingResponse:
@@ -710,16 +738,18 @@ async def _live_events(
     state: dict[str, object],
     *,
     key: str,
+    sent: AnalyzeRequest | None = None,
 ) -> AsyncGenerator[str]:
     """
     Run the graph and stream its steps, then the result; refund unless the analysis finished.
 
     :param request: The FastAPI request.
-    :param body: The request body (for the report and share tokens).
+    :param body: The request as analysed (for the share token).
     :param charge: What the analysis took (already taken).
     :param graph: The compiled graph.
     :param state: The graph input.
     :param key: The result cache key.
+    :param sent: The request as sent, when that was a link to elsewhere (for the report token).
     :yield: Server-sent events.
     """
     usage = UsageMetadataCallbackHandler()
@@ -755,7 +785,7 @@ async def _live_events(
             return
         result_cache.put(key, dict(final))
         refund = False
-        result = await _finished(request, body, charge, final)
+        result = await _finished(request, body, charge, final, sent=sent)
         yield _event("result", result.model_dump(mode="json", exclude_none=True))
     finally:
         if refund:

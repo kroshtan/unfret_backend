@@ -1468,6 +1468,13 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - x402 `POST /v1/check` (deep tier) carries the reasons as flags like any other; the quick tier and the MCP tools are
   unchanged.
 
+## Changes (a piece count that is off is "Worth a look"; backwards-compatible)
+
+- A new feature `claim_audit.count_off`: how many of the claim audit's findings are about the piece count (padded
+  with accessories, or the parts it lists not making the total). With one, "Looks fine" becomes "Worth a look",
+  whatever the brand or the shop's track record, and the `claim_contradicted` reason keeps a "Worth a look" the scorer
+  gave. Other self-contradictions are unchanged: a note, the band as it is.
+
 ## Changes (the claim audit reads the shop's other pages; backwards-compatible)
 
 - On a web shop's own site (`storefront`, not on a marketplace platform), the deep tier's `claim_audit` also reads the

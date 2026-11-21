@@ -95,6 +95,7 @@ async def test_a_contradiction_becomes_a_finding_and_the_claims_are_shared(model
         "claim_audit.contradicted": 1.0,
         "claim_audit.contradictions": 1.0,
         "claim_audit.impossible": 1.0,
+        "claim_audit.count_off": 0.0,
         "claim_audit.shop_pages": 0.0,
         "claim_audit.across_pages": 0.0,
     }
@@ -292,6 +293,20 @@ def test_a_page_that_only_contradicts_itself_keeps_no_worth_a_look_the_scorer_ha
     assert impossible.band == "concerns"
 
 
+def test_a_count_finding_keeps_a_worth_a_look_the_scorer_gave() -> None:
+    features = {**CONTRADICTED, "claim_audit.impossible": 0.0, "claim_audit.count_off": 1.0}
+    verdict = shopper.build(
+        70, features=features, findings=[FINDING], facts=PageFacts(), page_type="storefront", needs_reason=True
+    )
+    assert verdict.band == "concerns"
+
+
+def test_only_a_count_finding_moves_a_vouched_page() -> None:
+    other = {**CONTRADICTED, "claim_audit.impossible": 0.0, "content.brand_recognized": 1.0}
+    assert _verdict(other).band == "reliable"  # another self-contradiction on a known brand: a note
+    assert _verdict({**other, "claim_audit.count_off": 1.0}).band == "concerns"
+
+
 def test_a_track_record_or_a_known_brand_keeps_looks_fine() -> None:
     known = _verdict({**CONTRADICTED, "content.brand_recognized": 1.0})
     assert known.band == "reliable" and [r.type for r in known.reasons] == ["claim_contradicted"]
@@ -340,11 +355,15 @@ async def test_a_padded_piece_count_that_doesnt_add_up(model: FakeModel) -> None
         'Says "91-delig"; That count includes 12 connector clips: the set has 80 felt-tip pens.',
         'Says "91-delig"; The parts it lists, 80 felt-tip pens and 12 connector clips, make 92, not 91.',
     ]
-    assert out["features"]["claim_audit.impossible"] == 0  # the page contradicts itself: told, the band stays
+    assert out["features"]["claim_audit.impossible"] == 0
+    assert out["features"]["claim_audit.count_off"] == 2
     assert out["listing_piece_count"]["parts"][0] == {"count": 80, "item": "felt-tip pens", "role": "main"}
+    # A known brand, sold by a shop with a long track record: a count that is off is worth a look all the same.
+    features = {**out["features"], "content.brand_recognized": 1.0, "domain_age.age_years": 20.0}
     verdict = shopper.build(
-        90, features=out["features"], findings=out["findings"], facts=facts, page_type="aggregate_listing"
+        90, features=features, findings=out["findings"], facts=facts, page_type="aggregate_listing"
     )
+    assert verdict.band == "concerns"
     [reason] = verdict.reasons
     assert reason.detail == (
         "The page says “91-delig”. That count includes 12 connector clips: the set has 80 felt-tip pens. The parts it "

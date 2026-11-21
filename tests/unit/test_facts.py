@@ -8,6 +8,7 @@ from unfret.facts import PageFacts, parse_page
 from unfret.facts._parse import parse_count, parse_date, parse_number, parse_price, parse_rating
 from unfret.facts.amazon import GALLERY_MAX
 from unfret.facts.extract import _FEE_RE, _LEGAL_RE, shopify_compare_at
+from unfret.facts.gallery import photo_key
 
 
 @pytest.mark.parametrize(
@@ -331,3 +332,100 @@ def test_a_private_sellers_ad_sends_no_other_sites() -> None:
     assert facts.platform == "marktplaats"
     assert facts.external_refs == []
     assert facts.markup_names == ["ad-body"]
+
+
+@pytest.mark.parametrize(
+    ("page", "url", "gallery"),
+    [
+        # Shopify: the Open Graph photo, then the theme's product JSON (a photo only there, too), copies in other
+        # sizes and the theme's URL template counted once; the logo, banner, related product and payment icons after.
+        (
+            "shopify-gallery.html",
+            "https://fernhouse.example/products/linen-pillow",
+            [
+                "https://fernhouse.example/cdn/shop/files/pillow-main.jpg?v=1700000001",
+                "https://fernhouse.example/cdn/shop/files/pillow-sofa.jpg?v=1700000002",
+                "https://fernhouse.example/cdn/shop/files/pillow-detail.jpg?v=1700000003",
+                "https://fernhouse.example/cdn/shop/files/pillow-hand.jpg?v=1700000004",
+            ],
+        ),
+        # WooCommerce: one photo in the structured data, the rest in the gallery's data-large_image.
+        (
+            "woocommerce-gallery.html",
+            "https://atelierduin.example/product/canvas-30x40/",
+            [
+                "https://atelierduin.example/wp-content/uploads/2026/03/duin-canvas.jpg",
+                "https://atelierduin.example/wp-content/uploads/2026/03/duin-canvas-woonkamer-scaled.jpg",
+                "https://atelierduin.example/wp-content/uploads/2026/03/duin-canvas-maten.png",
+            ],
+        ),
+        # eBay: the structured data's two photos, the carousel's zoom copy of the third; not the similar items.
+        (
+            "ebay-item-gallery.html",
+            "https://www.ebay.com/itm/100000000001",
+            [
+                "https://i.ebayimg.com/images/g/AbCdEfGhIjKlMnOp/s-l1600.jpg",
+                "https://i.ebayimg.com/images/g/QrStUvWxYzAbCdEf/s-l1600.jpg",
+                "https://i.ebayimg.com/images/g/GhIjKlMnOpQrStUv/s-l1600.webp",
+            ],
+        ),
+        # bol.com: the filmstrip's zoom copies; not the video's still or the recommendations.
+        (
+            "bolcom-gallery.html",
+            "https://www.bol.com/nl/nl/p/opbergboxen-set-van-12/9300000000000001/",
+            [
+                "https://media.s-bol.com/AbCdEfGhIjKl/1200x1200.jpg",
+                "https://media.s-bol.com/MnOpQrStUvWx/1200x900.jpg",
+            ],
+        ),
+        # AliExpress: imagePathList (its thumbnail copies counted once).
+        (
+            "aliexpress-gallery.html",
+            "https://www.aliexpress.com/item/1005000000000001.html",
+            [
+                "https://ae01.alicdn.com/kf/S0aaaaaaaaaaaaaaaa.jpg",
+                "https://ae01.alicdn.com/kf/S1bbbbbbbbbbbbbbbb.jpg",
+                "https://ae01.alicdn.com/kf/S2cccccccccccccccc.png",
+            ],
+        ),
+        # Temu: the goods' gallery.
+        (
+            "temu-gallery.html",
+            "https://www.temu.com/goods.html?goods_id=601000000000001",
+            [
+                "https://img.kwcdn.com/product/fancy/aaaa1111-0000-0000-0000-000000000001.jpg",
+                "https://img.kwcdn.com/product/fancy/aaaa1111-0000-0000-0000-000000000002.jpg",
+                "https://img.kwcdn.com/product/fancy/aaaa1111-0000-0000-0000-000000000003.jpeg",
+            ],
+        ),
+    ],
+)
+def test_product_gallery_first(page: str, url: str, gallery: list[str]) -> None:
+    facts, _ = parse_page((PAGES / page).read_text(), url)
+
+    assert facts.image_urls[: len(gallery)] == gallery
+    rest = facts.image_urls[len(gallery) :]
+    assert not any(photo_key(u) in {photo_key(g) for g in gallery} for u in rest)  # each photo once
+    assert not any("{" in u for u in facts.image_urls[: len(gallery)])
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("https://x.example/cdn/shop/files/a_800x.jpg?v=1", "//x.example/cdn/shop/files/a.jpg?v=1&width=1946"),
+        ("https://x.example/cdn/shop/files/a_grande@2x.jpg", "https://x.example/cdn/shop/files/a.jpg"),
+        ("https://x.example/wp-content/uploads/a-300x300.jpg", "https://x.example/wp-content/uploads/a.jpg"),
+        ("https://i.ebayimg.com/images/g/abc/s-l500.jpg", "https://i.ebayimg.com/images/g/abc/s-l1600.jpg"),
+        ("https://ae01.alicdn.com/kf/S0a.jpg_220x220q75.jpg_.webp", "https://ae01.alicdn.com/kf/S0a.jpg"),
+        ("https://media.s-bol.com/AbC/124x124.jpg", "https://media.s-bol.com/AbC/1200x900.jpg"),
+        ("https://m.media-amazon.com/images/I/91a._AC_SL1500_.jpg", "https://m.media-amazon.com/images/I/91a.jpg"),
+    ],
+)
+def test_one_photo_in_several_sizes(a: str, b: str) -> None:
+    assert photo_key(a) == photo_key(b)
+
+
+def test_no_gallery_on_a_page_about_no_product() -> None:
+    html = '<html><body><div class="hero-slider"><img src="https://co.example/team.jpg"></div></body></html>'
+    facts, _ = parse_page(html, "https://co.example/")
+    assert facts.image_urls == ["https://co.example/team.jpg"]

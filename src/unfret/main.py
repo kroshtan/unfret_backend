@@ -34,6 +34,7 @@ from unfret import (
     scoring,
     shares,
     shop_store,
+    usage,
     verdict_store,
 )
 from unfret.api import UnfretAPI
@@ -57,7 +58,7 @@ logger = structlog.get_logger("unfret")
 
 async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     """
-    Every hour until cancelled: expire old reports, fiat orders, VAT quotes, sales records, shares, requests, OAuth.
+    Every hour until cancelled: expire old reports, fiat orders, VAT quotes, sales, shares, requests, OAuth, events.
 
     Unhandled reports go with their account links; sales records only after their ten-year retention.
 
@@ -74,6 +75,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("shares", shares.purge(pool)),
             ("objections", objections.purge(pool, settings.objection_days)),
             ("oauth", oauth.purge(pool)),
+            ("usage", usage.purge(pool, settings.usage_events_retention_days)),
         ):
             try:
                 await job
@@ -137,6 +139,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     if api.credits.scanner is not None:
         tasks.append(asyncio.create_task(api.credits.run_forever()))
     tasks.append(asyncio.create_task(housekeeping(api.db_pool)))
+    usage.start(api.db_pool)  # anonymous usage events, written in the background
     try:
         async with mcp_remote.running(api):  # the remote MCP server at /mcp
             yield
@@ -150,6 +153,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
                 await shop_store.drain()
                 await reverse_image.drain()
                 await recording.drain()
+        await usage.stop()  # what is queued, a few seconds at most
         await second_opinion.stop()  # an unfinished one leaves its item to a person
         await api.db_pool.close()
         await api.x402.rpc.aclose()
@@ -175,7 +179,9 @@ app = UnfretAPI(
     lifespan=lifespan,
 )
 
-# Body size cap and x-process-time header for all requests (added first, so CORS wraps it
+# One anonymous usage event per check, with its outcome (unfret.usage). Added first, so it runs inside the guard.
+app.add_middleware(usage.UsageMiddleware)
+# Body size cap and x-process-time header for all requests (added early, so CORS wraps it
 # and even a 413 carries CORS headers)
 app.add_middleware(RequestGuardMiddleware, max_body_bytes=settings.max_page_bytes)
 

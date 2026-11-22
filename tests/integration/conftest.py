@@ -26,7 +26,7 @@ DROP_ALL = (
     "showcase_cases, shared_results, invites, intro_codes, market_prices, review_fingerprints, ad_prints, "
     "ad_contacts, x402_audit_cursor, x402_audit_flags, affiliates, bonus_codes, affiliate_passes, "
     "affiliate_earnings, affiliate_reversals, affiliate_payouts, objections, report_opinion_days, oauth_codes, "
-    "oauth_grants, oauth_clients, schema_migrations "
+    "oauth_grants, oauth_clients, usage_events, uptime_probes, schema_migrations "
     "CASCADE"
 )
 
@@ -72,6 +72,7 @@ async def pool() -> AsyncIterator[asyncpg.Pool]:
         unavailable("UNFRET_TEST_POSTGRES_URI not set")
     pool = await asyncpg.create_pool(POSTGRES_URI)
     await pool.execute(DROP_ALL)
+    await pool.execute("DROP SCHEMA IF EXISTS stats CASCADE")
     await init_db(pool)
     yield pool
     await pool.close()

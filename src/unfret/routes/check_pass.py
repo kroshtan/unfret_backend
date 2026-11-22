@@ -25,7 +25,7 @@ import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from unfret import card, observations, result_cache, verdict_store
+from unfret import card, observations, result_cache, usage, verdict_store
 from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys
@@ -98,6 +98,7 @@ async def _answer(
     content: dict[str, Any] = verdict.model_dump(mode="json")
     content["charged"] = charged
     content["free_check"] = charged and charge.spent is not None
+    usage.note(payment="pass" if charged and charge.spent is None else "free")
     content["balance_usd_micros"] = balance
     content["free_checks_left"] = await free.left(
         request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX), api=True
@@ -167,6 +168,7 @@ async def pass_check(body: CheckRequest, request: Request, token: str) -> Respon
     account = await _pass(request, body, token)
     if isinstance(account, Response):
         return account
+    usage.note(account=account)
     return await _checked(body, request, account)
 
 
@@ -234,6 +236,7 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
     verdict = to_verdict(result, policy=body.policy, tier=body.tier)
     result_cache.put(key, {"verdict": verdict.model_dump(mode="json")})
     if result.get("score") == -1:  # the page couldn't be assessed: given back
+        usage.note(unreadable=True)
         analyze._count_free_outcome(charge)
         await analyze._refund(request, charge)
         return await _answer(request, verdict, charge, account=account, charged=False)

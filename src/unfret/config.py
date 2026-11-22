@@ -386,6 +386,11 @@ class Settings(BaseSettings):
     objections_daily_cap: int = Field(default=200, ge=1)
     objection_days: int = Field(default=90, ge=1)
 
+    # Anonymous usage events (unfret.usage): a time, a kind and coarse enums, nothing that names a person, a pass or a
+    # page. Off: nothing is recorded. Deleted after usage_events_retention_days, with the uptime probes.
+    usage_events_enabled: bool = True
+    usage_events_retention_days: int = Field(default=400, ge=1)
+
     # /terms shows a visible "draft" note at the top, for a new version of the terms that isn't approved yet.
     terms_draft: bool = False
 
@@ -707,6 +712,7 @@ class Settings(BaseSettings):
             "admin_token": bool(self.admin_token.get_secret_value()),
             "fiat": self.polar_environment if self.polar_configured else "off",
             "mcp_oauth": self.mcp_oauth_enabled,
+            "usage_events": self.usage_events_enabled,
             "prices_usd_micros": {
                 "analysis": self.analysis_price_usd_micros,
                 "quick": self.x402_price_quick_usd_micros,

@@ -110,6 +110,7 @@ export async function makePass(api, { free = false, developer = false } = {}) {
   const body = {
     challenge: challenge.challenge,
     solution,
+    source: "website", // for Unfret's anonymous usage counts only, never kept with the pass
     ...(developer ? { developer: true } : free ? { free: true } : {}),
     ...(ref ? { ref } : {}),
   };

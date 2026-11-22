@@ -39,6 +39,7 @@ import asyncpg
 import structlog
 from solders.pubkey import Pubkey
 
+from unfret import usage
 from unfret.config import Settings
 from unfret.credits import affiliates, invites, keys, ledger, vat
 from unfret.prices import Currency, PriceBook, PriceUnavailableError
@@ -406,6 +407,7 @@ class CreditScanner:
                     credited_usd_micros=sale.credited_usd_micros,
                     vat_usd_micros=sale.vat_usd_micros,
                 )
+                usage.record("payment", method="solana", purpose="pass", currency=self.currency.lower())
                 made += 1
             cursor = signature
         return made

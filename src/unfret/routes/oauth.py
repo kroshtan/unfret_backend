@@ -18,7 +18,7 @@ import structlog
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from unfret import oauth
+from unfret import oauth, usage
 from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import keys
@@ -298,6 +298,8 @@ async def authorize(request: Request) -> Response:
         found, refused = await _checked_request(request, params)
     except oauth.OAuthError as exc:
         return _error_page(exc.description)
+    if refused is None:
+        usage.record("oauth_authorize_shown")
     return refused or _authorize_page(request, found, params)
 
 
@@ -316,7 +318,9 @@ async def _chosen_pass(
     """
     if form.get("action") == "create":
         try:
-            new, given = await issue_pass(request, form.get("challenge", ""), form.get("solution", ""), free=True)
+            new, given = await issue_pass(
+                request, form.get("challenge", ""), form.get("solution", ""), free=True, source="mcp-oauth"
+            )
         except CustomAPIError as exc:
             return _authorize_page(request, found, params, f"{exc.detail} Or use a pass you already have.", 400)
         return new.key_id, keys.hash_of(new.key), new, given
@@ -368,6 +372,8 @@ async def approve(request: Request) -> Response:
         code_challenge=params["code_challenge"],
     )
     logger.info("oauth_code_issued", new_pass=new is not None)
+    if new is not None:
+        usage.record("oauth_pass_created")
     back = _redirect(params["redirect_uri"], {"code": code, "state": params["state"]})
     if new is None:
         return back
@@ -442,6 +448,8 @@ async def token(request: Request) -> JSONResponse:
             _bad_codes.retry_after(ip)
         return _oauth_error(exc.error, exc.description)
     logger.info("oauth_tokens_issued", grant=form["grant_type"])
+    if form["grant_type"] == "authorization_code":
+        usage.record("oauth_connected")
     return JSONResponse(tokens.as_response(), headers=_NO_STORE)
 
 

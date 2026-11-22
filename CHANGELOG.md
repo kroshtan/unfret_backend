@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Usage statistics
+
+* **Anonymous usage events** (`usage_events`, migration 37): passes made (by source), quick and deep checks (route,
+  tier, how paid, outcome, a pass more than a day old), payments (card, Solana, Base), MCP tool calls and the OAuth
+  sign-in steps, each with its real time and only coarse enums: no pass, key, address, wallet, user agent, OAuth
+  client or checked page. Written in the background, never slowing or failing a request; deleted after 400 days;
+  off with `UNFRET_USAGE_EVENTS_ENABLED=false`. `POST /v1/keys` takes an optional `source` hint (counted, never kept
+  with the pass). The privacy page and README say exactly what is stored ("Usage statistics").
+* **Read-only stats views** (`stats` schema: aggregates with no row per pass, plus the events and uptime probes) and
+  the NOLOGIN roles `unfret_stats_read` (SELECT on them only) and `unfret_probe_write` (INSERT on `uptime_probes`
+  only), for dashboards and an uptime probe running outside the app.
+
 ### Developer docs
 
 * **Three ways to integrate, on every developer page.** `/developers` opens with the MCP server, the API with a pass

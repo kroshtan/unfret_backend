@@ -12,7 +12,7 @@
   {{header}}
   <main>
     <h1>Privacy</h1>
-    <p><em>Last updated: November 21, 2026.</em> Unfret is made by Kroshtan (Floris van Beers, Kopenhagenstraat 2a,
+    <p><em>Last updated: November 22, 2026.</em> Unfret is made by Kroshtan (Floris van Beers, Kopenhagenstraat 2a,
       9723 BB Groningen, the Netherlands), who is responsible for the personal data described here (the controller, in
       the words of the GDPR). Questions and requests: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
@@ -165,6 +165,19 @@
         owners</a> (the kind of request, your site, your message and, if you give one, your e-mail address) and the day
         it arrived. No IP address or time of day. Used only to handle your request; deleted once it is handled, and
         after 90 days at the latest.</li>
+      <li><strong>Usage statistics</strong>: to see how Unfret is used, the server writes one anonymous event for
+        certain things that happen, with the exact time it happened and only these fields: what kind of event it was (a
+        pass made, a quick or deep check, a payment, a tool listed or called on the MCP server, a step of the MCP
+        sign-in); how it came in (the API, the MCP server, the browser extension, the website or the Android app); and,
+        depending on the kind, a few fixed choices: where a pass was made and whether it is a developer pass or came
+        with free checks; a check's tier, whether it was free, paid from a pass or paid per check over x402 (and on
+        which network), whether it worked, was refused or couldn't read the page, and whether the pass is more than a
+        day old; a payment's method (card, Solana or Base), what it paid for, its provider and its currency; the name
+        of the MCP tool called. Nothing else: no pass, key, account or wallet (not even as a hash), no IP address, no
+        browser or device details, no app or MCP client name, and nothing about the page checked (no address and no
+        domain). Because each event keeps its exact time and Unfret has few users, an event is less anonymous than a
+        daily total would be: someone who knew you did something at a certain minute could find that event. It still
+        says nothing about who you are or what you checked. Deleted after 400 days.</li>
     </ul>
 
     <h2>For shop owners and service companies</h2>
@@ -270,7 +283,7 @@
       <li><strong>With your consent</strong>, which you can withdraw: a result you share (delete it with its delete
         code) and a wrong result you report.</li>
       <li><strong>Our legitimate interest</strong> in warning shoppers and keeping the service safe: the fingerprints
-        and price records above (shops, contact details, ads, photos, reviews, prices), the request limits, the country suggestion, affiliates' counts, and handling a request a shop owner sends us.
+        and price records above (shops, contact details, ads, photos, reviews, prices), the request limits, the country suggestion, affiliates' counts, the anonymous usage statistics, and handling a request a shop owner sends us.
         You can object (below).</li>
       <li>What this site keeps in your browser is only what a feature you use needs, so it asks no consent for it.</li>
     </ul>

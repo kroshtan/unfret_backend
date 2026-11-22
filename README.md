@@ -694,6 +694,46 @@ day, in memory, and a daily cap. The operator works through `GET /v1/admin/objec
 (`DELETE /v1/admin/shops/{domain}`, `POST /v1/admin/contacts/forget`, or the report queue for a wrong result) and
 deletes the request (`DELETE /v1/admin/objections/{id}`); the housekeeping deletes any still open after 90 days.
 
+### Usage statistics
+
+The server writes one **anonymous event** per thing worth counting (`unfret.usage`, table `usage_events`): the exact
+time, a `kind`, the `route` it came in by (`api`, `mcp-remote`, `extension`, `site`, `app`) and `attrs`, which may only
+hold the coarse values listed per kind in `unfret.usage.KINDS`:
+
+| Kind | Attributes |
+| --- | --- |
+| `pass_created` | `source` (`extension`, `website`, `android`, `mcp-oauth`, `api`), `developer`, `free_checks` (yes/no) |
+| `check` | `tier`, `payment` (`free`, `pass`, `x402`), `network` (x402: `solana`, `base`), `outcome` (`ok`, `refused`, `unreadable`, `error`), `returning` (a pass more than a day old; yes/no) |
+| `payment` | `method` (`card`, `solana`, `base`), `purpose` (`pass`, `x402`), `provider` (`polar`), `currency` (`usd`, `eur`, `usdc`, `sol`) |
+| `mcp_tools_list`, `mcp_tool_call` | `tool` (the tool's name) |
+| `oauth_authorize_shown`, `oauth_pass_created`, `oauth_connected` | none |
+
+Never a pass, key, account or wallet (not even hashed), an IP address, a user agent, an OAuth client, or the URL or
+domain of a checked page; `tests/integration/test_usage.py` fails if a column or attribute is added. `returning` is
+worked out from the pass's day of creation while the event is written and stored as a yes/no only. `POST /v1/keys`
+takes an optional `source` hint (else it is guessed from `Origin`: an extension origin, the site's own origin, the
+Android app's user agent); it is counted, never kept with the pass. Real timestamps at Unfret's volume are less
+anonymous than daily totals, and the privacy page says so. Recording never slows or fails a request: events go on a
+bounded in-process queue that one background task writes in batches; a full queue or a failed write drops them
+(counted, and logged as `usage_events_dropped`). Events and uptime probes are deleted after 400 days by the hourly
+housekeeping. `UNFRET_USAGE_EVENTS_ENABLED=false` turns recording off.
+
+**Dashboards** read the database through the `stats` schema only: `stats.usage_events`, `stats.uptime_probes`
+(written by an uptime probe running outside the app), and aggregates over the other tables with no row per pass
+(`passes_daily`, `pass_cohorts`, `card_payments_daily`, `crypto_sales_daily`, `x402_checks_daily`). Migration 37
+creates the role `unfret_stats_read` (NOLOGIN, `SELECT` on those views and nothing else) and `unfret_probe_write`
+(NOLOGIN, `INSERT` on `uptime_probes` only). Logging in takes a separate LOGIN role per environment, made a member by
+hand with a password from that environment's secret store, never committed. On the server, for the destination's
+database container (`unfret-dev-db` or `unfret-prod-db`), with the password on standard input:
+
+```bash
+# Once per environment: a login role for the dashboards (read-only) and one for the uptime probe (insert only).
+read -rs PW   # from the secret store, not typed into history
+printf "CREATE ROLE unfret_stats LOGIN PASSWORD '%s' IN ROLE unfret_stats_read;\n" "$PW" \
+  | docker exec -i unfret-dev-db psql -q -U unfret -d unfret
+# Rotating it: ALTER ROLE unfret_stats PASSWORD '...'; the same way. The probe's: unfret_probe IN ROLE unfret_probe_write.
+```
+
 ### Pay-per-check for agents (x402)
 
 `POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call
@@ -1179,6 +1219,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_BASE_MIN_GAS_WEI` / `UNFRET_BASE_MAX_FEE_PER_GAS_WEI` / `UNFRET_BASE_SWEEP_MAX_GAS` | `10000000000000` / `1000000000` / `120000` | The hot wallet's ETH for gas below which `fee_reserve_low` alerts; the largest fee per gas and gas limit a sweep uses |
 | `UNFRET_BASE_FACILITATOR_URL` / `UNFRET_CDP_API_KEY_ID` / `UNFRET_CDP_API_KEY_SECRET` | CDP / — / — | The facilitator; Coinbase's needs a CDP secret API key (Ed25519) |
 | `UNFRET_SHARES_PER_VISITOR_PER_DAY` / `UNFRET_SHARES_DAILY_CAP` / `UNFRET_SHARE_DAYS` | `20` / `1000` / `90` | Shared results: per visitor network per day, in total per day, and how long one stays up |
+| `UNFRET_USAGE_EVENTS_ENABLED` / `UNFRET_USAGE_EVENTS_RETENTION_DAYS` | `true` / `400` | Anonymous usage events ("Usage statistics"): off records nothing; how long events and uptime probes are kept |
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
 | `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (for a new version of the terms that isn't approved yet) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |

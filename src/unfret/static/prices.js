@@ -1,8 +1,8 @@
-// Card prices as a buyer pays them. Euro card prices include VAT (/v1/pricing's card_tax_inclusive.eur): they are
-// the final price, the same in every euro country, and are shown as they are. Dollar prices are before tax: the card
-// provider (Polar, the Merchant of Record) adds VAT to them at checkout, so a price shown without it would go up at
-// the last step, exactly what Unfret warns shoppers about. For a country in the EU a dollar price is shown with that
-// country's standard VAT rate, which is what the provider charges a consumer there (/v1/pricing's
+// Card prices as a buyer pays them. Card prices that include tax (/v1/pricing's card_tax_inclusive, by default both
+// dollars and euros) are the final price, the same for every buyer, and are shown as they are. Where a currency's
+// prices are before tax instead, the card provider (Polar, the Merchant of Record) adds VAT to them at checkout, so a
+// price shown without it would go up at the last step, exactly what Unfret warns shoppers about. For a country in the
+// EU such a price is shown with that country's standard VAT rate, which is what the provider charges a consumer there (/v1/pricing's
 // vat.card_rates_pct; not eu_rates_pct, which is what Unfret itself charges on a crypto purchase), rounded half up
 // to the cent; elsewhere tax depends on the buyer's state or country, and is named as added at checkout.
 

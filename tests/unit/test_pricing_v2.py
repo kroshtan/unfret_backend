@@ -102,6 +102,27 @@ def test_card_prices_include_tax_in_both_currencies() -> None:
     assert not any(p.tax_inclusive("eur") for p in packs(off))
 
 
+def test_vat_applies_to_follows_the_card_tax_settings() -> None:
+    assert vat.describe(Settings())["applies_to"] == (
+        "all purchases: card prices include sales tax/VAT (collected by the payment provider); "
+        "crypto prices include VAT"
+    )
+    exclusive = Settings(card_prices_usd_tax_inclusive=False, card_prices_eur_tax_inclusive=False)
+    assert (
+        vat.applies_to(exclusive)
+        == "crypto purchases (card purchases: the payment provider adds its own sales tax/VAT)"
+    )
+    dollars_before_tax = vat.applies_to(Settings(card_prices_usd_tax_inclusive=False))
+    assert (
+        "card purchases in euros" in dollars_before_tax
+        and "in dollars: the payment provider adds" in dollars_before_tax
+    )
+    # Without euro prices only the dollar setting counts.
+    assert vat.applies_to(Settings(card_prices_eur="", card_prices_eur_tax_inclusive=False)).startswith(
+        "all purchases"
+    )
+
+
 @pytest.mark.parametrize(
     ("country", "currency"),
     [("NL", "eur"), ("DE", "eur"), ("BG", "eur"), ("GR", "eur"), ("US", "usd"), ("DK", "usd"), ("GB", "usd")]

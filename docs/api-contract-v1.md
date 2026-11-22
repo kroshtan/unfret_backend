@@ -1684,3 +1684,11 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - `/mcp`: a 401 adds `resource_metadata` and `scope` to `WWW-Authenticate` while OAuth is on; `Bearer ufk_…` works as
   before.
 - `POST /v1/keys`: unchanged (its description now names its 400 and 429 in prose).
+
+## Changes (`vat.applies_to` says card prices include tax; backwards-compatible)
+
+- `GET /v1/pricing`: `vat.applies_to` follows `card_tax_inclusive`. With card prices including tax in both currencies
+  (the default since 0.15.0) it reads "all purchases: card prices include sales tax/VAT (collected by the payment
+  provider); crypto prices include VAT"; the old "crypto purchases (card purchases: the payment provider adds its own
+  sales tax/VAT)" is kept only while card prices are before tax. It is prose for people: read `card_tax_inclusive`
+  for logic. No field added or removed.

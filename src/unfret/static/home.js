@@ -4,9 +4,9 @@ import { chooseButtons } from "./install-button.js";
 import { cardPrice, taxNote } from "./prices.js";
 import { wireStartForm } from "./start-check.js";
 
-// The card prices follow Cloudflare's country hint, visibly: euros in the euro area (VAT included), dollars with the
-// VAT the card provider adds for another EU country (prices.js), with a note the visitor can change at checkout.
-// Elsewhere the dollar prices, with tax added at checkout where it applies.
+// The card prices follow Cloudflare's country hint, visibly: euros in the euro area, dollars elsewhere, each with tax
+// included while /v1/pricing's card_tax_inclusive says so (the default). Prices before tax get the VAT the card
+// provider adds for an EU country (prices.js), or a note that tax is added at checkout where it applies.
 async function prices() {
   const response = await fetch("/v1/pricing", { headers: { Accept: "application/json" } });
   if (!response.ok) return;

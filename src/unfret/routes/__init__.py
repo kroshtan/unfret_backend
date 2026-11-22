@@ -11,6 +11,7 @@ from unfret.routes.extension import router as extension_router
 from unfret.routes.images import router as images_router
 from unfret.routes.invites import router as invites_router
 from unfret.routes.keys import router as keys_router
+from unfret.routes.oauth import router as oauth_router
 from unfret.routes.objections import router as objections_router
 from unfret.routes.pages import router as pages_router
 from unfret.routes.probes import router as probes_router
@@ -23,6 +24,7 @@ from unfret.routes.test_shop import router as test_shop_router
 router = APIRouter()
 router.include_router(session_router)
 router.include_router(keys_router)
+router.include_router(oauth_router)
 router.include_router(credits_router)
 router.include_router(invites_router)
 router.include_router(affiliates_router)

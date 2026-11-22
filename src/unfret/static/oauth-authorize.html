@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Connect Unfret · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/oauth-authorize.js"></script>
+</head>
+<body>
+  {{header}}
+  <main class="mine">
+    <h1>Connect Unfret to {{asker}}</h1>
+    <p class="lead">{{asker}} asks to use Unfret's checks for you: quick checks are free, and each deep check uses one
+      check from your Unfret pass. It can't buy checks, pay, or see anything else.</p>
+    <p>After you approve, you go back to <strong>{{back_to}}</strong>.</p>
+    {{loopback_note}}
+    {{error}}
+    <form id="create-form" method="post" action="/oauth/authorize">
+      {{hidden}}
+      <input type="hidden" name="action" value="create">
+      <input type="hidden" name="challenge" id="create-challenge">
+      <input type="hidden" name="solution" id="create-solution">
+      <p class="buttons"><button id="create-button" type="submit" class="button primary large"
+        disabled>Continue</button></p>
+      <p class="small muted">Unfret makes a pass for this connection{{checks_line}}. No account, no e-mail.</p>
+      <p id="create-status" class="small" role="status" aria-live="polite"></p>
+      <noscript><p class="small">Continuing needs JavaScript. Turn it on, or use a pass you already have.</p></noscript>
+    </form>
+    <details class="choice"{{pass_open}}>
+      <summary>I already have an Unfret pass</summary>
+      <form method="post" action="/oauth/authorize">
+        {{hidden}}
+        <input type="hidden" name="action" value="pass">
+        <p class="small">Paste it (it starts with <code>ufk_</code>; it's on <a href="/my-checks" target="_blank"
+          rel="noopener">My checks</a>).</p>
+        <label class="visually-hidden" for="pass-input">Your pass</label>
+        <div class="code-form">
+          <input id="pass-input" name="pass" type="password" autocomplete="off" spellcheck="false"
+            placeholder="ufk_…" required>
+          <button type="submit">Connect this pass</button>
+        </div>
+      </form>
+    </details>
+    <p class="small muted">Unfret keeps only one-way hashes of the sign-in's tokens, tied to the pass, never anything
+      about you. Disconnect any time in {{asker}}; replacing the pass with its backup code disconnects it too.
+      <a href="/privacy">Privacy</a></p>
+  </main>
+  {{footer}}
+</body>
+</html>

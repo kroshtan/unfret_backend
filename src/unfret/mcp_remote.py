@@ -7,11 +7,16 @@ limited and charged by exactly the code that serves ``/v1/check`` with a pass, w
 network and no copy of the rules to keep in step. The MCP transport runs **stateless** with JSON responses: every
 request stands on its own, so any process can answer it, a deploy drops nothing, and nothing is kept between calls.
 
-**Authentication: an Unfret pass only** (``Authorization: Bearer ufk_…``), checked before the request reaches the
-MCP layer; anything else is 401 with ``WWW-Authenticate: Bearer``. This server never pays from a wallet and has no
-code that could: deep checks are paid from the pass, quick checks are free. (The stdio package in ``mcp/`` keeps its
-wallet mode for agents that run it themselves.) Too many bad passes from one network are answered 429 before any
-lookup.
+**Authentication: an Unfret pass**, sent as ``Authorization: Bearer ufk_…``, or, while ``mcp_oauth_enabled`` is on, an
+OAuth access token for one (``Bearer ufat_…``, :mod:`unfret.oauth`: how Claude's connector directory signs in). Both
+are checked before the request reaches the MCP layer; anything else is 401 with ``WWW-Authenticate: Bearer`` (with
+``resource_metadata``, where to sign in, while OAuth is on). The OAuth tokens work here only, never on the rest of the
+API. While OAuth is on, what needs no pass is open without one (**lazy sign-in**, :data:`OPEN_METHODS`): connecting,
+listing the tools and ``get_pricing``; a check or ``get_checks_left`` without a credential is the 401 that makes the
+client ask the person to sign in. This server never pays from a wallet and has no code that could: deep checks are
+paid from the pass, quick checks are free. (The stdio package in ``mcp/`` keeps its wallet mode for agents that run it
+themselves.) Too many bad passes from one network are answered 429 before any lookup (expired OAuth tokens and
+requests for sign-in don't count: they come from a client's shared servers and are routine).
 
 The tools only ever call the three routes in :data:`ROUTES`, with nothing but the caller's pass: no route that buys,
 tops up or pays (x402, wallets, card checkout) is reachable from here, and a payment header sent to ``/mcp`` is never
@@ -20,6 +25,7 @@ passed on. Every tool declares a title, a one-sentence description and explicit 
 here.
 """
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal
@@ -32,9 +38,9 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from unfret import __version__
+from unfret import __version__, oauth
 from unfret.api import UnfretAPI
 from unfret.config import settings
 from unfret.credits import keys
@@ -47,6 +53,21 @@ _INTERNAL = "http://unfret.internal"  # the in-process calls' base URL; nothing 
 # Every route a tool may call, and the only ones: a check (paid from the pass) and two reads. Nothing that pays.
 ROUTES: frozenset[tuple[str, str]] = frozenset({("POST", "/v1/check"), ("GET", "/v1/credits"), ("GET", "/v1/pricing")})
 _bad_passes = RateLimit(settings.x402_check_per_minute)  # failed pass checks per visitor network
+# While OAuth is on, requests without a credential may do these (lazy sign-in: a client connects and lists the tools
+# before anyone signs in), and call these tools; anything else gets the 401 that starts the sign-in.
+OPEN_METHODS = frozenset(
+    {
+        "initialize",
+        "server/discover",
+        "ping",
+        "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "prompts/list",
+    }
+)
+OPEN_TOOLS = frozenset({"get_pricing"})
+_OPEN_BODY_BYTES = 64 * 1024
 
 server: MCPServer = MCPServer(
     "unfret",
@@ -79,15 +100,15 @@ def _caller(ctx: Context) -> tuple[str, tuple[str, int]]:
     The pass and network of the MCP request a tool runs for.
 
     :param ctx: The tool's context.
-    :return: The ``Authorization`` header (already checked) and the client address.
+    :return: The ``Authorization`` header (already checked; empty for an open call) and the client address.
     :raises RuntimeError: Outside an HTTP request (the gate guarantees one).
     """
     request = ctx.request_context.request
     headers = getattr(request, "headers", None)
-    if headers is None or not headers.get("authorization"):
+    if headers is None:
         raise RuntimeError("no HTTP request")  # pragma: no cover - the gate refuses those
     client = getattr(request, "client", None)
-    return headers["authorization"], (client.host, client.port) if client else ("unknown", 0)
+    return headers.get("authorization", ""), (client.host, client.port) if client else ("unknown", 0)
 
 
 async def _call(ctx: Context, method: str, path: str, body: dict[str, Any] | None = None) -> httpx.Response:
@@ -101,6 +122,7 @@ async def _call(ctx: Context, method: str, path: str, body: dict[str, Any] | Non
     :return: The response.
     :raises RuntimeError: While the server isn't attached to the app.
     :raises ValueError: For a route outside :data:`ROUTES`.
+    :raises PermissionError: For a route other than the prices without a pass.
     """
     if (method, path) not in ROUTES:
         raise ValueError(f"not a route the MCP server calls: {method} {path}")
@@ -109,9 +131,26 @@ async def _call(ctx: Context, method: str, path: str, body: dict[str, Any] | Non
     authorization, client = _caller(ctx)
     transport = httpx.ASGITransport(app=_api, client=client)
     timeout = httpx.Timeout(settings.analysis_timeout_s + 30)
+    token = authorization.partition(" ")[2].strip()
+    if not token and (method, path) != ("GET", "/v1/pricing"):
+        raise PermissionError("only get_pricing runs without a pass")  # pragma: no cover - the gate refuses those
     async with httpx.AsyncClient(transport=transport, base_url=_INTERNAL, timeout=timeout) as http:
-        # Only the pass goes along: never a payment header, so /v1/check always charges the pass (never x402).
-        return await http.request(method, path, json=body, headers={"Authorization": authorization})
+        if not token:
+            return await http.request(method, path)
+        if not token.startswith(oauth.ACCESS_PREFIX):
+            # Only the pass goes along: never a payment header, so /v1/check always charges the pass (never x402).
+            return await http.request(method, path, json=body, headers={"Authorization": authorization})
+        # An OAuth caller: the pass itself was never seen (only its hash is kept), so the routes get a stand-in for
+        # it that works in this process, for this call only.
+        try:
+            account = await oauth.authenticate(_api.db_pool, token) if _api.db_pool is not None else None
+        except keys.ApiKeyError:
+            account = None
+        if account is None:
+            problem = {"detail": "The sign-in expired or was revoked; sign in again.", "error_code": "INVALID_API_KEY"}
+            return httpx.Response(401, json=problem)
+        with keys.internal_pass(account) as stand_in:
+            return await http.request(method, path, json=body, headers={"Authorization": f"Bearer {stand_in}"})
 
 
 def _error(response: httpx.Response) -> dict[str, Any]:
@@ -302,9 +341,13 @@ async def get_pricing(ctx: Context) -> dict[str, Any]:
 
 
 def _unauthorized(detail: str, *, error: str = "invalid_token") -> JSONResponse:
-    challenge = f'Bearer realm="Unfret", error="{error}", error_description="{detail}"'
-    if error == "invalid_request":
+    if settings.mcp_oauth_enabled:
+        # Where to sign in (RFC 9728 §5.1): Claude starts its OAuth flow from this 401.
+        challenge = oauth.challenge_header(None if error == "invalid_request" else error, detail)
+    elif error == "invalid_request":
         challenge = 'Bearer realm="Unfret"'  # no credentials at all: no error code (RFC 6750 §3.1)
+    else:
+        challenge = f'Bearer realm="Unfret", error="{error}", error_description="{detail}"'
     return JSONResponse(
         {"detail": detail, "error_code": "INVALID_API_KEY" if error == "invalid_token" else "UNAUTHORIZED"},
         status_code=401,
@@ -317,13 +360,17 @@ class _Endpoint:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """
-        Refuse anything without a valid Unfret pass, then hand the request to the MCP transport.
+        Refuse anything without a valid Unfret pass (or OAuth token for one), then hand the request to MCP.
 
         :param scope: The ASGI scope.
         :param receive: The ASGI receive channel.
         :param send: The ASGI send channel.
         """
-        response = await _gate(scope)
+        authorization = Headers(scope=scope).get("authorization", "").strip() if scope["type"] == "http" else ""
+        if settings.mcp_oauth_enabled and not authorization and scope["type"] == "http" and _api is not None:
+            response, receive = await _open_or_sign_in(scope, receive)
+        else:
+            response = await _gate(scope)
         if response is None and _mcp_app is None:  # outside the app's lifespan
             response = JSONResponse({"detail": "Not running.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
         if response is not None:
@@ -336,9 +383,73 @@ class _Endpoint:
 endpoint = _Endpoint()
 
 
-async def _gate(scope: Scope) -> JSONResponse | None:
+def _is_open(message: object) -> bool:
+    if not isinstance(message, dict):
+        return False
+    method = message.get("method")
+    if method is None:
+        return "result" in message or "error" in message  # a response to the server: carries nothing
+    if not isinstance(method, str):
+        return False
+    if method in OPEN_METHODS or method.startswith("notifications/"):
+        return True
+    params = message.get("params")
+    return method == "tools/call" and isinstance(params, dict) and params.get("name") in OPEN_TOOLS
+
+
+async def _open_or_sign_in(scope: Scope, receive: Receive) -> tuple[JSONResponse | None, Receive]:
     """
-    Check the request's pass.
+    Lazy sign-in: let a request without a credential through only for what needs no pass, else ask for sign-in.
+
+    The JSON-RPC body is read here (at most a small one) and handed on unchanged.
+
+    :param scope: The ASGI scope.
+    :param receive: The ASGI receive channel.
+    :return: The 401 (or 429), or ``None`` and a receive channel that replays the body.
+    """
+    ip = scope["client"][0] if scope.get("client") else "unknown"
+    if (wait := _bad_passes.waiting(ip)) is not None:
+        return _too_many(wait), receive
+    body, more, too_large = b"", True, False
+    if scope.get("method") == "POST":
+        while more:
+            message = await receive()
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+            if len(body) > _OPEN_BODY_BYTES:
+                too_large = True
+                break
+    try:
+        sent = json.loads(body) if body and not too_large else None
+    except ValueError:
+        sent = None
+    messages = sent if isinstance(sent, list) else [sent]
+    if sent is None or not all(_is_open(message) for message in messages):
+        # Claude starts its sign-in from exactly this: 401 with invalid_token and where to sign in.
+        return _unauthorized("Sign in to Unfret to use this tool."), receive
+    replayed = False
+
+    async def replay() -> Message:
+        nonlocal replayed
+        if not replayed:
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return await receive()
+
+    return None, replay
+
+
+def _too_many(wait: float) -> JSONResponse:
+    return JSONResponse(
+        {"detail": "Too many requests without a valid pass; slow down.", "error_code": "RATE_LIMITED"},
+        status_code=429,
+        headers={"Retry-After": str(max(1, int(wait) + 1))},
+    )
+
+
+async def _gate(scope: Scope) -> JSONResponse | None:  # noqa: PLR0911 - one return per refusal
+    """
+    Check the request's pass or OAuth access token.
 
     :param scope: The ASGI scope.
     :return: The refusal, or ``None`` to go on.
@@ -347,17 +458,14 @@ async def _gate(scope: Scope) -> JSONResponse | None:
         return JSONResponse({"detail": "Not running.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
     ip = scope["client"][0] if scope.get("client") else "unknown"
     if (wait := _bad_passes.waiting(ip)) is not None:
-        return JSONResponse(
-            {"detail": "Too many requests without a valid pass; slow down.", "error_code": "RATE_LIMITED"},
-            status_code=429,
-            headers={"Retry-After": str(max(1, int(wait) + 1))},
-        )
+        return _too_many(wait)
     scheme, _, token = Headers(scope=scope).get("authorization", "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         _bad_passes.retry_after(ip)
+        how = "Sign in, or set the connector up" if settings.mcp_oauth_enabled else "Set the connector up"
         return _unauthorized(
-            "Set the connector up with an Unfret pass: Authorization: Bearer ufk_... "
+            f"{how} with an Unfret pass: Authorization: Bearer ufk_... "
             f"(a developer pass with free checks: {settings.public_base_url.rstrip('/')}/developers).",
             error="invalid_request",
         )
@@ -365,8 +473,15 @@ async def _gate(scope: Scope) -> JSONResponse | None:
     if pool is None:
         return JSONResponse({"detail": "Unfret passes are not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
     try:
-        await keys.authenticate(pool, token)
+        if settings.mcp_oauth_enabled and token.startswith(oauth.ACCESS_PREFIX):
+            await oauth.authenticate(pool, token)
+        else:
+            await keys.authenticate(pool, token if token.startswith(keys.KEY_PREFIX) else "-")
     except keys.ApiKeyError:
+        if token.startswith(oauth.ACCESS_PREFIX):
+            # Not counted: an expired token is routine (the client refreshes on this 401), it comes from the client's
+            # servers that all its users share, and 256 random bits can't be guessed anyway.
+            return _unauthorized("The sign-in expired or was revoked (refresh it, or sign in again).")
         _bad_passes.retry_after(ip)
         return _unauthorized("Not a valid Unfret pass (unknown, mistyped or replaced by a backup code).")
     return None
@@ -385,8 +500,8 @@ async def running(api: UnfretAPI) -> AsyncIterator[None]:
         streamable_http_path=PATH,
         stateless_http=True,
         json_response=True,
-        # A pass in a header is the only credential (no cookies, nothing ambient), so DNS rebinding gains nothing;
-        # the SDK's localhost-only host check would refuse every real host name.
+        # A bearer token in a header is the only credential (no cookies, nothing ambient), so DNS rebinding gains
+        # nothing; the SDK's localhost-only host check would refuse every real host name.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
     async with server.session_manager.run():

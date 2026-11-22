@@ -71,6 +71,11 @@
         the day it was made (and when it was last replaced from its backup code), and one-way hashes of the pass and
         its backup code. We never store either in readable form, so keep the backup code: we can't recover the pass
         for you.</li>
+      <li><strong>If you connect an app to Unfret's MCP server by signing in</strong> (Claude's connectors, for
+        example): one-way hashes of the sign-in's codes and tokens, tied to the pass you picked, with the app's client
+        ID and when each expires; for an app that registered itself, the name and return addresses it sent. Nothing
+        about you, your network or what you check. A token lasts an hour, a renewal token 30 days unused; they go when
+        they expire, when you disconnect the app, when you replace the pass with its backup code, or with the pass.</li>
       <li><strong>How long</strong>: a wallet's or pass's balance, and whether it used an invite or code or ever
         bought checks, are kept for as long as Unfret runs, because checks never expire. To have yours deleted (with
         the checks left on it), write to us with the pass's ID or the wallet's address.</li>

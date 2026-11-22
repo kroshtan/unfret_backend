@@ -175,6 +175,13 @@ jobs:
           UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.PROD_POLAR_ACCESS_TOKEN }}
           UNFRET_POLAR_PRODUCTS: ${{ secrets.PROD_POLAR_PRODUCTS }}
           UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.PROD_FIAT_WEBHOOK_SECRET }}
+          # x402 on Base mainnet: hot key, cold address and CDP key required once Base is enabled; the rest optional.
+          UNFRET_X402_BASE_HOT_KEY: ${{ secrets.PROD_BASE_HOT_KEY }}
+          UNFRET_BASE_PAY_TO: ${{ secrets.PROD_BASE_PAY_TO }}
+          UNFRET_BASE_COLD_ADDRESS: ${{ secrets.PROD_BASE_COLD_ADDRESS }}
+          UNFRET_CDP_API_KEY_ID: ${{ secrets.PROD_CDP_API_KEY_ID }}
+          UNFRET_CDP_API_KEY_SECRET: ${{ secrets.PROD_CDP_API_KEY_SECRET }}
+          UNFRET_BASE_RPC_URL: ${{ secrets.PROD_BASE_RPC_URL }}
         run: |
           set -euo pipefail
           missing=()
@@ -192,6 +199,20 @@ jobs:
           ((polar == 3)) && echo "card top-ups: on (Polar production)" || echo "card top-ups: off (no PROD_POLAR_* secrets)"
           [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
             || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
+          # Base: while UNFRET_X402_BASE_ENABLED is "false" in config/deploy.production.yml any subset may be set
+          # (the hot key goes in before Floris's cold address and CDP key); once it is "true" all four must be.
+          base_missing=()
+          for name in UNFRET_X402_BASE_HOT_KEY UNFRET_BASE_COLD_ADDRESS UNFRET_CDP_API_KEY_ID UNFRET_CDP_API_KEY_SECRET; do
+            [[ -n "${!name}" ]] || base_missing+=("$name")
+          done
+          if grep -qE '^ +UNFRET_X402_BASE_ENABLED: "true"' config/deploy.production.yml; then
+            ((${#base_missing[@]} == 0)) || { echo "::error::Base is enabled but not set: ${base_missing[*]}"; exit 1; }
+            echo "x402 on Base: on (mainnet)"
+          else
+            echo "x402 on Base: off (UNFRET_X402_BASE_ENABLED is false; not yet set: ${base_missing[*]:-none})"
+          fi
+          [[ "$UNFRET_BASE_RPC_URL" != *sepolia* && "$UNFRET_BASE_RPC_URL" != *testnet* ]] \
+            || { echo "::error::PROD_BASE_RPC_URL points at a test network"; exit 1; }
           # `details` echoes its docker ps command (which names the container), so match a running row instead.
           if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
             kamal accessory boot db -d production

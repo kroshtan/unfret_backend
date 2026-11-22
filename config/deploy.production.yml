@@ -21,6 +21,14 @@ env:
     # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
     UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"
     UNFRET_MODEL_QUICK_PATH: "<%= ENV.fetch('UNFRET_MODEL_QUICK_PATH', '') %>"
+    # x402 in USDC on Base MAINNET (real money), OFF until PROD_BASE_HOT_KEY, PROD_BASE_COLD_ADDRESS and the CDP key
+    # (PROD_CDP_API_KEY_ID / _SECRET) exist (README, "USDC on Base"); then this flips to "true" in a PR. The
+    # facilitator is Coinbase's (CDP, the default UNFRET_BASE_FACILITATOR_URL). After a change of
+    # PROD_BASE_COLD_ADDRESS the old one goes here, public: UNFRET_BASE_FORMER_COLD_ADDRESSES and
+    # UNFRET_BASE_FORMER_COLD_UNTIL (README, "Changing the Base cold address").
+    UNFRET_X402_BASE_ENABLED: "false"
+    UNFRET_BASE_NETWORK: base-mainnet
+    UNFRET_X402_BASE_ALLOW_MAINNET: "true"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI
@@ -33,6 +41,16 @@ env:
     - UNFRET_POLAR_ACCESS_TOKEN
     - UNFRET_POLAR_PRODUCTS
     - UNFRET_FIAT_WEBHOOK_SECRET
+    # x402 on Base mainnet (off while UNFRET_X402_BASE_ENABLED is "false" above): the hot key (payTo's key, holding a
+    # little ETH on Base for the sweeps' gas), the optional payTo check, the cold address (Floris's own wallet; the
+    # server never holds its key), the CDP API key (Ed25519) and a provider's Base RPC (optional; the public one is
+    # rate-limited). Once Base is enabled the deploy refuses to run without the hot key, cold address and CDP key.
+    - UNFRET_X402_BASE_HOT_KEY
+    - UNFRET_BASE_PAY_TO
+    - UNFRET_BASE_COLD_ADDRESS
+    - UNFRET_CDP_API_KEY_ID
+    - UNFRET_CDP_API_KEY_SECRET
+    - UNFRET_BASE_RPC_URL
 
 # Retrained scorers never go into the image (built from the public repository): the deploy workflow puts the release
 # it fetched from the private model store here on the server, read-only in the container (README, "The model").

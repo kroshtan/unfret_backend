@@ -223,14 +223,26 @@ def _hidden_fields(params: dict[str, str]) -> str:
     )
 
 
-def _authorize_page(found: oauth.Client, params: dict[str, str], error: str = "", status: int = 200) -> HTMLResponse:
+def _authorize_page(
+    request: Request,
+    found: oauth.Client,
+    params: dict[str, str],
+    error: str = "",
+    status: int = 200,
+    *,
+    form_kind: str = "create",
+) -> HTMLResponse:
     """
-    The page: who asks, where it goes back to, and the two ways to pick a pass.
+    The page: who asks, where it goes back to, Continue (a pass is made), or a pass the person already has.
 
+    The free checks a new pass comes with are named only while this network would still get them (its first pass).
+
+    :param request: The incoming request.
     :param found: The client.
     :param params: The (checked) authorization request.
     :param error: A message to show (a pass that didn't work, a limit reached).
     :param status: The status.
+    :param form_kind: Which way the error came from (``pass`` keeps the paste form open).
     :return: The page; its ``form-action`` allows this site and the client's redirect origin only.
     """
     redirect_uri = params["redirect_uri"]
@@ -245,12 +257,13 @@ def _authorize_page(found: oauth.Client, params: dict[str, str], error: str = ""
         {
             "asker": found.shown_as,
             "back_to": oauth.redirect_host(redirect_uri),
-            "free_checks": settings.free_checks_per_pass,
         },
         None,
         {
             "hidden": _hidden_fields(params),
             "loopback_note": loopback,
+            "checks_line": _checks_line(request),
+            "pass_open": " open" if form_kind == "pass" else "",
             "error": f'<p class="notice" role="alert">{html.escape(error)}</p>' if error else "",
         },
     )
@@ -260,6 +273,13 @@ def _authorize_page(found: oauth.Client, params: dict[str, str], error: str = ""
     return HTMLResponse(
         page, status_code=status, headers={**PAGE_HEADERS, **_NO_STORE, "Content-Security-Policy": csp}
     )
+
+
+def _checks_line(request: Request) -> str:
+    door = get_credits(request)
+    if settings.free_checks_per_pass > 0 and door.free_passes.available(_ip(request)):
+        return f"; it includes {settings.free_checks_per_pass} free deep checks"
+    return ""
 
 
 @router.get("/oauth/authorize", response_class=HTMLResponse)
@@ -278,7 +298,7 @@ async def authorize(request: Request) -> Response:
         found, refused = await _checked_request(request, params)
     except oauth.OAuthError as exc:
         return _error_page(exc.description)
-    return refused or _authorize_page(found, params)
+    return refused or _authorize_page(request, found, params)
 
 
 async def _chosen_pass(
@@ -298,17 +318,19 @@ async def _chosen_pass(
         try:
             new, given = await issue_pass(request, form.get("challenge", ""), form.get("solution", ""), free=True)
         except CustomAPIError as exc:
-            return _authorize_page(found, params, f"{exc.detail} Or connect a pass you already have.", 400)
+            return _authorize_page(request, found, params, f"{exc.detail} Or use a pass you already have.", 400)
         return new.key_id, keys.hash_of(new.key), new, given
     ip = _ip(request)
     if _bad_passes.waiting(ip) is not None:
-        return _authorize_page(found, params, "Too many passes that didn't work; wait a minute.", 429)
+        return _authorize_page(
+            request, found, params, "Too many passes that didn't work; wait a minute.", 429, form_kind="pass"
+        )
     try:
         key_id, key_hash = await oauth.pass_hash(request.app.db_pool, form.get("pass", ""))
     except keys.ApiKeyError:
         _bad_passes.retry_after(ip)
         message = "That isn't a valid Unfret pass (it may have been replaced with its backup code)."
-        return _authorize_page(found, params, message, 400)
+        return _authorize_page(request, found, params, message, 400, form_kind="pass")
     return key_id, key_hash, None, 0
 
 
@@ -354,7 +376,7 @@ async def approve(request: Request) -> Response:
         {
             "key": new.key,
             "recovery_code": new.recovery_code,
-            "free_checks": given,
+            "checks_line": f" (your pass includes {given} free deep checks)" if given else "",
             "asker": found.shown_as,
             "back_to": oauth.redirect_host(params["redirect_uri"]),
             "continue_url": back.headers["location"],

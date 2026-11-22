@@ -199,8 +199,8 @@
         </div>
         <!-- oauth-on --><p id="mcp-oauth"><strong>Or sign in, without a header.</strong> Claude's connectors
           (claude.ai, Claude Desktop and mobile), Claude Code and other clients that speak MCP's OAuth just add
-          <code>{{base_url}}/mcp</code>: Unfret's sign-in page lets you paste a pass or make a new free one, and the
-          client gets a token for that pass. It works at <code>/mcp</code> only, lasts an hour and is renewed by the
+          <code>{{base_url}}/mcp</code>. Listing the tools and the prices needs no sign-in; the first check asks for it.
+          Unfret's sign-in page makes a pass for you (or takes one you have), and the client gets a token for it. It works at <code>/mcp</code> only, lasts an hour and is renewed by the
           client; disconnect in the client, or replace the pass with its backup code, to end it. No payment is part
           of signing in. For client developers: discovery at <code>/.well-known/oauth-protected-resource/mcp</code>,
           public clients only (PKCE S256), with a Client ID Metadata Document or dynamic registration; codes go only

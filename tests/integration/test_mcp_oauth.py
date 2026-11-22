@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import json
 import re
 import secrets
 from typing import Any
@@ -124,17 +125,63 @@ async def mcp_status(client: httpx.AsyncClient, token: str) -> int:
 # ── Discovery ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-async def test_a_401_at_mcp_says_where_to_sign_in(serving: httpx.AsyncClient) -> None:
-    refused = await serving.post("/mcp", json={}, headers={"Accept": "application/json"})
+def call(name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": name, "arguments": arguments or {}}}
+
+
+ACCEPT = {"Accept": "application/json, text/event-stream"}
+
+
+@pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
+async def test_without_sign_in_a_client_connects_lists_the_tools_and_reads_prices(
+    serving: httpx.AsyncClient, mode: str
+) -> None:
+    async with mcp_client(None, mode) as session:
+        names = {tool.name for tool in (await session.list_tools()).tools}
+        pricing = structured(await session.call_tool("get_pricing", {}))
+
+    assert names == {"check_store_quick", "check_store_deep", "get_checks_left", "get_pricing"}
+    assert pricing["status"] == "ok" and "free" in pricing["pricing"]
+
+
+@pytest.mark.parametrize("tool", ["check_store_quick", "check_store_deep", "get_checks_left"])
+async def test_a_check_without_sign_in_is_the_401_that_starts_it(serving: httpx.AsyncClient, tool: str) -> None:
+    refused = await serving.post("/mcp", json=call(tool, PAGE if tool != "get_checks_left" else {}), headers=ACCEPT)
 
     assert refused.status_code == 401
     challenge = refused.headers["WWW-Authenticate"]
-    assert challenge.startswith("Bearer ")
+    assert challenge.startswith("Bearer ") and 'error="invalid_token"' in challenge
     assert 'resource_metadata="https://unfret.net/.well-known/oauth-protected-resource/mcp"' in challenge
-    assert "error=" not in challenge  # no credentials at all: no error code
+    assert 'scope="checks"' in challenge
 
-    bad = await serving.post("/mcp", json={}, headers={"Authorization": "Bearer ufat_nope"})
-    assert bad.status_code == 401 and 'error="invalid_token"' in bad.headers["WWW-Authenticate"]
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"{}",
+        b"not json",
+        b"",
+        json.dumps([{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, call("check_store_deep", PAGE)]).encode(),
+        json.dumps(call("get_pricing") | {"padding": "x" * 70_000}).encode(),  # too large to be an open call
+    ],
+)
+async def test_anything_else_without_sign_in_is_refused(serving: httpx.AsyncClient, body: bytes) -> None:
+    refused = await serving.post("/mcp", content=body, headers={**ACCEPT, "Content-Type": "application/json"})
+    assert refused.status_code == 401 and "resource_metadata" in refused.headers["WWW-Authenticate"]
+
+
+async def test_sign_in_requests_and_expired_tokens_are_not_counted_as_bad_passes(
+    serving: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unfret import mcp_remote  # noqa: PLC0415
+
+    monkeypatch.setattr(mcp_remote, "_bad_passes", mcp_remote.RateLimit(2))
+    for _ in range(4):  # routine, and from a client's servers that all its users share
+        assert (await serving.post("/mcp", json=call("check_store_deep", PAGE), headers=ACCEPT)).status_code == 401
+        expired = {**ACCEPT, "Authorization": "Bearer ufat_expired"}
+        assert (await serving.post("/mcp", json=call("get_checks_left"), headers=expired)).status_code == 401
+    bad = {**ACCEPT, "Authorization": "Bearer ufk_aaaaaaaaaa_" + "a" * 52}
+    assert [(await serving.post("/mcp", json={}, headers=bad)).status_code for _ in range(3)] == [401, 401, 429]
 
 
 async def test_discovery_documents(client: httpx.AsyncClient) -> None:
@@ -281,8 +328,6 @@ async def test_a_client_id_metadata_document(client: httpx.AsyncClient, monkeypa
 
     async def fetch(address: str) -> bytes:
         fetched.append(address)
-        import json  # noqa: PLC0415
-
         return json.dumps(document).encode()
 
     monkeypatch.setattr(oauth, "fetch_document", fetch)
@@ -554,3 +599,20 @@ async def test_failed_code_exchanges_are_limited_but_refreshes_are_not(
         assert (await refresh(client, "ufc_x", "ufrt_gone")).status_code == 400
     statuses = [(await exchange(client, "ufc_x", "nope", "v" * 43)).status_code for _ in range(3)]
     assert statuses == [400, 400, 429]
+
+
+async def test_the_page_names_free_checks_only_for_a_networks_first_pass(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.integration.test_check_pass import new_pass  # noqa: PLC0415
+
+    monkeypatch.setattr(settings, "free_passes_per_ip_per_day", 1)
+    client_id = await register(client)
+    params = authorization(client_id, pkce()[1])
+    first = (await client.get("/oauth/authorize", params=params)).text
+    assert f"includes {settings.free_checks_per_pass} free deep checks" in first
+    assert "disabled>Continue</button>" in first
+
+    await new_pass(client, free=True)  # this network's free pass(es) for today
+    later = (await client.get("/oauth/authorize", params=params)).text
+    assert "free deep checks" not in later.split("<main")[1].split("</main>")[0]

@@ -1016,7 +1016,7 @@ and signs in:
 | Discovery | `/.well-known/oauth-protected-resource[/mcp]` (RFC 9728: `resource` is `<base>/mcp`), `/.well-known/oauth-authorization-server` (RFC 8414) |
 | Clients | Public only (`token_endpoint_auth_method: none`). A **Client ID Metadata Document** (an HTTPS `client_id`, fetched through `net.fetch_public`, cached 5 minutes; the page names its host) or **Dynamic Client Registration** (`POST /oauth/register`, generous per network since Claude registers from Anthropic's servers, capped per day; clients left without a grant go after 30 days) |
 | Redirect URIs | Exactly `UNFRET_MCP_OAUTH_REDIRECT_URIS` (Claude's `https://claude.ai/api/mcp/auth_callback` and the `claude.com` one) or a loopback address on any port (`127.0.0.1`, `[::1]`, `localhost`: Claude Code). Anything else is refused at registration and on the page, never redirected to |
-| `/oauth/authorize` | The page (US English): who asks, where it goes back to (a warning for loopback), and two ways to pick the pass: paste one, or **make a new free pass** (the same proof of work, per-network limits and free checks as a new extension pass: `routes.keys.issue_pass`), shown once with its backup code. PKCE S256 is required; the response carries `iss` (RFC 9207). Its CSP allows forms only to this site and the client's redirect origin, no framing |
+| `/oauth/authorize` | The page (US English): who asks, where it goes back to (a warning for loopback), and one **Continue** button that makes a pass for the connection (the same proof of work, solved in the background as the page opens, per-network limits and free checks as a new extension pass: `routes.keys.issue_pass`; the free checks are named only while the network would still get them), then shows the pass and backup code once, folded away, under "Continue to claude.ai". Pasting a pass one already has is the second option. PKCE S256 is required; the response carries `iss` (RFC 9207). Its CSP allows forms only to this site and the client's redirect origin, no framing |
 | `/oauth/token` | Form-encoded. `authorization_code` (PKCE checked; a code works once, for 5 minutes, for its client and redirect URI; using it again revokes what it gave) and `refresh_token` (rotated on every use; a rotated-away token presented more than a minute later revokes the grant). Access tokens `ufat_…` last an hour, refresh tokens `ufrt_…` 30 days unused |
 | `/oauth/revoke` | RFC 7009, either token |
 
@@ -1025,8 +1025,14 @@ pass deletes it. Only SHA-256 hashes of codes and tokens are stored (`oauth_code
 and expiry times; `oauth_clients` keeps a registered client's name and redirect URIs). The tokens work at `/mcp` and
 nowhere else: a tool call made for an OAuth caller reaches `/v1/check` and `/v1/credits` in-process with a one-off
 stand-in for the pass (`keys.internal_pass`, in memory for that call only), since the pass itself is never known.
-Signing in has no payment and no x402; the tools and their route allowlist are the same as with a pass. While the
-setting is off, every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before.
+Signing in has no payment and no x402; the tools and their route allowlist are the same as with a pass. **Lazy sign-in:** while OAuth is on, a request without
+any credential may connect (`initialize`, `server/discover`, `ping`, notifications), list the tools and call
+`get_pricing` (`mcp_remote.OPEN_METHODS`, `OPEN_TOOLS`; the JSON-RPC body is read before the MCP layer, at most 64 KB);
+a check or `get_checks_left` gets the 401 with `error="invalid_token"` and `resource_metadata`, which makes Claude show
+its Connect card and retry the call after sign-in (the directory's "Required when the server asks"). Those 401s and
+expired tokens don't count as bad passes, since they come from a client's shared servers. While the setting is off,
+every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production turns it
+on with one line, `UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`.
 
 ### Clients (`clients/`)
 

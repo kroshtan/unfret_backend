@@ -139,6 +139,15 @@ jobs:
           uv sync --project clients/python --all-groups --frozen
           uv run --project clients/python mypy clients/python/src clients/python/tests
           uv run --project clients/python pytest clients/python/tests
+      - name: Examples (examples/python, examples/typescript), type-checked only
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 5
+        run: |
+          uv sync --project examples/python --all-groups --frozen
+          uv run --project examples/python mypy examples/python
+          cd examples/typescript
+          npm ci --no-audit --no-fund
+          npm run typecheck
       - name: TypeScript client (clients/typescript)
         if: steps.gate.outputs.run == 'true'
         timeout-minutes: 5

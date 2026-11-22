@@ -1,0 +1,28 @@
+{
+  "name": "unfret-x402-examples",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal clients for Unfret's POST /v1/check: with a pass, or paid per call over x402 (Solana, Base)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "pass": "node pass_check.ts",
+    "solana": "node x402_solana.ts",
+    "base": "node x402_base.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@solana/kit": "8.6.0",
+    "@x402/evm": "2.30.0",
+    "@x402/fetch": "2.30.0",
+    "@x402/svm": "2.30.0",
+    "viem": "2.57.16"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

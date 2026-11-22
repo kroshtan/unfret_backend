@@ -1,0 +1,26 @@
+[project]
+name = "unfret-x402-examples"
+description = "Minimal clients for Unfret's POST /v1/check: with a pass, or paid per call over x402 (Solana, Base)"
+version = "0.1.0"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "eth-account==0.14.0",
+    "requests==2.34.2",
+    "solders==0.29.0",
+    "x402[evm,svm,requests]==2.27.0",
+]
+
+[dependency-groups]
+dev = ["mypy==2.4.1", "types-requests==2.33.0.20261030"]
+
+[tool.uv]
+package = false
+
+[tool.mypy]
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+target-version = "py311"

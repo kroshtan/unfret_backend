@@ -16,6 +16,9 @@ PYTHON_CLIENT_SOURCE = (
 )
 TYPESCRIPT_CLIENT_URL = "https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript"
 TYPESCRIPT_CLIENT_MIRROR = "https://github.com/kroshtan/unfret_backend/tree/main/clients/typescript"
+# Copy-paste examples (Python and TypeScript): a pass, x402 on Solana, x402 on Base.
+EXAMPLES_URL = "https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples"
+EXAMPLES_MIRROR = "https://github.com/kroshtan/unfret_backend/tree/main/examples"
 
 
 def python_install_note() -> str:

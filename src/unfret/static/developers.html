@@ -318,6 +318,13 @@
             <code>PAYMENT-RESPONSE</code> header. The same payment always gets the same answer and is never charged
             twice.</li>
         </ol>
+        <p><b>Copy-paste examples</b> with the official x402 SDKs, one file each, for Solana (USDC or
+          wSOL)<!-- base-on --> and Base (USDC)<!-- /base-on -->, plus the call with a pass:
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples/python" rel="noopener">Python</a>
+          and <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples/typescript" rel="noopener">TypeScript</a>
+          (<a href="https://github.com/kroshtan/unfret_backend/tree/main/examples" rel="noopener">GitHub mirror</a>).
+          They run against dev (Solana devnet<!-- base-on -->, Base Sepolia<!-- /base-on -->) by default; <code>UNFRET_ENV=production</code>
+          switches to unfret.net.</p>
         <p>Every error is JSON with <code>detail</code> and <code>error_code</code>, and says whether you were
           charged. The full rules, errors and response fields are in <a href="/llms.txt">llms.txt</a> and the
           <a href="/.well-known/x402">x402 discovery document</a>.</p>
@@ -352,6 +359,8 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
           client</a>,
           <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/clients/typescript" rel="noopener">TypeScript
           reference client</a>,
+          <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples" rel="noopener">copy-paste
+          examples</a> (a pass, and x402 on Solana<!-- base-on --> and on Base<!-- /base-on -->, in Python and TypeScript)
           and <a href="https://git.kroshtan.com/kroshtan/unfret_backend/src/branch/main/examples/browser-use-checkout" rel="noopener">an
           example agent</a> that checks the shop before checkout.</p>
       </div>

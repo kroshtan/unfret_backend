@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### MCP server
+
+* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base Sepolia unless
+  `UNFRET_MCP_BASE_NETWORK=base-mainnet`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
+  ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))
+
 ### CI/CD
 
 * **CI and CD are separate workflows.** `ci.yaml` only tests (pull requests, by hand); a merge to `main` no longer

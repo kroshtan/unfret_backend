@@ -3,7 +3,7 @@
   "name": "net.unfret/mcp",
   "title": "Unfret",
   "description": "Checks a store, marketplace seller or listing for scam signals before an agent buys, paid per check",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "websiteUrl": "https://unfret.net",
   "repository": {
     "url": "https://github.com/kroshtan/unfret_backend",
@@ -27,7 +27,7 @@
     {
       "registryType": "pypi",
       "identifier": "unfret-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
@@ -41,7 +41,7 @@
         },
         {
           "name": "UNFRET_MCP_KEYPAIR",
-          "description": "Path to the agent's Solana CLI keypair JSON, the wallet that pays for checks (or set UNFRET_MCP_SECRET_KEY); not needed with UNFRET_PASS",
+          "description": "Path to the agent's Solana CLI keypair JSON, the wallet that pays for checks (or set UNFRET_MCP_SECRET_KEY); not needed with UNFRET_PASS or UNFRET_MCP_BASE_KEY",
           "isRequired": false,
           "format": "filepath"
         },
@@ -62,6 +62,30 @@
           "choices": [
             "solana-mainnet",
             "solana-devnet"
+          ]
+        },
+        {
+          "name": "UNFRET_MCP_BASE_KEY",
+          "description": "The agent's EVM private key (hex), to pay checks in USDC on Base; never logged",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "UNFRET_MCP_BASE_NETWORK",
+          "description": "base-sepolia (test USDC, with UNFRET_API_URL=https://dev.unfret.net) or base-mainnet (real USDC on unfret.net); Base mainnet is never paid unless set",
+          "default": "base-sepolia",
+          "choices": [
+            "base-sepolia",
+            "base-mainnet"
+          ]
+        },
+        {
+          "name": "UNFRET_MCP_PREFER",
+          "description": "With both a Solana and a Base wallet, the network tried first; the other is the fallback",
+          "default": "solana",
+          "choices": [
+            "solana",
+            "base"
           ]
         }
       ]

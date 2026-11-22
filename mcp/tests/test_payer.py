@@ -217,6 +217,7 @@ async def test_check_pays_and_counts_spend_in_dollars() -> None:
         "ok": True,
         "http_status": 200,
         "transaction": "5ig",
+        "network": CAIP2["solana-devnet"],
         "paid_lamports": 100_000,
         "paid": {"currency": "SOL", "amount": 100_000, "usd_micros": 10_000},
         "verdict": {"action": "warn"},

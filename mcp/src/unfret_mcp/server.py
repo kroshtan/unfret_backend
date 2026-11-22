@@ -13,6 +13,10 @@ Configuration (environment):
     UNFRET_MCP_SESSION_CAP_USD        refuse once a session has spent this many dollars (default 2.50)
     UNFRET_MCP_PRICE_RPC_URL          mainnet RPC for the agent's own Pyth SOL/USD reading, which values wSOL
                                       payments (default: mainnet's public RPC)
+    UNFRET_MCP_BASE_KEY               the agent's EVM private key (hex), to pay USDC on Base; never logged
+    UNFRET_MCP_BASE_NETWORK           base-sepolia (default, for https://dev.unfret.net) or base-mainnet (real USDC,
+                                      for https://unfret.net): Base mainnet is never paid unless set here
+    UNFRET_MCP_PREFER                 solana (default) or base: with both wallets, the network tried first
 """
 
 import json
@@ -27,6 +31,8 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from solders.keypair import Keypair
 
+from unfret_mcp.base import CAIP2 as BASE_CAIP2
+from unfret_mcp.base import BaseNetwork, BaseWallet
 from unfret_mcp.explain import explain
 from unfret_mcp.payer import Payer, PaymentFailedError, SpendGuard, SpendRefusedError, UnavailableError
 from unfret_mcp.price import SolUsd
@@ -42,9 +48,9 @@ server = MCPServer(
     title="Unfret",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
-        "is paid from your own Solana wallet in USDC or wSOL (quick $0.01, deep $0.20; get_pricing has the live "
-        "prices; wSOL at the current SOL price) within a dollar spend cap, or, when this server was set up with an "
-        "Unfret pass, from the pass (quick checks free, deep checks one of its checks). "
+        "is paid from your own wallet, in USDC or wSOL on Solana or in USDC on Base (quick $0.01, deep $0.20; "
+        "get_pricing has the live prices; wSOL at the current SOL price) within a dollar spend cap, or, when this "
+        "server was set up with an Unfret pass, from the pass (quick checks free, deep checks one of its checks). "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
     ),
 )
@@ -79,12 +85,29 @@ def _env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(f"UNFRET_{name}") or default
 
 
-def _load_agent() -> Keypair:
+def _load_agent() -> Keypair | None:
     if path := _env("MCP_KEYPAIR"):
         return Keypair.from_bytes(bytes(json.loads(Path(path).expanduser().read_text())))
     if secret := _env("MCP_SECRET_KEY"):
         return Keypair.from_base58_string(secret)
-    raise RuntimeError("set UNFRET_MCP_KEYPAIR (keypair file) or UNFRET_MCP_SECRET_KEY")
+    return None
+
+
+def _load_base() -> BaseWallet | None:
+    """
+    The agent's Base wallet, from ``UNFRET_MCP_BASE_KEY`` on ``UNFRET_MCP_BASE_NETWORK``.
+
+    :return: The wallet, or ``None`` without a key.
+    :raises RuntimeError: If the network is unknown (a bad key raises :class:`~unfret_mcp.base.BaseKeyError`).
+    """
+    key = _env("MCP_BASE_KEY")
+    if not key:
+        return None
+    network = _env("MCP_BASE_NETWORK") or "base-sepolia"
+    if network not in BASE_CAIP2:
+        raise RuntimeError(f"UNFRET_MCP_BASE_NETWORK must be one of {', '.join(BASE_CAIP2)}, not {network!r}")
+    base_network: BaseNetwork = "base-mainnet" if network == "base-mainnet" else "base-sepolia"
+    return BaseWallet(key, base_network)
 
 
 def _usd_micros(name: str, default: str) -> int:
@@ -96,15 +119,27 @@ def payer() -> Payer:
     Return the session's payer, configured from the environment on first use.
 
     :return: The payer.
+    :raises RuntimeError: If a setting is invalid or no wallet is configured.
     """
     global _payer  # noqa: PLW0603
     if _payer is None:
         network = _env("MCP_NETWORK") or "solana-mainnet"
         if network not in _DEFAULT_RPC:
             raise RuntimeError(f"UNFRET_MCP_NETWORK must be one of {', '.join(_DEFAULT_RPC)}, not {network!r}")
+        prefer_network = (_env("MCP_PREFER") or "solana").lower()
+        if prefer_network not in {"solana", "base"}:
+            raise RuntimeError(f"UNFRET_MCP_PREFER must be solana or base, not {prefer_network!r}")
+        agent, base = _load_agent(), _load_base()
+        if agent is None and base is None:
+            raise RuntimeError(
+                "set UNFRET_MCP_KEYPAIR (Solana keypair file), UNFRET_MCP_SECRET_KEY, UNFRET_MCP_BASE_KEY (EVM key "
+                "for Base) or UNFRET_PASS"
+            )
         _payer = Payer(
             api_url=_api_url(),
-            agent=_load_agent(),
+            agent=agent,
+            base=base,
+            prefer_network="base" if prefer_network == "base" else "solana",
             rpc=Rpc(_env("MCP_RPC_URL") or _DEFAULT_RPC[network]),
             network=network,
             guard=SpendGuard(
@@ -145,7 +180,7 @@ async def check_store(
     ] = None,
 ) -> dict[str, Any]:
     """
-    Check a store or product page for scam, dropshipping and dark-pattern risk. Paid per call in USDC or wSOL.
+    Check a store or product page for scam, dropshipping and dark-pattern risk. Paid per call, on Solana or Base.
 
     Pass page_content (the page's HTML) for marketplaces such as Amazon, which block server-side fetches.
 

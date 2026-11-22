@@ -223,6 +223,8 @@
           <tbody>
             <tr><td><code>UNFRET_PASS</code></td><td></td><td>Pay from this Unfret pass; no wallet needed</td></tr>
             <tr><td><code>UNFRET_MCP_KEYPAIR</code></td><td></td><td>The agent's Solana keypair file</td></tr>
+            <tr><td><code>UNFRET_MCP_BASE_KEY</code></td><td></td><td>Or an EVM private key, to pay USDC on Base
+              (Base Sepolia unless <code>UNFRET_MCP_BASE_NETWORK=base-mainnet</code>; version 0.3.0 or newer)</td></tr>
             <tr><td><code>UNFRET_MCP_MAX_PRICE_USD</code></td><td><code>0.25</code></td><td>Refuse any single check
               worth more</td></tr>
             <tr><td><code>UNFRET_MCP_SESSION_CAP_USD</code></td><td><code>2.50</code></td><td>Refuse once the session
@@ -338,14 +340,13 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
             </ul>
           </div>
           <div>
+            <!-- base-off -->
             <h2>Coming next</h2>
             <ul>
-              <!-- base-off -->
               <li><b>x402 on Base:</b> pay in USDC on Base, next to Solana, so agents with an EVM wallet can use
                 Unfret too.</li>
-              <!-- /base-off -->
-              <li><b>The MCP server on Base:</b> paying from an EVM wallet, next to Solana.</li>
             </ul>
+            <!-- /base-off -->
             <p class="small muted">Unfret is run by one person: there's no SLA, and a verdict is a signal, not a
               certainty. <a href="/accuracy">How often it's right</a>, measured.</p>
           </div>

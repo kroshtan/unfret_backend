@@ -1076,6 +1076,16 @@ The Python client is published to PyPI by the manual "Publish clients" workflow
 `PYTHON_CLIENT_ON_PYPI` in `src/unfret/clients_info.py` so `/developers` and `/llms.txt` stop offering the source
 install.
 
+### Examples: a pass and x402 (`examples/python`, `examples/typescript`)
+
+Copy-paste clients for `POST /v1/check`, MIT licensed, one file each, in Python and TypeScript: `pass_check` (a
+pass; makes a developer pass when there is none), `x402_solana` (USDC or wSOL on Solana) and `x402_base` (USDC on Base,
+EIP-3009). The x402 ones use Coinbase's official SDKs unchanged (`x402` on PyPI; `@x402/fetch`, `@x402/svm`,
+`@x402/evm` on npm): this server's 402 is standard x402 v2, and the SDKs' Solana transaction (compute budget,
+`TransferChecked`, one memo, `extra.feePayer` as fee payer) is the shape the verifier accepts. Keys come from the
+environment; dev (Solana devnet, Base Sepolia) is the default and `UNFRET_ENV=production` switches to unfret.net.
+Versions are pinned (`uv.lock`, `package-lock.json`); CI type-checks both (mypy strict, `tsc --noEmit`).
+
 ### Example: check before checkout (`examples/browser-use-checkout`)
 
 A small [browser-use](https://github.com/browser-use/browser-use) agent that asks Unfret about the shop before it goes

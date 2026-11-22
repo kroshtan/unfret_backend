@@ -5,8 +5,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-added-large-files
-        # The vendored EU Safety Gate index (~1.7 MB, refreshed monthly by make safety-gate) is the one exception.
-        exclude: ^src/unfret/safety_gate_index\.json\.gz$
+        # The vendored EU Safety Gate index (~1.7 MB, refreshed monthly by make safety-gate) and the x402 examples'
+        # lock file (the official SDK's EVM extra pulls in web3) are the exceptions.
+        exclude: ^(src/unfret/safety_gate_index\.json\.gz|examples/python/uv\.lock)$
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml

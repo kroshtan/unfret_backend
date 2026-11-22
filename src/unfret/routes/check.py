@@ -1215,6 +1215,7 @@ async def llms_txt(request: Request) -> str:
     dev = d["auth"]["developer_pass"]
     networks = " and ".join(f"{'/'.join(n['assets'])} on {n['network_name']} ({n['network']})" for n in d["networks"])
     oauth_on = mcp_oauth_on()
+    examples_networks = "Solana: USDC or wSOL; Base: USDC" if base_on else "Solana: USDC or wSOL"
     return f"""# Unfret
 
 > Risk signals for AI shopping agents: is this store, marketplace listing, second-hand ad or service provider's
@@ -1248,7 +1249,9 @@ Or buy checks for any pass at {url}/checkout. GET {url}/v1/credits with the pass
 
 POST {d["endpoint"]} without Authorization answers 402 with a PAYMENT-REQUIRED header (base64 JSON, also the body)
 whose `accepts` lists the options: {networks}, scheme `exact`. Pay one with an x402 client and send the same request
-again with the payment in PAYMENT-SIGNATURE; the answer carries PAYMENT-RESPONSE. Details below.
+again with the payment in PAYMENT-SIGNATURE; the answer carries PAYMENT-RESPONSE. Details below. Runnable examples
+with the official x402 SDKs (Python and TypeScript; {examples_networks}): {clients_info.EXAMPLES_URL}/python and
+{clients_info.EXAMPLES_URL}/typescript.
 
 ## Endpoint
 
@@ -1322,6 +1325,8 @@ challenge; get a new one) and `TOO_MANY_REQUESTS` (429: too many new passes from
   proof of work for a developer pass and examples in curl, JavaScript, Go and PHP. A TypeScript reference client
   without dependencies is in the repository, to copy: {clients_info.TYPESCRIPT_CLIENT_URL} (mirror:
   {clients_info.TYPESCRIPT_CLIENT_MIRROR}); it is not on npm.
+- Copy-paste examples in Python and TypeScript, a pass and x402 ({examples_networks}), with the official x402
+  SDKs: {clients_info.EXAMPLES_URL} (mirror: {clients_info.EXAMPLES_MIRROR}).
 
 ## Shared results (shoppers)
 

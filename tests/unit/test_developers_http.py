@@ -469,3 +469,14 @@ async def test_developers_and_the_footer_lead_to_the_page(client: httpx.AsyncCli
     assert developers.count('href="/developers/http"') >= 3
     footer = (STATIC_DIR / "partials" / "footer.html").read_text(encoding="utf-8")
     assert 'href="/developers/http">Unfret from any language</a>' in footer
+
+
+async def test_the_x402_examples_are_linked_and_exist(client: httpx.AsyncClient) -> None:
+    root = Path(__file__).parents[2] / "examples"
+    for language, ext in (("python", "py"), ("typescript", "ts")):
+        for name in ("pass_check", "x402_solana", "x402_base"):
+            assert (root / language / f"{name}.{ext}").is_file()
+    llms = (await client.get("/llms.txt")).text
+    assert f"{clients_info.EXAMPLES_URL}/python" in llms and clients_info.EXAMPLES_MIRROR in llms
+    developers = (await client.get("/developers")).text
+    assert f'href="{clients_info.EXAMPLES_URL}/typescript"' in developers.split('id="x402"', 1)[1]

@@ -13,6 +13,10 @@
   `/v1/check`, and the README's card prices ($6.50 / €6.50 and $21 / €21, tax included). `/.well-known/x402` points
   at the MCP server and the docs; `POST /v1/check` documents its 422, 429, 503 and 504 answers.
 
+* **Copy-paste x402 examples** in `examples/python` and `examples/typescript`: a check with a pass, and a check paid
+  per call over x402 on Solana (USDC or wSOL) and on Base (USDC, EIP-3009), with the official x402 SDKs. Linked from
+  `/developers`, `/llms.txt` and the README; CI type-checks them.
+
 ### MCP server
 
 * **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless

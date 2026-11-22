@@ -69,7 +69,7 @@ from unfret.x402.verdict import (
 
 logger = structlog.get_logger("unfret")
 
-router = APIRouter(tags=["x402"])
+router = APIRouter(tags=["Check (x402 or a pass)"])
 
 PAYMENT_SIGNATURE = "PAYMENT-SIGNATURE"
 PAYMENT_REQUIRED = "PAYMENT-REQUIRED"
@@ -433,13 +433,16 @@ class PaymentFirstRoute(APIRoute):
 
 async def check(body: CheckRequest, request: Request) -> Response:
     """
-    Check a store or product page for scam, dropshipping and dark-pattern signals; paid per call over x402.
+    Check a store or product page for scam, dropshipping and dark-pattern signals, with an Unfret pass or x402.
 
-    Retrying with the same payment returns the same answer (for 15 minutes) and is never charged twice. Or send an
-    Unfret pass as ``Authorization: Bearer ufk_…`` instead of paying: charged like ``POST /v1/analyze`` (a deep check
-    uses one of the pass's checks, free ones first; a quick check is free), with the same verdict plus ``charged``,
-    ``free_check``, ``balance_usd_micros`` and ``free_checks_left``. Without a payment or a pass the answer is the 402,
-    whatever the body; the body is validated (422) only with one.
+    **With a pass** (``Authorization: Bearer ufk_…``; a developer pass from ``GET /v1/keys/challenge?developer=true``
+    and ``POST /v1/keys``): a deep check uses one of the pass's checks, free ones first; a quick check is free. The
+    verdict adds ``charged``, ``free_check``, ``balance_usd_micros`` and ``free_checks_left``. **With x402** (no
+    account): without a payment or a pass the answer is 402 with the options in ``PAYMENT-REQUIRED`` (USDC and wSOL on
+    Solana, and USDC on Base where it is on: ``/.well-known/x402`` lists them); pay one and send the request again
+    with ``PAYMENT-SIGNATURE``. Retrying with the same payment returns the same answer (for 15 minutes) and is never
+    charged twice. The 402 comes whatever the body; the body is validated (422) only with a payment or a pass. Every
+    error is JSON with ``detail`` and ``error_code`` (``/llms.txt`` lists them, and whether each was charged).
 
     :param body: URL, optional page HTML, tier and policy.
     :param request: The incoming request (payment header or pass, app state).
@@ -460,8 +463,15 @@ router.add_api_route(
     methods=["POST"],
     response_model=Verdict,
     responses={
-        401: {"description": "Not a valid Unfret pass (only with Authorization)"},
-        402: {"description": "Payment required (x402), or the pass has no checks left"},
+        401: {"description": "Not a valid Unfret pass (only with Authorization): INVALID_API_KEY"},
+        402: {
+            "description": "Payment required (x402: the options are in the PAYMENT-REQUIRED header), a refused "
+            "payment, or the pass has no checks left (INSUFFICIENT_CREDITS)"
+        },
+        422: {"description": "An invalid body, or a page Unfret couldn't fetch (PAGE_UNAVAILABLE, PAGE_BLOCKED)"},
+        429: {"description": "Over a rate limit (RATE_LIMITED, TOO_MANY_REQUESTS) or FREE_CHECKS_PAUSED"},
+        503: {"description": "Payments or the analysis are off for a moment: retry after Retry-After"},
+        504: {"description": "The analysis timed out: not charged (x402 on Solana: credited to the paying wallet)"},
     },
     openapi_extra={"x-payment-info": _payment_info()},
     route_class_override=PaymentFirstRoute,
@@ -1082,6 +1092,16 @@ def _discovery(base: BaseX402 | None = None) -> dict[str, Any]:
                 "on the pass work everywhere",
             },
         },
+        # The other ways in, for an agent that found Unfret here: the MCP server and the docs.
+        "mcp": {
+            "remote": f"{settings.public_base_url}/mcp (streamable HTTP, Authorization: Bearer <Unfret pass>)",
+            "stdio": "uvx unfret-mcp (PyPI unfret-mcp, MCP Registry net.unfret/mcp; pays from a pass or a wallet)",
+        },
+        "docs": {
+            "llms_txt": f"{settings.public_base_url}/llms.txt",
+            "openapi": f"{settings.public_base_url}/openapi.json",
+            "guide": f"{settings.public_base_url}/developers",
+        },
         "request": {
             "url": "string",
             "page_content": "string (optional)",
@@ -1135,21 +1155,100 @@ authorization returns the same answer and is never settled twice.
 """
 
 
+def mcp_oauth_on() -> bool:
+    """
+    Whether the remote MCP server takes OAuth sign-in, for ``/llms.txt``.
+
+    :return: ``mcp_oauth_enabled``.
+    """
+    return settings.mcp_oauth_enabled
+
+
+def _llms_mcp(base_url: str, oauth_on: bool, base_on: bool) -> str:
+    """
+    The MCP way in, for ``/llms.txt``: the remote server and the local package.
+
+    :param base_url: The public base URL, without a trailing slash.
+    :param oauth_on: Whether the remote server also takes OAuth sign-in (``mcp_oauth_enabled``).
+    :param base_on: Whether ``/v1/check`` takes payments on Base (the local package can pay there too).
+    :return: Markdown.
+    """
+    auth = "Authorization: Bearer ufk_... (an Unfret pass, see 2)"
+    if oauth_on:
+        auth += (
+            ", or OAuth: a client that speaks MCP's OAuth adds the URL with no header and signs in (discovery at "
+            f"{base_url}/.well-known/oauth-protected-resource/mcp; public clients, PKCE S256). Without a credential "
+            "it can still connect, list the tools and call get_pricing; a check answers 401 and starts the sign-in"
+        )
+    evm = (
+        ", or USDC on Base from version 0.3.0 (env `UNFRET_MCP_BASE_KEY`, an EVM key; `UNFRET_MCP_BASE_NETWORK`)"
+        if base_on
+        else ""
+    )
+    remote = {"type": "http", "url": f"{base_url}/mcp", "headers": {"Authorization": "Bearer ufk_..."}}
+    config = {"mcpServers": {"unfret": remote}}
+    return f"""### 1. MCP server
+
+- Remote: streamable HTTP at {base_url}/mcp, with {auth}. Tools: `check_store_quick` (free), `check_store_deep`
+  (uses one of the pass's checks), `get_checks_left`, `get_pricing`. It never pays from a wallet. Claude Code:
+  `claude mcp add --transport http unfret {base_url}/mcp --header "Authorization: Bearer $UNFRET_PASS"`; JSON:
+  {json.dumps(config)}
+- Local (stdio): `uvx unfret-mcp` (PyPI `unfret-mcp`; MCP Registry `net.unfret/mcp`). Tools: `check_store` (with a
+  `tier`), `explain_flag`, `get_pricing`. Pays from a pass (env `UNFRET_PASS`) or over x402 from the agent's own
+  wallet, capped by `UNFRET_MCP_MAX_PRICE_USD` and `UNFRET_MCP_SESSION_CAP_USD`: Solana (env
+  `UNFRET_MCP_KEYPAIR`){evm}.
+"""
+
+
 @router.get("/llms.txt", include_in_schema=False, response_class=PlainTextResponse)
 async def llms_txt(request: Request) -> str:
     """
-    Describe the service for language-model agents.
+    Describe the service for language-model agents: the three ways in (MCP, a pass, x402), then the details.
 
     :param request: The incoming request (for the Base payment service).
     :return: Plain text.
     """
     base = get_x402_base(request)
     d, base_on = _discovery(base), base.configured
+    url = settings.public_base_url.rstrip("/")
     quick, deep = d["tiers"]["quick"]["price_usd"], d["tiers"]["deep"]["price_usd"]
+    dev = d["auth"]["developer_pass"]
+    networks = " and ".join(f"{'/'.join(n['assets'])} on {n['network_name']} ({n['network']})" for n in d["networks"])
+    oauth_on = mcp_oauth_on()
     return f"""# Unfret
 
-> Pay-per-check risk signals for AI shopping agents: is this store or product listing showing signs of scams,
-> dropshipping of generic goods, fake reviews or dark patterns? Returns evidence and an action, never a "scam" label.
+> Risk signals for AI shopping agents: is this store, marketplace listing, second-hand ad or service provider's
+> page showing signs of scams, dropshipping of generic goods, fake reviews or dark patterns? Returns evidence and an
+> action (allow, warn or block), never a "scam" label.
+
+## Three ways to use Unfret
+
+All three run the same check at the same prices: quick {quick} (free with a pass), deep {deep} (one check with a
+pass).
+
+{_llms_mcp(url, oauth_on, base_on)}
+### 2. HTTP API with an Unfret pass
+
+POST {d["endpoint"]} with `Authorization: Bearer ufk_...` and JSON {{"url": "...", "tier": "quick|deep"}}:
+
+    curl {d["endpoint"]} -H "Authorization: Bearer $UNFRET_PASS" -H "Content-Type: application/json" \\
+      -d '{{"url": "https://shop.example/p/42", "tier": "deep"}}'
+
+Get a pass without an account (a developer pass, {dev["free_deep_checks"]} free deep checks for POST /v1/check):
+1. GET {dev["challenge"]} → {{"challenge", "bits", "expires_at", "developer": true}} (use once, within
+   {settings.key_pow_ttl_s // 60} minutes).
+2. Find a `solution` (1 to 32 characters; a decimal counter 0, 1, 2, … works) such that SHA-256 of the UTF-8 bytes of
+   challenge + ":" + solution starts with `bits` zero bits ({dev["pow_bits"]} today; a few seconds).
+3. POST {dev["create"]} with {{"challenge", "solution", "developer": true}} → 201 {{"key": "ufk_...",
+   "recovery_code", "free_checks", …}}. Both secrets are shown once: save them.
+Or buy checks for any pass at {url}/checkout. GET {url}/v1/credits with the pass says what is left; GET
+{url}/v1/pricing has every price.
+
+### 3. x402 pay-per-call (no account)
+
+POST {d["endpoint"]} without Authorization answers 402 with a PAYMENT-REQUIRED header (base64 JSON, also the body)
+whose `accepts` lists the options: {networks}, scheme `exact`. Pay one with an x402 client and send the same request
+again with the payment in PAYMENT-SIGNATURE; the answer carries PAYMENT-RESPONSE. Details below.
 
 ## Endpoint
 
@@ -1183,18 +1282,18 @@ the payment's simulation failed, `reason` (e.g. `insufficient_funds`, `source_to
 same answer and is never charged twice. Without a payment (or a pass) the answer is this 402 whatever the body,
 even none; the body is validated (422) once a payment or a pass comes with it, and an invalid one is never charged.
 {_llms_base(d)}
-## Or pay with an Unfret pass
+## With an Unfret pass
 
 Send `Authorization: Bearer ufk_...` (an Unfret pass) instead of PAYMENT-SIGNATURE: a deep check then uses one of the
 pass's checks (free ones first), a quick check is free (a few a minute), and the verdict adds `charged`, `free_check`,
-`balance_usd_micros` and `free_checks_left`. A developer pass (POST {d["auth"]["developer_pass"]["create"]} with
-`"developer": true`, after solving the proof of work from GET {d["auth"]["developer_pass"]["challenge"]}) comes with
-{d["auth"]["developer_pass"]["free_deep_checks"]} free deep checks, for the API and the MCP server: they count on
-POST /v1/check only, not on /v1/analyze (the website, the browser extension, the phone app). It is for trying Unfret
-out: one per network a day, its challenge is a harder proof of work ({d["auth"]["developer_pass"]["pow_bits"]} bits, a
-few seconds), and developer passes' free checks have their own daily budget: once it is used, a developer pass with
-only free checks gets 402 INSUFFICIENT_CREDITS until 00:00 UTC. Buy more checks for a pass at
-{settings.public_base_url}/checkout; bought checks work everywhere.
+`balance_usd_micros` and `free_checks_left`. A developer pass (steps above) comes with {dev["free_deep_checks"]} free
+deep checks, for the API and the MCP server: they count on POST /v1/check only, not on /v1/analyze (the website, the
+browser extension, the phone app). It is for trying Unfret out: one per network a day, and developer passes' free
+checks have their own daily budget: once it is used, a developer pass with only free checks gets 402
+INSUFFICIENT_CREDITS until 00:00 UTC (other passes with only free checks: 429 FREE_CHECKS_PAUSED). Buy more checks for
+a pass at {url}/checkout; bought checks work everywhere. GET {url}/v1/credits with the pass answers
+`checks_remaining`, `free_checks_remaining`, `api_free_checks_remaining` (a developer pass's), `free_checks_paused`
+and `balance_usd_micros`.
 
 ## Response
 
@@ -1211,14 +1310,17 @@ Every error is JSON with `detail` and `error_code`.
 
 {_errors_table(base_on)}
 
+With a pass, also: `TOO_MANY_REQUESTS` (429, not charged: over a pass's per-minute limit for quick checks or pages
+Unfret fetches; wait `metadata.retry_after_s`). POST /v1/keys: `BAD_CHALLENGE` (400: wrong, expired, used or unsolved
+challenge; get a new one) and `TOO_MANY_REQUESTS` (429: too many new passes from this network today).
+
 ## Clients
 
 - Python: `unfret-client`: check(url) gives allow, warn or block, and a developer pass takes one call.
   {clients_info.python_install_note()}
-- Any other language: plain HTTPS, as above. {settings.public_base_url}/developers/http has the request, the
-  response, the errors, the proof of work for a developer pass (SHA-256 of challenge + ":" + solution with `bits`
-  leading zero bits) and examples in curl, JavaScript, Go and PHP. A TypeScript reference client without
-  dependencies is in the repository, to copy: {clients_info.TYPESCRIPT_CLIENT_URL} (mirror:
+- Any other language: plain HTTPS, as above. {url}/developers/http has the request, the response, the errors, the
+  proof of work for a developer pass and examples in curl, JavaScript, Go and PHP. A TypeScript reference client
+  without dependencies is in the repository, to copy: {clients_info.TYPESCRIPT_CLIENT_URL} (mirror:
   {clients_info.TYPESCRIPT_CLIENT_MIRROR}); it is not on npm.
 
 ## Shared results (shoppers)
@@ -1230,5 +1332,7 @@ it. Shared pages are noindex. Don't present a shared result as Unfret's own judg
 
 ## Machine-readable
 
-{settings.public_base_url}/.well-known/x402
+- {url}/.well-known/x402: x402 discovery (tiers, prices, networks, assets, policies, the pass)
+- {url}/openapi.json (and {url}/docs): every route
+- {url}/developers: the developer guide, for people
 """

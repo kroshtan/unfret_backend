@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Unfret for developers and AI agents: one HTTP call per check, an MCP server (remote or local), a Python client and a guide for any other language. Pay per call over x402 in USDC or SOL, or with an Unfret pass; a developer pass comes with free checks. Returns allow, warn or block with the evidence.">
+  <meta name="description" content="Unfret for developers and AI agents, three ways in: the MCP server (remote or local), the HTTP API with an Unfret pass (a developer pass comes with free checks), or x402 pay-per-call with no account. Returns allow, warn or block with the evidence.">
   <title>For developers and AI agents · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -22,15 +22,14 @@
           <p class="lead">One call per check: does this product on a marketplace or web shop, second-hand ad, or
             tradesperson's or local service's website show signs of a scam, dropshipped generic goods, fake reviews
             or pressure tricks? The answer is an action, <code>allow</code>, <code>warn</code> or
-            <code>block</code>, with the evidence behind it. No account:
-            pay per call over x402, or use an Unfret pass. A developer pass comes with
-            {{developer_checks}} free deep checks, for the API and the MCP server.</p>
+            <code>block</code>, with the evidence behind it. Use it from an MCP client, from the API with an Unfret
+            pass, or pay per call over x402 with no account.</p>
           <div class="buttons">
-            <a class="button primary large" href="#start">Try it in three lines</a>
-            <a class="button large" href="#mcp">Set up the MCP server</a>
+            <a class="button primary large" href="#ways">Three ways to integrate</a>
+            <a class="button large" href="#developer-pass">Get a developer pass</a>
           </div>
-          <p class="small">From any language: <a href="/developers/http">the HTTP guide</a>, with curl,
-            JavaScript, Go and PHP.</p>
+          <p class="small">A developer pass comes with {{developer_checks}} free deep checks, for the API and the MCP
+            server. From any language: <a href="/developers/http">the HTTP guide</a>.</p>
         </div>
         <pre class="terminal" aria-label="An example check"><span class="c"># one check, with an Unfret pass</span>
 <span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
@@ -43,56 +42,69 @@
       </div>
     </section>
 
-    <section class="section" aria-labelledby="ways-heading">
+    <section class="section" id="ways" aria-labelledby="ways-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="ways-heading">Three ways in</h2>
-          <p>The same analysis a shopper gets in the browser extension, for your agent or your code.</p>
+          <h2 id="ways-heading">Three ways to integrate</h2>
+          <p>All three run the same check a shopper gets in the browser extension, at the same prices. The examples
+            check the test shop, a made-up store with every trick Unfret catches.</p>
         </div>
-        <ul class="ways">
+        <ol class="ways">
           <li>
-            <h3><a href="#start">HTTP</a></h3>
-            <p><code>POST /v1/check</code> with an Unfret pass as a bearer token, or paid per call over x402 in USDC
-              or wSOL on Solana. Unfret pays the network fee. <a href="/developers/http">From any language</a>: the
-              request, the response, errors and examples.</p>
+            <div>
+              <h3><a href="#mcp">1. MCP server</a></h3>
+              <p>For Claude, Cursor and any MCP client. Remote at <code>{{base_url}}/mcp</code> with an Unfret
+                pass<!-- oauth-on -->, or without a header: the client asks you to sign in<!-- /oauth-on -->. Or local
+                with <code>uvx unfret-mcp</code>, paying from a pass or the agent's own wallet. Tools: a free
+                quick check, a deep check, checks left and prices.</p>
+            </div>
+            <div class="code-block">
+              <pre class="terminal" id="way-mcp"><span class="k">claude</span> mcp add --transport http unfret {{base_url}}/mcp \
+  --header "Authorization: Bearer $UNFRET_PASS"</pre>
+              <button type="button" class="copy" data-copy="way-mcp">Copy</button>
+            </div>
           </li>
           <li>
-            <h3><a href="#mcp">MCP server</a></h3>
-            <p>Remote at <code>{{base_url}}/mcp</code> with a pass, or local with <code>uvx unfret-mcp</code>, paying
-              from a pass or the agent's own Solana wallet.</p>
+            <div>
+              <h3><a href="#pass">2. API with a pass</a></h3>
+              <p><code>POST /v1/check</code> with <code>Authorization: Bearer ufk_…</code>. A deep check uses one of
+                the pass's checks, a quick check is free. <a href="#developer-pass">Make a developer pass</a> (free
+                checks, no account) or <a href="/checkout">buy checks</a>.</p>
+            </div>
+            <div class="code-block">
+              <pre class="terminal" id="curl-pass"><span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'</pre>
+              <button type="button" class="copy" data-copy="curl-pass">Copy</button>
+            </div>
           </li>
           <li>
-            <h3><a href="#clients">Python client</a></h3>
-            <p><code>check(url)</code> gives <code>allow</code>, <code>warn</code> or <code>block</code>, from a
-              policy you can change. Other languages: <a href="/developers/http">plain HTTP</a>.</p>
+            <div>
+              <h3><a href="#x402">3. x402 pay-per-call</a></h3>
+              <p>No pass, no account: the agent pays each call from its own wallet, {{quick_price}} for quick and
+                {{deep_price}} for deep, in {{payment_options}}. Unfret answers <code>402</code> with the price; the
+                agent pays and sends the same request again.</p>
+            </div>
+            <div class="code-block">
+              <pre class="terminal" id="curl-x402"><span class="c"># 1. ask: 402, with the options in PAYMENT-REQUIRED</span>
+<span class="k">curl</span> -i {{base_url}}/v1/check -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'
+<span class="c"># 2. pay one of its accepts[] with an x402 client</span>
+<span class="c"># 3. ask again with the payment: 200 + PAYMENT-RESPONSE</span>
+<span class="k">curl</span> {{base_url}}/v1/check -H "PAYMENT-SIGNATURE: $PAYMENT" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'</pre>
+              <button type="button" class="copy" data-copy="curl-x402">Copy</button>
+            </div>
           </li>
-        </ul>
+        </ol>
       </div>
     </section>
 
-    <section class="section" id="start" aria-labelledby="start-heading">
+    <section class="section" id="developer-pass" aria-labelledby="dev-pass-heading">
       <div class="wrap narrow">
-        <h2 id="start-heading">Try it in three lines</h2>
-        <p><b>With an Unfret pass.</b> A deep check uses one of the pass's checks; <code>"tier": "quick"</code> is
-          free. The test shop below is a made-up store with every trick Unfret catches.</p>
-        <div class="code-block">
-          <pre class="terminal" id="curl-pass"><span class="k">curl</span> {{base_url}}/v1/check -H "Authorization: Bearer $UNFRET_PASS" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'</pre>
-          <button type="button" class="copy" data-copy="curl-pass">Copy</button>
-        </div>
-        <p><b>With x402.</b> Without a pass the first call answers <code>402</code>, with the price in a
-          <code>PAYMENT-REQUIRED</code> header. Pay one of its options from a wallet (any x402 client, or
-          <a href="#mcp">unfret-mcp</a>) and send the same request again with the payment:</p>
-        <div class="code-block">
-          <pre class="terminal" id="curl-x402"><span class="k">curl</span> -i {{base_url}}/v1/check -H "Content-Type: application/json" \
-  -d '{"url": "{{base_url}}/test-shop", "tier": "deep"}'   <span class="c"># → 402 + PAYMENT-REQUIRED</span>
-<span class="k">curl</span> {{base_url}}/v1/check -H "PAYMENT-SIGNATURE: $PAYMENT" -H "Content-Type: application/json" -d '…'</pre>
-          <button type="button" class="copy" data-copy="curl-x402">Copy</button>
-        </div>
-
-        <div class="dev-pass" id="developer-pass">
-          <h3>Get a developer pass</h3>
+        <div class="dev-pass">
+          <h2 id="dev-pass-heading">Get a developer pass</h2>
           <p>{{developer_checks}} free deep checks, for trying Unfret out as you build and test your agent: a few
             seconds of work in this browser, no account. One per browser, and one a day per network. Quick checks
             are always free.</p>
@@ -116,7 +128,7 @@
         <p>Unfret's answer for the test shop: a deep check with a pass, recorded on {{sample_server}} on
           {{measured_on}}. With x402 the body is the same without the pass's four fields (<code>charged</code>,
           <code>free_check</code>, <code>free_checks_left</code>, <code>balance_usd_micros</code>), and comes with a
-          <code>PAYMENT-RESPONSE</code> header.</p>
+          <code>PAYMENT-RESPONSE</code> header. The MCP tools return the same verdict.</p>
         <div class="code-block">
           <pre class="terminal sample-json" id="sample-response">{{sample_json}}</pre>
           <button type="button" class="copy" data-copy="sample-response">Copy</button>
@@ -152,7 +164,7 @@
         </div>
         <p class="aside-note">Times: {{latency_note}} A check of a page Unfret looked at in the last day can come
           back sooner (<code>"cached": true</code>), charged the same. Checks for a pass come in packs:
-          {{packs_line}} (<a href="/checkout">buy checks</a>).</p>
+          {{packs_line}} (<a href="/checkout">buy checks</a>). <code>GET /v1/pricing</code> has every price.</p>
         <table class="settings limits">
           <thead><tr><th scope="col">Limit</th><th scope="col">Value</th></tr></thead>
           <tbody>
@@ -168,8 +180,10 @@
               pass, or is free</td></tr>
             <tr><td>Developer pass</td><td>{{developer_checks}} free deep checks, for the API and the MCP server
               (<code>POST /v1/check</code>); one a day per network</td></tr>
-            <tr><td>Free deep checks, everyone together</td><td>a daily budget; once it's used: <code>429
-              FREE_CHECKS_PAUSED</code> until 00:00 UTC (bought and quick checks go on)</td></tr>
+            <tr><td>Free deep checks, everyone together</td><td>a daily budget, the developer passes' apart from the
+              shoppers'. Once it's used, until 00:00 UTC, a deep check that only free checks could pay for answers
+              <code>402 INSUFFICIENT_CREDITS</code> on a developer pass and <code>429 FREE_CHECKS_PAUSED</code> on
+              other passes. Bought and quick checks go on</td></tr>
           </tbody>
         </table>
       </div>
@@ -177,14 +191,14 @@
 
     <section class="section" id="mcp" aria-labelledby="mcp-heading">
       <div class="wrap narrow">
-        <h2 id="mcp-heading">The MCP server</h2>
-        <p>For Claude, Cursor and any MCP client. Every tool has a title, a one-sentence description and explicit
-          hints: the free check is read-only, the deep one uses one of the pass's checks, and both read a third-party page.</p>
+        <h2 id="mcp-heading">1. The MCP server</h2>
+        <p>For Claude, Cursor and any MCP client. Every tool has a title and explicit hints: the free check is
+          read-only, the deep one uses one of the pass's checks, and both read a third-party page.</p>
 
-        <h3>Remote, with a pass</h3>
-        <p>Streamable HTTP at <code>{{base_url}}/mcp</code>, authenticated with an Unfret pass<!-- oauth-on --> or by
-          signing in<!-- /oauth-on -->. It never pays from a wallet. Tools: <code>check_store_quick</code> (free), <code>check_store_deep</code> (one of the pass's checks),
-          <code>get_checks_left</code> and <code>get_pricing</code>. In Claude Code:</p>
+        <h3>Remote, at <code>{{base_url}}/mcp</code></h3>
+        <p>Streamable HTTP, authenticated with an Unfret pass<!-- oauth-on --> or by signing in<!-- /oauth-on -->.
+          It never pays from a wallet. Tools: <code>check_store_quick</code> (free), <code>check_store_deep</code>
+          (one of the pass's checks), <code>get_checks_left</code> and <code>get_pricing</code>. In Claude Code:</p>
         <div class="code-block">
           <pre class="terminal" id="mcp-remote-cli"><span class="k">claude</span> mcp add --transport http unfret {{base_url}}/mcp \
   --header "Authorization: Bearer $UNFRET_PASS"</pre>
@@ -199,12 +213,14 @@
         </div>
         <!-- oauth-on --><p id="mcp-oauth"><strong>Or sign in, without a header.</strong> Claude's connectors
           (claude.ai, Claude Desktop and mobile), Claude Code and other clients that speak MCP's OAuth just add
-          <code>{{base_url}}/mcp</code>. Listing the tools and the prices needs no sign-in; the first check asks for it.
-          Unfret's sign-in page makes a pass for you (or takes one you have), and the client gets a token for it. It works at <code>/mcp</code> only, lasts an hour and is renewed by the
-          client; disconnect in the client, or replace the pass with its backup code, to end it. No payment is part
-          of signing in. For client developers: discovery at <code>/.well-known/oauth-protected-resource/mcp</code>,
-          public clients only (PKCE S256), with a Client ID Metadata Document or dynamic registration; codes go only
-          to Claude's callback and loopback addresses.</p><!-- /oauth-on -->
+          <code>{{base_url}}/mcp</code>. Before you sign in, the client can already connect, list the tools and
+          call <code>get_pricing</code>; a check is what asks you to sign in. Unfret's sign-in page makes a pass for
+          you (or takes one you have), and the client gets a token for it. The token works at <code>/mcp</code>
+          only, lasts an hour and is renewed by the client; disconnect in the client, or replace the pass with its
+          backup code, to end it. No payment is part of signing in. For client developers: discovery at
+          <code>/.well-known/oauth-protected-resource/mcp</code>, public clients only (PKCE S256), with a Client ID
+          Metadata Document or dynamic registration; codes go only to Claude's callback and loopback
+          addresses.</p><!-- /oauth-on -->
 
         <h3>Local, with a pass or a wallet</h3>
         <p><code>unfret-mcp</code> (on PyPI, and in the MCP registry as <code>net.unfret/mcp</code>) runs next to
@@ -216,8 +232,9 @@
   "env": {"UNFRET_PASS": "ufk_…"}}}}</pre>
           <button type="button" class="copy" data-copy="mcp-config-pass">Copy</button>
         </div>
-        <p>Or paying each check from the agent's own Solana wallet, in USDC, or wSOL when that's what the wallet
-          holds, refusing to spend beyond its caps:</p>
+        <p>Or paying each check over x402 from the agent's own wallet, refusing to spend beyond its caps: on Solana in
+          USDC, or wSOL when that's what the wallet holds<!-- base-on -->, or in USDC on Base with an EVM key
+          (<code>UNFRET_MCP_BASE_KEY</code>, version 0.3.0 or newer)<!-- /base-on -->:</p>
         <div class="code-block">
           <pre class="terminal" id="mcp-config">{"mcpServers": {"unfret": {
   "command": "uvx", "args": ["unfret-mcp"],
@@ -231,8 +248,9 @@
           <tbody>
             <tr><td><code>UNFRET_PASS</code></td><td></td><td>Pay from this Unfret pass; no wallet needed</td></tr>
             <tr><td><code>UNFRET_MCP_KEYPAIR</code></td><td></td><td>The agent's Solana keypair file</td></tr>
-            <tr><td><code>UNFRET_MCP_BASE_KEY</code></td><td></td><td>Or an EVM private key, to pay USDC on Base
-              (Base Sepolia unless <code>UNFRET_MCP_BASE_NETWORK=base-mainnet</code>; version 0.3.0 or newer)</td></tr>
+            <!-- base-on --><tr><td><code>UNFRET_MCP_BASE_KEY</code></td><td></td><td>Or an EVM private key, to pay
+              USDC on Base (Base Sepolia unless <code>UNFRET_MCP_BASE_NETWORK=base-mainnet</code>; with both wallets
+              <code>UNFRET_MCP_PREFER</code> picks; version 0.3.0 or newer)</td></tr><!-- /base-on -->
             <tr><td><code>UNFRET_MCP_MAX_PRICE_USD</code></td><td><code>0.25</code></td><td>Refuse any single check
               worth more</td></tr>
             <tr><td><code>UNFRET_MCP_SESSION_CAP_USD</code></td><td><code>2.50</code></td><td>Refuse once the session
@@ -254,6 +272,53 @@
             <button type="button" class="copy" data-copy="mcp-devnet">Copy</button>
           </div>
         </details>
+      </div>
+    </section>
+
+    <section class="section" id="pass" aria-labelledby="pass-heading">
+      <div class="wrap narrow">
+        <h2 id="pass-heading">2. The API with an Unfret pass</h2>
+        <p>A pass is an API key: send it as <code>Authorization: Bearer ufk_…</code> to <code>POST /v1/check</code>
+          (above). No wallet needed: <a href="#developer-pass">make a developer pass</a>, or
+          <a href="/checkout">buy checks</a> by card or iDEAL | Wero (or <a href="/checkout?mode=crypto">with
+          crypto</a>) for any pass. <code>GET /v1/credits</code> with the pass says what's left, and every answer
+          carries <code>free_checks_left</code> and <code>balance_usd_micros</code>; <code>GET /v1/pricing</code> has
+          the prices. <a href="/developers/http">The HTTP guide</a> has the request, the response, the errors and
+          examples in curl, JavaScript, Go and PHP.</p>
+        <p>For the card a shopper sees (a band, a headline, reasons and what looks good), <code>POST
+          /v1/analyze</code> takes the same pass and streams progress at <code>/v1/analyze/stream</code>; a developer
+          pass's free checks don't count there, only bought ones. <a href="/my-checks">My checks</a> shows what's
+          left.</p>
+        <p id="expiry"><b>Passes don't expire.</b> Neither do the checks on them, and Unfret doesn't delete a pass for
+          not being used. A pass stops working when it is replaced with its backup code or deleted on request. Unfret
+          can also retire old passes in a one-off clean-up, as at the fresh start when free checks began; by
+          default such a clean-up refuses to touch passes that bought checks. A retired or replaced pass answers
+          <code>401 INVALID_API_KEY</code>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="x402" aria-labelledby="x402-heading">
+      <div class="wrap narrow">
+        <h2 id="x402-heading">3. x402 pay-per-call, step by step</h2>
+        <ol class="howto">
+          <li><b>Ask.</b> <code>POST {{base_url}}/v1/check</code> with <code>{"url", "tier", "policy"}</code>, and
+            <code>page_content</code> (the page's HTML) for marketplaces such as Amazon that refuse server-side
+            visits.</li>
+          <li><b>Pay.</b> The answer is <code>402</code> with a <code>PAYMENT-REQUIRED</code> header (base64 JSON,
+            also the body) whose <code>accepts</code> lists what Unfret takes: {{payment_options}}, scheme
+            <code>exact</code>. Pay one with an x402 client library (the <a href="https://github.com/coinbase/x402"
+            rel="noopener">x402 project</a> has them for TypeScript, Python and Go) or
+            <a href="#mcp">unfret-mcp</a>. On Solana you sign a token transfer and Unfret pays the network
+            fee, so you pay only the price.<!-- base-on --> On Base you sign a USDC
+            <code>transferWithAuthorization</code> (EIP-3009); the facilitator pays the gas, and it is settled only
+            once the answer is ready, so a failed check costs nothing.<!-- /base-on --></li>
+          <li><b>Ask again</b> with the payment in <code>PAYMENT-SIGNATURE</code>. The answer carries a
+            <code>PAYMENT-RESPONSE</code> header. The same payment always gets the same answer and is never charged
+            twice.</li>
+        </ol>
+        <p>Every error is JSON with <code>detail</code> and <code>error_code</code>, and says whether you were
+          charged. The full rules, errors and response fields are in <a href="/llms.txt">llms.txt</a> and the
+          <a href="/.well-known/x402">x402 discovery document</a>.</p>
       </div>
     </section>
 
@@ -290,71 +355,32 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
       </div>
     </section>
 
-    <section class="section" id="x402" aria-labelledby="x402-heading">
-      <div class="wrap narrow">
-        <h2 id="x402-heading">HTTP with x402, step by step</h2>
-        <ol class="howto">
-          <li><b>Ask.</b> <code>POST {{base_url}}/v1/check</code> with <code>{"url", "tier", "policy"}</code>, and
-            <code>page_content</code> (the page's HTML) for marketplaces such as Amazon that refuse server-side
-            visits.</li>
-          <li><b>Pay.</b> The answer is <code>402</code> with a <code>PAYMENT-REQUIRED</code> header listing what it
-            accepts: {{payment_options}}, scheme <code>exact</code>.<!-- base-off --> Today x402 here is Solana
-            only; USDC on Base is coming next.<!-- /base-off --> Unfret<!-- base-on --> (or, on Base, the
-            facilitator)<!-- /base-on --> pays the network fee, so you pay only the price.<!-- base-on --> On Base
-            you sign a USDC <code>transferWithAuthorization</code>, and it is settled only once the answer is
-            ready.<!-- /base-on --></li>
-          <li><b>Ask again</b> with the payment in <code>PAYMENT-SIGNATURE</code>. The same payment always gets
-            the same answer and is never charged twice.</li>
-        </ol>
-        <p>Every error is JSON with <code>detail</code> and <code>error_code</code>, and says whether you were
-          charged. The full rules, errors and response fields are in <a href="/llms.txt">llms.txt</a> and the
-          <a href="/.well-known/x402">x402 discovery document</a>.</p>
-      </div>
-    </section>
-
-    <section class="section" id="pass" aria-labelledby="pass-heading">
-      <div class="wrap narrow">
-        <h2 id="pass-heading">An Unfret pass as an API key</h2>
-        <p>No wallet needed: <a href="/checkout">buy checks</a> by card or iDEAL | Wero (or
-          <a href="/checkout?mode=crypto">with crypto</a>), and send the pass as a bearer token to
-          <code>/v1/check</code> (above) or to <code>/v1/analyze</code>, which answers with the shopper's verdict (a
-          band, a headline, reasons and what looks good) and streams progress at
-          <code>/v1/analyze/stream</code>. <a href="/my-checks">My checks</a> shows what's left.</p>
-        <p id="expiry"><b>Passes don't expire.</b> Neither do the checks on them, and Unfret doesn't delete a pass for
-          not being used. A pass stops working when it is replaced with its backup code or deleted on request. Unfret
-          can also retire old passes in a one-off clean-up, as at the fresh start when free checks began; by
-          default such a clean-up refuses to touch passes that bought checks. A retired or replaced pass answers
-          <code>401 INVALID_API_KEY</code>.</p>
-      </div>
-    </section>
-
     <section class="section" aria-labelledby="links-heading">
       <div class="wrap">
         <div class="dev-links">
           <div>
             <h2 id="links-heading">Machine-readable</h2>
             <ul>
-              <li><a href="/llms.txt">llms.txt</a>: the service described for language models</li>
-              <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, assets, policies and the pass</li>
+              <li><a href="/llms.txt">llms.txt</a>: all three ways in, for agents that read the docs themselves</li>
+              <li><a href="/.well-known/x402">/.well-known/x402</a>: tiers, prices, networks, assets, policies and the
+                pass</li>
               <li><a href="/openapi.json">openapi.json</a> and the <a href="/docs">API reference</a>; from any
                 language: <a href="/developers/http">the HTTP guide</a></li>
               <li><a href="/static/accuracy-history.json">accuracy-history.json</a> and
                 <a href="/static/accuracy.json">accuracy.json</a>: how often each verdict is right with every scorer
                 version published, of the open model in the code and of the private model unfret.net runs, from the
                 <a href="/accuracy">accuracy page</a></li>
-              <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a>, MIT
-                licensed, including the open model (the scorer a self-hosted server runs), the MCP server and the
-                clients</li>
             </ul>
           </div>
           <div>
-            <!-- base-off -->
-            <h2>Coming next</h2>
+            <h2>Source and listings</h2>
             <ul>
-              <li><b>x402 on Base:</b> pay in USDC on Base, next to Solana, so agents with an EVM wallet can use
-                Unfret too.</li>
+              <li><a href="https://git.kroshtan.com/kroshtan/unfret_backend" rel="noopener">Source code</a>, MIT
+                licensed, including the open model (the scorer a self-hosted server runs), the MCP server and the
+                clients</li>
+              <li><a href="https://pypi.org/project/unfret-mcp/" rel="noopener">unfret-mcp</a> on PyPI, and
+                <code>net.unfret/mcp</code> in the MCP registry</li>
             </ul>
-            <!-- /base-off -->
             <p class="small muted">Unfret is run by one person: there's no SLA, and a verdict is a signal, not a
               certainty. <a href="/accuracy">How often it's right</a>, measured.</p>
           </div>

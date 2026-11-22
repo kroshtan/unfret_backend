@@ -473,7 +473,7 @@ def _pow_example(bits: int) -> str:
 @router.get("/developers", response_class=HTMLResponse)
 def developers(request: Request) -> HTMLResponse:
     """
-    For developers and AI agents: three-line calls, a real response, prices, speed and limits, the MCP server.
+    For developers and AI agents: the three ways in (MCP, the API with a pass, x402), a real response, prices, limits.
 
     The tiers' prices, the pass's limits and what they include come from the settings (the same as
     ``/.well-known/x402``), so the page can't drift from what a check costs; the networks are those ``/v1/check``
@@ -486,7 +486,7 @@ def developers(request: Request) -> HTMLResponse:
     options, base_on = _payment_options(request)
     fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
     page = template("developers.html", "/developers").replace("{{python_install}}", python_install_html())
-    page = with_base(page, base_on)  # Base on: no longer "coming next", and how to pay on it
+    page = with_base(page, base_on)  # Base only while /v1/check takes it, and how to pay on it
     page = with_oauth(page, settings.mcp_oauth_enabled)  # signing in to /mcp with OAuth (Claude's connectors)
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))

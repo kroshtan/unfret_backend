@@ -1273,8 +1273,10 @@ button.copy { min-height: 2.5rem; padding: 0.45rem 0.8rem; font-size: 0.92rem; }
 .dev-page .terminal code, .dev-page pre code { padding: 0; border: 0; background: none; }
 .wrap.narrow > * { max-width: 46rem; }
 .wrap.narrow h2 { margin-top: 0; font-size: clamp(1.4rem, 1.2rem + 0.8vw, 1.8rem); letter-spacing: -0.02em; }
-.ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 0; padding: 0; list-style: none; }
-.ways li { padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+/* The three ways to integrate: one card each, the words beside its example (stacked on narrow screens). */
+.ways { display: grid; gap: 1rem; margin: 0; padding: 0; list-style: none; }
+.ways li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 1.25rem; align-items: center; padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
+.ways .code-block { margin: 0; min-width: 0; }
 .ways h3 { margin: 0 0 0.4rem; }
 .ways h3 a { color: var(--ink); text-decoration: none; }
 .ways h3 a:hover { color: var(--brand-ink); text-decoration: underline; }
@@ -1307,7 +1309,7 @@ table.fields td:first-child code { white-space: nowrap; }
 .code-block .terminal { tab-size: 4; }
 .dev-page .eyebrow a { color: inherit; }
 .dev-page .section + .section { padding-top: 0.5rem; }
-@media (max-width: 56rem) { .dev-hero .wrap, .tiers, .dev-links { grid-template-columns: 1fr; } }
+@media (max-width: 56rem) { .dev-hero .wrap, .tiers, .dev-links, .ways li { grid-template-columns: 1fr; } }
 @media (max-width: 48rem) { .ways { grid-template-columns: 1fr; } }
 .site-nav .quiet-link { color: var(--muted); }
 @media (max-width: 60rem) { .site-nav .quiet-link { display: none; } }

@@ -63,12 +63,12 @@
           then carries a <code>PAYMENT-RESPONSE</code> header. Don't write the signing yourself: use an x402 client
           library for your language (the <a href="https://github.com/coinbase/x402" rel="noopener">x402
           project</a> has them for TypeScript, Python and Go), or <a href="/developers#mcp">unfret-mcp</a>, which
-          pays from a Solana wallet.<!-- base-off --> Today x402 here is Solana only: USDC on Base comes
-          next.<!-- /base-off --> The same payment
+          pays from the agent's own wallet. The same payment
           sent again gets the same answer and is never charged twice. Every option, price and rule is in the
           <a href="/.well-known/x402">x402 discovery document</a> and in <a href="/llms.txt">llms.txt</a>.</p>
         <p class="small muted">With x402 the answer is the same as with a pass, without the pass's four fields
-          (<a href="#response">below</a>). The rest of this page uses a pass.</p>
+          (<a href="#response">below</a>). The rest of this page uses a pass. For an MCP client there's a third
+          way in, <a href="/developers#mcp">the MCP server</a>, with the same checks.</p>
       </div>
     </section>
 

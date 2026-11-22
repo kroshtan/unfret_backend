@@ -19,8 +19,8 @@ and .../lazy-authentication) and the MCP authorization spec (2026-07-28):
    made, the code taken from the "Continue to claude.ai" link) and **I already have a pass** (that same pass pasted;
    the code taken from the 303 without following it).
 5. Tokens: the form-encoded code exchange with PKCE and ``resource``, ``iss`` on the redirect (RFC 9207), ``/mcp``
-   with the token, refresh rotation (a rotated-away token refused inside the grace and the grant revoked when it is
-   presented after it), revocation, and the exact error shapes.
+   with the token, refresh rotation (a rotated-away token presented again inside the grace gets the same tokens, and
+   the grant is revoked when it is presented after it), revocation, and the exact error shapes.
 
 Only free things are used: quick checks on inline page content and ``get_checks_left``. Each run makes one new pass on
 dev (the free checks it comes with are never spent) and revokes every grant it made, except the one the
@@ -479,8 +479,10 @@ def test_refresh_rotation_and_revocation(http: httpx.Client, base: str, new_pass
     assert rotated["refresh_token"] != tokens["refresh_token"] and rotated["access_token"] != tokens["access_token"]
     signed_out(http, tokens["access_token"])  # the old access token is replaced
     signed_in_works(http, rotated["access_token"])
-    # Within the grace, the rotated-away token is refused but the grant lives (a client's own concurrent refresh).
-    oauth_error(refresh(tokens["refresh_token"]), "invalid_grant")
+    # Within the grace, the rotated-away token again (a concurrent refresh, a retry after a lost response) gets the
+    # same tokens, and they keep working.
+    retried = tokens_ok(refresh(tokens["refresh_token"]))
+    assert (retried["access_token"], retried["refresh_token"]) == (rotated["access_token"], rotated["refresh_token"])
     signed_in_works(http, rotated["access_token"])
     oauth_error(refresh(rotated["refresh_token"], client_id="ufc_someone_else"), "invalid_grant")
     oauth_error(refresh(rotated["refresh_token"], resource="https://example.com/mcp"), "invalid_target")

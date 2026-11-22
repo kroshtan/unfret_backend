@@ -13,13 +13,15 @@ pass on the authorization page (:mod:`unfret.routes.oauth`), and the client gets
 - **Codes** are single-use, short-lived and bound to the client, the redirect URI, a PKCE S256 challenge and the
   pass. Using one twice revokes what the first use issued.
 - **Tokens** are opaque random strings: an access token (``ufat_…``, short-lived) and a refresh token (``ufrt_…``)
-  that rotates on every use. Presenting a refresh token that was already rotated away revokes the grant (after a
-  short grace for a client's own concurrent refreshes).
+  that rotates on every use. Within a short grace after a rotation, the rotated-away token presented again (a
+  client's concurrent refresh, or a retry after a lost response) gets the same tokens again; any other rotated-away
+  token presented revokes the grant.
 - **Revocation**: ``/oauth/revoke``; and a grant stops working at once when its pass is replaced from its backup
   code (the grant is bound to the pass's current hash) or retired (its rows are deleted with the pass).
 
-Only SHA-256 hashes of codes and tokens are stored, with the pass's id, the client and expiry times; nothing about
-the person, their network or what they check. A registered client keeps the name and redirect URIs it sent.
+Only SHA-256 hashes of codes and tokens are stored, with the pass's id, the client and expiry times (and, for the grace
+only, the random nonce a rotation's tokens are derived from with the presented refresh token); nothing about the
+person, their network or what they check. A registered client keeps the name and redirect URIs it sent.
 """
 
 import base64
@@ -46,8 +48,8 @@ REFRESH_PREFIX = "ufrt_"
 CLIENT_PREFIX = "ufc_"
 SCOPE = "checks"  # the one scope: use the pass's checks through the MCP server's tools
 MCP_PATH = "/mcp"
-# A client's concurrent refreshes (proactive and on a 401) may both present the token the first one rotated away:
-# within this many seconds of a rotation that is refused but doesn't revoke the grant.
+# A client's concurrent refreshes (proactive and on a 401), or its retry after a lost response, may present the token
+# the first one rotated away: within this many seconds of a rotation that gets the same tokens again.
 REFRESH_GRACE_S = 60
 _VERIFIER_RE = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
 _CHALLENGE_RE = re.compile(r"^[A-Za-z0-9\-_]{43}$")  # base64url of a SHA-256, unpadded
@@ -642,9 +644,28 @@ async def exchange_code(
     raise OAuthError("invalid_grant", refused)
 
 
+def _derived_tokens(presented: str, nonce: bytes, expires_in: int) -> Tokens:
+    # The pair a rotation issues: HMAC-SHA256 keyed by the presented refresh token (256 random bits only the client
+    # holds) over a fresh random nonce. The same request again within the grace derives the same pair; without the
+    # presented token the stored nonce gives nothing, and once the nonce is cleared nobody can derive it again.
+    def part(label: bytes) -> str:
+        mac = hmac.new(presented.encode(), label + nonce, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(mac).rstrip(b"=").decode()
+
+    return Tokens(ACCESS_PREFIX + part(b"access:"), REFRESH_PREFIX + part(b"refresh:"), expires_in)
+
+
+_REFRESH_REFUSED = "The refresh token is invalid, expired or revoked; sign in again."
+
+
 async def refresh(pool: asyncpg.Pool, *, refresh_token: str, client_id: str, config: Settings = settings) -> Tokens:
     """
     The ``refresh_token`` grant: new tokens, the refresh token rotated (the old one stops working).
+
+    A client's concurrent refreshes, or a retry after a lost response, present the token the first one rotated away:
+    within ``REFRESH_GRACE_S`` of that rotation, and while its tokens haven't been rotated further, they get the very
+    same tokens again (so whichever response the client keeps, the grant has one refresh token). Any other rotated-away
+    token (after the grace, or from an older rotation) revokes the grant: someone else may hold it.
 
     :param pool: The database pool.
     :param refresh_token: The refresh token.
@@ -662,32 +683,62 @@ async def refresh(pool: asyncpg.Pool, *, refresh_token: str, client_id: str, con
             hashed,
         )
         if row is None:
-            # A rotated-away token used again: someone else may hold it. Revoke (committed, then refused), unless it
-            # is the client's own concurrent refresh right after a rotation.
-            await conn.execute(
-                "DELETE FROM oauth_grants WHERE prev_refresh_hash = $1 "
-                "AND rotated_at < NOW() - make_interval(secs => $2)",
-                hashed,
-                float(REFRESH_GRACE_S),
-            )
+            if (tokens := await _retried(conn, hashed, refresh_token, client_id)) is not None:
+                return tokens
         elif row["client_id"] != client_id:
             pass  # another client's token: refused, and left alone
         elif not row["live"] or not row["same_pass"]:
             await conn.execute("DELETE FROM oauth_grants WHERE id = $1", row["id"])
         else:
-            tokens = _new_tokens(config)
+            nonce = secrets.token_bytes(32)
+            tokens = _derived_tokens(refresh_token, nonce, config.mcp_oauth_access_ttl_s)
+            await conn.execute(
+                "INSERT INTO oauth_spent_refresh (refresh_hash, grant_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                hashed,
+                row["id"],
+            )
             await conn.execute(
                 "UPDATE oauth_grants SET access_hash = $2, access_expires_at = NOW() + make_interval(secs => $3), "
                 "prev_refresh_hash = refresh_hash, refresh_hash = $4, "
-                "refresh_expires_at = NOW() + make_interval(secs => $5), rotated_at = NOW() WHERE id = $1",
+                "refresh_expires_at = NOW() + make_interval(secs => $5), rotated_at = NOW(), rotation_nonce = $6 "
+                "WHERE id = $1",
                 row["id"],
                 _hash(tokens.access_token),
                 float(config.mcp_oauth_access_ttl_s),
                 _hash(tokens.refresh_token),
                 float(config.mcp_oauth_refresh_ttl_s),
+                nonce,
             )
             return tokens
-    raise OAuthError("invalid_grant", "The refresh token is invalid, expired or revoked; sign in again.")
+    raise OAuthError("invalid_grant", _REFRESH_REFUSED)
+
+
+async def _retried(conn: asyncpg.Connection, hashed: bytes, presented: str, client_id: str) -> Tokens | None:
+    # A rotated-away refresh token presented again. The latest one, by its own client within the grace: the same
+    # tokens as its rotation gave, if they are still the grant's. Anything else revokes the grant (committed, then
+    # refused), except another client's token, which is left alone.
+    row = await conn.fetchrow(
+        "SELECT g.id, g.client_id, g.prev_refresh_hash = $1 AS latest, "
+        "g.rotated_at >= NOW() - make_interval(secs => $2) AS in_grace, g.rotation_nonce, g.access_hash, "
+        "g.refresh_hash, GREATEST(0, EXTRACT(EPOCH FROM g.access_expires_at - NOW()))::int AS expires_in, "
+        "g.refresh_expires_at > NOW() AND k.key_hash IS NOT DISTINCT FROM g.key_hash AS usable "
+        "FROM oauth_grants g LEFT JOIN api_keys k ON k.id = g.key_id "
+        "WHERE g.prev_refresh_hash = $1 OR g.id = (SELECT grant_id FROM oauth_spent_refresh WHERE refresh_hash = $1) "
+        "FOR UPDATE OF g",
+        hashed,
+        float(REFRESH_GRACE_S),
+    )
+    if row is None or row["client_id"] != client_id:
+        return None
+    if row["latest"] and row["in_grace"] and row["usable"] and row["rotation_nonce"] is not None:
+        tokens = _derived_tokens(presented, bytes(row["rotation_nonce"]), row["expires_in"])
+        if hmac.compare_digest(_hash(tokens.refresh_token), bytes(row["refresh_hash"])) and hmac.compare_digest(
+            _hash(tokens.access_token), bytes(row["access_hash"])
+        ):
+            return tokens
+    if not (row["latest"] and row["in_grace"] and row["usable"]):
+        await conn.execute("DELETE FROM oauth_grants WHERE id = $1", row["id"])
+    return None
 
 
 async def revoke(db: Executor, token: str, client_id: str | None = None) -> None:
@@ -739,6 +790,15 @@ async def purge(pool: asyncpg.Pool, config: Settings = settings) -> None:
     """
     await pool.execute("DELETE FROM oauth_codes WHERE expires_at < NOW() - INTERVAL '1 day'")
     await pool.execute("DELETE FROM oauth_grants WHERE refresh_expires_at < NOW()")
+    await pool.execute(
+        "UPDATE oauth_grants SET rotation_nonce = NULL WHERE rotation_nonce IS NOT NULL "
+        "AND rotated_at < NOW() - make_interval(secs => $1)",
+        float(REFRESH_GRACE_S),
+    )
+    await pool.execute(
+        "DELETE FROM oauth_spent_refresh WHERE spent_at < NOW() - make_interval(secs => $1)",
+        float(config.mcp_oauth_refresh_ttl_s),
+    )
     await pool.execute(
         "DELETE FROM oauth_clients c WHERE created_on < CURRENT_DATE - $1::int "
         "AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.client_id) "

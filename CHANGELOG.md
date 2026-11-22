@@ -39,6 +39,11 @@
   with `UNFRET_E2E_OAUTH_URL` pointing at dev): lazy sign-in, the 401 that shows Claude's Connect card, discovery,
   claude.ai's and Claude Code's real client metadata documents and DCR, both ways through the sign-in page, the code
   exchange, refresh rotation, revocation and the error shapes. Free checks only; it makes one pass on dev a run.
+* **A retried token refresh no longer signs you out.** When Claude refreshes twice at once, or retries a refresh
+  whose response was lost, the rotated-away refresh token presented again within a minute gets the same tokens the
+  first refresh gave (they are derived from that token and a random nonce kept for the minute only), where it was
+  refused with `invalid_grant`. Presented after the minute, or an older rotated-away token at any time, it still
+  revokes the whole grant: every rotated-away token's hash is now kept with its grant
 * **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless
   `UNFRET_MCP_BASE_NETWORK=base-sepolia`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
   ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))

@@ -72,11 +72,11 @@
         },
         {
           "name": "UNFRET_MCP_BASE_NETWORK",
-          "description": "base-sepolia (test USDC, with UNFRET_API_URL=https://dev.unfret.net) or base-mainnet (real USDC on unfret.net); Base mainnet is never paid unless set",
-          "default": "base-sepolia",
+          "description": "base-mainnet (real USDC on unfret.net), or base-sepolia (test USDC) together with UNFRET_API_URL=https://dev.unfret.net; only this network is paid",
+          "default": "base-mainnet",
           "choices": [
-            "base-sepolia",
-            "base-mainnet"
+            "base-mainnet",
+            "base-sepolia"
           ]
         },
         {

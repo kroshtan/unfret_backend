@@ -39,9 +39,9 @@ Base: x402's `exact` scheme, an EIP-3009 `transferWithAuthorization` of exactly 
 `payTo`, signed with [eth-account](https://github.com/ethereum/eth-account). Unfret's facilitator submits it and
 pays the gas, so the wallet needs only USDC, no ETH. The key is never logged, printed or put in an error message.
 
-- **Mainnet only when you say so.** `UNFRET_MCP_BASE_NETWORK` is `base-sepolia` (test USDC, for
-  `https://dev.unfret.net`) unless set to `base-mainnet` (real USDC, for `https://unfret.net`). An offer on Base
-  mainnet is refused otherwise, and the error names the setting.
+- **One network, as on Solana.** `UNFRET_MCP_BASE_NETWORK` is `base-mainnet` (real USDC, for `https://unfret.net`)
+  unless set to `base-sepolia` (test USDC, for `https://dev.unfret.net`). Only that network is paid: an offer on the
+  other one is refused, and the error names the setting.
 - **Which network.** With only one wallet, that one. With a Solana keypair and a Base key, `UNFRET_MCP_PREFER`
   (`solana` by default, or `base`) is tried first; the other is used only if the preferred one can't be paid (not
   offered, or no affordable Solana option). A spend-cap refusal never falls back to the other network.
@@ -70,7 +70,7 @@ fetches.
 | `UNFRET_PASS` | — | An Unfret pass (`ufk_…`): pay checks from it instead of a wallet (the settings below are then unused) |
 | `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58); not needed with `UNFRET_PASS` or a Base key |
 | `UNFRET_MCP_BASE_KEY` | — | The agent's EVM private key (hex), to pay USDC on Base |
-| `UNFRET_MCP_BASE_NETWORK` | `base-sepolia` | `base-mainnet` to pay real USDC on Base (refused until set) |
+| `UNFRET_MCP_BASE_NETWORK` | `base-mainnet` | `base-sepolia` to try it with test USDC against `https://dev.unfret.net` |
 | `UNFRET_MCP_PREFER` | `solana` | `base` to try Base first when both wallets are set |
 | `UNFRET_MCP_NETWORK` | `solana-mainnet` | `solana-devnet` to try it with test money against `https://dev.unfret.net` |
 | `UNFRET_MCP_RPC_URL` | the network's public RPC | The public RPCs are rate-limited; use your own for anything busy |
@@ -101,8 +101,14 @@ To try it without real money, use devnet (free test SOL from `solana airdrop`, t
           "UNFRET_API_URL": "https://dev.unfret.net"}}}}
 ```
 
-With an EVM wallet on Base Sepolia (test USDC from [faucet.circle.com](https://faucet.circle.com)), against Unfret's
-test server; for real USDC on unfret.net, drop `UNFRET_API_URL` and set `UNFRET_MCP_BASE_NETWORK` to `base-mainnet`:
+With an EVM wallet holding USDC on Base:
+
+```json
+{"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"], "env": {"UNFRET_MCP_BASE_KEY": "0x…"}}}}
+```
+
+To try it on Base Sepolia (test USDC from [faucet.circle.com](https://faucet.circle.com)), against Unfret's test
+server:
 
 ```json
 {"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],

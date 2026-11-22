@@ -979,7 +979,7 @@ takes Unfret's payment shape (a throwaway, unfunded payer gets as far as the bal
 confirmed on chain and answered once for a retried payment; with `UNFRET_E2E_BASE_HOT_KEY` (a throwaway Base Sepolia
 key holding a little Sepolia ETH and at least 0.5 test USDC; never a mainnet key, nor dev's own hot key) and
 `UNFRET_E2E_BASE_COLD_ADDRESS`, one real sweep of that key's USDC to the cold address, then a clean audit. The MCP
-server (`mcp/`) pays on Base too, from `UNFRET_MCP_BASE_KEY` (Base Sepolia unless `UNFRET_MCP_BASE_NETWORK=base-mainnet`);
+server (`mcp/`) pays on Base too, from `UNFRET_MCP_BASE_KEY` (Base mainnet unless `UNFRET_MCP_BASE_NETWORK=base-sepolia`);
 its own e2e, `mcp/tests/test_e2e_base.py`, pays a quick check on dev with the same `UNFRET_E2E_BASE_PAYER_KEY`.
 
 The Solana side is off (`503`, or Base alone) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet;

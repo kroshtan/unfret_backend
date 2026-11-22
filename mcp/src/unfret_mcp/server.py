@@ -14,8 +14,8 @@ Configuration (environment):
     UNFRET_MCP_PRICE_RPC_URL          mainnet RPC for the agent's own Pyth SOL/USD reading, which values wSOL
                                       payments (default: mainnet's public RPC)
     UNFRET_MCP_BASE_KEY               the agent's EVM private key (hex), to pay USDC on Base; never logged
-    UNFRET_MCP_BASE_NETWORK           base-sepolia (default, for https://dev.unfret.net) or base-mainnet (real USDC,
-                                      for https://unfret.net): Base mainnet is never paid unless set here
+    UNFRET_MCP_BASE_NETWORK           base-mainnet (default, for https://unfret.net) or base-sepolia (test USDC, for
+                                      https://dev.unfret.net): only this network is paid
     UNFRET_MCP_PREFER                 solana (default) or base: with both wallets, the network tried first
 """
 
@@ -103,7 +103,7 @@ def _load_base() -> BaseWallet | None:
     key = _env("MCP_BASE_KEY")
     if not key:
         return None
-    network = _env("MCP_BASE_NETWORK") or "base-sepolia"
+    network = _env("MCP_BASE_NETWORK") or "base-mainnet"
     if network not in BASE_CAIP2:
         raise RuntimeError(f"UNFRET_MCP_BASE_NETWORK must be one of {', '.join(BASE_CAIP2)}, not {network!r}")
     base_network: BaseNetwork = "base-mainnet" if network == "base-mainnet" else "base-sepolia"

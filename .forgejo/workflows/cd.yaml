@@ -11,7 +11,7 @@ name: CD
 #
 # Run by hand (Actions → CD → Run workflow) it redeploys a commit of main to DEV only, without deploy-dev.yaml's test
 # guard: a recovery tool (a failed deploy, a new scorer in the model store). Production cannot be chosen there, and a
-# direct run asking for it is refused below. A hand run does not count for the production gate (README, "Deploying").
+# direct run asking for it is refused below. A hand run reports `CD / Kamal deploy`, which the production gate does not count (README, "Deploying").
 on:
   workflow_call:
     inputs:

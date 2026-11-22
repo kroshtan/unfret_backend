@@ -1164,7 +1164,8 @@ The workflows:
 Deploys queue one behind the other and are never cancelled, so a dev deploy is never cut off or dropped. A run whose
 commit is no longer `main`'s newest when it starts deploys nothing: the newest commit's run deploys it. A hand run of
 *CD* redeploys a commit of `main` to dev without the guard (to recover a failed deploy); it doesn't count for
-production, which needs *Deploy dev*'s `Deploy` status green for the release commit.
+production, which needs *Deploy dev*'s `Kamal deploy` status green for the release commit (not `Deploy`: Forgejo
+reports a calling job green even when the job it calls was skipped).
 
 ```
 src/unfret/
@@ -1238,7 +1239,7 @@ readiness check fails. Dev lists its first cold address, which it swept to until
 
 The production workflow refuses unless:
 - the commit is on `main`;
-- its `Deploy dev / Deploy` status is green: tested and deployed to dev (a commit from before the CI/CD split:
+- its `Deploy dev / Kamal deploy` status is green: tested and deployed to dev (a commit from before the CI/CD split:
   `CI / check` and `CI / deploy-dev`);
 - dev reports that very commit (`/v1/health` → `commit`; the workflow waits up to 10 minutes for it) and passes the
   [end-to-end sweep](#end-to-end-sweep) against it;

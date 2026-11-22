@@ -24,12 +24,13 @@ env:
     # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
     UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"
     UNFRET_MODEL_QUICK_PATH: "<%= ENV.fetch('UNFRET_MODEL_QUICK_PATH', '') %>"
-    # x402 in USDC on Base Sepolia (testnet), off until DEV_BASE_HOT_KEY, DEV_BASE_COLD_ADDRESS and the facilitator's
-    # key exist (README, "USDC on Base"); then this flips to "true" in a PR. Mainnet stays refused here. After a change
-    # of DEV_BASE_COLD_ADDRESS the old one goes here, public: UNFRET_BASE_FORMER_COLD_ADDRESSES and
-    # UNFRET_BASE_FORMER_COLD_UNTIL (README, "Changing the Base cold address").
-    UNFRET_X402_BASE_ENABLED: "false"
+    # x402 in USDC on Base Sepolia (testnet), on with DEV_BASE_HOT_KEY and DEV_BASE_COLD_ADDRESS (README, "USDC on
+    # Base"). The facilitator is x402.org's (Base Sepolia only, no key), so dev needs no CDP key. Mainnet stays refused
+    # here. After a change of DEV_BASE_COLD_ADDRESS the old one goes here, public: UNFRET_BASE_FORMER_COLD_ADDRESSES
+    # and UNFRET_BASE_FORMER_COLD_UNTIL (README, "Changing the Base cold address").
+    UNFRET_X402_BASE_ENABLED: "true"
     UNFRET_BASE_NETWORK: base-sepolia
+    UNFRET_BASE_FACILITATOR_URL: https://x402.org/facilitator
     UNFRET_X402_BASE_ALLOW_MAINNET: "false"
   secret:
     - UNFRET_LLM_API_KEY
@@ -45,9 +46,9 @@ env:
     - UNFRET_POLAR_ENVIRONMENT
     - UNFRET_POLAR_PRODUCTS
     - UNFRET_FIAT_WEBHOOK_SECRET
-    # Optional: x402 on Base Sepolia (off while UNFRET_X402_BASE_ENABLED is "false" above). The hot key is payTo's
+    # x402 on Base Sepolia (on above; off again while the hot key or cold address is empty). The hot key is payTo's
     # key (a Sepolia-only key holding a little Sepolia ETH for the sweeps' gas); the cold address and the optional
-    # payTo check are public; the CDP API key is the facilitator's credential (Ed25519 secret).
+    # payTo check are public; the CDP API key is CDP's facilitator credential (unused with x402.org's).
     - UNFRET_X402_BASE_HOT_KEY
     - UNFRET_BASE_PAY_TO
     - UNFRET_BASE_COLD_ADDRESS

@@ -1147,9 +1147,26 @@ worked on:
   failure that wasn't the code's, re-run its run under Actions).
 - Back to work on it: put `WIP:` back in front.
 
-On `main`, runs queue one behind the other and are never cancelled, so a dev deploy is never cut off or dropped. A
-run whose commit is no longer `main`'s newest when it starts checks nothing and doesn't deploy: the newest commit's
-run checks and deploys it.
+CI doesn't run again on `main`: a merge goes straight to the dev deploy (*Deploy dev*,
+`.forgejo/workflows/deploy-dev.yaml`). Pull requests are merged without a rebase when they merge cleanly, so a merge
+can hold a tree CI never saw (another pull request merged in between). Its guard compares trees instead of testing
+again: when the merge commit's tree is the pull request head's and that head's `CI / check (pull_request)` is green,
+it deploys straight away; otherwise (main had moved, a direct push) it runs CI's checks on the merge first and deploys
+only if they pass. *Deploy dev → Run workflow* with `force_tests` always checks first.
+
+The workflows:
+
+| Workflow | Runs on | Does |
+| --- | --- | --- |
+| `ci.yaml` (*CI*) | pull requests, by hand, and called by *Deploy dev* | the checks; never deploys |
+| `deploy-dev.yaml` (*Deploy dev*) | every push to `main`, by hand | the test guard above, then `cd.yaml` for dev |
+| `deploy-production.yaml` (*Deploy production*) | by hand only | the release gates and the tag, then `cd.yaml` for production |
+| `cd.yaml` (*CD*) | called by the two above; by hand for dev only | the Kamal deploy: builds and pushes the image for dev; for production deploys the image dev ran |
+
+Deploys queue one behind the other and are never cancelled, so a dev deploy is never cut off or dropped. A run whose
+commit is no longer `main`'s newest when it starts deploys nothing: the newest commit's run deploys it. A hand run of
+*CD* redeploys a commit of `main` to dev without the guard (to recover a failed deploy); it doesn't count for
+production, which needs *Deploy dev*'s `Deploy` status green for the release commit.
 
 ```
 src/unfret/
@@ -1183,7 +1200,7 @@ wallet and session secret:
 | URL | https://dev.unfret.net | https://unfret.net |
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
-| Deployed | **automatically** on every push to `main`, after the checks (`.forgejo/workflows/ci.yaml`, job `deploy-dev`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`) |
+| Deployed | **automatically** on every push to `main` (`.forgejo/workflows/deploy-dev.yaml`, through `cd.yaml`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`, through `cd.yaml`) |
 | Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
 
 **x402 on Base** is off in both environments (`UNFRET_X402_BASE_ENABLED: "false"` in dev's deploy file; production
@@ -1205,7 +1222,7 @@ whole) and mount it read-only at `/app/private-model`, setting `UNFRET_MODEL_PAT
 without the secret, or when the store names no release, the open model in the image runs. After the deploy they wait
 for `/v1/health` to report the expected `model_version` and `quick_model_version`. The production deploy also
 refuses unless dev, which just passed the sweep, runs exactly the release it fetched; a new scorer therefore reaches
-production by deploying dev again (*Actions → CI → Run workflow* on `main`), testing it, then running the production
+production by deploying dev again (*Actions → Deploy dev → Run workflow*), testing it, then running the production
 deploy.
 
 **Changing a cold address** (`DEV_COLD_ADDRESS`, `PROD_COLD_ADDRESS`): in the same change, add the old address and the
@@ -1223,7 +1240,8 @@ readiness check fails. Dev lists its first cold address, which it swept to until
 
 The production workflow refuses unless:
 - the commit is on `main`;
-- its `CI / check` and `CI / deploy-dev` statuses are green;
+- its `Deploy dev / Deploy` status is green: tested and deployed to dev (a commit from before the CI/CD split:
+  `CI / check` and `CI / deploy-dev`);
 - dev reports that very commit (`/v1/health` → `commit`; the workflow waits up to 10 minutes for it) and passes the
   [end-to-end sweep](#end-to-end-sweep) against it;
 - every production secret is set, and the RPC URL isn't a test network.
@@ -1232,8 +1250,9 @@ The production workflow refuses unless:
 
 Nothing is tagged or deployed when the sweep fails.
 
-It then deploys **the exact image dev ran** (`kamal deploy -d production --skip-push --version <sha>`), with no
-rebuild. Deploys never run in parallel and are never cancelled half-way.
+It then hands the commit to `cd.yaml`, which deploys **the exact image dev ran** (`kamal deploy -d production
+--skip-push --version <sha>`), with no rebuild, and only with the scorer the gate saw dev run. Deploys never run in
+parallel and are never cancelled half-way.
 
 **Retiring passes at a release** (0.13.0's fresh start; only with the owner's go, never part of the workflow): once
 unfret.net's `/v1/health` reports the new version, with `UNFRET_URL=https://unfret.net` and the production admin token

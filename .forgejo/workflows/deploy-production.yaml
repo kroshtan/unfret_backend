@@ -7,6 +7,9 @@ name: Deploy production
 # commit is on main, its CI passed and the SAME commit was deployed to dev successfully, and dev, running that commit,
 # passes the end-to-end sweep (tests/e2e, devnet only); then it deploys the exact image dev ran (tagged with the
 # commit SHA): it never rebuilds.
+#
+# Two jobs: `gate` holds every check above and tags the release; `deploy` hands the commit to cd.yaml (the same
+# deploy workflow dev uses), which deploys it with the PROD_* secrets. Nothing reaches cd.yaml unless the gate passed.
 on:
   workflow_dispatch:
     inputs:
@@ -21,8 +24,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-production:
+  gate:
+    name: Gate
     runs-on: kroshtan-deploy
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      scorer: ${{ steps.scorer.outputs.scorer }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,13 +67,16 @@ jobs:
           fi
           git merge-base --is-ancestor "$sha" origin/main \
             || { echo "::error::$tag ($sha) is not on main"; exit 1; }
-          # The repository is public, so its commit statuses can be read without a token.
+          # The repository is public, so its commit statuses can be read without a token. Deploy dev's `Deploy` is
+          # green only for a commit whose tree was tested and then deployed to dev (deploy-dev.yaml); a release made
+          # before that workflow existed has CI's own check and deploy-dev statuses instead.
           curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
             statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
-            need = ["CI / check (push)", "CI / deploy-dev (push)"]
-            bad = need.reject { |c| statuses[c] == "success" }
-            abort("::error::not green on main/dev for this commit: " + bad.map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) unless bad.empty?
-            puts "check and deploy-dev succeeded for this commit"'
+            now = ["Deploy dev / Deploy (push)", "Deploy dev / Deploy (workflow_dispatch)"]
+            before = ["CI / check (push)", "CI / deploy-dev (push)"]
+            ok = now.any? { |c| statuses[c] == "success" } || before.all? { |c| statuses[c] == "success" }
+            abort("::error::not tested and deployed to dev for this commit: " + (now + before).map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) unless ok
+            puts "tested and deployed to dev for this commit"'
           echo "sha=$sha" >> "$FORGEJO_OUTPUT"
           echo "tag=$tag" >> "$FORGEJO_OUTPUT"
           echo "Deploying $tag ($sha) to production"
@@ -94,7 +104,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$SHA" ]] \
             || { echo "::error::the checkout ($(git rev-parse HEAD)) is not the release ($SHA): main moved, run again"; exit 1; }
           running() { curl -fsS -m 10 "$DEV/v1/health" | ruby -rjson -e 'print JSON.parse($stdin.read)["commit"].to_s' || true; }
-          # deploy-dev already succeeded for this commit, so dev serves it within a minute or two (kamal-proxy switches
+          # Dev's deploy already succeeded for this commit, so dev serves it within a minute or two (kamal-proxy switches
           # over once the new container is ready). A release deployed again (an older tag) is no longer on dev.
           deadline=$((SECONDS + 600))
           until [[ "$(running)" == "$SHA" ]]; do
@@ -138,7 +148,8 @@ jobs:
       - name: Fetch the scorer dev runs
         id: scorer
         # Retrained scorers come from the private model store, never from the image. Production runs the store's
-        # current release only when dev, which just passed the sweep, runs exactly that release too.
+        # current release only when dev, which just passed the sweep, runs exactly that release too. cd.yaml fetches it
+        # again and refuses unless it is still this release (output `scorer`).
         env:
           MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
         run: |
@@ -151,7 +162,8 @@ jobs:
           echo "managed=true" >> "$FORGEJO_OUTPUT"
           scripts/private-model.sh fetch "$RUNNER_TEMP/scorer"
           scripts/private-model.sh verify https://dev.unfret.net "$RUNNER_TEMP/scorer" \
-            || { echo "::error::dev runs another scorer than the model store's current release: deploy dev again (Actions → CI → Run workflow on main) and test it"; exit 1; }
+            || { echo "::error::dev runs another scorer than the model store's current release: deploy dev again (Actions → Deploy dev → Run workflow) and test it"; exit 1; }
+          echo "scorer=$(scripts/private-model.sh expected "$RUNNER_TEMP/scorer")" >> "$FORGEJO_OUTPUT"
       - name: Tag the release
         if: steps.release.outputs.new_tag != ''
         env:
@@ -165,53 +177,17 @@ jobs:
           curl -fsS -o /dev/null -X POST -H "Authorization: token $TOKEN" -H "Content-Type: application/json" \
             -d "$body" "$API/tags" && echo "tagged $TAG" \
             || echo "::warning::could not create tag $TAG (the deploy goes ahead); tag $SHA by hand"
-      - name: Deploy to production
-        # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
-        # production never starts with a feature silently off or pointing at the wrong network.
-        env:
-          SHA: ${{ steps.release.outputs.sha }}
-          SCORER_MANAGED: ${{ steps.scorer.outputs.managed }}
-          UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
-          UNFRET_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
-          UNFRET_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
-          UNFRET_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
-          UNFRET_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
-          UNFRET_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
-          # Card top-ups (Polar): all three or none.
-          UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.PROD_POLAR_ACCESS_TOKEN }}
-          UNFRET_POLAR_PRODUCTS: ${{ secrets.PROD_POLAR_PRODUCTS }}
-          UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.PROD_FIAT_WEBHOOK_SECRET }}
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in UNFRET_LLM_API_KEY POSTGRES_PASSWORD UNFRET_SOLANA_RPC_URL UNFRET_SESSION_SECRET \
-            UNFRET_HOT_WALLET_KEY UNFRET_COLD_ADDRESS UNFRET_ADMIN_TOKEN; do
-            [[ -n "${!name}" ]] || missing+=("$name")
-          done
-          ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
-          polar=0
-          for name in UNFRET_POLAR_ACCESS_TOKEN UNFRET_POLAR_PRODUCTS UNFRET_FIAT_WEBHOOK_SECRET; do
-            [[ -n "${!name}" ]] && polar=$((polar + 1))
-          done
-          ((polar == 0 || polar == 3)) \
-            || { echo "::error::set all of PROD_POLAR_ACCESS_TOKEN, PROD_POLAR_PRODUCTS, PROD_FIAT_WEBHOOK_SECRET, or none"; exit 1; }
-          ((polar == 3)) && echo "card top-ups: on (Polar production)" || echo "card top-ups: off (no PROD_POLAR_* secrets)"
-          [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
-            || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
-          # `details` echoes its docker ps command (which names the container), so match a running row instead.
-          if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
-            kamal accessory boot db -d production
-          fi
-          if [[ "$SCORER_MANAGED" == true ]]; then
-            scripts/private-model.sh install production "$RUNNER_TEMP/scorer"
-            while read -r line; do export "$line"; done < <(scripts/private-model.sh env "$RUNNER_TEMP/scorer")
-          fi
-          # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
-          kamal deploy -d production --skip-push --version "$SHA"
-          if [[ "$SCORER_MANAGED" == true ]]; then
-            scripts/private-model.sh verify https://unfret.net "$RUNNER_TEMP/scorer"
-          fi
       - name: Discard the deploy key
         if: always()
         run: rm -f ~/.ssh/id_ed25519
+
+  # The deploy itself, shared with dev (cd.yaml): the same image dev ran, pinned to the release commit.
+  deploy:
+    name: Deploy
+    needs: gate
+    uses: ./.forgejo/workflows/cd.yaml
+    with:
+      destination: production
+      ref: ${{ needs.gate.outputs.sha }}
+      scorer: ${{ needs.gate.outputs.scorer }}
+    secrets: inherit

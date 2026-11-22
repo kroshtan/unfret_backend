@@ -39,10 +39,10 @@ jobs:
           sha="$(git rev-parse HEAD)"
           py="$(sed -nE 's/^version = "([^"]+)"$/\1/p' clients/python/pyproject.toml | head -n 1)"
           grep -q "^## \[$py\]" clients/python/CHANGELOG.md || { echo "::error::clients/python/CHANGELOG.md has no ## [$py]"; exit 1; }
-          # Deploy dev's `Deploy` is green only for a commit whose tree was tested (deploy-dev.yaml); older commits have
+          # Deploy dev's `Kamal deploy` is green only for a commit whose tree was tested (deploy-dev.yaml); older commits have
           # CI's own push check.
           state="$(curl -fsS "$API/commits/$sha/status" | node -e '
-            const ok = ["Deploy dev / Deploy (push)", "Deploy dev / Deploy (workflow_dispatch)", "CI / check (push)"];
+            const ok = ["Deploy dev / Kamal deploy (push)", "Deploy dev / Kamal deploy (workflow_dispatch)", "CI / check (push)"];
             let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
               const st = (JSON.parse(s).statuses || []).filter((x) => ok.includes(x.context));
               console.log(st.some((x) => x.status === "success") ? "success" : st.map((x) => `${x.context}=${x.status}`).join(", ") || "missing");

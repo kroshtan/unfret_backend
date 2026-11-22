@@ -26,7 +26,7 @@
   reusable `cd.yaml`, after a tree guard: a merge whose tree is the pull request head CI passed deploys straight away,
   anything else (a pull request merged onto a `main` that had moved) is checked first. `deploy-production.yaml` keeps
   its gates and tag and deploys through the same `cd.yaml`. The production and publish gates read *Deploy dev*'s
-  `Deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
+  `Kamal deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
 
 ### MCP
 

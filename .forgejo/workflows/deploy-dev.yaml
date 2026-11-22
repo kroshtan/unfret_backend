@@ -11,8 +11,9 @@ name: Deploy dev
 #     `CI / check (pull_request)` is green: the tree was tested, deploy straight away;
 #   - anything else (main had moved, a direct push, a squash, or `force_tests`): run ci.yaml's checks on this commit
 #     first, and deploy only if they pass.
-# Production's gate requires this workflow's `Deploy` status to be green for the release commit, so a tree no test ran
-# on can never reach production either.
+# Production's gate requires this workflow's `Kamal deploy` status (cd.yaml's job) to be green for the release
+# commit, so a tree no test ran on can never reach production either. Not `Deploy`: Forgejo reports a calling job
+# green even when the job it calls was skipped.
 on:
   push:
     branches: [main]

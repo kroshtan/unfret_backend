@@ -67,12 +67,13 @@ jobs:
           fi
           git merge-base --is-ancestor "$sha" origin/main \
             || { echo "::error::$tag ($sha) is not on main"; exit 1; }
-          # The repository is public, so its commit statuses can be read without a token. Deploy dev's `Deploy` is
-          # green only for a commit whose tree was tested and then deployed to dev (deploy-dev.yaml); a release made
-          # before that workflow existed has CI's own check and deploy-dev statuses instead.
+          # The repository is public, so its commit statuses can be read without a token. Deploy dev's `Kamal deploy`
+          # (cd.yaml's job, as Deploy dev runs it) is green only for a commit whose tree was tested and then deployed to
+          # dev. Not its `Deploy`: Forgejo reports a calling job green even when the job it calls was skipped. A release
+          # made before deploy-dev.yaml existed has CI's own check and deploy-dev statuses instead.
           curl -fsS "$API/commits/$sha/status" | ruby -rjson -e '
             statuses = JSON.parse($stdin.read).fetch("statuses", []).to_h { |s| [s["context"], s["status"]] }
-            now = ["Deploy dev / Deploy (push)", "Deploy dev / Deploy (workflow_dispatch)"]
+            now = ["Deploy dev / Kamal deploy (push)", "Deploy dev / Kamal deploy (workflow_dispatch)"]
             before = ["CI / check (push)", "CI / deploy-dev (push)"]
             ok = now.any? { |c| statuses[c] == "success" } || before.all? { |c| statuses[c] == "success" }
             abort("::error::not tested and deployed to dev for this commit: " + (now + before).map { |c| "#{c}=#{statuses[c] || "missing"}" }.join(", ")) unless ok

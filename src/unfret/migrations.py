@@ -904,6 +904,22 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         GRANT USAGE ON SEQUENCE uptime_probes_id_seq TO unfret_probe_write;
         """,
     ),
+    (
+        38,
+        "oauth refresh retries and spent refresh tokens",
+        """
+        -- A refresh retried inside the grace gets the same tokens again (unfret.oauth.refresh): they are derived from
+        -- the presented refresh token and this random nonce, kept for the grace only (housekeeping clears it). Every
+        -- rotated-away refresh token's hash is kept with its grant, so presenting any older one revokes the grant.
+        ALTER TABLE oauth_grants ADD COLUMN rotation_nonce BYTEA;
+        CREATE TABLE oauth_spent_refresh (
+            refresh_hash  BYTEA PRIMARY KEY,
+            grant_id      BIGINT NOT NULL REFERENCES oauth_grants(id) ON DELETE CASCADE,
+            spent_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX oauth_spent_refresh_grant_idx ON oauth_spent_refresh (grant_id);
+        """,
+    ),
 ]
 
 

@@ -1,5 +1,6 @@
 """OAuth for the remote MCP server: discovery, registration, the sign-in page, tokens, /mcp with a token, revoking."""
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -261,7 +262,13 @@ async def test_full_flow_register_authorize_token_mcp_refresh_revoke(
     assert fresh["refresh_token"] != tokens["refresh_token"]
     assert await mcp_status(serving, tokens["access_token"]) == 401  # the old access token was replaced
     assert await mcp_status(serving, fresh["access_token"]) == 200
-    assert (await refresh(serving, client_id, tokens["refresh_token"])).json()["error"] == "invalid_grant"
+    # The same refresh again within the grace (a retry): the same tokens, still working.
+    retried = await refresh(serving, client_id, tokens["refresh_token"])
+    assert retried.status_code == 200
+    assert {k: retried.json()[k] for k in ("access_token", "refresh_token")} == {
+        k: fresh[k] for k in ("access_token", "refresh_token")
+    }
+    assert await mcp_status(serving, fresh["access_token"]) == 200
 
     revoked = await serving.post("/oauth/revoke", data={"token": fresh["refresh_token"], "client_id": client_id})
     assert revoked.status_code == 200
@@ -505,6 +512,97 @@ async def test_a_stolen_refresh_token_used_after_rotation_revokes_the_grant(
 
     assert await mcp_status(serving, fresh["access_token"]) == 401
     assert (await refresh(serving, client_id, fresh["refresh_token"])).json()["error"] == "invalid_grant"
+
+
+def pair(response: httpx.Response) -> tuple[str, str]:
+    assert response.status_code == 200, response.text
+    body = response.json()
+    return body["access_token"], body["refresh_token"]
+
+
+async def grant_tokens(pool: asyncpg.Pool) -> tuple[bytes, bytes]:
+    row = await pool.fetchrow("SELECT access_hash, refresh_hash FROM oauth_grants")
+    return bytes(row["access_hash"]), bytes(row["refresh_hash"])
+
+
+def hashed(token: str) -> bytes:
+    return hashlib.sha256(token.encode()).digest()
+
+
+async def test_concurrent_refreshes_both_get_the_same_tokens(serving: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    client_id, _, tokens = await signed_in(serving)
+
+    first, second = await asyncio.gather(
+        refresh(serving, client_id, tokens["refresh_token"]), refresh(serving, client_id, tokens["refresh_token"])
+    )
+
+    assert pair(first) == pair(second)
+    access, refresh_token = pair(first)
+    # One grant, with one refresh token: the one both responses carry.
+    assert await pool.fetchval("SELECT count(*) FROM oauth_grants") == 1
+    assert await grant_tokens(pool) == (hashed(access), hashed(refresh_token))
+    assert await mcp_status(serving, access) == 200
+    assert pair(await refresh(serving, client_id, refresh_token))[1] != refresh_token
+
+
+async def test_a_retry_after_a_lost_response_gets_the_same_tokens(
+    serving: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    client_id, _, tokens = await signed_in(serving)
+    lost = pair(await refresh(serving, client_id, tokens["refresh_token"]))  # the client never saw this
+
+    retried = await refresh(serving, client_id, tokens["refresh_token"])
+
+    assert pair(retried) == lost
+    assert 0 < retried.json()["expires_in"] <= settings.mcp_oauth_access_ttl_s
+    assert await mcp_status(serving, lost[0]) == 200
+    assert pair(await refresh(serving, client_id, lost[1]))[1] != lost[1]
+    # Another client presenting it gets nothing and changes nothing.
+    assert (await refresh(serving, "ufc_other", lost[1])).json()["error"] == "invalid_grant"
+    assert await pool.fetchval("SELECT count(*) FROM oauth_grants") == 1
+
+
+async def test_a_retry_after_the_grace_revokes_the_grant(serving: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    client_id, _, tokens = await signed_in(serving)
+    access, refresh_token = pair(await refresh(serving, client_id, tokens["refresh_token"]))
+    await pool.execute("UPDATE oauth_grants SET rotated_at = NOW() - INTERVAL '61 seconds'")
+
+    assert (await refresh(serving, client_id, tokens["refresh_token"])).json()["error"] == "invalid_grant"
+
+    assert await pool.fetchval("SELECT count(*) FROM oauth_grants") == 0
+    assert await mcp_status(serving, access) == 401
+    assert (await refresh(serving, client_id, refresh_token)).json()["error"] == "invalid_grant"
+
+
+async def test_an_older_generation_token_revokes_the_grant_even_within_the_grace(
+    serving: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    client_id, _, tokens = await signed_in(serving)
+    first = pair(await refresh(serving, client_id, tokens["refresh_token"]))
+    second = pair(await refresh(serving, client_id, first[1]))
+    # The latest rotated-away token still retries...
+    assert pair(await refresh(serving, client_id, first[1])) == second
+
+    # ...but the one before it was rotated further: someone else may hold it.
+    assert (await refresh(serving, client_id, tokens["refresh_token"])).json()["error"] == "invalid_grant"
+
+    assert await pool.fetchval("SELECT count(*) FROM oauth_grants") == 0
+    assert await mcp_status(serving, second[0]) == 401
+    assert (await refresh(serving, client_id, second[1])).json()["error"] == "invalid_grant"
+
+
+async def test_the_retry_nonce_is_kept_for_the_grace_only(serving: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    client_id, _, tokens = await signed_in(serving)
+    pair(await refresh(serving, client_id, tokens["refresh_token"]))
+    await oauth.purge(pool)
+    assert await pool.fetchval("SELECT rotation_nonce IS NOT NULL FROM oauth_grants")
+    assert await pool.fetchval("SELECT count(*) FROM oauth_spent_refresh") == 1
+
+    await pool.execute("UPDATE oauth_grants SET rotated_at = NOW() - INTERVAL '61 seconds'")
+    await oauth.purge(pool)
+
+    assert await pool.fetchval("SELECT rotation_nonce IS NULL FROM oauth_grants")
+    assert await pool.fetchval("SELECT count(*) FROM oauth_spent_refresh") == 1  # still revokes if presented
 
 
 async def test_replacing_the_pass_from_its_backup_code_ends_the_grant(serving: httpx.AsyncClient) -> None:

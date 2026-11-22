@@ -91,11 +91,12 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "oauth_grants",
         "usage_events",  # anonymous usage events: coarse enums only, never a page (test_usage.py)
         "uptime_probes",  # Unfret's own endpoints' health, written by the uptime probe
+        "oauth_spent_refresh",  # hashes of rotated-away refresh tokens, so presenting one revokes its grant
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings", "objections"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
-    for table in ("oauth_clients", "oauth_codes", "oauth_grants"):
+    for table in ("oauth_clients", "oauth_codes", "oauth_grants", "oauth_spent_refresh"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one
     for table in ("reports", "report_votes", "report_quota", "labelled_pages", "report_opinion_days"):

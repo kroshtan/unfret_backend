@@ -231,7 +231,7 @@ async def test_the_dutch_page_shows_euro_prices_with_vat_included(client: httpx.
     page = (await client.get("/nl")).text
     prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
     assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
-    assert "€ 6,00" in prices and "€ 20,00" in prices  # the defaults, VAT included: what a Dutch buyer pays
+    assert "€ 6,50" in prices and "€ 21,00" in prices  # the defaults, VAT included: what a Dutch buyer pays
     assert "6,66" not in page and "21,18" not in page
     assert "Prijzen inclusief btw" in page
     script = (STATIC_DIR / "nl.js").read_text()
@@ -310,11 +310,9 @@ async def test_the_prices_say_what_they_include(client: httpx.AsyncClient) -> No
     page = (await client.get("/")).text
     pricing = _flat(page.split('class="pricing"', 1)[1].split('class="code-box"', 1)[0])
     note = pricing.split('id="price-note">', 1)[1].split("</p>", 1)[0]
-    # The defaults in the page are the dollar prices before tax (home.js puts in the euros, VAT included, or the
-    # VAT on a dollar price, once it knows the country).
-    assert "In the euro area, card prices are in euros with VAT included: €6.00 and €20.00" in note
-    assert "The dollar prices are before tax" in note
-    assert "sales tax is added at checkout where it applies" in note
+    # Card prices include tax in both currencies (home.js puts in the euros in the euro area).
+    assert "Card prices include tax: $6.50 and $21.00, or in the euro area €6.50 and €21.00 with VAT included" in note
+    assert "before tax" not in note
     assert "work too, at a lower price with VAT included" in pricing
     prices = (STATIC_DIR / "prices.js").read_text()
     assert "`Card prices include ${pct}% VAT for ${countryPhrase(country)}.`" in prices

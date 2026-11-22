@@ -14,6 +14,7 @@ from solders.keypair import Keypair
 from tests.integration.conftest import DROP_ALL, bearer
 from tests.integration.test_credits import HOT, SOL_BOOK, ChainRpc, transfer, with_memos
 from tests.integration.test_fiat import SECRET, send
+from tests.unit import test_polar
 from tests.unit.x402_helpers import StaticOracle
 from unfret.config import settings
 from unfret.credits import CreditsDoor, fiat, invites, keys, ledger, vat
@@ -22,6 +23,14 @@ from unfret.credits.scanner import CreditScanner
 from unfret.main import app
 from unfret.migrations import MIGRATIONS, migrate
 from unfret.prices import PriceBook
+
+
+@pytest.fixture(autouse=True)
+def old_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Card orders here are at fixed prices ($6 / $20); the defaults have their own test (test_fiat)."""
+    for name, value in test_polar.OLD_SETUP.items():
+        monkeypatch.setattr(settings, name, value)
+
 
 INVITE = 5 * settings.analysis_price_usd_micros  # 5 checks: $1.00
 PRICE = {25: 5_000_000, 50: 10_000_000, 100: 20_000_000}  # the packs, VAT included, in lamports at $1,000/SOL

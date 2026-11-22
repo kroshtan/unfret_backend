@@ -200,10 +200,10 @@ async def test_pricing_without_purchases(client: httpx.AsyncClient) -> None:
     assert (body["currency"], body["analysis_usd_micros"]) == ("USD", PRICE)
     assert body["hot_wallet"] is None
     assert [(p["checks"], p["price_usd"], p["crypto_usd"]) for p in body["packs"]] == [
-        (25, "$6.00", "$5.00"),
-        (100, "$20.00", "$20.00"),
+        (25, "$6.50", "$5.00"),
+        (100, "$21.00", "$20.00"),
     ]
-    assert body["fiat"]["min_usd_micros"] == 6_000_000  # the smallest pack by card
+    assert body["fiat"]["min_usd_micros"] == 6_500_000  # the smallest pack by card
     assert body["vat"]["country_hint"] is None  # not through Cloudflare
     assert "no-store" in (await client.get("/v1/pricing")).headers["cache-control"]
 

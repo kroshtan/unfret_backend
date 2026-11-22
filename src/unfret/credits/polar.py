@@ -3,10 +3,10 @@ Polar (polar.sh), the Merchant of Record for card top-ups of API keys: :class:`P
 
 Each pack is a one-time Polar product priced at the pack's card price in US dollars and, as a second price on the same
 product, in euros (``polar_products`` maps pack sizes to product ids; ``card_prices_usd`` and ``card_prices_eur`` set
-the prices). Each price has a tax behaviour in Polar: the dollar price is before tax (``exclusive``, or left to the
-organisation's default) and the euro price includes VAT (``inclusive``, set on the price itself) while
-``card_prices_eur_tax_inclusive`` is on. Polar then takes each country's VAT out of the euro price instead of adding
-it, so every buyer pays exactly the price we show. A checkout is created for the pack's product in USD, or in EUR for
+the prices). Each price has a tax behaviour in Polar: both include tax (``inclusive``, on the price itself or as the
+organisation's default with ``polar_org_tax_inclusive``) while ``card_prices_usd_tax_inclusive`` and
+``card_prices_eur_tax_inclusive`` are on. Polar then takes the buyer's tax out of the price instead of adding it, so
+every buyer pays exactly the price we show. A checkout is created for the pack's product in USD, or in EUR for
 visitors from the euro area, with discount codes off and our account id and this site's address (``public_base_url``)
 in its metadata; nothing about the buyer is sent, except the billing country of a local payment method
 (:mod:`unfret.credits.local_methods`): Polar shows iDEAL | Wero only for a checkout in EUR whose billing country is the
@@ -72,6 +72,7 @@ class PolarProvider:
         site: str = "",
         tolerance_s: float = 300,
         timeout_s: float = 15.0,
+        org_tax_inclusive: bool = False,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """
@@ -85,9 +86,11 @@ class PolarProvider:
             its orders when dev and production share a Polar organisation (:func:`unfret.credits.fiat.apply_event`).
         :param tolerance_s: The webhooks' replay window.
         :param timeout_s: Timeout of calls to Polar's API.
+        :param org_tax_inclusive: Whether the organisation's default tax behaviour is inclusive (a price's ``null``).
         :param transport: An httpx transport (tests).
         """
         self.environment = environment
+        self.org_tax_inclusive = org_tax_inclusive
         self.products = {pack.checks: product for pack, product in products.items()}
         self.packs_by_product = {product: pack for pack, product in products.items()}
         self.secret, self.tolerance_s, self.site = webhook_secret, tolerance_s, site
@@ -167,8 +170,10 @@ class PolarProvider:
                 expected_cents=expected,
             )
             raise FiatProviderError("The Polar product's price doesn't match the pack.")
-        behaviour = (checkout.get("product_price") or {}).get("tax_behavior")
-        if not tax_behaviour_matches(pack.tax_inclusive(currency), behaviour):
+        # The checkout's own tax_behavior is the resolved one (null until tax is calculated); else the price's, whose
+        # null means the organisation's default.
+        behaviour = checkout.get("tax_behavior") or (checkout.get("product_price") or {}).get("tax_behavior")
+        if not tax_behaviour_matches(pack.tax_inclusive(currency), behaviour, org_inclusive=self.org_tax_inclusive):
             # A euro price we show with VAT included that Polar would add VAT on top of (or the other way round).
             logger.warning(
                 "polar_checkout_tax_mismatch",
@@ -251,9 +256,12 @@ class PolarProvider:
         await self.http.aclose()
 
 
-def tax_behaviour_matches(inclusive: bool, behaviour: object) -> bool:
+def tax_behaviour_matches(inclusive: bool, behaviour: object, *, org_inclusive: bool = False) -> bool:
     """
     Whether a Polar price's ``tax_behavior`` charges what we show.
+
+    With ``org_inclusive`` (``polar_org_tax_inclusive``: the organisation's default is set to inclusive), ``null``
+    means inclusive: accepted for a tax-inclusive price, refused for one before tax.
 
     A tax-inclusive price must say ``inclusive`` on the price itself: ``null`` falls back to the organisation's
     default, which the token can't read, and ``location`` adds the tax on top outside the EU. A price before tax may be
@@ -262,9 +270,11 @@ def tax_behaviour_matches(inclusive: bool, behaviour: object) -> bool:
 
     :param inclusive: Whether the pack's price in that currency includes tax.
     :param behaviour: The price's ``tax_behavior`` as Polar returned it.
+    :param org_inclusive: Whether the organisation's default tax behaviour is inclusive.
     :return: True if the checkout may go ahead.
     """
-    return behaviour == "inclusive" if inclusive else behaviour != "inclusive"
+    effective = "inclusive" if behaviour is None and org_inclusive else behaviour
+    return effective == "inclusive" if inclusive else effective != "inclusive"
 
 
 def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> PolarProvider | None:
@@ -291,6 +301,7 @@ def from_settings(settings: Settings, transport: httpx.AsyncBaseTransport | None
         site=settings.public_base_url,
         tolerance_s=settings.fiat_webhook_tolerance_s,
         timeout_s=settings.polar_timeout_s,
+        org_tax_inclusive=settings.polar_org_tax_inclusive,
         transport=transport,
     )
 

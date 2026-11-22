@@ -234,18 +234,23 @@ class Settings(BaseSettings):
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
     card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
-    # Card prices in dollars (unfret.credits.packs): "25=6.00,100=20.00", before the provider's sales tax/VAT. Set by
-    # hand, like the euro prices; a pack not named here costs its derived card price. Each Polar product needs a USD
-    # price equal to its pack's, or its checkout is refused before anyone pays.
-    card_prices_usd: str = "25=6.00,100=20.00"
+    # Card prices in dollars (unfret.credits.packs): "25=6.50,100=21.00". Set by hand, like the euro prices; a pack
+    # not named here costs its derived card price. Each Polar product needs a USD price equal to its pack's, or its
+    # checkout is refused before anyone pays. card_prices_usd_tax_inclusive (the default): these prices include sales
+    # tax/VAT (the provider takes it out of the price); false: tax is added at checkout.
+    card_prices_usd: str = "25=6.50,100=21.00"
+    card_prices_usd_tax_inclusive: bool = True
     # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=6.00,100=20.00", one per
     # pack. Set by hand (not derived from the dollar price, so they stay round); each Polar product needs a EUR price
     # equal to its pack's. A EUR checkout is what shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in
     # dollars. card_prices_eur_tax_inclusive (the default): these prices include VAT, the same for every buyer (the
     # provider takes each country's VAT out of it), so the EUR price of each Polar product must be set to "inclusive"
     # tax behaviour, or its checkout is refused; false: VAT is added on top at checkout, like the dollar prices.
-    card_prices_eur: str = "25=6.00,100=20.00"
+    card_prices_eur: str = "25=6.50,100=21.00"
     card_prices_eur_tax_inclusive: bool = True
+    # Whether Polar's organisation-wide tax default is "inclusive": a price whose tax_behavior is null (the
+    # organisation's default) then counts as inclusive (Polar sets tax behaviour for the whole account).
+    polar_org_tax_inclusive: bool = True
     # Invites ("gift codes", unfret.credits.invites): every credited pack comes with one invite per invite_per_checks
     # checks bought (25 → 1, 100 → 4), each worth invite_checks checks to any account but the buyer's. An account
     # redeems at most one a calendar month (UTC). 0 turns issuing off; invites already issued stay redeemable.

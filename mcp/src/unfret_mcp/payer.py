@@ -6,6 +6,10 @@ dollars: USDC at face value, wSOL valued at the agent's own Pyth SOL/USD reading
 prefers to and holds enough, otherwise in wSOL: it signs a token transfer to Unfret's hot wallet; Unfret adds its
 fee-payer signature and submits it, so the agent pays only the price. If the agent's wSOL balance is short, plain SOL
 is wrapped first in a separate transaction (native token program, no third party). Nothing here holds Unfret funds.
+
+With an EVM key the agent can also pay USDC on Base (:mod:`unfret_mcp.base`): an EIP-3009 authorization of exactly
+the price, valued at face value by the same guard. With both wallets, the preferred network is tried first and the
+other only if the preferred one can't be paid (not offered, or, for Solana, no affordable option).
 """
 
 import base64
@@ -26,6 +30,7 @@ from solders.signature import Signature
 from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
+from unfret_mcp.base import BaseWallet, choose_base_requirement
 from unfret_mcp.price import PriceError, SolUsd
 from unfret_mcp.solana import (
     CAIP2,
@@ -40,6 +45,7 @@ from unfret_mcp.solana import (
 )
 
 Currency = Literal["SOL", "USDC"]
+Rail = Literal["solana", "base"]
 
 _COMPUTE_UNITS = 50_000
 _COMPUTE_UNIT_PRICE = 1  # micro-lamports; Unfret pays the fee, so keep its cost minimal
@@ -229,24 +235,28 @@ class Payer:
         self,
         *,
         api_url: str,
-        agent: Keypair,
+        agent: Keypair | None,
         rpc: Rpc,
         network: str,
         guard: SpendGuard,
         sol_usd: SolUsd | None = None,
         prefer: Currency = "USDC",
+        base: BaseWallet | None = None,
+        prefer_network: Rail = "solana",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         """
         Configure the payer.
 
         :param api_url: Unfret's base URL.
-        :param agent: The agent's keypair.
+        :param agent: The agent's Solana keypair, or ``None`` to pay on Base only.
         :param rpc: Solana RPC for the agent's network.
         :param network: ``solana-devnet`` or ``solana-mainnet``.
         :param guard: The session spend guard (dollars).
         :param sol_usd: The agent's own SOL/USD price, to value wSOL charges; without it SOL payments are refused.
         :param prefer: Pay in USDC when offered, held and within the guard; otherwise SOL. ``SOL``: always SOL.
+        :param base: The agent's Base wallet, to pay USDC on Base; ``None``: never on Base.
+        :param prefer_network: With both wallets, the network tried first (the other is the fallback).
         :param transport: Optional httpx transport for the Unfret API (tests).
         """
         self.api_url = api_url.rstrip("/")
@@ -256,7 +266,11 @@ class Payer:
         self.guard = guard
         self.sol_usd = sol_usd
         self.prefer: Currency = prefer
+        self.base = base
+        self.prefer_network: Rail = prefer_network
         self._transport = transport
+        if agent is None and base is None:
+            raise ValueError("a payer needs a Solana keypair or a Base wallet")
 
     async def ensure_wsol(self, amount: int) -> None:
         """
@@ -265,13 +279,14 @@ class Payer:
         :param amount: The lamports of wSOL needed.
         :raises PaymentFailedError: If the agent doesn't have enough SOL to wrap.
         """
-        held = await self.rpc.token_balance(associated_token_address(self.agent.pubkey()))
+        agent = self._solana_agent()
+        held = await self.rpc.token_balance(associated_token_address(agent.pubkey()))
         if held >= amount:
             return
         deficit = amount - held
-        if await self.rpc.balance(self.agent.pubkey()) < deficit + _WRAP_FEE_RESERVE:
+        if await self.rpc.balance(agent.pubkey()) < deficit + _WRAP_FEE_RESERVE:
             raise PaymentFailedError(f"not enough SOL to wrap {deficit} lamports into wSOL")
-        wrap = build_wrap(self.agent, deficit, await self.rpc.latest_blockhash())
+        wrap = build_wrap(agent, deficit, await self.rpc.latest_blockhash())
         await self.rpc.send_and_confirm(bytes(wrap))
 
     async def _sol_value(self, lamports: int) -> int:
@@ -282,9 +297,52 @@ class Payer:
         except PriceError as exc:
             raise PaymentFailedError(f"can't value a SOL payment right now ({exc}); pay in USDC") from exc
 
-    async def _choose(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], Currency, int]:
+    def _solana_agent(self) -> Keypair:
+        if self.agent is None:
+            raise PaymentFailedError("no Solana wallet configured (UNFRET_MCP_KEYPAIR)")
+        return self.agent
+
+    def rails(self) -> list[Rail]:
         """
-        Choose what to pay with and reserve its dollar value in the guard.
+        The networks this payer tries, in order: the preferred one first, then the other, each only if configured.
+
+        :return: ``solana`` and/or ``base``.
+        """
+        configured: list[Rail] = [r for r in ("solana", "base") if (self.agent if r == "solana" else self.base)]
+        return sorted(configured, key=lambda rail: rail != self.prefer_network)
+
+    async def _choose(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], Currency, int, Rail]:
+        """
+        Choose the network and what to pay with, and reserve its dollar value in the guard.
+
+        :param payment_required: The decoded ``PAYMENT-REQUIRED`` header.
+        :return: The requirement, its currency, the reserved micro-dollars and the network.
+        :raises PaymentFailedError: If no configured network can pay (each one's reason).
+        """
+        reasons: list[str] = []
+        for rail in self.rails():
+            try:
+                if rail == "base":
+                    requirement, amount = self._choose_base(payment_required)
+                    return requirement, "USDC", amount, "base"
+                return (*await self._choose_solana(payment_required), "solana")
+            except PaymentFailedError as exc:  # a spend-cap refusal is not one: it never falls back
+                reasons.append(f"{rail}: {exc}")
+        raise PaymentFailedError("; ".join(reasons))
+
+    def _choose_base(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        assert self.base is not None  # noqa: S101 - only called when configured
+        try:
+            requirement = choose_base_requirement(payment_required, self.base)
+        except ValueError as exc:
+            raise PaymentFailedError(str(exc)) from None
+        amount = int(requirement["amount"])
+        self.guard.reserve(amount)  # USDC base units are micro-dollars
+        return requirement, amount
+
+    async def _choose_solana(self, payment_required: dict[str, Any]) -> tuple[dict[str, Any], Currency, int]:
+        """
+        Choose what to pay with on Solana and reserve its dollar value in the guard.
 
         :param payment_required: The decoded ``PAYMENT-REQUIRED`` header.
         :return: The requirement, its currency and the reserved micro-dollars.
@@ -297,7 +355,7 @@ class Payer:
         if usdc is not None and self.prefer == "USDC":
             amount = int(usdc["amount"])
             held = await self.rpc.token_balance(
-                associated_token_address(self.agent.pubkey(), Pubkey.from_string(usdc["asset"]))
+                associated_token_address(self._solana_agent().pubkey(), Pubkey.from_string(usdc["asset"]))
             )
             if held >= amount:
                 self.guard.reserve(amount)  # USDC base units are micro-dollars
@@ -331,20 +389,15 @@ class Payer:
                 raise UnavailableError(_describe(first), _retry_after(first))
             if first.status_code != 402 or "PAYMENT-REQUIRED" not in first.headers:
                 raise PaymentFailedError(f"expected 402 Payment Required, got {first.status_code}: {first.text[:200]}")
-            requirement, currency, usd_micros = await self._choose(_unb64json(first.headers["PAYMENT-REQUIRED"]))
+            offer = _unb64json(first.headers["PAYMENT-REQUIRED"])
+            requirement, currency, usd_micros, rail = await self._choose(offer)
             amount = int(requirement["amount"])
             try:
-                if currency == "SOL":
-                    await self.ensure_wsol(amount)
-                tx = build_payment(requirement, self.agent, await self.rpc.latest_blockhash())
+                inner, payment = await self._sign(requirement, currency, rail)
             except BaseException:
                 self.guard.release(usd_micros)  # nothing was sent
                 raise
-            payload = {
-                "x402Version": 2,
-                "accepted": requirement,
-                "payload": {"transaction": base64.b64encode(bytes(tx)).decode()},
-            }
+            payload = {"x402Version": 2, "accepted": requirement, "payload": inner}
             second: httpx.Response | None = None
             for _ in range(2):  # Unfret answers a retry of the same payment with the same result, charging once
                 try:
@@ -356,10 +409,42 @@ class Payer:
                     continue
                 if second.status_code < 500 or "PAYMENT-RESPONSE" in second.headers:
                     break
-        return self._outcome(second, currency, amount, usd_micros, str(tx.signatures[1]))
+        return self._outcome(
+            second,
+            currency=currency,
+            amount=amount,
+            usd_micros=usd_micros,
+            payment=payment,
+            network=requirement["network"],
+        )
+
+    async def _sign(self, requirement: dict[str, Any], currency: Currency, rail: Rail) -> tuple[dict[str, Any], str]:
+        """
+        Sign the payment for a chosen requirement.
+
+        :param requirement: The requirement.
+        :param currency: What it is paid in.
+        :param rail: Its network.
+        :return: The x402 ``payload`` and the payment's own id (the Solana signature, or the Base nonce).
+        """
+        if rail == "base":
+            assert self.base is not None  # noqa: S101 - chosen only when configured
+            signed = self.base.sign(requirement)
+            return signed, str(signed["authorization"]["nonce"])
+        if currency == "SOL":
+            await self.ensure_wsol(int(requirement["amount"]))
+        tx = build_payment(requirement, self._solana_agent(), await self.rpc.latest_blockhash())
+        return {"transaction": base64.b64encode(bytes(tx)).decode()}, str(tx.signatures[1])
 
     def _outcome(
-        self, response: httpx.Response | None, currency: Currency, amount: int, usd_micros: int, payment: str
+        self,
+        response: httpx.Response | None,
+        *,
+        currency: Currency,
+        amount: int,
+        usd_micros: int,
+        payment: str,
+        network: str,
     ) -> dict[str, Any]:
         has_receipt = response is not None and "PAYMENT-RESPONSE" in response.headers
         receipt = _unb64json(response.headers["PAYMENT-RESPONSE"]) if response is not None and has_receipt else {}
@@ -388,6 +473,7 @@ class Payer:
             "http_status": response.status_code if response is not None else None,
             "transaction": receipt.get("transaction") or None,
             "payment": payment,
+            "network": network,
             "paid_lamports": amount if settled and currency == "SOL" else 0,
             "paid": {
                 "currency": currency,

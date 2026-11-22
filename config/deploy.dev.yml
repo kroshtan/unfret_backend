@@ -32,6 +32,8 @@ env:
     UNFRET_BASE_NETWORK: base-sepolia
     UNFRET_BASE_FACILITATOR_URL: https://x402.org/facilitator
     UNFRET_X402_BASE_ALLOW_MAINNET: "false"
+    # OAuth sign-in for the remote MCP server (/mcp, unfret.oauth), for Claude's connector directory: on in dev.
+    UNFRET_MCP_OAUTH_ENABLED: "true"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI

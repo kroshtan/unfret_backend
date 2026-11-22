@@ -55,7 +55,7 @@
               <h3><a href="#mcp">1. MCP server</a></h3>
               <p>For Claude, Cursor and any MCP client. Remote at <code>{{base_url}}/mcp</code> with an Unfret
                 pass<!-- oauth-on -->, or without a header: the client asks you to sign in<!-- /oauth-on -->. Or local
-                with <code>uvx unfret-mcp</code>, paying from a pass or the agent's own Solana wallet. Tools: a free
+                with <code>uvx unfret-mcp</code>, paying from a pass or the agent's own wallet. Tools: a free
                 quick check, a deep check, checks left and prices.</p>
             </div>
             <div class="code-block">
@@ -213,9 +213,9 @@
         </div>
         <!-- oauth-on --><p id="mcp-oauth"><strong>Or sign in, without a header.</strong> Claude's connectors
           (claude.ai, Claude Desktop and mobile), Claude Code and other clients that speak MCP's OAuth just add
-          <code>{{base_url}}/mcp</code>: Unfret's sign-in page lets you paste a pass or make a new free one, and the
-          client gets a token for that pass. Before you sign in, the client can already connect, list the tools and
-          call <code>get_pricing</code>; a check is what asks you to sign in. The token works at <code>/mcp</code>
+          <code>{{base_url}}/mcp</code>. Before you sign in, the client can already connect, list the tools and
+          call <code>get_pricing</code>; a check is what asks you to sign in. Unfret's sign-in page makes a pass for
+          you (or takes one you have), and the client gets a token for it. The token works at <code>/mcp</code>
           only, lasts an hour and is renewed by the client; disconnect in the client, or replace the pass with its
           backup code, to end it. No payment is part of signing in. For client developers: discovery at
           <code>/.well-known/oauth-protected-resource/mcp</code>, public clients only (PKCE S256), with a Client ID
@@ -232,8 +232,9 @@
   "env": {"UNFRET_PASS": "ufk_…"}}}}</pre>
           <button type="button" class="copy" data-copy="mcp-config-pass">Copy</button>
         </div>
-        <p>Or paying each check over x402 from the agent's own Solana wallet, in USDC, or wSOL when that's what the
-          wallet holds, refusing to spend beyond its caps:</p>
+        <p>Or paying each check over x402 from the agent's own wallet, refusing to spend beyond its caps: on Solana in
+          USDC, or wSOL when that's what the wallet holds<!-- base-on -->, or in USDC on Base with an EVM key
+          (<code>UNFRET_MCP_BASE_KEY</code>, version 0.3.0 or newer)<!-- /base-on -->:</p>
         <div class="code-block">
           <pre class="terminal" id="mcp-config">{"mcpServers": {"unfret": {
   "command": "uvx", "args": ["unfret-mcp"],
@@ -241,14 +242,15 @@
           <button type="button" class="copy" data-copy="mcp-config">Copy</button>
         </div>
         <p class="small muted">Give the agent a wallet of its own holding only what it may spend, never your main
-          wallet. Paying from a pass (<code>UNFRET_PASS</code>) needs version 0.2.0 or newer.<!-- base-on --> The
-          local server pays on Solana only: for USDC on Base, call <code>POST /v1/check</code> with an
-          <a href="#x402">x402 client</a>.<!-- /base-on --></p>
+          wallet. Paying from a pass (<code>UNFRET_PASS</code>) needs version 0.2.0 or newer.</p>
         <table class="settings">
           <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col"></th></tr></thead>
           <tbody>
             <tr><td><code>UNFRET_PASS</code></td><td></td><td>Pay from this Unfret pass; no wallet needed</td></tr>
             <tr><td><code>UNFRET_MCP_KEYPAIR</code></td><td></td><td>The agent's Solana keypair file</td></tr>
+            <!-- base-on --><tr><td><code>UNFRET_MCP_BASE_KEY</code></td><td></td><td>Or an EVM private key, to pay
+              USDC on Base (Base Sepolia unless <code>UNFRET_MCP_BASE_NETWORK=base-mainnet</code>; with both wallets
+              <code>UNFRET_MCP_PREFER</code> picks; version 0.3.0 or newer)</td></tr><!-- /base-on -->
             <tr><td><code>UNFRET_MCP_MAX_PRICE_USD</code></td><td><code>0.25</code></td><td>Refuse any single check
               worth more</td></tr>
             <tr><td><code>UNFRET_MCP_SESSION_CAP_USD</code></td><td><code>2.50</code></td><td>Refuse once the session
@@ -306,7 +308,7 @@
             also the body) whose <code>accepts</code> lists what Unfret takes: {{payment_options}}, scheme
             <code>exact</code>. Pay one with an x402 client library (the <a href="https://github.com/coinbase/x402"
             rel="noopener">x402 project</a> has them for TypeScript, Python and Go) or
-            <a href="#mcp">unfret-mcp</a> (Solana). On Solana you sign a token transfer and Unfret pays the network
+            <a href="#mcp">unfret-mcp</a>. On Solana you sign a token transfer and Unfret pays the network
             fee, so you pay only the price.<!-- base-on --> On Base you sign a USDC
             <code>transferWithAuthorization</code> (EIP-3009); the facilitator pays the gas, and it is settled only
             once the answer is ready, so a failed check costs nothing.<!-- /base-on --></li>

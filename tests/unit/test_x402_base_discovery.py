@@ -167,7 +167,7 @@ async def test_developers_names_both_networks_when_base_is_on(
     assert "USDC and wSOL on Solana devnet, and USDC on Base Sepolia" in page
     assert "coming next" not in page.lower()
     assert "base-off" not in page and "base-on" not in page
-    assert "transferWithAuthorization" in page and "Solana only" in page  # how to pay on Base; unfret-mcp doesn't
+    assert "transferWithAuthorization" in page and "UNFRET_MCP_BASE_KEY" in page  # how to pay on Base, also locally
     ways = page.split('id="ways"', 1)[1].split("</section>", 1)[0]
     assert "USDC on Base Sepolia" in ways  # the overview lists every network
     http = (await on.get("/developers/http")).text
@@ -181,6 +181,7 @@ async def test_developers_says_nothing_about_base_while_it_is_off(off: httpx.Asy
     # Base isn't offered, so it isn't mentioned: no step for paying on it, and no promise.
     assert "Base" not in html.unescape(re.sub(r"<[^>]+>", "", page.split("<main", 1)[1].split("</main>", 1)[0]))
     assert "transferWithAuthorization" not in page and "base-on" not in page and "coming next" not in page.lower()
+    assert "UNFRET_MCP_BASE_KEY" not in page
     http = " ".join((await off.get("/developers/http")).text.split())
     assert "USDC and wSOL on Solana devnet, scheme" in http and "comes next" not in http
 

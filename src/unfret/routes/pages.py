@@ -30,7 +30,7 @@ from unfret.config import settings
 from unfret.credits import packs
 from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
-from unfret.routes.check import get_x402_base, mcp_oauth_on
+from unfret.routes.check import get_x402_base
 from unfret.x402.verdict import POLICY_THRESHOLDS, tier_description
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -487,7 +487,7 @@ def developers(request: Request) -> HTMLResponse:
     fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
     page = template("developers.html", "/developers").replace("{{python_install}}", python_install_html())
     page = with_base(page, base_on)  # Base only while /v1/check takes it, and how to pay on it
-    page = with_oauth(page, mcp_oauth_on())  # signing in to /mcp with OAuth (Claude's connectors)
+    page = with_oauth(page, settings.mcp_oauth_enabled)  # signing in to /mcp with OAuth (Claude's connectors)
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)

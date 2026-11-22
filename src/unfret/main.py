@@ -25,6 +25,7 @@ from unfret import (
     log,
     market_prices,
     mcp_remote,
+    oauth,
     objections,
     price_store,
     recording,
@@ -56,7 +57,7 @@ logger = structlog.get_logger("unfret")
 
 async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
     """
-    Every hour until cancelled: expire old reports, fiat orders, VAT quotes, sales records, shares, requests.
+    Every hour until cancelled: expire old reports, fiat orders, VAT quotes, sales records, shares, requests, OAuth.
 
     Unhandled reports go with their account links; sales records only after their ten-year retention.
 
@@ -72,6 +73,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("affiliates", affiliates.purge(pool, settings)),
             ("shares", shares.purge(pool)),
             ("objections", objections.purge(pool, settings.objection_days)),
+            ("oauth", oauth.purge(pool)),
         ):
             try:
                 await job
@@ -251,7 +253,7 @@ class RevalidatedStaticFiles(StaticFiles):
 
 # Include API routes, and the scripts and styles of the /connect and /checkout pages
 app.include_router(router)
-# The remote MCP server (streamable HTTP, Unfret passes only): unfret.mcp_remote
+# The remote MCP server (streamable HTTP; Unfret passes, or OAuth tokens for one): unfret.mcp_remote
 app.router.routes.append(Route(mcp_remote.PATH, mcp_remote.endpoint, methods=["GET", "POST", "DELETE"]))
 app.mount("/static", RevalidatedStaticFiles(directory=STATIC_DIR), name="static")
 

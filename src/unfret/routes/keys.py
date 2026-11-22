@@ -137,22 +137,27 @@ def challenge(request: Request, developer: bool = False) -> ChallengeResponse:
     return ChallengeResponse(challenge=text, bits=bits, expires_at=expires, developer=developer)
 
 
-@router.post("", response_model=KeyResponse, status_code=201)
-async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
+async def issue_pass(
+    request: Request, challenge: str, solution: str, *, free: bool, developer: bool = False, ref: str | None = None
+) -> tuple[keys.IssuedKey, int]:
     """
-    Create an empty API key with a solved challenge; a few per visitor network per day.
+    Make a pass for a solved challenge, within the network's limits: ``POST /v1/keys`` and the MCP sign-in page.
 
-    :param body: The solved challenge.
     :param request: The incoming request.
-    :return: The key and recovery code, shown this once.
+    :param challenge: The challenge, as issued.
+    :param solution: The caller's answer.
+    :param free: Ask for the free checks a new pass comes with.
+    :param developer: A developer pass (its harder challenge, its own free checks).
+    :param ref: An affiliate's code, if a link brought the visitor.
+    :return: The pass and how many free checks it came with.
     :raises BadRequestError: If the challenge is invalid, expired, used or unsolved.
     :raises TooManyRequestsError: If this network created too many keys today.
     """
     door = _door(request)
     guard = door.key_guard
-    if not guard.redeem(body.challenge, body.solution, min_bits=guard.developer_bits if body.developer else 0):
+    if not guard.redeem(challenge, solution, min_bits=guard.developer_bits if developer else 0):
         detail = "Challenge invalid, expired or unsolved; get a new one."
-        if body.developer:
+        if developer:
             detail += " A developer pass needs a developer challenge: GET /v1/keys/challenge?developer=true."
         raise BadRequestError(detail, error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
@@ -160,15 +165,33 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     # Free checks only within this network's share of free (or developer) passes today; past it, the pass is simply
     # made empty. Either way they come out of the one daily budget for free deep checks (unfret.credits.free).
     given = 0
-    if body.developer:
+    if developer:
         if settings.developer_free_checks > 0 and door.developer_passes.allow(_ip(request)):
             given = settings.developer_free_checks
-    elif body.free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
+    elif free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
-    issued = await keys.create(request.app.db_pool, free_checks=given, developer=body.developer)
+    issued = await keys.create(request.app.db_pool, free_checks=given, developer=developer)
     # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
-    referred = bool(body.ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, body.ref)
-    logger.info("api_key_created", free_checks=given, developer=body.developer, referred=referred)
+    referred = bool(ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, ref)
+    logger.info("api_key_created", free_checks=given, developer=developer, referred=referred)
+    return issued, given
+
+
+@router.post("", response_model=KeyResponse, status_code=201)
+async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
+    """
+    Create an empty API key with a solved challenge; a few per visitor network per day.
+
+    400 ``BAD_CHALLENGE`` if the challenge is invalid, expired, used or unsolved; 429 if this network created too many
+    keys today.
+
+    :param body: The solved challenge.
+    :param request: The incoming request.
+    :return: The key and recovery code, shown this once.
+    """
+    issued, given = await issue_pass(
+        request, body.challenge, body.solution, free=body.free, developer=body.developer, ref=body.ref
+    )
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,

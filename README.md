@@ -379,7 +379,7 @@ Developers and agents have **three ways in**, all running the same check at the 
 ([`/developers`](https://unfret.net/developers), and [`/llms.txt`](https://unfret.net/llms.txt) for agents):
 
 1. **MCP**: the remote server at `/mcp` with a pass ([below](#remote-mcp-server-mcp)), or the local package
-   `uvx unfret-mcp` (PyPI, MCP Registry `net.unfret/mcp`) paying from a pass or a Solana wallet.
+   `uvx unfret-mcp` (PyPI, MCP Registry `net.unfret/mcp`) paying from a pass or a wallet (Solana, or Base from 0.3.0).
 2. **The API with a pass**: `POST /v1/check` with `Authorization: Bearer ufk_…`. A developer pass (free deep checks
    for `/v1/check`) comes from `GET /v1/keys/challenge?developer=true` and `POST /v1/keys`; checks are bought at
    `/checkout`; `GET /v1/credits` and `GET /v1/pricing` say what's left and what it costs.
@@ -979,7 +979,8 @@ takes Unfret's payment shape (a throwaway, unfunded payer gets as far as the bal
 confirmed on chain and answered once for a retried payment; with `UNFRET_E2E_BASE_HOT_KEY` (a throwaway Base Sepolia
 key holding a little Sepolia ETH and at least 0.5 test USDC; never a mainnet key, nor dev's own hot key) and
 `UNFRET_E2E_BASE_COLD_ADDRESS`, one real sweep of that key's USDC to the cold address, then a clean audit. The MCP
-server (`mcp/`) pays on Solana only for now.
+server (`mcp/`) pays on Base too, from `UNFRET_MCP_BASE_KEY` (Base Sepolia unless `UNFRET_MCP_BASE_NETWORK=base-mainnet`);
+its own e2e, `mcp/tests/test_e2e_base.py`, pays a quick check on dev with the same `UNFRET_E2E_BASE_PAYER_KEY`.
 
 The Solana side is off (`503`, or Base alone) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet;
 the server never holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
@@ -997,25 +998,60 @@ MCP request's caller, so a check from MCP is authenticated, limited and charged 
 `stateless_http`, `json_response`): any process can answer any request, and a deploy drops no sessions. It speaks the
 current protocol (2026-07-28) and the initialize handshake of earlier versions.
 
-It takes **an Unfret pass only**: `Authorization: Bearer ufk_…`, checked before the MCP layer (401 with
-`WWW-Authenticate: Bearer realm="Unfret"` otherwise; too many bad passes from one network get 429 first). It never pays
-from a wallet and has no code that could: quick checks are free, deep checks use one of the pass's checks, as on
+It takes **an Unfret pass**: `Authorization: Bearer ufk_…`, or an OAuth access token for one while OAuth is on (below),
+checked before the MCP layer (401 with `WWW-Authenticate: Bearer realm="Unfret"` otherwise, plus `resource_metadata`
+while OAuth is on; too many bad passes from one network get 429 first). It never pays
+from a wallet and has no code that could (the tools call only `POST /v1/check`, `GET /v1/credits` and
+`GET /v1/pricing`, with nothing but the pass; a payment header sent to `/mcp` is never passed on): quick checks are
+free, deep checks use one of the pass's checks, as on
 `/v1/check` with a pass (where `/v1/check`'s per-minute limit counts per pass, so agents behind one host network don't
-share it). Tools, each with a title and explicit `readOnlyHint` / `destructiveHint` / `idempotentHint` /
-`openWorldHint`; the free check and the one that spends are separate tools, so a client can let the free one run
-without asking:
+share it). Tools, each with a title, a one-sentence description and explicit `readOnlyHint` / `destructiveHint` /
+`idempotentHint` / `openWorldHint`; the free check and the one that spends are separate tools, so a client can let the
+free one run without asking:
 
 | Tool | Hints | |
 | --- | --- | --- |
-| `check_store_quick` (`url`, `policy`, `page_content`) | read-only (free), idempotent, open world (reads a third-party page) | The verdict; or `status` (`page_unreadable`, `unavailable`, …) with a `next_step` |
-| `check_store_deep` (`url`, `policy`, `page_content`) | not read-only (spends one of the pass's checks), not destructive, not idempotent, open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
-| `get_checks_left` | read-only, idempotent, closed world | Deep checks left (free and bought), whether free ones are paused, where to buy more |
-| `get_pricing` | read-only, idempotent, closed world | `GET /v1/pricing` |
+| `check_store_quick` (`url`, `policy`, `page_content`) | read-only, not destructive, idempotent (free), open world (reads a third-party page) | The verdict; or `status` (`page_unreadable`, `unavailable`, …) with a `next_step` |
+| `check_store_deep` (`url`, `policy`, `page_content`) | not read-only (uses one of the pass's checks), not destructive, not idempotent (a repeat can use another), open world | The verdict, `charged` and what the pass has left; or `status` (`no_checks_left`, …) with a `next_step` |
+| `get_checks_left` | read-only, not destructive, idempotent, closed world | Deep checks left (free and bought), whether free ones are paused, where to buy more |
+| `get_pricing` | read-only, not destructive, idempotent, closed world | `GET /v1/pricing` |
 
 ```json
 {"mcpServers": {"unfret": {"type": "http", "url": "https://unfret.net/mcp",
   "headers": {"Authorization": "Bearer ufk_…"}}}}
 ```
+
+#### Signing in with OAuth (`UNFRET_MCP_OAUTH_ENABLED`)
+
+Claude's connector directory lists remote servers that need an account only with OAuth (a fixed header is a beta for
+a few organizations), so with `UNFRET_MCP_OAUTH_ENABLED=true` (on in dev) Unfret is also its own **OAuth 2.1
+authorization server** for `/mcp` (`src/unfret/oauth.py`, `src/unfret/routes/oauth.py`). A client that adds
+`https://unfret.net/mcp` with no header gets the 401 with
+`WWW-Authenticate: Bearer realm="Unfret", resource_metadata="…/.well-known/oauth-protected-resource/mcp", scope="checks"`
+and signs in:
+
+| | |
+| --- | --- |
+| Discovery | `/.well-known/oauth-protected-resource[/mcp]` (RFC 9728: `resource` is `<base>/mcp`), `/.well-known/oauth-authorization-server` (RFC 8414) |
+| Clients | Public only (`token_endpoint_auth_method: none`). A **Client ID Metadata Document** (an HTTPS `client_id`, fetched through `net.fetch_public`, cached 5 minutes; the page names its host) or **Dynamic Client Registration** (`POST /oauth/register`, generous per network since Claude registers from Anthropic's servers, capped per day; clients left without a grant go after 30 days) |
+| Redirect URIs | Exactly `UNFRET_MCP_OAUTH_REDIRECT_URIS` (Claude's `https://claude.ai/api/mcp/auth_callback` and the `claude.com` one) or a loopback address on any port (`127.0.0.1`, `[::1]`, `localhost`: Claude Code). Anything else is refused at registration and on the page, never redirected to |
+| `/oauth/authorize` | The page (US English): who asks, where it goes back to (a warning for loopback), and one **Continue** button that makes a pass for the connection (the same proof of work, solved in the background as the page opens, per-network limits and free checks as a new extension pass: `routes.keys.issue_pass`; the free checks are named only while the network would still get them), then shows the pass and backup code once, folded away, under "Continue to claude.ai". Pasting a pass one already has is the second option. PKCE S256 is required; the response carries `iss` (RFC 9207). Its CSP allows forms only to this site and the client's redirect origin, no framing |
+| `/oauth/token` | Form-encoded. `authorization_code` (PKCE checked; a code works once, for 5 minutes, for its client and redirect URI; using it again revokes what it gave) and `refresh_token` (rotated on every use; a rotated-away token presented more than a minute later revokes the grant). Access tokens `ufat_…` last an hour, refresh tokens `ufrt_…` 30 days unused |
+| `/oauth/revoke` | RFC 7009, either token |
+
+A grant is bound to the pass's current key hash, so replacing the pass from its backup code ends it, and retiring the
+pass deletes it. Only SHA-256 hashes of codes and tokens are stored (`oauth_codes`, `oauth_grants`, with the pass's id
+and expiry times; `oauth_clients` keeps a registered client's name and redirect URIs). The tokens work at `/mcp` and
+nowhere else: a tool call made for an OAuth caller reaches `/v1/check` and `/v1/credits` in-process with a one-off
+stand-in for the pass (`keys.internal_pass`, in memory for that call only), since the pass itself is never known.
+Signing in has no payment and no x402; the tools and their route allowlist are the same as with a pass. **Lazy sign-in:** while OAuth is on, a request without
+any credential may connect (`initialize`, `server/discover`, `ping`, notifications), list the tools and call
+`get_pricing` (`mcp_remote.OPEN_METHODS`, `OPEN_TOOLS`; the JSON-RPC body is read before the MCP layer, at most 64 KB);
+a check or `get_checks_left` gets the 401 with `error="invalid_token"` and `resource_metadata`, which makes Claude show
+its Connect card and retry the call after sign-in (the directory's "Required when the server asks"). Those 401s and
+expired tokens don't count as bad passes, since they come from a client's shared servers. While the setting is off,
+every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production turns it
+on with one line, `UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`.
 
 ### Clients (`clients/`)
 
@@ -1346,9 +1382,8 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 
 ## Roadmap
 
-- **x402 on Base.** Pay-per-check is Solana only (USDC and wSOL). Most x402 tooling for agents starts from an EVM
-  wallet, so `/v1/check` should also accept USDC on Base: a second entry in the 402's `accepts`, a facilitator or
-  our own settlement on Base, and the MCP server able to pay from either. `/developers` names it as coming next.
+Nothing announced: what Unfret offers is what the pages describe. USDC on Base (`/v1/check` and `unfret-mcp` 0.3.0)
+is built and switched on per server ([USDC on Base](#usdc-on-base)).
 
 ## Limitations and responsible use
 

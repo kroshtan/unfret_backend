@@ -1058,8 +1058,9 @@ Additive: x402 clients see the same requests, responses, headers and status code
   and `{"detail", "error_code": "UNAUTHORIZED" | "INVALID_API_KEY"}`; **429** `RATE_LIMITED` (with `Retry-After`)
   after too many bad passes from one network in a minute; 503 while the service isn't up. Tools:
   `check_store_quick` and `check_store_deep` (`url`, `policy`, `page_content`; run `POST /v1/check` with the pass,
-  tier quick (free, read-only) or deep (one check)), `get_checks_left`
-  (`GET /v1/credits`), `get_pricing` (`GET /v1/pricing`). It never pays from a wallet.
+  tier quick (free, read-only) or deep (one check; not read-only, not idempotent)), `get_checks_left`
+  (`GET /v1/credits`), `get_pricing` (`GET /v1/pricing`); no other route is reachable from it. It never pays from a
+  wallet.
 - `POST /v1/check` with a pass: its per-minute limit (`x402_check_per_minute`, 30) now counts per pass rather than
   per visitor network, so callers behind one host share nothing; requests with a pass that doesn't authenticate count
   per network, and past the limit get 429 `RATE_LIMITED` without a lookup. x402 requests are limited per network as
@@ -1674,3 +1675,12 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `FREE_CHECKS_PAUSED`).
 - `/developers` and `/developers/http` no longer announce USDC on Base as "coming next": Base appears only while
   `/v1/check` takes it.
+
+## Changes (OAuth sign-in for the remote MCP server, backwards-compatible)
+
+- New, outside the OpenAPI document and 404 while `UNFRET_MCP_OAUTH_ENABLED` is off:
+  `/.well-known/oauth-protected-resource[/mcp]`, `/.well-known/oauth-authorization-server`, `POST /oauth/register`,
+  `GET`/`POST /oauth/authorize`, `POST /oauth/token` and `POST /oauth/revoke` (README, "Signing in with OAuth"). Their access tokens (`ufat_…`) work at `/mcp` only.
+- `/mcp`: a 401 adds `resource_metadata` and `scope` to `WWW-Authenticate` while OAuth is on; `Bearer ufk_…` works as
+  before.
+- `POST /v1/keys`: unchanged (its description now names its 400 and 429 in prose).

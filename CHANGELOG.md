@@ -13,6 +13,12 @@
   `/v1/check`, and the README's card prices ($6.50 / €6.50 and $21 / €21, tax included). `/.well-known/x402` points
   at the MCP server and the docs; `POST /v1/check` documents its 422, 429, 503 and 504 answers.
 
+### MCP server
+
+* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base Sepolia unless
+  `UNFRET_MCP_BASE_NETWORK=base-mainnet`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
+  ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))
+
 ### CI/CD
 
 * **CI and CD are separate workflows.** `ci.yaml` only tests (pull requests, by hand); a merge to `main` no longer
@@ -21,6 +27,29 @@
   anything else (a pull request merged onto a `main` that had moved) is checked first. `deploy-production.yaml` keeps
   its gates and tag and deploys through the same `cd.yaml`. The production and publish gates read *Deploy dev*'s
   `Deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
+
+### MCP
+
+* **The remote MCP server's tools are ready for Claude's connector directory.** Each tool now has a one-sentence
+  description of what it does and returns (instead of its docstring), and all five annotations (`check_store_deep`
+  stays not read-only and not idempotent: it uses one of the pass's paid checks, so a client asks first). The tools
+  can only call `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other
+  header, so no payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
+  descriptions and that no tool can pay.
+
+* **Sign in to the remote MCP server with OAuth, for Claude's connector directory.** With
+  `UNFRET_MCP_OAUTH_ENABLED` (on in dev; off in production until the release flips it in
+  `config/deploy.production.yml`) Unfret is its own OAuth 2.1
+  authorization server for `/mcp`: discovery documents (RFC 9728, RFC 8414), public clients by Client ID Metadata
+  Document or dynamic registration, codes only to Claude's callbacks and loopback addresses, PKCE S256, the `iss`
+  response parameter, one-hour access tokens and rotating refresh tokens, and revocation. The sign-in page
+  (`/oauth/authorize`) lets the person paste a pass or make a new free pass (the same proof of work, limits and free
+  checks as a new extension pass). A token stands for that pass at `/mcp` only, and ends when the pass is replaced
+  from its backup code or retired. Only hashes of codes and tokens are stored, tied to the pass; nothing about the
+  person (privacy page updated). `Bearer ufk_…` keeps working at `/mcp`, and a 401 there now says where to sign in
+  (`resource_metadata`). Signing in is lazy: without it a client can connect, list the tools and call `get_pricing`,
+  and only a check (or `get_checks_left`) asks for sign-in. The page is one Continue button (the pass is made in the
+  background), with pasting a pass as the second option. Migration 36 adds `oauth_clients`, `oauth_codes` and `oauth_grants`.
 
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 

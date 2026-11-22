@@ -17,7 +17,8 @@ import hmac
 import re
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import asyncpg
@@ -29,6 +30,8 @@ type Executor = asyncpg.Pool | asyncpg.Connection
 
 KEY_PREFIX = "ufk_"
 RECOVERY_PREFIX = "ufr_"
+# A stand-in for a pass inside this process only (:func:`internal_pass`): never stored, never sent anywhere.
+INTERNAL_PREFIX = "ufm_"
 ACCOUNT_PREFIX = "key:"
 _ID_LEN = 10
 _ID_RE = re.compile(r"^[a-z2-7]{10}$")
@@ -45,6 +48,16 @@ def _b32(n: int) -> str:
 
 def _hash(secret: str) -> bytes:
     return hashlib.sha256(secret.encode()).digest()
+
+
+def hash_of(key: str) -> bytes:
+    """
+    The stored hash of a key (or recovery code), as ``api_keys`` keeps it.
+
+    :param key: The full key.
+    :return: Its SHA-256.
+    """
+    return _hash(key)
 
 
 def account_of(key_id: str) -> str:
@@ -156,15 +169,53 @@ async def exists(db: Executor, key_id: str) -> bool:
     return bool(await db.fetchval("SELECT TRUE FROM api_keys WHERE id = $1", key_id))
 
 
+_internal: dict[str, str] = {}
+
+
+@contextmanager
+def internal_pass(account: str) -> Iterator[str]:
+    """
+    A one-off bearer token that stands for a pass inside this process, for the length of one in-process call.
+
+    The remote MCP server (:mod:`unfret.mcp_remote`) authenticates an OAuth caller to a pass, but never holds the pass
+    itself (only its hash is stored); its tools call the API's own routes in-process with this instead. The token is
+    256 random bits, lives in this process's memory only and stops working when the block ends.
+
+    :param account: The pass's ledger account (``key:<id>``), already authenticated.
+    :yield: The token (``ufm_…``), for ``Authorization: Bearer``.
+    """
+    token = INTERNAL_PREFIX + secrets.token_urlsafe(32)
+    _internal[token] = account
+    try:
+        yield token
+    finally:
+        _internal.pop(token, None)
+
+
+def is_pass_token(value: str) -> bool:
+    """
+    Whether a bearer token is meant as a pass (a key, or an in-process stand-in for one) rather than a session.
+
+    :param value: The token.
+    :return: ``True`` if :func:`authenticate` should check it.
+    """
+    return value.startswith((KEY_PREFIX, INTERNAL_PREFIX))
+
+
 async def authenticate(db: Executor, value: str) -> str:
     """
-    Check an API key.
+    Check an API key (or an in-process stand-in for one, :func:`internal_pass`).
 
     :param db: A pool or connection.
     :param value: The key, as sent.
     :return: Its ledger account (``key:<id>``).
     :raises ApiKeyError: If it is malformed, unknown or was rotated away.
     """
+    if value.startswith(INTERNAL_PREFIX):
+        account = _internal.get(value.strip())
+        if account is None:
+            raise ApiKeyError("Unknown or revoked API key.")
+        return account
     key_id, key = parse(value)
     stored = await db.fetchval("SELECT key_hash FROM api_keys WHERE id = $1", key_id)
     if stored is None or not hmac.compare_digest(bytes(stored), _hash(key)):

@@ -60,25 +60,70 @@ def structured(result: Any) -> dict[str, Any]:
     return data
 
 
+HINTS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+# tool → (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), as submitted to Claude's connector directory
+EXPECTED_HINTS = {
+    "check_store_quick": (True, False, True, True),
+    "check_store_deep": (False, False, False, True),  # uses a paid check (ask first); a repeat can use another
+    "get_checks_left": (True, False, True, False),
+    "get_pricing": (True, False, True, False),
+}
+
+
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
-async def test_every_tool_has_a_title_and_explicit_hints(serving: httpx.AsyncClient, mode: str) -> None:
+async def test_every_tool_has_a_title_a_description_and_all_five_annotations(
+    serving: httpx.AsyncClient, mode: str
+) -> None:
     issued = await new_pass(serving)
     async with mcp_client(issued["key"], mode) as session:
         tools = {tool.name: tool for tool in (await session.list_tools()).tools}
 
-    assert set(tools) == {"check_store_quick", "check_store_deep", "get_checks_left", "get_pricing"}
-    for tool in tools.values():
+    assert set(tools) == set(EXPECTED_HINTS)
+    for name, tool in tools.items():
         assert tool.title and tool.annotations is not None and tool.annotations.title == tool.title
         hints = tool.annotations.model_dump(by_alias=True)
-        for hint in ("readOnlyHint", "destructiveHint", "openWorldHint", "idempotentHint"):
-            assert isinstance(hints[hint], bool), (tool.name, hint)
-    deep, quick = tools["check_store_deep"].annotations, tools["check_store_quick"].annotations
-    pricing = tools["get_pricing"].annotations
-    assert deep is not None and quick is not None and pricing is not None
-    assert deep.read_only_hint is False and deep.destructive_hint is False  # it spends a check, deletes nothing
-    assert quick.read_only_hint is True and pricing.read_only_hint is True  # free: nothing changes
-    assert deep.open_world_hint is True and quick.open_world_hint is True  # they read a third-party page
+        assert tuple(hints[hint] for hint in HINTS) == EXPECTED_HINTS[name], name
+        description = tool.description or ""
+        # One sentence, plain text (no docstring fields leaking in), saying what it returns.
+        assert description.endswith(".") and description.count(". ") == 0, (name, description)
+        assert ":param" not in description and ":return" not in description and "``" not in description
+        assert "return" in description.lower(), name
     assert "tier" not in tools["check_store_deep"].input_schema["properties"]
+
+
+async def test_no_tool_can_pay(serving: httpx.AsyncClient) -> None:
+    issued = await new_pass(serving)
+    async with mcp_client(issued["key"]) as session:
+        tools = (await session.list_tools()).tools
+
+    paying = ("pay", "buy", "purchase", "top_up", "topup", "checkout", "wallet", "transfer", "x402", "sign")
+    for tool in tools:
+        assert not any(word in tool.name for word in paying), tool.name
+        assert not set(tool.input_schema["properties"]) & {"payment", "payment_signature", "wallet", "amount"}
+    # The routes the tools call are a check and two reads; none buys, tops up or pays.
+    assert {("POST", "/v1/check"), ("GET", "/v1/credits"), ("GET", "/v1/pricing")} == mcp_remote.ROUTES
+
+
+@pytest.mark.parametrize(
+    ("method", "path"), [("POST", "/v1/credits/fiat-checkout"), ("POST", "/v1/credits/purchase-tx")]
+)
+async def test_the_tools_cannot_reach_a_paying_route(method: str, path: str) -> None:
+    with pytest.raises(ValueError, match="not a route"):
+        await mcp_remote._call(None, method, path)  # type: ignore[arg-type]  # refused before the context is read
+
+
+async def test_a_payment_header_is_never_passed_on(serving: httpx.AsyncClient, graph: FakeGraph) -> None:
+    issued = await new_pass(serving, developer=True)
+    http = httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {issued['key']}", "PAYMENT-SIGNATURE": "eyJ4NDAyVmVyc2lvbiI6Mn0="},
+    )
+    async with Client(streamable_http_client("http://test/mcp", http_client=http)) as session:
+        checked = structured(await session.call_tool("check_store_deep", PAGE))
+
+    # Paid from the pass's free checks, not over x402 (an x402 header would have made /v1/check try to settle it).
+    assert checked["status"] == "ok" and checked["charged"] is True and checked["free_check"] is True
 
 
 @pytest.mark.parametrize("mode", ["legacy", "2026-07-28"])
@@ -182,6 +227,6 @@ async def test_outside_the_lifespan_it_is_unavailable(client: httpx.AsyncClient)
 
 def test_the_hosted_server_never_pays_from_a_wallet() -> None:
     source = inspect.getsource(mcp_remote)
-    for wallet_thing in ("PAYMENT-SIGNATURE", "solders", "Keypair", "unfret_mcp", "unfret.x402"):
+    for wallet_thing in ("PAYMENT-SIGNATURE", "solders", "Keypair", "unfret_mcp", "unfret.x402", "fiat", "polar"):
         assert wallet_thing not in source
     assert json.dumps(mcp_remote.server.instructions or "").count("pass") >= 1

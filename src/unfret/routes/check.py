@@ -1095,7 +1095,7 @@ def _discovery(base: BaseX402 | None = None) -> dict[str, Any]:
         # The other ways in, for an agent that found Unfret here: the MCP server and the docs.
         "mcp": {
             "remote": f"{settings.public_base_url}/mcp (streamable HTTP, Authorization: Bearer <Unfret pass>)",
-            "stdio": "uvx unfret-mcp (PyPI unfret-mcp, MCP Registry net.unfret/mcp; pays from a pass or Solana)",
+            "stdio": "uvx unfret-mcp (PyPI unfret-mcp, MCP Registry net.unfret/mcp; pays from a pass or a wallet)",
         },
         "docs": {
             "llms_txt": f"{settings.public_base_url}/llms.txt",
@@ -1157,19 +1157,20 @@ authorization returns the same answer and is never settled twice.
 
 def mcp_oauth_on() -> bool:
     """
-    Whether the remote MCP server takes OAuth sign-in, for the pages and ``/llms.txt`` that describe it.
+    Whether the remote MCP server takes OAuth sign-in, for ``/llms.txt``.
 
-    :return: ``mcp_oauth_enabled``; ``False`` on a server without the OAuth setting (it lands with the OAuth server).
+    :return: ``mcp_oauth_enabled``.
     """
-    return bool(getattr(settings, "mcp_oauth_enabled", False))
+    return settings.mcp_oauth_enabled
 
 
-def _llms_mcp(base_url: str, oauth_on: bool) -> str:
+def _llms_mcp(base_url: str, oauth_on: bool, base_on: bool) -> str:
     """
     The MCP way in, for ``/llms.txt``: the remote server and the local package.
 
     :param base_url: The public base URL, without a trailing slash.
     :param oauth_on: Whether the remote server also takes OAuth sign-in (``mcp_oauth_enabled``).
+    :param base_on: Whether ``/v1/check`` takes payments on Base (the local package can pay there too).
     :return: Markdown.
     """
     auth = "Authorization: Bearer ufk_... (an Unfret pass, see 2)"
@@ -1179,6 +1180,11 @@ def _llms_mcp(base_url: str, oauth_on: bool) -> str:
             f"{base_url}/.well-known/oauth-protected-resource/mcp; public clients, PKCE S256). Without a credential "
             "it can still connect, list the tools and call get_pricing; a check answers 401 and starts the sign-in"
         )
+    evm = (
+        ", or USDC on Base from version 0.3.0 (env `UNFRET_MCP_BASE_KEY`, an EVM key; `UNFRET_MCP_BASE_NETWORK`)"
+        if base_on
+        else ""
+    )
     remote = {"type": "http", "url": f"{base_url}/mcp", "headers": {"Authorization": "Bearer ufk_..."}}
     config = {"mcpServers": {"unfret": remote}}
     return f"""### 1. MCP server
@@ -1189,8 +1195,8 @@ def _llms_mcp(base_url: str, oauth_on: bool) -> str:
   {json.dumps(config)}
 - Local (stdio): `uvx unfret-mcp` (PyPI `unfret-mcp`; MCP Registry `net.unfret/mcp`). Tools: `check_store` (with a
   `tier`), `explain_flag`, `get_pricing`. Pays from a pass (env `UNFRET_PASS`) or over x402 from the agent's own
-  Solana wallet (env `UNFRET_MCP_KEYPAIR`, capped by `UNFRET_MCP_MAX_PRICE_USD` and `UNFRET_MCP_SESSION_CAP_USD`);
-  it pays on Solana only.
+  wallet, capped by `UNFRET_MCP_MAX_PRICE_USD` and `UNFRET_MCP_SESSION_CAP_USD`: Solana (env
+  `UNFRET_MCP_KEYPAIR`){evm}.
 """
 
 
@@ -1220,7 +1226,7 @@ async def llms_txt(request: Request) -> str:
 All three run the same check at the same prices: quick {quick} (free with a pass), deep {deep} (one check with a
 pass).
 
-{_llms_mcp(url, oauth_on)}
+{_llms_mcp(url, oauth_on, base_on)}
 ### 2. HTTP API with an Unfret pass
 
 POST {d["endpoint"]} with `Authorization: Bearer ufk_...` and JSON {{"url": "...", "tier": "quick|deep"}}:

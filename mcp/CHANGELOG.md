@@ -1,5 +1,25 @@
 # Changelog (unfret-mcp)
 
+## [0.3.0]
+
+* **Pays USDC on Base** (x402 `exact`, an EIP-3009 `transferWithAuthorization`), next to Solana. Set
+  `UNFRET_MCP_BASE_KEY` to the agent's EVM private key (hex; never logged, printed or put in an error). The agent
+  signs an authorization of exactly the offered amount to Unfret's `payTo`, valid from 10 minutes back until the
+  offer's `maxTimeoutSeconds` ahead (at most 10 minutes), with a random 32-byte nonce and the EIP-712 domain this
+  package knows for Circle's USDC (`USDC`/`2` on Sepolia, `USD Coin`/`2` on mainnet). Unfret's facilitator pays the
+  gas, so the wallet needs USDC only, no ETH. Only Circle's USDC on the configured network is paid.
+* **Base mainnet only when you say so**: `UNFRET_MCP_BASE_NETWORK` is `base-sepolia` by default (test USDC, with
+  `UNFRET_API_URL=https://dev.unfret.net`); set `base-mainnet` to pay real USDC on unfret.net. An offer on
+  `eip155:8453` is refused otherwise, and the error names the setting.
+* **Choosing the network**: with both wallets, `UNFRET_MCP_PREFER` (`solana` by default, or `base`) is tried first
+  and the other is the fallback when the preferred one can't be paid (not offered, or no affordable Solana option). A
+  spend-cap refusal never falls back. With one wallet, only that network is used. A Solana keypair is no longer
+  required: a Base key alone (or a pass) is enough.
+* The same dollar spend caps (`UNFRET_MCP_MAX_PRICE_USD`, `UNFRET_MCP_SESSION_CAP_USD`) cover Base payments, at face
+  value. Results add `network` (the CAIP-2 network paid on); for Base, `payment` is the authorization's nonce.
+* New dependency: `eth-account` (EIP-712 signing), a normal dependency rather than an extra, so `uvx unfret-mcp` and
+  the registry entry work with a Base key as they are.
+
 ## [0.2.0]
 
 * **Pay from an Unfret pass instead of a wallet**: set `UNFRET_PASS` (`ufk_…`) and `check_store` sends it to

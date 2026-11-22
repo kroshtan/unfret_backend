@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Developer docs
+
+* **Three ways to integrate, on every developer page.** `/developers` opens with the MCP server, the API with a pass
+  and x402 pay-per-call, one working example each, then the details; `/llms.txt` opens with the same three (the
+  developer pass's three calls spelled out, `/v1/credits` and `/v1/pricing`), so an agent reading raw docs gets to a
+  paid or pass-based check without guessing. Base is shown only while `/v1/check` takes it (no more "coming next"),
+  and the OAuth sign-in for `/mcp` only while it is on. Fixed: a paused developer pass answers 402
+  `INSUFFICIENT_CREDITS` (the page said 429), the OpenAPI description sent passes to `/v1/analyze` instead of
+  `/v1/check`, and the README's card prices ($6.50 / €6.50 and $21 / €21, tax included). `/.well-known/x402` points
+  at the MCP server and the docs; `POST /v1/check` documents its 422, 429, 503 and 504 answers.
+
 ### CI/CD
 
 * **CI and CD are separate workflows.** `ci.yaml` only tests (pull requests, by hand); a merge to `main` no longer

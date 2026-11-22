@@ -523,7 +523,34 @@ async def test_the_developer_page_prices_come_from_the_settings(client: httpx.As
     for link in ('href="/llms.txt"', 'href="/.well-known/x402"', 'href="/docs"', 'href="/openapi.json"'):
         assert link in page, link
     assert "uvx" in page and "unfret-mcp" in page and "UNFRET_MCP_KEYPAIR" in page
-    assert "x402 on Base" in page  # the roadmap, as promised on the page
+    assert "Coming next" not in page and "coming next" not in page  # every way in is here, nothing announced
+
+
+async def test_the_developer_page_opens_with_three_ways_to_integrate(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/developers")).text
+    ways = page.split('id="ways"', 1)[1].split("</section>", 1)[0]
+    text = html.unescape(re.sub(r"<[^>]+>", "", ways))
+    assert re.findall(r"\d\. [^<\n]+", text)[:3] == ["1. MCP server", "2. API with a pass", "3. x402 pay-per-call"]
+    base = settings.public_base_url.rstrip("/")
+    assert f"claude mcp add --transport http unfret {base}/mcp" in text  # one working example each
+    assert f'curl {base}/v1/check -H "Authorization: Bearer $UNFRET_PASS"' in text
+    assert "402" in text and '-H "PAYMENT-SIGNATURE: $PAYMENT"' in text
+    assert page.index('id="ways"') < page.index('id="developer-pass"') < page.index('id="mcp"')  # the overview first
+
+
+async def test_the_oauth_sign_in_shows_only_while_it_is_on(client: httpx.AsyncClient) -> None:
+    from unfret.routes.pages import with_oauth  # noqa: PLC0415 - only here
+
+    off = (await client.get("/developers")).text  # mcp_oauth_enabled is off by default
+    assert "oauth-on" not in off and 'id="mcp-oauth"' not in off and "or by signing in" not in off
+    on = with_oauth((STATIC_DIR / "developers.html").read_text(), True)
+    assert "oauth-on" not in on and 'id="mcp-oauth"' in on and "or by signing in" in on
+    assert "call <code>get_pricing</code>; a check is what asks you to sign in" in " ".join(on.split())
+
+
+async def test_developer_page_marks_balance_and_pauses_as_the_code_answers(client: httpx.AsyncClient) -> None:
+    text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text)).split())
+    assert "402 INSUFFICIENT_CREDITS on a developer pass and 429 FREE_CHECKS_PAUSED on other passes" in text
 
 
 async def test_the_developer_page_has_calls_a_real_response_speed_and_limits(client: httpx.AsyncClient) -> None:

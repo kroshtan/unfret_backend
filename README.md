@@ -8,7 +8,8 @@
 
 **Unfret checks a web shop, an ad or a company's website and says in plain words whether it all adds up.** This
 repository is the service behind it: the API, the website ([unfret.net](https://unfret.net), including the
-[link checker](https://unfret.net/check)) and the MCP server for AI agents ([`mcp/`](mcp/)). The analysis is a
+[link checker](https://unfret.net/check)) and the MCP server for AI agents (remote at `/mcp`, and the local package in
+[`mcp/`](mcp/)). The analysis is a
 [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of independent "skills" run in parallel; a small
 trained model turns their features into a calibrated 0–100 score and one of four verdicts (Looks fine, Worth a look,
 Think twice, Serious concerns), and an LLM writes the explanation from the signals that moved it.
@@ -371,7 +372,19 @@ report of it is answered `already_known` without being queued (`tests/integratio
 
 ## API
 
-Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `Authorization: Bearer <session token>`.
+Interactive docs are served at `/docs` (`/openapi.json`). `/v1/analyze*` and `/v1/credits` take
+`Authorization: Bearer <session token>` or an Unfret pass (`Bearer ufk_…`).
+
+Developers and agents have **three ways in**, all running the same check at the same prices
+([`/developers`](https://unfret.net/developers), and [`/llms.txt`](https://unfret.net/llms.txt) for agents):
+
+1. **MCP**: the remote server at `/mcp` with a pass ([below](#remote-mcp-server-mcp)), or the local package
+   `uvx unfret-mcp` (PyPI, MCP Registry `net.unfret/mcp`) paying from a pass or a Solana wallet.
+2. **The API with a pass**: `POST /v1/check` with `Authorization: Bearer ufk_…`. A developer pass (free deep checks
+   for `/v1/check`) comes from `GET /v1/keys/challenge?developer=true` and `POST /v1/keys`; checks are bought at
+   `/checkout`; `GET /v1/credits` and `GET /v1/pricing` say what's left and what it costs.
+3. **x402 pay-per-call**: `POST /v1/check` without a pass answers `402`; pay in USDC or wSOL on Solana (or USDC on
+   Base, [while it is on](#usdc-on-base)) and retry. Discovery: `/.well-known/x402` and `/llms.txt`.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -379,7 +392,7 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/auth/verify` | Finish it: `{address, signed_message, signature}` → session token (30 days) |
 | `POST` | `/v1/analyze` | Analyse a page, paid from credits: `{ "url", "page_content"?, "page_facts"?, "checkout_content"? }` |
 | `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
-| `GET` | `/v1/credits` | The signed-in wallet's balance |
+| `GET` | `/v1/credits` | The balance of the signed-in wallet or the pass |
 | `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
 | `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
@@ -391,8 +404,11 @@ Interactive docs are served at `/docs`. `/v1/analyze*` and `/v1/credits` take `A
 | `POST` | `/v1/shares/{id}/object` | A shop owner's objection: hides the shared result until reviewed |
 | `GET` | `/v1/health` | Liveness probe (version, commit, and the scorers' `model_version` / `quick_model_version`) |
 | `GET` | `/v1/health/ready` | Readiness probe (checks the database; reports x402 and credits status, hot wallet balances, alerts) |
-| `POST` | `/v1/check` | Pay-per-check for AI agents over [x402](https://www.x402.org), see below |
-| `GET` | `/llms.txt` \| `/.well-known/x402` | Machine-readable description of `/v1/check`, its tiers and prices |
+| `GET` | `/v1/keys/challenge` | A proof-of-work challenge for a new pass (`?developer=true`: a developer pass's) |
+| `POST` | `/v1/keys` | Make a pass from a solved challenge (`"developer": true`: a developer pass) |
+| `POST` | `/v1/check` | A check for AI agents: with a pass, or paid per call over [x402](https://www.x402.org), see below |
+| `POST` `GET` | `/mcp` | The remote MCP server, see below |
+| `GET` | `/llms.txt` \| `/.well-known/x402` | Machine-readable description of the three ways in, `/v1/check`'s tiers and prices |
 
 ### Credits (browser extension and platforms)
 
@@ -405,18 +421,19 @@ ledger), no record of what was analysed.
 **Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
 credits, an x402 deep check costs one check, and credits are sold in packs of 25 and 100 checks
 (`src/unfret/credits/packs.py`), after the free ones (a new pass's free deep checks, and quick checks). A pack's price
-is its card price, $6 and $20 before the provider's sales tax/VAT (`UNFRET_CARD_PRICES_USD`, set by hand; a pack not
+is its card price, $6.50 and $21 with sales tax/VAT included (`UNFRET_CARD_PRICES_USD`, set by hand, and
+`UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE`, on by default; a pack not
 named there costs its value plus the card provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50); paying
 with SOL or USDC costs the pack's value ($5, $20) **VAT included** (an EU buyer's VAT is worked out of the price,
-never added), never more than by card: not more than the dollar card price before tax (a card price below the pack's
+never added), never more than by card: not more than the dollar card price (a card price below the pack's
 value is refused at start-up), nor than the euro card price with VAT, while a euro is worth at least a dollar. The card price is shown as *the* price and crypto as the discount
 where there is one, never as a card surcharge (EU rules forbid surcharging consumer card payments). Either way the
 account is credited the pack's value, so a check costs the same in credits however it was bought. Visitors from the
-euro area (Cloudflare's country hint) pay by card in **euros** instead: €6, €20 **including VAT**
+euro area (Cloudflare's country hint) pay by card in **euros** instead: €6.50, €21 **including VAT**
 (`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted; `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE`, on by default).
 The euro price is the final price, the same for every buyer whatever their country's VAT rate: Polar takes the VAT out
-of it instead of adding it, and the margin absorbs the difference between rates. The dollar prices stay before sales
-tax/VAT, as US buyers expect. The 50-pack is no longer sold: what it credited,
+of it instead of adding it, and the margin absorbs the difference between rates. The dollar prices include tax the
+same way (with `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` off they are before sales tax/VAT, and checkout adds it). The 50-pack is no longer sold: what it credited,
 and its gift codes, keep working, and an old `/checkout?checks=50` link picks the nearest pack and says so. Dutch visitors
 also get a **"Pay with iDEAL | Wero"** button above the card one (see *Local payment methods* below).
 
@@ -532,12 +549,13 @@ are set:
 | `UNFRET_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,100=<product id>`. A product for a pack no longer on sale (`50=…`) is ignored: no checkout starts for it and its orders are logged, not credited |
 | `UNFRET_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
 
-**In Polar:** one one-time product per pack, priced at the pack's card price **in USD** before tax
-(`UNFRET_CARD_PRICES_USD`: $6.00, $20.00; the price's tax behaviour *exclusive*, or the organisation's default),
-**plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€6.00, €20.00; keep USD as the organisation's
-default currency) whose tax behaviour is set to **inclusive** on the price itself (while
-`UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` is on; the organisation's default isn't readable with the checkout token, so a
-price left on the default counts as wrong). A product whose price or tax behaviour differs from the pack's (say, not
+**In Polar:** one one-time product per pack, priced at the pack's card price **in USD**
+(`UNFRET_CARD_PRICES_USD`: $6.50, $21.00), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€6.50,
+€21.00; keep USD as the organisation's default currency), each with its tax behaviour set to **inclusive** while
+`UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` / `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` are on (the defaults; *exclusive*
+with the setting off), on the price itself or as the organisation's default (`UNFRET_POLAR_ORG_TAX_INCLUSIVE`, on by default, says that
+default is inclusive, since it isn't readable with the checkout token; off, a price left on the default counts as
+wrong for a tax-inclusive pack). A product whose price or tax behaviour differs from the pack's (say, not
 yet changed in Polar after the setting) refuses its checkouts, so nobody pays the old price or VAT on top of a price
 shown with VAT; the other packs sell on. A tax-inclusive euro order is credited when its `net_amount + tax_amount` is
 the pack's price (Polar's `net_amount` is then the price less the buyer's VAT); refunds and affiliate commission still

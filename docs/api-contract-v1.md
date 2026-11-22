@@ -1660,3 +1660,17 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - A new shopper reason key `data_inconsistency` ("Details on the page that don't match", severity low, area
   `product`, source `ai_read`): `The page says “<claim>”. <why> Check which is right before you buy.` A note: it
   never moves the band and keeps no "Worth a look" by itself.
+
+## Changes (developer docs: three ways in, backwards-compatible)
+
+- OpenAPI: `POST /v1/check` is tagged `Check (x402 or a pass)` (was `x402`); its description names both ways to pay
+  (a pass, x402 with the networks from `/.well-known/x402`), and it documents its 422, 429, 503 and 504 answers as well
+  as 401 and 402. The API's description lists the three ways in (MCP, `/v1/check` with a pass, x402).
+- `/.well-known/x402` adds `mcp` (`remote`, `stdio`) and `docs` (`llms_txt`, `openapi`, `guide`): where the other ways
+  in are. Nothing else changes.
+- `/llms.txt` opens with the three ways in (the MCP server, the API with a pass with the developer pass's three
+  calls, x402), then the details as before; it adds `/v1/credits`, the pass-only errors (`TOO_MANY_REQUESTS`,
+  `BAD_CHALLENGE`) and which answer a paused developer pass gets (402 `INSUFFICIENT_CREDITS`; other passes 429
+  `FREE_CHECKS_PAUSED`).
+- `/developers` and `/developers/http` no longer announce USDC on Base as "coming next": Base appears only while
+  `/v1/check` takes it.

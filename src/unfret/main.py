@@ -162,9 +162,10 @@ app = UnfretAPI(
     version=__version__,
     description=(
         "Scam, dropshipping and dark-pattern signals for a web shop, a marketplace listing, a second-hand ad or a "
-        "service provider's site. Start with the [developer guide](/developers): the MCP server, pay-per-check over "
-        "x402 on `POST /v1/check` (no account; `/llms.txt`, `/.well-known/x402`), or a prepaid pass, sent as "
-        "`Authorization: Bearer ufk_…`, on `POST /v1/analyze`."
+        "service provider's site. Three ways in, all in the [developer guide](/developers): the MCP server "
+        "(`/mcp`, or `uvx unfret-mcp`); `POST /v1/check` with an Unfret pass as `Authorization: Bearer ufk_…` (a "
+        "developer pass from `GET /v1/keys/challenge?developer=true` and `POST /v1/keys`); or `POST /v1/check` paid "
+        "per call over x402, with no account (`/.well-known/x402`). For agents: `/llms.txt`."
     ),
     contact={"email": "hello@unfret.net"},
     # x402scan (the agentcash discovery spec) points agents at the guide for language models.

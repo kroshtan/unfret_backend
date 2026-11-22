@@ -24,7 +24,7 @@ from tests.unit.x402_helpers import (
     payment_instructions,
     sign_payment,
 )
-from unfret.config import Settings
+from unfret.config import Settings, settings
 from unfret.main import app
 from unfret.routes.check import _errors_table
 from unfret.visitors import RateLimit
@@ -368,6 +368,40 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     assert "re-fetch the 402 right before paying" in text
     assert "in lamports (SOL) on every option, USDC included" in text
     assert "`reason`" in text
+
+
+async def test_llms_txt_opens_with_the_three_ways_in(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = (await client.get("/llms.txt")).text
+    head = text.split("## Endpoint", 1)[0]
+    assert [line for line in head.splitlines() if line.startswith("### ")] == [
+        "### 1. MCP server",
+        "### 2. HTTP API with an Unfret pass",
+        "### 3. x402 pay-per-call (no account)",
+    ]
+    base = settings.public_base_url.rstrip("/")
+    assert f"{base}/mcp" in head and "uvx unfret-mcp" in head and "net.unfret/mcp" in head
+    # From llms.txt to a check without guessing: the developer pass's three calls, then the check itself.
+    for step in ("/v1/keys/challenge?developer=true", 'challenge + ":" + solution', f"POST {base}/v1/keys"):
+        assert step in head, step
+    assert f'curl {base}/v1/check -H "Authorization: Bearer $UNFRET_PASS"' in head
+    assert "PAYMENT-REQUIRED" in head and "PAYMENT-SIGNATURE" in head and "solana-devnet" in head
+    assert "oauth" not in head.lower()  # OAuth for /mcp is off by default: not offered
+    monkeypatch.setattr("unfret.routes.check.mcp_oauth_on", lambda: True)
+    signed_in = (await client.get("/llms.txt")).text.split("## Endpoint", 1)[0]
+    assert "/.well-known/oauth-protected-resource/mcp" in signed_in and "get_pricing" in signed_in
+
+
+async def test_discovery_points_at_the_other_ways_in(client: httpx.AsyncClient) -> None:
+    discovery = (await client.get("/.well-known/x402")).json()
+    base = settings.public_base_url.rstrip("/")
+    assert discovery["mcp"]["remote"].startswith(f"{base}/mcp") and "uvx unfret-mcp" in discovery["mcp"]["stdio"]
+    assert discovery["docs"] == {
+        "llms_txt": f"{base}/llms.txt",
+        "openapi": f"{base}/openapi.json",
+        "guide": f"{base}/developers",
+    }
 
 
 def test_the_openapi_document_marks_check_as_paid() -> None:

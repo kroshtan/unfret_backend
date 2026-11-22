@@ -1,7 +1,7 @@
 """The deep check's look at a shop's earlier copies in the Internet Archive: recorded copies, no network."""
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +160,9 @@ async def test_an_old_address_that_was_a_bakery_and_a_parked_page(monkeypatch: p
 
     f = out["features"]
     assert f["domain_history.changed"] == 1.0 and f["domain_history.parked"] == 1.0
-    assert f["domain_history.snapshots"] == 3.0 and f["domain_history.months_since_change"] == pytest.approx(1.1)
+    # The age of the change counts from the real today (the skill's own clock), not the fixture's TODAY.
+    months = round((datetime.now(tz=UTC).date() - date(2026, 10, 18)).days / 30.4, 1)
+    assert f["domain_history.snapshots"] == 3.0 and f["domain_history.months_since_change"] == pytest.approx(months)
     repurposed = next(x for x in out["findings"] if x.type == "domain_repurposed")
     assert repurposed.evidence.startswith(
         "oudebakker.example is 12 years old, but the Internet Archive's copy from October 2026 shows a parked page"

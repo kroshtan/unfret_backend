@@ -435,10 +435,10 @@ async def test_the_pack_prices_say_what_tax_they_are_before(client: httpx.AsyncC
         for pack in packs.packs(settings):
             assert f"{pack.checks} for {format_usd(pack.card_usd_micros)}" in text, path
             assert f"{pack.checks} for {format_usd(pack.value_usd_micros)}" in text, path
-        assert "by card, before tax (checkout shows the card price with VAT for an EU country" in text, path
+        assert "25 for $6.50 and 100 for $21.00 by card, tax included" in text, path
         euros = " and ".join(packs.format_eur(p.card_eur_cents or 0) for p in packs.packs(settings))
         assert f"in the euro area {euros} by card, VAT included" in text, path
-        assert euros == "€6.00 and €20.00"
+        assert euros == "€6.50 and €21.00"
         assert "with crypto 25 for $5.00 and 100 for $20.00, VAT included" in text, path
 
 

@@ -201,7 +201,10 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
             for p in on_sale
         ],
         # Whether the card prices in each currency include sales tax/VAT (the final price) or get it at checkout.
-        "card_tax_inclusive": {"usd": False, "eur": settings.card_prices_eur_tax_inclusive},
+        "card_tax_inclusive": {
+            "usd": settings.card_prices_usd_tax_inclusive,
+            "eur": settings.card_prices_eur_tax_inclusive,
+        },
         # Deprecated: the packs' crypto prices under their old name.
         "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
         "vat": vat.describe(settings),

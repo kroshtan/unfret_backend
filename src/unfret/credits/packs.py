@@ -5,19 +5,21 @@ The card prices are set by hand, so they stay round.
 
 A pack of ``n`` checks (25 and 100 by default) costs:
 
-- **by card** (through the Merchant of Record): its price in ``card_prices_usd`` ($6 and $20 by default), before the
-  provider's sales tax/VAT. A pack not named there costs its value plus the provider's worst-case cut, rounded up to
-  ``card_price_step_usd``: ``ceil_step((value + card_fee_flat) / (1 − card_fee_pct))`` (:func:`card_price`; at
-  $0.20 a check with 6.5% + $0.50 and a $0.50 step: 25 → $6, 100 → $22).
+- **by card** (through the Merchant of Record): its price in ``card_prices_usd`` ($6.50 and $21 by default),
+  including the provider's sales tax/VAT (``card_prices_usd_tax_inclusive``, the default; else before it). A pack
+  not named there costs its value plus the provider's worst-case cut, rounded up to ``card_price_step_usd``:
+  ``ceil_step((value + card_fee_flat) / (1 − card_fee_pct))`` (:func:`card_price`; at $0.20 a check
+  with 6.5% + $0.50 and a $0.50 step: 25 → $6, 100 → $22).
 - **with crypto** (SOL or USDC): just the pack's value, ``n × price_per_check`` ($5, $20), VAT included (worked out
   of the price for an EU buyer: :mod:`unfret.credits.vat`). Crypto is never dearer than the card price: not than the
   dollar price before tax, nor than the euro price with VAT (while a euro is worth at least a dollar).
 
 Visitors from the euro area pay by card in euros instead (:func:`card_currency`): each pack's euro price is a
-setting of its own (``card_prices_eur``, default €6 / €20), not converted from the dollar price, so it stays round.
+setting of its own (``card_prices_eur``, default €6.50 / €21), not converted from the dollar price, so it stays round.
 The euro prices **include VAT** (``card_prices_eur_tax_inclusive``, the default): every buyer pays exactly the price
 shown, whatever their country's rate, and the provider takes the VAT out of it (our margin absorbs the difference
-between rates). The dollar prices are before sales tax/VAT, as US buyers expect. A euro checkout is what shows
+between rates). The dollar prices include sales tax/VAT the same way (``card_prices_usd_tax_inclusive``, the
+default); with it off they are before tax, as US buyers usually expect. A euro checkout is what shows
 "iDEAL | Wero" to Dutch buyers at the provider. The credits are the same: a pack's value in dollars, whichever
 currency paid for it.
 
@@ -86,7 +88,7 @@ class Pack:
 
     checks: int
     value_usd_micros: int  # credited to the account, and the crypto price (VAT included)
-    card_usd_micros: int  # the price by card, before the provider's sales tax/VAT
+    card_usd_micros: int  # the price by card (including sales tax/VAT while card_usd_tax_inclusive)
     card_eur_cents: int | None = None  # the price by card in euros (cents); None: dollars only
     card_eur_tax_inclusive: bool = True  # whether card_eur_cents includes VAT (else VAT is added at checkout)
     card_usd_tax_inclusive: bool = True  # whether card_usd_micros includes sales tax/VAT (else added at checkout)

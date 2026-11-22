@@ -48,6 +48,7 @@ import asyncpg
 from solders.keypair import Keypair
 
 from unfret.config import Settings
+from unfret.credits import packs
 
 HOME_COUNTRY = "NL"
 UNKNOWN = "unknown"
@@ -453,6 +454,35 @@ async def purge(db: asyncpg.Pool, settings: Settings, now: datetime | None = Non
     )
 
 
+def applies_to(settings: Settings) -> str:
+    """
+    Which purchases include tax, in words, for ``/v1/pricing``'s ``vat.applies_to``.
+
+    Crypto prices always include VAT (this service charges it); card prices include sales tax/VAT while
+    ``card_prices_usd_tax_inclusive`` / ``card_prices_eur_tax_inclusive`` are on (the payment provider collects it).
+    The euro setting counts only while euro prices are offered (:func:`unfret.credits.packs.euros_on`).
+
+    :param settings: The service settings.
+    :return: E.g. "all purchases: card prices include sales tax/VAT (collected by the payment provider); crypto prices
+        include VAT".
+    """
+    usd = settings.card_prices_usd_tax_inclusive
+    eur = settings.card_prices_eur_tax_inclusive if packs.euros_on(settings) else usd
+    if usd and eur:
+        return (
+            "all purchases: card prices include sales tax/VAT (collected by the payment provider); "
+            "crypto prices include VAT"
+        )
+    if usd or eur:
+        inclusive, exclusive = ("dollars", "euros") if usd else ("euros", "dollars")
+        return (
+            f"crypto purchases and card purchases in {inclusive} (card prices in {inclusive} include sales tax/VAT, "
+            f"collected by the payment provider; card purchases in {exclusive}: the payment provider adds its own "
+            "sales tax/VAT)"
+        )
+    return "crypto purchases (card purchases: the payment provider adds its own sales tax/VAT)"
+
+
 def describe(settings: Settings) -> dict[str, Any]:
     """
     The VAT rules for ``/v1/pricing``.
@@ -464,7 +494,7 @@ def describe(settings: Settings) -> dict[str, Any]:
         "mode": settings.vat_mode,
         "home_country": HOME_COUNTRY,
         "eu_rates_pct": effective_rates(settings),
-        "applies_to": "crypto purchases (card purchases: the payment provider adds its own sales tax/VAT)",
+        "applies_to": applies_to(settings),
         # What the card provider (the Merchant of Record) adds to a card price for a consumer in each EU country: its
         # standard rate, whatever our own mode. Pages show card prices with it, so the price doesn't go up at checkout.
         "card_rates_pct": {code: format(rate, "f") for code, rate in standard_rates().items()},

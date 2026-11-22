@@ -53,6 +53,11 @@
 
 ### Fixes
 
+* **`/v1/pricing` no longer says the card provider adds tax.** `vat.applies_to` now follows the card tax settings:
+  with card prices including tax in both currencies (the default since 0.15.0) it reads "all purchases: card prices
+  include sales tax/VAT (collected by the payment provider); crypto prices include VAT"; the old wording stays only
+  while card prices are before tax. Stale "before tax" notes in the price code's docs and comments are fixed too
+  (docs/api-contract-v1.md).
 * **The domain history names Common Crawl's failure first.** With both archives failing, the error now reads
   "Common Crawl failed: HTTP 504 … The Internet Archive failed too: …" instead of only the Internet Archive's pace,
   which hid Common Crawl's real cause (its status or timeout). When the Internet Archive steps in, Common Crawl's

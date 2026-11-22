@@ -782,6 +782,50 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             WHERE fingerprint IS NOT NULL OR skeleton IS NOT NULL OR platform <> 'generic';
         """,
     ),
+    (
+        36,
+        "oauth for the remote mcp server",
+        """
+        -- OAuth for /mcp (unfret.oauth): Unfret is its own authorization server and a token stands for a pass. Only
+        -- SHA-256 hashes of codes and tokens, the pass's id (and its key's current hash, so replacing the pass from
+        -- its backup code ends the grant) and expiry times; nothing about the person or their network. Rows go with
+        -- their pass (retiring, ON DELETE CASCADE) and when they expire (housekeeping).
+        CREATE TABLE oauth_clients (
+            client_id      TEXT PRIMARY KEY,
+            client_name    TEXT NOT NULL DEFAULT '',
+            redirect_uris  TEXT[] NOT NULL,
+            created_on     DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        CREATE TABLE oauth_grants (
+            id                  BIGSERIAL PRIMARY KEY,
+            client_id           TEXT NOT NULL,
+            key_id              TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+            key_hash            BYTEA NOT NULL,
+            access_hash         BYTEA NOT NULL UNIQUE,
+            access_expires_at   TIMESTAMPTZ NOT NULL,
+            refresh_hash        BYTEA NOT NULL UNIQUE,
+            refresh_expires_at  TIMESTAMPTZ NOT NULL,
+            prev_refresh_hash   BYTEA,
+            rotated_at          TIMESTAMPTZ
+        );
+        CREATE INDEX oauth_grants_key_id_idx ON oauth_grants (key_id);
+        CREATE INDEX oauth_grants_prev_refresh_idx ON oauth_grants (prev_refresh_hash);
+        CREATE INDEX oauth_grants_client_idx ON oauth_grants (client_id);
+        CREATE TABLE oauth_codes (
+            code_hash       BYTEA PRIMARY KEY,
+            client_id       TEXT NOT NULL,
+            key_id          TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+            key_hash        BYTEA NOT NULL,
+            redirect_uri    TEXT NOT NULL,
+            code_challenge  TEXT NOT NULL,
+            expires_at      TIMESTAMPTZ NOT NULL,
+            used            BOOLEAN NOT NULL DEFAULT FALSE,
+            grant_id        BIGINT REFERENCES oauth_grants(id) ON DELETE SET NULL
+        );
+        CREATE INDEX oauth_codes_key_id_idx ON oauth_codes (key_id);
+        CREATE INDEX oauth_codes_client_idx ON oauth_codes (client_id);
+        """,
+    ),
 ]
 
 

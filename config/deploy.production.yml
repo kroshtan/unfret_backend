@@ -17,6 +17,9 @@ env:
     UNFRET_POLAR_ENVIRONMENT: production  # real money; production never talks to Polar's sandbox
     # The page classes beyond products (p2p ads, service providers): on in dev and production.
     UNFRET_EXPANSION_CLASSES: "true"
+    # OAuth sign-in for the remote MCP server (/mcp, unfret.oauth; Claude's connector directory). Off: /mcp takes
+    # Bearer ufk_ passes only. Turning it on is this one line, "true", in a release.
+    UNFRET_MCP_OAUTH_ENABLED: "false"
     # The scorer: a retrained one from the private model store when the deploy workflow installed one into the
     # mounted directory below (scripts/private-model.sh), else empty: the open baseline in the image.
     UNFRET_MODEL_PATH: "<%= ENV.fetch('UNFRET_MODEL_PATH', '') %>"

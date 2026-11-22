@@ -980,8 +980,9 @@ MCP request's caller, so a check from MCP is authenticated, limited and charged 
 `stateless_http`, `json_response`): any process can answer any request, and a deploy drops no sessions. It speaks the
 current protocol (2026-07-28) and the initialize handshake of earlier versions.
 
-It takes **an Unfret pass only**: `Authorization: Bearer ufk_…`, checked before the MCP layer (401 with
-`WWW-Authenticate: Bearer realm="Unfret"` otherwise; too many bad passes from one network get 429 first). It never pays
+It takes **an Unfret pass**: `Authorization: Bearer ufk_…`, or an OAuth access token for one while OAuth is on (below),
+checked before the MCP layer (401 with `WWW-Authenticate: Bearer realm="Unfret"` otherwise, plus `resource_metadata`
+while OAuth is on; too many bad passes from one network get 429 first). It never pays
 from a wallet and has no code that could (the tools call only `POST /v1/check`, `GET /v1/credits` and
 `GET /v1/pricing`, with nothing but the pass; a payment header sent to `/mcp` is never passed on): quick checks are
 free, deep checks use one of the pass's checks, as on
@@ -1001,6 +1002,38 @@ free one run without asking:
 {"mcpServers": {"unfret": {"type": "http", "url": "https://unfret.net/mcp",
   "headers": {"Authorization": "Bearer ufk_…"}}}}
 ```
+
+#### Signing in with OAuth (`UNFRET_MCP_OAUTH_ENABLED`)
+
+Claude's connector directory lists remote servers that need an account only with OAuth (a fixed header is a beta for
+a few organizations), so with `UNFRET_MCP_OAUTH_ENABLED=true` (on in dev) Unfret is also its own **OAuth 2.1
+authorization server** for `/mcp` (`src/unfret/oauth.py`, `src/unfret/routes/oauth.py`). A client that adds
+`https://unfret.net/mcp` with no header gets the 401 with
+`WWW-Authenticate: Bearer realm="Unfret", resource_metadata="…/.well-known/oauth-protected-resource/mcp", scope="checks"`
+and signs in:
+
+| | |
+| --- | --- |
+| Discovery | `/.well-known/oauth-protected-resource[/mcp]` (RFC 9728: `resource` is `<base>/mcp`), `/.well-known/oauth-authorization-server` (RFC 8414) |
+| Clients | Public only (`token_endpoint_auth_method: none`). A **Client ID Metadata Document** (an HTTPS `client_id`, fetched through `net.fetch_public`, cached 5 minutes; the page names its host) or **Dynamic Client Registration** (`POST /oauth/register`, generous per network since Claude registers from Anthropic's servers, capped per day; clients left without a grant go after 30 days) |
+| Redirect URIs | Exactly `UNFRET_MCP_OAUTH_REDIRECT_URIS` (Claude's `https://claude.ai/api/mcp/auth_callback` and the `claude.com` one) or a loopback address on any port (`127.0.0.1`, `[::1]`, `localhost`: Claude Code). Anything else is refused at registration and on the page, never redirected to |
+| `/oauth/authorize` | The page (US English): who asks, where it goes back to (a warning for loopback), and one **Continue** button that makes a pass for the connection (the same proof of work, solved in the background as the page opens, per-network limits and free checks as a new extension pass: `routes.keys.issue_pass`; the free checks are named only while the network would still get them), then shows the pass and backup code once, folded away, under "Continue to claude.ai". Pasting a pass one already has is the second option. PKCE S256 is required; the response carries `iss` (RFC 9207). Its CSP allows forms only to this site and the client's redirect origin, no framing |
+| `/oauth/token` | Form-encoded. `authorization_code` (PKCE checked; a code works once, for 5 minutes, for its client and redirect URI; using it again revokes what it gave) and `refresh_token` (rotated on every use; a rotated-away token presented more than a minute later revokes the grant). Access tokens `ufat_…` last an hour, refresh tokens `ufrt_…` 30 days unused |
+| `/oauth/revoke` | RFC 7009, either token |
+
+A grant is bound to the pass's current key hash, so replacing the pass from its backup code ends it, and retiring the
+pass deletes it. Only SHA-256 hashes of codes and tokens are stored (`oauth_codes`, `oauth_grants`, with the pass's id
+and expiry times; `oauth_clients` keeps a registered client's name and redirect URIs). The tokens work at `/mcp` and
+nowhere else: a tool call made for an OAuth caller reaches `/v1/check` and `/v1/credits` in-process with a one-off
+stand-in for the pass (`keys.internal_pass`, in memory for that call only), since the pass itself is never known.
+Signing in has no payment and no x402; the tools and their route allowlist are the same as with a pass. **Lazy sign-in:** while OAuth is on, a request without
+any credential may connect (`initialize`, `server/discover`, `ping`, notifications), list the tools and call
+`get_pricing` (`mcp_remote.OPEN_METHODS`, `OPEN_TOOLS`; the JSON-RPC body is read before the MCP layer, at most 64 KB);
+a check or `get_checks_left` gets the 401 with `error="invalid_token"` and `resource_metadata`, which makes Claude show
+its Connect card and retry the call after sign-in (the directory's "Required when the server asks"). Those 401s and
+expired tokens don't count as bad passes, since they come from a client's shared servers. While the setting is off,
+every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production turns it
+on with one line, `UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`.
 
 ### Clients (`clients/`)
 

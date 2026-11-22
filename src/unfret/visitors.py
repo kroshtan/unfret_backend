@@ -104,6 +104,17 @@ class DailyLimit:
         current = datetime.fromtimestamp(self.clock(), UTC).strftime("%Y-%m-%d")
         return self._day_count if current == self._day else 0
 
+    def available(self, ip: str) -> bool:
+        """
+        Whether ``ip`` has some of its allowance left, without counting anything (the daily cap aside).
+
+        :param ip: The visitor's address.
+        :return: ``True`` if :meth:`allow` would let it through its per-network limit now.
+        """
+        now = self.clock()
+        hits = self._hits.get(visitor_key(ip))
+        return hits is None or sum(1 for hit in hits if hit > now - _DAY) < self.per_ip_per_day
+
     def allow(self, ip: str, *, daily_cap: bool = True) -> bool:
         """
         Decide whether ``ip`` may do it now, and count it if so.

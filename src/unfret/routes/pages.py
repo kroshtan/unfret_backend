@@ -319,6 +319,20 @@ def with_base(page: str, base_on: bool) -> str:
     return _BASE_ON.sub("", page)
 
 
+_OAUTH_ON = re.compile(r"<!-- oauth-on -->(.*?)<!-- /oauth-on -->", re.DOTALL)
+
+
+def with_oauth(page: str, oauth_on: bool) -> str:
+    """
+    Keep a page's words about signing in to the MCP server with OAuth only while that is on.
+
+    :param page: The page's HTML, with ``<!-- oauth-on -->`` blocks.
+    :param oauth_on: Whether ``mcp_oauth_enabled`` is set.
+    :return: The blocks without their markers, or without the blocks.
+    """
+    return _OAUTH_ON.sub(r"\1" if oauth_on else "", page)
+
+
 def packs_line() -> str:
     """
     The packs on sale and their prices by card and with crypto, for the developer pages.
@@ -473,6 +487,7 @@ def developers(request: Request) -> HTMLResponse:
     fields = {**developer_fields(), **_limits_and_measurements(), "payment_options": options}
     page = template("developers.html", "/developers").replace("{{python_install}}", python_install_html())
     page = with_base(page, base_on)  # Base on: no longer "coming next", and how to pay on it
+    page = with_oauth(page, settings.mcp_oauth_enabled)  # signing in to /mcp with OAuth (Claude's connectors)
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)

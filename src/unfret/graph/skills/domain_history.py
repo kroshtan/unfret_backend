@@ -32,15 +32,15 @@ cached per address and per archive as a store-level fact (:mod:`unfret.fact_cach
 """
 
 import asyncio
-import contextlib
 import json
 import re
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import quote
 
 import httpx
+import structlog
 from bs4 import BeautifulSoup
 
 from unfret import shopper
@@ -167,6 +167,7 @@ ARCHIVE_NAMES = {
     WAYBACK: ("Internet Archive", "the Internet Archive's"),
 }
 __all__ = ["ArchiveBusyError", "ArchiveUnreachableError"]
+logger = structlog.get_logger("unfret")
 
 
 def language(text: str) -> str:
@@ -483,31 +484,81 @@ def usable(found: dict[str, Any] | None) -> bool:
     return any(s.get("kind") != "thin" for s in (found or {}).get("snapshots", []))
 
 
+def cause(exc: BaseException) -> str:
+    """
+    An archive's failure in a few words, with its real cause: the HTTP status or the timeout behind it.
+
+    Never the address asked (an archive's index URL names the shop).
+
+    :param exc: The error, as raised (its ``__cause__`` and ``__context__`` are looked through).
+    :return: "HTTP 504 (The archive couldn't be asked (HTTPStatusError))", "timed out (ReadTimeout)", ….
+    """
+    said = str(exc).rstrip(".") or type(exc).__name__
+    seen: set[int] = set()
+    link: BaseException | None = exc
+    while link is not None and id(link) not in seen:
+        seen.add(id(link))
+        if isinstance(link, httpx.HTTPStatusError):
+            return f"HTTP {link.response.status_code}" + ("" if link is exc else f" ({said})")
+        if isinstance(link, httpx.TimeoutException | TimeoutError):
+            return f"timed out ({type(link).__name__})" + ("" if link is exc else f" ({said})")
+        link = link.__cause__ or link.__context__
+    return said
+
+
+def both_failed(crawl_error: BaseException, wayback_error: BaseException) -> NoReturn:
+    """
+    Raise for neither archive answering: Common Crawl's real cause first, then the Internet Archive's.
+
+    Of the kind the Internet Archive's error was, so the graph retries (or not) as it would on that error.
+
+    :param crawl_error: Common Crawl's failure.
+    :param wayback_error: The Internet Archive's (the raised error's cause).
+    :raises ArchiveBusyError: When the Internet Archive was paced out.
+    :raises ArchiveUnreachableError: When it couldn't be reached (a connection problem: the graph retries).
+    :raises RuntimeError: When it failed otherwise.
+    """
+    said = f"Common Crawl failed: {cause(crawl_error)}. The Internet Archive failed too: {cause(wayback_error)}."
+    if isinstance(wayback_error, ArchiveBusyError):
+        raise ArchiveBusyError(said) from wayback_error
+    if isinstance(wayback_error, httpx.TransportError | ConnectionError):
+        raise ArchiveUnreachableError(said) from wayback_error
+    raise RuntimeError(said) from wayback_error
+
+
 async def history(host: str, today: date | None = None) -> dict[str, Any]:
     """
     What the shop's home page showed about 1, 3 and 12 months ago: Common Crawl first, the Internet Archive after.
 
     Each archive's answer is cached per address on its own; the Internet Archive is asked only when Common Crawl has
-    no usable copy (:func:`usable`).
+    no usable copy (:func:`usable`). Common Crawl failing is logged (without the address) when the archive steps in.
 
     :param host: The shop's host.
     :param today: Today (tests pass their own).
     :return: ``archive`` (whose copies: ``commoncrawl`` or ``wayback``), ``captures``, ``snapshots`` (newest first)
         and ``asked`` (the archives that answered).
-    :raises Exception: When neither archive answered (paced out, refused or unreachable): not cached.
+    :raises Exception: When neither archive answered (paced out, refused or unreachable): not cached. It names both,
+        Common Crawl's cause first (:func:`both_failed`).
     """
     today = today or datetime.now(tz=UTC).date()
     crawl: dict[str, Any] | None = None
-    with contextlib.suppress(Exception):  # unreachable or paced out: the Internet Archive instead
+    crawl_error: Exception | None = None
+    try:
         crawl = await cached_fact(COMMON_CRAWL, host, lambda: common_crawl_history(host, today))
+    except Exception as exc:  # noqa: BLE001 - unreachable or paced out: the Internet Archive instead
+        crawl_error = exc
     if crawl is not None and usable(crawl):
         return crawl | {"asked": [COMMON_CRAWL]}
     try:
         wayback = await cached_fact(WAYBACK, host, lambda: wayback_history(host, today)) or {}
-    except Exception:
+    except Exception as exc:
         if crawl is None:
-            raise
+            if crawl_error is None:
+                raise
+            both_failed(crawl_error, exc)
         return crawl | {"asked": [COMMON_CRAWL]}  # Common Crawl's answer stands; the archive is asked next time
+    if crawl_error is not None:
+        logger.warning("domain_history.common_crawl_failed", cause=cause(crawl_error), fallback=WAYBACK)
     wayback = {"archive": WAYBACK} | wayback  # answers cached before the archive was named
     asked = [COMMON_CRAWL, WAYBACK] if crawl is not None else [WAYBACK]
     best = wayback if crawl is None or wayback.get("snapshots") else crawl

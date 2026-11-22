@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from structlog.testing import capture_logs
 
 from unfret import card, fact_cache, observations, public_result, shop_store, shopper
 from unfret.config import settings
@@ -291,12 +292,64 @@ async def test_a_slow_down_pauses_common_crawl_and_the_archive_steps_in(monkeypa
 async def test_neither_archive_answering_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(common_crawl, "fetch_public", crawl_server({}, fail=504))
     monkeypatch.setattr(settings, "wayback_daily_cap", 0)
-    with pytest.raises(common_crawl.ArchiveBusyError):
+    with pytest.raises(common_crawl.ArchiveBusyError) as raised:
         await DomainHistorySkill().run(state("https://www.oudebakker.example/p"))
+    assert str(raised.value).startswith("Common Crawl failed: HTTP 504")  # its real cause, not the archive's pace
     monkeypatch.setattr(common_crawl, "pace", common_crawl.new_pace())
     monkeypatch.setattr(common_crawl, "fetch_public", crawl_server({"CC-MAIN-2025-47": "bakery.html"}))
     out = await DomainHistorySkill().run(state("https://www.oudebakker.example/p"))
     assert out["features"]["domain_history.changed"] == 1.0
+
+
+def _wayback_copies() -> Any:
+    copies = {"20251203090101": "bakery.html"}
+
+    async def archive(url: str, **_: Any) -> bytes:
+        if "/cdx/search/cdx" in url:
+            return page("cdx.json")
+        timestamp = url.split("/web/", 1)[1].split("id_/", 1)[0]
+        if timestamp not in copies:
+            raise httpx.ReadTimeout("slow")
+        return page(copies[timestamp])
+
+    return archive
+
+
+async def test_common_crawl_down_the_archive_answers_and_the_failure_is_logged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(common_crawl, "fetch_public", crawl_server({}, fail=504))
+    monkeypatch.setattr(domain_history, "fetch_public", _wayback_copies())
+    with capture_logs() as logs:
+        found = await domain_history.history("www.oudebakker.example")
+    assert found["archive"] == "wayback" and found["asked"] == ["wayback"] and found["snapshots"]
+    [logged] = [e for e in logs if e["event"] == "domain_history.common_crawl_failed"]
+    assert logged["cause"].startswith("HTTP 504") and logged["log_level"] == "warning"
+    assert "oudebakker" not in json.dumps(logged)  # never the address
+
+
+async def test_both_archives_down_names_common_crawls_cause_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def slow(url: str, **_: Any) -> bytes:
+        raise httpx.ReadTimeout("slow")
+
+    monkeypatch.setattr(common_crawl, "fetch_public", slow)
+    monkeypatch.setattr(domain_history, "fetch_public", crawl_server({}, fail=502))  # the archive's CDX fails
+    with pytest.raises(RuntimeError) as raised:
+        await domain_history.history("www.oudebakker.example")
+    said = str(raised.value)
+    assert said.startswith("Common Crawl failed: timed out (ReadTimeout)")
+    assert said.index("Common Crawl") < said.index("The Internet Archive failed too: HTTP 502")
+    assert "oudebakker" not in said
+
+
+async def test_common_crawl_answering_leaves_the_archive_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    pages = dict.fromkeys(("CC-MAIN-2026-43", "CC-MAIN-2026-34", "CC-MAIN-2025-47"), "bakery.html")
+    monkeypatch.setattr(common_crawl, "fetch_public", crawl_server(pages))
+    monkeypatch.setattr(domain_history, "fetch_public", no_wayback())  # raises if asked
+    with capture_logs() as logs:
+        found = await domain_history.history("www.oudebakker.example")
+    assert found["archive"] == "commoncrawl" and found["asked"] == ["commoncrawl"] and found["snapshots"]
+    assert not [e for e in logs if e["event"] == "domain_history.common_crawl_failed"]
 
 
 def test_the_archives_daily_cap() -> None:

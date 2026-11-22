@@ -224,7 +224,7 @@ async def test_a_pace_of_its_own_and_a_pause_after_a_refusal(monkeypatch: pytest
         raise httpx.ConnectError("Connection refused")
 
     monkeypatch.setattr(domain_history, "fetch_public", refused)
-    with pytest.raises(httpx.ConnectError):
+    with pytest.raises(domain_history.ArchiveUnreachableError):  # a ConnectionError like the refusal: retried
         await DomainHistorySkill().run(state("https://a.example/p", SNEAKERS))
     with pytest.raises(domain_history.ArchiveBusyError):  # not a ConnectionError: the graph doesn't retry it
         await DomainHistorySkill().run(state("https://b.example/p", SNEAKERS))

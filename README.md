@@ -1052,6 +1052,9 @@ its Connect card and retry the call after sign-in (the directory's "Required whe
 expired tokens don't count as bad passes, since they come from a client's shared servers. While the setting is off,
 every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production turns it
 on with one line, `UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`.
+[`/developers/claude`](https://unfret.net/developers/claude) is the connector's documentation for people using it in
+Claude (adding it, signing in, the tools, costs, example prompts, troubleshooting, support); it is served only while
+OAuth is on.
 
 ### Clients (`clients/`)
 

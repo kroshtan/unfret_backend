@@ -15,6 +15,10 @@
 
 ### MCP server
 
+* **`/developers/claude`: Unfret in Claude**, the connector's documentation for Claude's directory: adding it,
+  signing in without an account, the four tools, what a check costs, example prompts, reading a result,
+  troubleshooting, disconnecting and support (hello@unfret.net, security reports too). Only while OAuth sign-in to
+  `/mcp` is on; `/developers` links to it
 * **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless
   `UNFRET_MCP_BASE_NETWORK=base-sepolia`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
   ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Use Unfret in Claude: add the connector, sign in without an account, and ask Claude whether an online store or product page looks legit before you buy. What the tools do, what a check costs, example prompts, troubleshooting and support.">
+  <title>Unfret in Claude · Unfret</title>
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/site.css">
+  <script type="module" src="/static/code-copy.js"></script>
+</head>
+<body class="landing">
+  {{header}}
+
+  <main class="dev-page">
+    <section class="hero dev-hero">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow"><a href="/developers">For developers</a> · Claude</p>
+          <h1>Use Unfret in Claude</h1>
+          <p class="lead">Unfret checks whether an online store or product page looks legit, sells generic junk,
+            or shows signs of a scam, and shows the evidence behind it. With the Unfret connector, ask Claude about a
+            link before you buy and it runs the check for you. No account and no e-mail: signing in makes an Unfret
+            pass for the connection.</p>
+          <nav class="dev-toc" aria-label="On this page">
+            <a href="#add">Add the connector</a>
+            <a href="#sign-in">Signing in</a>
+            <a href="#tools">The tools</a>
+            <a href="#cost">What it costs</a>
+            <a href="#examples">Things to ask</a>
+            <a href="#results">Reading a result</a>
+            <a href="#troubleshooting">Troubleshooting</a>
+            <a href="#data">Disconnecting and your data</a>
+            <a href="#support">Support</a>
+          </nav>
+        </div>
+        <pre class="terminal" aria-label="The connector's address"><span class="c"># the Unfret connector</span>
+{{base_url}}/mcp</pre>
+      </div>
+    </section>
+
+    <section class="section" id="add" aria-labelledby="add-heading">
+      <div class="wrap narrow">
+        <h2 id="add-heading">Add the connector</h2>
+        <p><b>In Claude</b> (claude.ai, Claude Desktop and the mobile apps): open
+          <a href="https://claude.ai/customize/connectors" rel="noopener">Connectors</a>, choose
+          <b>Add</b>, then <b>Add custom connector</b>, and enter <code>{{base_url}}/mcp</code>. On a Team or
+          Enterprise plan an Owner adds connectors for the organization. In a chat, turn Unfret on from
+          <b>+</b> &gt; <b>Connectors</b>.</p>
+        <p><b>In Claude Code:</b></p>
+        <div class="code-block">
+          <pre class="terminal" id="claude-code-add"><span class="k">claude</span> mcp add --transport http unfret {{base_url}}/mcp</pre>
+          <button type="button" class="copy" data-copy="claude-code-add">Copy</button>
+        </div>
+        <p>Then run <code>/mcp</code> in Claude Code to sign in. Other MCP clients that support OAuth sign-in work
+          the same way; clients that send a header instead can use a pass directly, as
+          <a href="/developers#mcp">the developer page</a> shows.</p>
+      </div>
+    </section>
+
+    <section class="section" id="sign-in" aria-labelledby="sign-in-heading">
+      <div class="wrap narrow">
+        <h2 id="sign-in-heading">Signing in</h2>
+        <p>Claude can connect, list Unfret's tools and look up prices before you sign in. The first check is what
+          asks you to: Claude shows a <b>Connect</b> button, and Unfret's sign-in page opens.</p>
+        <ol class="howto">
+          <li><b>Continue.</b> Unfret makes a pass for this connection (a few seconds of proof of work in your
+            browser, instead of an account). A new pass comes with up to {{free_checks}} free deep checks while
+            today's free checks last. Or open <b>I already have an Unfret pass</b> and paste one you have
+            (it starts with <code>ufk_</code>), to use the checks on it.</li>
+          <li><b>Keep the pass and its backup code</b> if you want them: the page shows them once, folded away.
+            You need them to add checks later or to use the same pass in the browser extension or the phone
+            app. Unfret stores only one-way hashes, so it can't show them again.</li>
+          <li><b>Go back to Claude.</b> Claude retries the check that asked you to sign in.</li>
+        </ol>
+        <p>Signing in involves no payment. The connection's token works only for the connector, lasts an hour, and
+          Claude renews it on its own.</p>
+      </div>
+    </section>
+
+    <section class="section" id="tools" aria-labelledby="tools-heading">
+      <div class="wrap narrow">
+        <h2 id="tools-heading">The tools</h2>
+        <ul>
+          <li><code>check_store_quick</code>, <b>Quick check of a store (free)</b>: rules on the page itself
+            (discount tricks, dropshipping apps, fake timers, missing legal information, …). It changes nothing,
+            so Claude can run it without asking. It also says whether a deep check is worth it.</li>
+          <li><code>check_store_deep</code>, <b>Deep check of a store (uses a check)</b>: everything in the quick
+            check plus an AI read of the listing, its reviews, photos, price history and domain age. It uses one
+            check from your pass (free checks first), so Claude asks you before running it unless you've allowed
+            it.</li>
+          <li><code>get_checks_left</code>, <b>Checks left on the pass</b>: how many deep checks your pass has
+            left, and whether free deep checks are paused for today.</li>
+          <li><code>get_pricing</code>, <b>Unfret prices</b>: what checks cost and the packs a pass can buy.</li>
+        </ul>
+        <p>The connector can't spend money: it has no payment tool, and it only ever uses checks already on the
+          pass.</p>
+      </div>
+    </section>
+
+    <section class="section" id="cost" aria-labelledby="cost-heading">
+      <div class="wrap narrow">
+        <h2 id="cost-heading">What it costs</h2>
+        <p>Quick checks are free. A deep check uses one prepaid check from the pass: its free checks first, then
+          bought ones. Checks are bought for a pass on <a href="/checkout">the checkout page</a>, by card or
+          other methods, in packs; they don't expire. When the pass has none left, the deep check says so,
+          charges nothing, and the quick check still works.</p>
+      </div>
+    </section>
+
+    <section class="section" id="examples" aria-labelledby="examples-heading">
+      <div class="wrap narrow">
+        <h2 id="examples-heading">Things to ask</h2>
+        <ol class="howto">
+          <li><b>"Is this store legit? https://…"</b> Claude runs the free quick check and tells you what it
+            found, and whether a deep check would add anything.</li>
+          <li><b>"Run a deep check on this product page before I order: https://…"</b> Claude runs the full check
+            (after asking you) and explains the verdict and the evidence behind it.</li>
+          <li><b>"I'm choosing between these two shops for the same item, which looks safer? https://… and
+            https://…"</b> Claude checks both and compares what each check found.</li>
+          <li><b>"How many Unfret checks do I have left?"</b> Claude looks up the pass.</li>
+          <li><b>"What does an Unfret deep check cost?"</b> Claude looks up the current prices.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="results" aria-labelledby="results-heading">
+      <div class="wrap narrow">
+        <h2 id="results-heading">Reading a result</h2>
+        <p>Every check returns a verdict (Looks fine, Worth a look, Think twice or Serious concerns), a suggested
+          action (allow, warn or block), a risk score and the flags it found, each with its evidence. The
+          <code>policy</code> setting (strict, balanced or lenient) decides how soon the action warns or blocks.
+          Flags are evidence to weigh, not proof that a shop is a scam: read what each one says, and see
+          <a href="/accuracy">how accurate the checks are</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="troubleshooting" aria-labelledby="troubleshooting-heading">
+      <div class="wrap narrow">
+        <h2 id="troubleshooting-heading">Troubleshooting</h2>
+        <ul>
+          <li><b>"Couldn't read the page"</b> (<code>page_unreadable</code>): some sites, marketplaces such as
+            Amazon in particular, refuse visits from servers. Nothing was charged. The
+            <a href="/extension">browser extension</a> checks the page you have open, or a client that has the
+            page's HTML can send it as <code>page_content</code>.</li>
+          <li><b>No checks left</b> (<code>no_checks_left</code>): nothing was charged. The quick check still
+            works; <a href="/checkout">buy checks</a> for the pass, or <code>get_checks_left</code> says where.</li>
+          <li><b>Free deep checks paused</b>: everyone's free deep checks share one daily budget. Once it's used,
+            they're back after 00:00 UTC; bought checks and quick checks work meanwhile.</li>
+          <li><b>Claude asks you to connect again</b>: the sign-in ended, because it was disconnected, unused for
+            30 days, or the pass was replaced with its backup code. Choose <b>Connect</b> and sign in again (paste
+            your pass to keep its checks).</li>
+          <li><b>"Retry shortly"</b> (<code>unavailable</code>): too many checks in a short time. Nothing was
+            charged; wait the time it names and ask again.</li>
+          <li><b>The connector won't connect at all</b>: remove it and add <code>{{base_url}}/mcp</code> again. If
+            it still fails, <a href="#support">write to us</a> with the time it happened and, if Claude shows one,
+            the reference ID of the error.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section" id="data" aria-labelledby="data-heading">
+      <div class="wrap narrow">
+        <h2 id="data-heading">Disconnecting and your data</h2>
+        <p>Disconnect any time in Claude's connector settings. Replacing the pass with its backup code also ends
+          every sign-in made with it. For a connection, Unfret keeps one-way hashes of the sign-in's tokens, tied
+          to the pass, with when they expire; nothing about who you are. The connector sends Unfret only the
+          link to check (and the page, if a client sends it), never your conversation. What Unfret keeps about
+          checks and pages, and for how long, is in the <a href="/privacy">privacy policy</a>; the
+          <a href="/terms">terms</a> apply to the connector as to the rest of Unfret.</p>
+      </div>
+    </section>
+
+    <section class="section" id="support" aria-labelledby="support-heading">
+      <div class="wrap narrow">
+        <h2 id="support-heading">Support</h2>
+        <p>Questions, problems and security reports: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.
+          If it's about your pass, include the pass's ID (on <a href="/my-checks">My checks</a>), never the pass
+          or its backup code. A shop owner who thinks a result about their site is wrong can
+          <a href="/objection">ask for a review</a>. The connector's code is open source, in the
+          <a href="https://github.com/kroshtan/unfret_backend" rel="noopener">Unfret repository</a>.</p>
+      </div>
+    </section>
+  </main>
+
+  {{footer}}
+</body>
+</html>

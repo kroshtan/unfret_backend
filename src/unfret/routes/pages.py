@@ -31,6 +31,7 @@ from unfret.credits import packs
 from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
+from unfret.schemas.errors import NotFoundError
 from unfret.x402.verdict import POLICY_THRESHOLDS, tier_description
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -526,6 +527,26 @@ def developers_http(request: Request) -> HTMLResponse:
         "balanced_block": f"{block:g}",
     }
     page = with_base(template("developers-http.html"), base_on)  # Base is on: nothing to announce
+    for name, value in fields.items():
+        page = page.replace("{{" + name + "}}", html.escape(value))
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/developers/claude", response_class=HTMLResponse)
+def developers_claude() -> HTMLResponse:
+    """
+    Unfret in Claude: adding the connector, signing in, the tools, the cost, example prompts, troubleshooting, support.
+
+    The connector's documentation for Claude's directory. It describes signing in with OAuth, so it exists only while
+    ``mcp_oauth_enabled`` is on (like ``/oauth/*``).
+
+    :return: The page.
+    :raises NotFoundError: While OAuth sign-in to ``/mcp`` is off.
+    """
+    if not settings.mcp_oauth_enabled:
+        raise NotFoundError("Not found.")
+    fields = {"base_url": settings.public_base_url.rstrip("/"), "free_checks": str(settings.free_checks_per_pass)}
+    page = template("developers-claude.html", "/developers")
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)

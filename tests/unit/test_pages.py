@@ -548,6 +548,27 @@ async def test_the_oauth_sign_in_shows_only_while_it_is_on(client: httpx.AsyncCl
     assert "call <code>get_pricing</code>; a check is what asks you to sign in" in " ".join(on.split())
 
 
+async def test_the_claude_page_exists_only_while_oauth_is_on(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await client.get("/developers/claude")).status_code == 404  # mcp_oauth_enabled is off by default
+    monkeypatch.setattr(settings, "mcp_oauth_enabled", True)
+    response = await client.get("/developers/claude")
+    assert response.status_code == 200
+    text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", response.text)).split())
+    base = settings.public_base_url.rstrip("/")
+    assert f"claude mcp add --transport http unfret {base}/mcp" in text and "{{" not in response.text
+    assert f"up to {settings.free_checks_per_pass} free deep checks" in text
+    for tool in ("check_store_quick", "check_store_deep", "get_checks_left", "get_pricing"):
+        assert tool in text, tool
+    for section in ("examples", "troubleshooting", "support"):
+        assert f'id="{section}"' in response.text, section
+    assert "hello@unfret.net" in text and 'href="/privacy"' in response.text and 'href="/terms"' in response.text
+    from unfret.routes.pages import with_oauth  # noqa: PLC0415 - only here
+
+    assert 'href="/developers/claude"' in with_oauth((STATIC_DIR / "developers.html").read_text(), True)
+
+
 async def test_developer_page_marks_balance_and_pauses_as_the_code_answers(client: httpx.AsyncClient) -> None:
     text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text)).split())
     assert "402 INSUFFICIENT_CREDITS on a developer pass and 429 FREE_CHECKS_PAUSED on other passes" in text

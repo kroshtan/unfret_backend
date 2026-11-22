@@ -1,4 +1,4 @@
-.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
+.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -56,6 +56,9 @@ e2e:  ## End-to-end sweep against dev (devnet; spends the e2e payer's test money
 
 e2e-base:  ## x402 on Base against Base Sepolia (testnet only; skips without UNFRET_E2E_BASE_* settings)
 	uv run pytest -m e2e_base tests/e2e_base --no-cov -p no:cacheprovider -v
+
+e2e-oauth:  ## MCP OAuth sign-in on dev as Claude's connector does it (free checks; makes one dev pass): UNFRET_E2E_OAUTH_URL
+	uv run pytest -m e2e_oauth tests/e2e_oauth --no-cov -p no:cacheprovider -v
 
 corpus:  ## Build the eval corpus from public datasets (into UNFRET_CORPUS_DIR)
 	uv run python -m evals.sources.beyondphish

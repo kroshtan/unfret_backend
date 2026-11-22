@@ -222,6 +222,7 @@ addopts = [
 markers = [
     "e2e: the end-to-end sweep against a deployed dev (real devnet money, secrets; see README 'End-to-end sweep')",
     "e2e_base: x402 on Base against Base Sepolia (`make e2e-base`; each test skips without its UNFRET_E2E_* setting)",
+    "e2e_oauth: the MCP OAuth sign-in on a deployed dev, as Claude's connector does it (`make e2e-oauth`; skips without UNFRET_E2E_OAUTH_URL)",
 ]
 env = [
     "UNFRET_LLM_API_KEY=test-key",

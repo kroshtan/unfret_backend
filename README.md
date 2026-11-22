@@ -982,6 +982,12 @@ key holding a little Sepolia ETH and at least 0.5 test USDC; never a mainnet key
 server (`mcp/`) pays on Base too, from `UNFRET_MCP_BASE_KEY` (Base mainnet unless `UNFRET_MCP_BASE_NETWORK=base-sepolia`);
 its own e2e, `mcp/tests/test_e2e_base.py`, pays a quick check on dev with the same `UNFRET_E2E_BASE_PAYER_KEY`.
 
+`make e2e-oauth` (marker `e2e_oauth`, never part of the dev sweep or the production gate) signs in to dev's `/mcp`
+with `UNFRET_E2E_OAUTH_URL=https://dev.unfret.net` exactly as Claude's connector does (production's host is refused):
+lazy sign-in and the 401 that starts it, discovery, claude.ai's and Claude Code's real Client ID Metadata Documents
+and DCR, the sign-in page's Continue (the proof of work solved by the test) and pasted-pass paths, the code exchange,
+refresh rotation past the grace, revocation and the error shapes. Free checks only; each run makes one pass on dev.
+
 The Solana side is off (`503`, or Base alone) until `UNFRET_HOT_WALLET_KEY` and `UNFRET_COLD_ADDRESS` (a cold wallet;
 the server never holds its key) are set. Devnet is the default, and mainnet needs `UNFRET_X402_ALLOW_MAINNET=true`. Run one instance:
 Solana's sweeper isn't coordinated across processes (Base's is). [`mcp/`](mcp/) is an MIT-licensed MCP server that pays these checks from an agent's own wallet within a

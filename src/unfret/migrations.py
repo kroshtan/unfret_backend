@@ -826,6 +826,84 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX oauth_codes_client_idx ON oauth_codes (client_id);
         """,
     ),
+    (
+        37,
+        "usage events, uptime probes and the stats views",
+        """
+        -- Anonymous usage events (unfret.usage): a real time, a kind, the route it came in by and coarse enums. No
+        -- column for a pass, a key, an address, a wallet, a user agent, an OAuth client or a checked page, and none
+        -- may be added (tests/integration/test_usage.py). Deleted after 400 days (housekeeping).
+        CREATE TABLE usage_events (
+            id     BIGSERIAL PRIMARY KEY,
+            at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            kind   TEXT NOT NULL CHECK (kind ~ '^[a-z_]{1,40}$'),
+            route  TEXT CHECK (route IN ('api', 'mcp-remote', 'extension', 'site', 'app')),
+            attrs  JSONB NOT NULL DEFAULT '{}'::jsonb
+                CHECK (jsonb_typeof(attrs) = 'object' AND length(attrs::text) <= 400)
+        );
+        CREATE INDEX usage_events_at_idx ON usage_events (at);
+        CREATE INDEX usage_events_kind_at_idx ON usage_events (kind, at);
+        -- Uptime of unfret.net and dev.unfret.net, written by a probe outside the app (on the box that hosts the
+        -- dashboards): which of Unfret's endpoints, its HTTP status, how long it took and whether that was healthy.
+        CREATE TABLE uptime_probes (
+            id          BIGSERIAL PRIMARY KEY,
+            at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            target      TEXT NOT NULL CHECK (target IN ('production', 'dev')),
+            endpoint    TEXT NOT NULL CHECK (endpoint IN ('ready', 'mcp')),
+            status      INTEGER NOT NULL DEFAULT 0,
+            latency_ms  INTEGER NOT NULL DEFAULT 0 CHECK (latency_ms >= 0),
+            ok          BOOLEAN NOT NULL
+        );
+        CREATE INDEX uptime_probes_at_idx ON uptime_probes (at);
+        -- Read-only views for the dashboards, in their own schema: aggregates only (a count per day and kind of
+        -- thing, never a row per pass), plus the two tables above, which name nobody anyway.
+        CREATE SCHEMA IF NOT EXISTS stats;
+        CREATE VIEW stats.usage_events AS SELECT id, at, kind, route, attrs FROM usage_events;
+        CREATE VIEW stats.uptime_probes AS SELECT id, at, target, endpoint, status, latency_ms, ok FROM uptime_probes;
+        CREATE VIEW stats.passes_daily AS
+            SELECT created_on AS day, developer, COUNT(*) AS passes FROM api_keys GROUP BY created_on, developer;
+        -- Passes made each day, and how many of them have used a free check, hold a balance or ever bought checks.
+        CREATE VIEW stats.pass_cohorts AS
+            SELECT k.created_on AS day, k.developer, COUNT(*) AS passes,
+                   COUNT(*) FILTER (WHERE COALESCE(w.balance_usd_micros, 0) > 0) AS with_balance,
+                   COUNT(*) FILTER (WHERE COALESCE(w.purchased, FALSE)) AS purchased
+            FROM api_keys k LEFT JOIN wallets w ON w.pubkey = 'key:' || k.id
+            GROUP BY k.created_on, k.developer;
+        CREATE VIEW stats.card_payments_daily AS
+            SELECT created_on AS day, provider, currency, COUNT(*) AS purchases, SUM(amount_cents) AS amount_cents,
+                   SUM(refunded_cents) AS refunded_cents, COUNT(*) FILTER (WHERE disputed) AS disputed,
+                   SUM(credited_usd_micros) AS credited_usd_micros
+            FROM fiat_payments GROUP BY created_on, provider, currency;
+        CREATE VIEW stats.crypto_sales_daily AS
+            SELECT sold_on AS day, asset, COUNT(*) AS sales, SUM(net_usd_micros) AS net_usd_micros,
+                   SUM(vat_usd_micros) AS vat_usd_micros
+            FROM crypto_sales GROUP BY sold_on, asset;
+        -- x402 checks paid, per day, network and tier, with what the tiers cost now (settings are not in the
+        -- database, so the dashboards price them; this only counts).
+        CREATE VIEW stats.x402_checks_daily AS
+            SELECT (at AT TIME ZONE 'UTC')::date AS day, attrs->>'network' AS network, attrs->>'tier' AS tier,
+                   COUNT(*) AS checks
+            FROM usage_events WHERE kind = 'check' AND attrs->>'payment' = 'x402' AND attrs->>'outcome' = 'ok'
+            GROUP BY 1, 2, 3;
+        -- The dashboards' role: SELECT on the stats views and nothing else (no table, no other schema). It can't log
+        -- in; a login role per environment is made a member of it by hand, its password a secret (README, "Usage
+        -- statistics"). The probe's role may only add uptime rows.
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'unfret_stats_read') THEN
+                CREATE ROLE unfret_stats_read NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'unfret_probe_write') THEN
+                CREATE ROLE unfret_probe_write NOLOGIN;
+            END IF;
+        END
+        $$;
+        GRANT USAGE ON SCHEMA stats TO unfret_stats_read;
+        GRANT SELECT ON ALL TABLES IN SCHEMA stats TO unfret_stats_read;
+        GRANT INSERT ON uptime_probes TO unfret_probe_write;
+        GRANT USAGE ON SEQUENCE uptime_probes_id_seq TO unfret_probe_write;
+        """,
+    ),
 ]
 
 

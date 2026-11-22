@@ -1692,3 +1692,9 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   provider); crypto prices include VAT"; the old "crypto purchases (card purchases: the payment provider adds its own
   sales tax/VAT)" is kept only while card prices are before tax. It is prose for people: read `card_tax_inclusive`
   for logic. No field added or removed.
+
+## Changes (anonymous usage statistics, backwards-compatible)
+
+- `POST /v1/keys`: new optional `source` (`extension`, `website`, `android`, `api`), for Unfret's anonymous usage
+  counts only, never stored with the pass; any other value is a 422 (snapshot updated). Left out, it is guessed from
+  the request's `Origin`.

@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from solders.pubkey import Pubkey
 
+from unfret import usage
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import affiliates, fiat, free, invites, keys, ledger, local_methods, vat
@@ -851,4 +852,6 @@ async def fiat_webhook(request: Request) -> dict[str, Any]:
     # Acknowledged either way (a retry wouldn't change it); an order we can't place needs a person.
     log = logger.error if outcome in {"unknown_account", "unknown_order", "too_small"} else logger.info
     log("fiat_webhook", kind=event.kind, outcome=outcome, provider=event.provider, order_id=event.order_id)
+    if outcome == "credited":
+        usage.record("payment", method="card", purpose="pass", provider=event.provider, currency=event.currency)
     return {"status": outcome}

@@ -14,6 +14,7 @@ ufk_…`` wherever a session token works. The key and its recovery code are show
 """
 
 import io
+from typing import Literal
 
 import segno
 import structlog
@@ -21,7 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from unfret import android_app_links
+from unfret import android_app_links, usage
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import CreditsDoor, affiliates, free, keys
@@ -72,6 +73,15 @@ class CreateKeyRequest(BaseModel):
         description="The affiliate code of the link that brought this visitor (unfret.net/?ref=CODE), kept by the "
         "page: the new pass counts for that affiliate. An unknown or ended code is ignored.",
     )
+    source: PassSource | None = Field(
+        default=None,
+        description="Which client makes the pass (extension, website, android or api), for Unfret's anonymous usage "
+        "counts only: never stored with the pass. Left out, it is guessed from the request's Origin.",
+    )
+
+
+PassSource = Literal["extension", "website", "android", "api"]
+_SOURCE_OF_CLIENT: dict[str, PassSource] = {"extension": "extension", "site": "website", "app": "android"}
 
 
 class RecoverRequest(BaseModel):
@@ -138,7 +148,14 @@ def challenge(request: Request, developer: bool = False) -> ChallengeResponse:
 
 
 async def issue_pass(
-    request: Request, challenge: str, solution: str, *, free: bool, developer: bool = False, ref: str | None = None
+    request: Request,
+    challenge: str,
+    solution: str,
+    *,
+    free: bool,
+    developer: bool = False,
+    ref: str | None = None,
+    source: str = "api",
 ) -> tuple[keys.IssuedKey, int]:
     """
     Make a pass for a solved challenge, within the network's limits: ``POST /v1/keys`` and the MCP sign-in page.
@@ -149,6 +166,7 @@ async def issue_pass(
     :param free: Ask for the free checks a new pass comes with.
     :param developer: A developer pass (its harder challenge, its own free checks).
     :param ref: An affiliate's code, if a link brought the visitor.
+    :param source: Which client makes it, for the anonymous ``pass_created`` event (:mod:`unfret.usage`).
     :return: The pass and how many free checks it came with.
     :raises BadRequestError: If the challenge is invalid, expired, used or unsolved.
     :raises TooManyRequestsError: If this network created too many keys today.
@@ -174,6 +192,7 @@ async def issue_pass(
     # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
     referred = bool(ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, ref)
     logger.info("api_key_created", free_checks=given, developer=developer, referred=referred)
+    usage.record("pass_created", source=source, developer=developer, free_checks=given > 0)
     return issued, given
 
 
@@ -189,8 +208,9 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     :param request: The incoming request.
     :return: The key and recovery code, shown this once.
     """
+    source = body.source or _SOURCE_OF_CLIENT.get(usage.client_of(request.headers), "api")
     issued, given = await issue_pass(
-        request, body.challenge, body.solution, free=body.free, developer=body.developer, ref=body.ref
+        request, body.challenge, body.solution, free=body.free, developer=body.developer, ref=body.ref, source=source
     )
     return KeyResponse(
         key_id=issued.key_id,

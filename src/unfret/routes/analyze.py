@@ -27,6 +27,7 @@ from unfret.schemas.errors import (
 )
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.schemas.responses import AnalyzeResponse
+from unfret.usage import note as note_usage
 from unfret.visitors import RateLimit
 
 logger = structlog.get_logger("unfret")
@@ -391,6 +392,7 @@ def _response(
     report_token: str | None = None,
     shared_from: AnalyzeRequest | None = None,
 ) -> AnalyzeResponse:
+    note_usage(payment="pass" if charged and not free_check else "free")
     response = AnalyzeResponse(
         score=result["score"],
         explanation=result["explanation"],
@@ -542,6 +544,7 @@ async def _finished(
     :return: The response.
     """
     if result["score"] == -1:
+        note_usage(unreadable=True)
         _count_free_outcome(charge)
         response = _response(result, await _refund(request, charge), charged=False, tier=body.tier)
         return await _offered(request, charge.account, response)
@@ -601,7 +604,9 @@ async def analyze_page(
     :raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.
     :raises asyncio.CancelledError: If the client hung up (after the refund).
     """
+    note_usage(tier=body.tier)
     account = await _caller(request, body, account)
+    note_usage(account=account)
     _quick_limit(request, body, account)
     graph, state = _graph_input(body, request)
     key = _cache_key(body)
@@ -704,7 +709,9 @@ async def analyze_page_stream(
     :param account: The account (injected by optional_account), or ``None`` without ``Authorization``.
     :return: A ``text/event-stream`` response.
     """
+    note_usage(tier=body.tier)
     account = await _caller(request, body, account)
+    note_usage(account=account)
     _quick_limit(request, body, account)
     graph, state = _graph_input(body, request)
     key = _cache_key(body)

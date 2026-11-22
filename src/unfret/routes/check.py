@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from unfret import __version__, clients_info, observations, verdict_store
+from unfret import __version__, clients_info, observations, usage, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.net import fetch_public_page
@@ -426,6 +426,7 @@ class PaymentFirstRoute(APIRoute):
         async def handler(request: Request) -> Response:
             if _offers_payment(request):
                 return await validate_and_check(request)
+            usage.note(skip=True)  # the price (a 402), not a check
             return await _x402_check(None, _tier_of(await request.body()), request)
 
         return handler
@@ -448,6 +449,7 @@ async def check(body: CheckRequest, request: Request) -> Response:
     :param request: The incoming request (payment header or pass, app state).
     :return: The verdict, or an x402 payment-required / error response.
     """
+    usage.note(tier=body.tier)
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if not request.headers.get(PAYMENT_SIGNATURE) and scheme.lower() == "bearer" and token.strip():
         # A pass is limited per pass rather than per network (agents behind one host, e.g. a hosted MCP client).
@@ -513,12 +515,14 @@ async def _x402_check(body: CheckRequest | None, tier: Tier, request: Request) -
     try:
         payload = decode_header(header)
         if base_accepts and base.owns(payload):
+            usage.note(network="base")
             base_pre = base.precheck(payload, accepts)
             return await _answer_once(
                 base_pre.key, lambda: _paid_check_base(body, request, base, base_pre, accepts=accepts, ip=ip)
             )
         if not solana_ok:  # not a payment on Base, and Solana is off: nothing it could match
             return _payment_required(accepts, "requirements_mismatch")
+        usage.note(network="solana")
         pre = x402.precheck(header, tier, accepts)
     except PaymentError as exc:
         if exc.malformed:
@@ -661,6 +665,7 @@ async def _paid_check_base(  # noqa: C901, PLR0911
         return 402, content, headers
     else:
         receipt = _settlement(base, success=True, transaction=settlement.transaction, payer=payer)
+        usage.record("payment", "api", method="base", purpose="x402")
     if result is not None and answer is not None:
         await verdict_store.remember(body.url, result, answer, fetched_by_us=not body.page_content)
     return 200, verdict, {PAYMENT_RESPONSE: receipt}
@@ -706,6 +711,7 @@ async def _analyse_before_settling(
         )
     answer = to_verdict(result, policy=body.policy, tier=body.tier)
     if result.get("score") == -1:  # the page couldn't be assessed: not settled, so not charged
+        usage.note(unreadable=True)
         return JSONResponse({**answer.model_dump(mode="json"), "charged": False})
     return result, answer, answer.model_dump(mode="json"), body
 
@@ -848,6 +854,7 @@ async def _paid_check(  # noqa: PLR0911
             return settlement.status_code, _json(settlement), {PAYMENT_RESPONSE: receipt}
         return settlement
     signature = settlement.signature
+    usage.record("payment", "api", method="solana", purpose="x402")
     paid = {PAYMENT_RESPONSE: _settlement(x402, success=True, transaction=signature, payer=payer)}
     if fast is not None:
         logger.info("check_fast_path", tier=body.tier)
@@ -872,6 +879,7 @@ async def _paid_check(  # noqa: PLR0911
     answer = to_verdict(result, policy=body.policy, tier=body.tier)
     verdict = answer.model_dump(mode="json")
     if result.get("score") == -1:  # the page couldn't be assessed: the caller isn't charged for it
+        usage.note(unreadable=True)
         _add_refund(verdict, await _refund_as_credits(request, payer, price), payer)
     else:
         await verdict_store.remember(body.url, result, answer, fetched_by_us=not body.page_content)

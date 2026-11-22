@@ -89,6 +89,8 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "oauth_clients",  # the MCP server's OAuth (unfret.oauth): clients, and hashes of codes and tokens for a pass
         "oauth_codes",
         "oauth_grants",
+        "usage_events",  # anonymous usage events: coarse enums only, never a page (test_usage.py)
+        "uptime_probes",  # Unfret's own endpoints' health, written by the uptime probe
         "schema_migrations",
     }
     for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings", "objections"):

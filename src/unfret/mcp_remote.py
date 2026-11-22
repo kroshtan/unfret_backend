@@ -32,6 +32,7 @@ from typing import Annotated, Any, Literal
 
 import httpx
 import structlog
+from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 from mcp.server.mcpserver import Context, Icon, MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
@@ -40,7 +41,7 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from unfret import __version__, oauth
+from unfret import __version__, oauth, usage
 from unfret.api import UnfretAPI
 from unfret.config import settings
 from unfret.credits import keys
@@ -87,6 +88,26 @@ server: MCPServer = MCPServer(
 
 _api: UnfretAPI | None = None
 _mcp_app: ASGIApp | None = None
+
+
+async def _count_use(ctx: ServerRequestContext[Any, Any], call_next: CallNext) -> HandlerResult:
+    """
+    Record an anonymous usage event for each tools/list and tool call (by the tool's name only; unfret.usage).
+
+    :param ctx: The message's context (method and raw params).
+    :param call_next: The rest of the chain.
+    :return: What the chain returns, unchanged.
+    """
+    if ctx.method == "tools/list":
+        usage.record("mcp_tools_list", "mcp-remote")
+    elif ctx.method == "tools/call":
+        name = ctx.params.get("name") if ctx.params else None
+        tool = name if isinstance(name, str) and name in usage.TOOLS else "other"
+        usage.record("mcp_tool_call", "mcp-remote", tool=tool)
+    return await call_next(ctx)
+
+
+server.middleware.append(_count_use)
 
 
 def _readonly(title: str, *, open_world: bool = False) -> ToolAnnotations:

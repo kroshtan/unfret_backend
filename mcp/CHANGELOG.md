@@ -8,9 +8,9 @@
   offer's `maxTimeoutSeconds` ahead (at most 10 minutes), with a random 32-byte nonce and the EIP-712 domain this
   package knows for Circle's USDC (`USDC`/`2` on Sepolia, `USD Coin`/`2` on mainnet). Unfret's facilitator pays the
   gas, so the wallet needs USDC only, no ETH. Only Circle's USDC on the configured network is paid.
-* **Base mainnet only when you say so**: `UNFRET_MCP_BASE_NETWORK` is `base-sepolia` by default (test USDC, with
-  `UNFRET_API_URL=https://dev.unfret.net`); set `base-mainnet` to pay real USDC on unfret.net. An offer on
-  `eip155:8453` is refused otherwise, and the error names the setting.
+* **One Base network, as on Solana**: `UNFRET_MCP_BASE_NETWORK` is `base-mainnet` by default (real USDC on
+  unfret.net); set `base-sepolia` for test USDC with `UNFRET_API_URL=https://dev.unfret.net`. Only that network is
+  paid: an offer on the other one is refused, and the error names the setting.
 * **Choosing the network**: with both wallets, `UNFRET_MCP_PREFER` (`solana` by default, or `base`) is tried first
   and the other is the fallback when the preferred one can't be paid (not offered, or no affordable Solana option). A
   spend-cap refusal never falls back. With one wallet, only that network is used. A Solana keypair is no longer

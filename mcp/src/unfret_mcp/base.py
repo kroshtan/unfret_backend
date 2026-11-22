@@ -158,8 +158,8 @@ def choose_base_requirement(payment_required: dict[str, Any], wallet: BaseWallet
     """
     Pick the ``exact`` USDC requirement on the wallet's Base network.
 
-    Base mainnet is paid only by a wallet configured for it (``UNFRET_MCP_BASE_NETWORK=base-mainnet``): an offer on
-    ``eip155:8453`` is refused otherwise, with the setting to change.
+    Only the network ``UNFRET_MCP_BASE_NETWORK`` names is paid, as on Solana: a Base Sepolia offer is refused by a
+    mainnet wallet and a mainnet offer by a Sepolia one, with the setting to change.
 
     :param payment_required: The decoded ``PAYMENT-REQUIRED`` header.
     :param wallet: The agent's Base wallet.
@@ -180,10 +180,13 @@ def choose_base_requirement(payment_required: dict[str, Any], wallet: BaseWallet
         ):
             return dict(option)
     offered = offered_base_networks(payment_required)
-    if MAINNET in offered and wallet.caip2 != MAINNET:
+    names = {caip2: name for name, caip2 in CAIP2.items()}
+    other = next((names[n] for n in sorted(offered) if n in names and n != wallet.caip2), None)
+    if other is not None:
         raise ValueError(
-            "Unfret offers Base mainnet (real USDC) and this server pays on Base Sepolia only: set "
-            "UNFRET_MCP_BASE_NETWORK=base-mainnet to pay real USDC on Base"
+            f"Unfret offers USDC on {other} and this server pays on {wallet.network} only "
+            f"(UNFRET_MCP_BASE_NETWORK): set UNFRET_MCP_BASE_NETWORK={other} to pay there, or point UNFRET_API_URL "
+            "at the server for your network (unfret.net is base-mainnet, dev.unfret.net base-sepolia)"
         )
     raise ValueError(
         f"no USDC on {wallet.network} offered (Unfret offers {', '.join(sorted(offered)) or 'no Base option'}): check "

@@ -15,8 +15,8 @@
 
 ### MCP server
 
-* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base Sepolia unless
-  `UNFRET_MCP_BASE_NETWORK=base-mainnet`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
+* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless
+  `UNFRET_MCP_BASE_NETWORK=base-sepolia`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
   ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))
 
 ### CI/CD

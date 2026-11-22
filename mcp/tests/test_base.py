@@ -60,16 +60,21 @@ def test_picks_circle_usdc_exact_on_the_wallets_network() -> None:
     assert choose_base_requirement(offer, wallet()) == good
 
 
-def test_base_mainnet_is_refused_unless_configured() -> None:
+def test_a_sepolia_wallet_refuses_a_mainnet_offer_naming_the_setting() -> None:
     offer = {"accepts": [requirement(), base_requirement(network=MAINNET)]}
-    with pytest.raises(ValueError, match="UNFRET_MCP_BASE_NETWORK=base-mainnet"):
+    with pytest.raises(ValueError, match="pays on base-sepolia only.*UNFRET_MCP_BASE_NETWORK=base-mainnet"):
         choose_base_requirement(offer, wallet())
     assert choose_base_requirement(offer, wallet("base-mainnet"))["network"] == MAINNET
 
 
-def test_a_mainnet_wallet_never_pays_on_sepolia() -> None:
-    with pytest.raises(ValueError, match="base-mainnet"):
+def test_a_mainnet_wallet_refuses_a_sepolia_offer_naming_the_setting() -> None:
+    with pytest.raises(ValueError, match="pays on base-mainnet only.*UNFRET_MCP_BASE_NETWORK=base-sepolia"):
         choose_base_requirement({"accepts": [base_requirement()]}, wallet("base-mainnet"))
+
+
+def test_no_base_offer_at_all_says_so() -> None:
+    with pytest.raises(ValueError, match="no Base option"):
+        choose_base_requirement({"accepts": [requirement()]}, wallet("base-mainnet"))
 
 
 # The signed authorization.
@@ -238,11 +243,14 @@ async def test_a_refused_base_payment_gives_the_spend_back() -> None:
     assert result["status"] == "not_paid" and spend.spent == 0
 
 
-async def test_base_mainnet_is_never_paid_without_the_setting() -> None:
+async def test_only_the_configured_base_network_is_ever_paid() -> None:
     transport, sent = offers(base_requirement(network=MAINNET))
     with pytest.raises(PaymentFailedError, match="UNFRET_MCP_BASE_NETWORK=base-mainnet"):
         await payer(transport, spend_guard(), base=wallet()).check({"url": "u"})
-    assert sent == []
+    transport, sent_too = offers(base_requirement())  # a dev server's Sepolia offer, under the mainnet default
+    with pytest.raises(PaymentFailedError, match="UNFRET_MCP_BASE_NETWORK=base-sepolia"):
+        await payer(transport, spend_guard(), base=wallet("base-mainnet")).check({"url": "u"})
+    assert sent == [] and sent_too == []
 
 
 # Choosing the network.
@@ -301,20 +309,20 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     return monkeypatch
 
 
-def test_a_base_key_alone_configures_a_sepolia_payer(clean_env: pytest.MonkeyPatch) -> None:
+def test_a_base_key_alone_defaults_to_base_mainnet_like_solana(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("UNFRET_MCP_BASE_KEY", "0x" + KEY_HEX)
     configured = server_module.payer()
     assert configured.agent is None and configured.base is not None
-    assert configured.base.caip2 == SEPOLIA and configured.rails() == ["base"]
+    assert configured.base.caip2 == MAINNET and configured.rails() == ["base"]
 
 
-def test_base_mainnet_and_the_preference_come_from_the_environment(clean_env: pytest.MonkeyPatch) -> None:
+def test_base_sepolia_and_the_preference_come_from_the_environment(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("UNFRET_MCP_BASE_KEY", KEY_HEX)
-    clean_env.setenv("UNFRET_MCP_BASE_NETWORK", "base-mainnet")
+    clean_env.setenv("UNFRET_MCP_BASE_NETWORK", "base-sepolia")
     clean_env.setenv("UNFRET_MCP_SECRET_KEY", str(Keypair()))
     clean_env.setenv("UNFRET_MCP_PREFER", "Base")
     configured = server_module.payer()
-    assert configured.base is not None and configured.base.caip2 == MAINNET
+    assert configured.base is not None and configured.base.caip2 == SEPOLIA
     assert configured.rails() == ["base", "solana"]
 
 

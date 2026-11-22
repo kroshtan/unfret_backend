@@ -98,14 +98,14 @@
       "headers": [
         {
           "name": "Authorization",
-          "description": "Your Unfret pass as a bearer token (a developer pass with free checks: https://unfret.net/developers)",
-          "isRequired": true,
+          "description": "Optional: your Unfret pass as a bearer token (a developer pass with free checks: https://unfret.net/developers). Without it, the server asks you to sign in with OAuth when a check needs a pass",
+          "isRequired": false,
           "isSecret": true,
           "value": "Bearer {unfret_pass}",
           "variables": {
             "unfret_pass": {
               "description": "Your Unfret pass (ufk_...)",
-              "isRequired": true,
+              "isRequired": false,
               "isSecret": true,
               "placeholder": "ufk_..."
             }

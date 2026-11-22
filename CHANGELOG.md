@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## [0.16.0](https://github.com/kroshtan/unfret_backend/compare/0.15.0...0.16.0) (2026-11-22)
+
+### MCP
+
+* **Sign in to the remote MCP server with OAuth, for Claude's connector directory.** `/mcp` now takes an OAuth
+  sign-in next to `Authorization: Bearer ufk_…`: with `UNFRET_MCP_OAUTH_ENABLED` (on in dev and, from this release, in
+  production) Unfret is its own OAuth 2.1 authorization server for `/mcp`: discovery documents (RFC 9728, RFC 8414),
+  public clients by Client ID Metadata Document or dynamic registration, codes only to Claude's callbacks and loopback
+  addresses, PKCE S256, the `iss` response parameter, one-hour access tokens and rotating refresh tokens, and
+  revocation. The sign-in page (`/oauth/authorize`) is one Continue button that makes a new free pass in the
+  background (the same proof of work, limits and free checks as a new extension pass), with pasting an existing pass
+  as the second option. A token stands for that pass at `/mcp` only, and ends when the pass is replaced from its
+  backup code or retired. Only hashes of codes and tokens are stored, tied to the pass; nothing about the person
+  (privacy page updated). `Bearer ufk_…` keeps working at `/mcp`, and a 401 there now says where to sign in
+  (`resource_metadata`). Signing in is lazy: without it a client can connect, list the tools and call `get_pricing`,
+  and only a check (or `get_checks_left`) asks for sign-in. Migration 36 adds `oauth_clients`, `oauth_codes` and
+  `oauth_grants` (#319).
+
+* **The remote MCP server's tools are ready for Claude's connector directory.** Each tool now has a one-sentence
+  description of what it does and returns (instead of its docstring), and all five annotations (`check_store_deep`
+  stays not read-only and not idempotent: it uses one of the pass's paid checks, so a client asks first). The tools
+  can only call `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other
+  header, so no payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
+  descriptions and that no tool can pay (#313).
+
+* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`, an EIP-3009 authorization of exactly
+  the offered amount; Unfret's facilitator pays the gas, so the wallet needs USDC only). Base mainnet by default, or
+  `UNFRET_MCP_BASE_NETWORK=base-sepolia` with dev; only the named network is paid, and an offer on the other one is
+  refused with an error naming the setting, as on Solana. `UNFRET_MCP_PREFER` picks the network when both wallets are
+  set, and the same dollar spend caps cover Base. Published to PyPI and the MCP Registry separately, after this
+  release ([mcp/CHANGELOG.md](mcp/CHANGELOG.md)) (#318, #321).
+
 ### Developer docs
 
 * **Three ways to integrate, on every developer page.** `/developers` opens with the MCP server, the API with a pass
@@ -11,13 +43,29 @@
   and the OAuth sign-in for `/mcp` only while it is on. Fixed: a paused developer pass answers 402
   `INSUFFICIENT_CREDITS` (the page said 429), the OpenAPI description sent passes to `/v1/analyze` instead of
   `/v1/check`, and the README's card prices ($6.50 / €6.50 and $21 / €21, tax included). `/.well-known/x402` points
-  at the MCP server and the docs; `POST /v1/check` documents its 422, 429, 503 and 504 answers.
+  at the MCP server and the docs; `POST /v1/check` documents its 422, 429, 503 and 504 answers (#320).
 
-### MCP server
+### x402
 
-* **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless
-  `UNFRET_MCP_BASE_NETWORK=base-sepolia`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
-  ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))
+* **USDC on Base Sepolia on dev.** dev.unfret.net's 402 offers USDC on Base Sepolia after Solana's options, settled
+  through the x402.org facilitator (Base Sepolia only, no key), so agents can test paying on Base for free before
+  mainnet (#308).
+
+* **Production is wired for USDC on Base mainnet, still off.** `config/deploy.production.yml` names Base mainnet and
+  Coinbase's CDP facilitator, and the deploy passes the `PROD_BASE_*` and `PROD_CDP_*` secrets the same way as
+  Solana's. While `UNFRET_X402_BASE_ENABLED` is `"false"` any of them may be missing; once it is `"true"` the deploy
+  refuses to run without the hot key, the cold address and the CDP key, and it always refuses a test-network
+  `PROD_BASE_RPC_URL`. Turning Base on is its own change after this release (#316).
+
+### Evaluation
+
+* **An LLM labeller for the deep-label queue** (`evals/llm_label.py`, `make llm-label`). `validate` measures a model's
+  agreement with the human labels (per page, per class, on blind pages and per finding, by model and prompt version);
+  `label` first reserves a seeded human-only test set that is never LLM-labelled, then labels the queue in order
+  (legit, junk or scam, plus correct or wrong per finding, each with a confidence) as `llm:<model>:<prompt>`, never
+  over a human label, and builds a review queue of unsure pages and findings plus a blind random audit
+  (`make deep-review`, `make deep-label-test`). Every call is cached with its cost and a budget cap stops the run. LLM
+  labels never count as human. Evals only; nothing in the service changes (#314).
 
 ### CI/CD
 
@@ -26,30 +74,8 @@
   reusable `cd.yaml`, after a tree guard: a merge whose tree is the pull request head CI passed deploys straight away,
   anything else (a pull request merged onto a `main` that had moved) is checked first. `deploy-production.yaml` keeps
   its gates and tag and deploys through the same `cd.yaml`. The production and publish gates read *Deploy dev*'s
-  `Kamal deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
-
-### MCP
-
-* **The remote MCP server's tools are ready for Claude's connector directory.** Each tool now has a one-sentence
-  description of what it does and returns (instead of its docstring), and all five annotations (`check_store_deep`
-  stays not read-only and not idempotent: it uses one of the pass's paid checks, so a client asks first). The tools
-  can only call `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other
-  header, so no payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
-  descriptions and that no tool can pay.
-
-* **Sign in to the remote MCP server with OAuth, for Claude's connector directory.** With
-  `UNFRET_MCP_OAUTH_ENABLED` (on in dev; off in production until the release flips it in
-  `config/deploy.production.yml`) Unfret is its own OAuth 2.1
-  authorization server for `/mcp`: discovery documents (RFC 9728, RFC 8414), public clients by Client ID Metadata
-  Document or dynamic registration, codes only to Claude's callbacks and loopback addresses, PKCE S256, the `iss`
-  response parameter, one-hour access tokens and rotating refresh tokens, and revocation. The sign-in page
-  (`/oauth/authorize`) lets the person paste a pass or make a new free pass (the same proof of work, limits and free
-  checks as a new extension pass). A token stands for that pass at `/mcp` only, and ends when the pass is replaced
-  from its backup code or retired. Only hashes of codes and tokens are stored, tied to the pass; nothing about the
-  person (privacy page updated). `Bearer ufk_…` keeps working at `/mcp`, and a 401 there now says where to sign in
-  (`resource_metadata`). Signing in is lazy: without it a client can connect, list the tools and call `get_pricing`,
-  and only a check (or `get_checks_left`) asks for sign-in. The page is one Continue button (the pass is made in the
-  background), with pasting a pass as the second option. Migration 36 adds `oauth_clients`, `oauth_codes` and `oauth_grants`.
+  `Kamal deploy` status (older commits: `CI / check (push)`), since Forgejo shows a calling job green even when the
+  job it calls was skipped. Repo secrets are unchanged (README, "Pull requests and CI") (#315, #317).
 
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 
@@ -140,6 +166,14 @@
   platforms are as before (#277).
 
 ### Fixes
+
+* **A paid deep check is no longer cut off after 30 seconds.** kamal-proxy now waits up to 120 s for an answer (its
+  default 30 s ended deep checks paid over x402 with a 504, though a deep check may take up to 90 s plus the payment)
+  (#310).
+
+* **x402 on Solana: a payment that landed is seen under the public RPC's rate limit.** Confirmation polling starts at
+  0.4 s and backs off to 1.6 s instead of polling every 0.4 s, which the public devnet RPC kept refusing (429), so a
+  confirmed payment ended as `SETTLEMENT_PENDING`; a refused resend no longer counts as "not accepted" (#312).
 
 * **A recommended price on the brand's own shop, or next to the 30-day low, is a note.** Since "UVP: 109,95 €"
   with the currency after the number is read, a brand's own shop showing its recommended price gave "Discount on a

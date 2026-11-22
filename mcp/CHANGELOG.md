@@ -17,6 +17,8 @@
   required: a Base key alone (or a pass) is enough.
 * The same dollar spend caps (`UNFRET_MCP_MAX_PRICE_USD`, `UNFRET_MCP_SESSION_CAP_USD`) cover Base payments, at face
   value. Results add `network` (the CAIP-2 network paid on); for Base, `payment` is the authorization's nonce.
+* The registry entry's remote server (`https://unfret.net/mcp`) no longer requires the `Authorization` header: without
+  a pass, the server asks the client to sign in with OAuth when a check needs one.
 * New dependency: `eth-account` (EIP-712 signing), a normal dependency rather than an extra, so `uvx unfret-mcp` and
   the registry entry work with a Base key as they are.
 

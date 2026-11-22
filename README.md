@@ -1024,7 +1024,7 @@ free one run without asking:
 #### Signing in with OAuth (`UNFRET_MCP_OAUTH_ENABLED`)
 
 Claude's connector directory lists remote servers that need an account only with OAuth (a fixed header is a beta for
-a few organizations), so with `UNFRET_MCP_OAUTH_ENABLED=true` (on in dev) Unfret is also its own **OAuth 2.1
+a few organizations), so with `UNFRET_MCP_OAUTH_ENABLED=true` (on in dev and production) Unfret is also its own **OAuth 2.1
 authorization server** for `/mcp` (`src/unfret/oauth.py`, `src/unfret/routes/oauth.py`). A client that adds
 `https://unfret.net/mcp` with no header gets the 401 with
 `WWW-Authenticate: Bearer realm="Unfret", resource_metadata="…/.well-known/oauth-protected-resource/mcp", scope="checks"`
@@ -1050,8 +1050,8 @@ any credential may connect (`initialize`, `server/discover`, `ping`, notificatio
 a check or `get_checks_left` gets the 401 with `error="invalid_token"` and `resource_metadata`, which makes Claude show
 its Connect card and retry the call after sign-in (the directory's "Required when the server asks"). Those 401s and
 expired tokens don't count as bad passes, since they come from a client's shared servers. While the setting is off,
-every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production turns it
-on with one line, `UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`.
+every `/oauth/*` and `/.well-known/oauth-*` route is 404 and `/mcp` takes passes only, as before. Production has it
+on since 0.16.0 (`UNFRET_MCP_OAUTH_ENABLED: "true"` in `config/deploy.production.yml`).
 
 ### Clients (`clients/`)
 

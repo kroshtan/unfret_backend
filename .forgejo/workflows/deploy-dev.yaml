@@ -1,0 +1,113 @@
+name: Deploy dev
+
+# Every push to main deploys it to DEV (dev.unfret.net, Solana devnet) through cd.yaml. Production is never deployed
+# from here; see deploy-production.yaml (manual only). Run by hand (Actions → Deploy dev → Run workflow, on main) it
+# deploys main's newest commit again, with the same guard.
+#
+# The test guard: no full test run when the merge is exactly what CI tested. Pull requests are merged without a
+# rebase when they merge cleanly, so the merge commit's tree can differ from the pull request head CI tested (another
+# pull request merged in between). The guard compares trees, which costs a shallow clone, not a test run:
+#   - a merge commit whose tree equals its second parent's (the pull request head), and that head's
+#     `CI / check (pull_request)` is green: the tree was tested, deploy straight away;
+#   - anything else (main had moved, a direct push, a squash, or `force_tests`): run ci.yaml's checks on this commit
+#     first, and deploy only if they pass.
+# Production's gate requires this workflow's `Deploy` status to be green for the release commit, so a tree no test ran
+# on can never reach production either.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_tests:
+        description: "Run the checks before deploying even when the merge's tree was already tested"
+        type: boolean
+        default: false
+
+# Forgejo applies `concurrency` to whole runs only. Deploys queue one behind the other and are never cancelled, so a
+# deploy is never cut off or dropped; a superseded run deploys nothing instead (guard).
+concurrency:
+  group: deploy-unfret-dev
+  cancel-in-progress: false
+
+jobs:
+  # The public runner: no secrets, no docker socket. Reads only git and the public repository's commit statuses.
+  guard:
+    name: Guard
+    runs-on: kroshtan-public
+    timeout-minutes: 5
+    outputs:
+      deploy: ${{ steps.guard.outputs.deploy }}
+      tested: ${{ steps.guard.outputs.tested }}
+    steps:
+      # Depth 2: the commit and all its parents, enough to compare a merge with the pull request head.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+      - name: Still needed, and already tested?
+        id: guard
+        env:
+          API: ${{ forgejo.server_url }}/api/v1/repos/${{ forgejo.repository }}
+          SHA: ${{ forgejo.sha }}
+          REF: ${{ forgejo.ref }}
+          FORCE_TESTS: ${{ inputs.force_tests }}
+        run: |
+          python3 -I - <<'PY'
+          import json, os, subprocess, sys, urllib.request
+
+          env = os.environ
+
+          def get(path):
+              # The repository is public: its branches and commit statuses need no token.
+              with urllib.request.urlopen(env["API"] + path, timeout=30) as response:
+                  return json.load(response)
+
+          def git(*args):
+              return subprocess.run(["git", *args], check=True, capture_output=True, text=True).stdout.strip()
+
+          def decide(deploy, tested, why):
+              print(why)
+              with open(env.get("FORGEJO_OUTPUT") or env["GITHUB_OUTPUT"], "a") as output:
+                  output.write(f"deploy={deploy}\ntested={tested}\n")
+              sys.exit()
+
+          if env["REF"] != "refs/heads/main":
+              print(f"::error::dev deploys only main, not {env['REF']}")
+              sys.exit(1)
+          tip = get("/branches/main")["commit"]["id"]
+          if tip != env["SHA"]:
+              decide("false", "false", f"::notice::superseded: main is at {tip} now; that commit's run deploys it")
+          if env.get("FORCE_TESTS") == "true":
+              decide("true", "false", "force_tests: checking this commit before the deploy")
+          parents = git("rev-list", "--parents", "-n", "1", "HEAD").split()[1:]
+          if len(parents) != 2:
+              decide("true", "false", "not a merge commit: checking it before the deploy")
+          head = parents[1]
+          if git("rev-parse", "HEAD^{tree}") != git("rev-parse", f"{head}^{{tree}}"):
+              decide("true", "false", f"the merge's tree differs from the pull request head {head}: checking it")
+          statuses = get(f"/commits/{head}/status").get("statuses") or []
+          state = next((s["status"] for s in statuses if s["context"] == "CI / check (pull_request)"), "missing")
+          if state != "success":
+              decide("true", "false", f"CI / check (pull_request) is {state} for {head}: checking this commit")
+          decide("true", "true", f"same tree as {head}, which CI passed: deploying without a test run")
+          PY
+
+  test:
+    name: Test
+    needs: guard
+    if: needs.guard.outputs.deploy == 'true' && needs.guard.outputs.tested != 'true'
+    uses: ./.forgejo/workflows/ci.yaml
+
+  deploy:
+    name: Deploy
+    needs: [guard, test]
+    # Tested either way: the guard found the pull request's green tree, or ci.yaml's checks ran here and passed (not
+    # superseded meanwhile). Anything else deploys nothing.
+    if: >-
+      always() && needs.guard.result == 'success' && needs.guard.outputs.deploy == 'true'
+      && (needs.guard.outputs.tested == 'true'
+      || (needs.test.result == 'success' && needs.test.outputs.checked == 'true'))
+    uses: ./.forgejo/workflows/cd.yaml
+    with:
+      destination: dev
+      ref: ${{ forgejo.sha }}
+    secrets: inherit

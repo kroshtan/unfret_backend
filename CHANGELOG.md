@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### CI/CD
+
+* **CI and CD are separate workflows.** `ci.yaml` only tests (pull requests, by hand); a merge to `main` no longer
+  runs the whole suite again before dev deploys. `deploy-dev.yaml` deploys every push to `main` through the new
+  reusable `cd.yaml`, after a tree guard: a merge whose tree is the pull request head CI passed deploys straight away,
+  anything else (a pull request merged onto a `main` that had moved) is checked first. `deploy-production.yaml` keeps
+  its gates and tag and deploys through the same `cd.yaml`. The production and publish gates read *Deploy dev*'s
+  `Deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
+
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 
 ### Prices

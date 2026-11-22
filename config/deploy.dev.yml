@@ -1,5 +1,5 @@
-# dev: dev.unfret.net on Solana devnet (test money only). Deployed automatically by CI on every push to
-# main (.forgejo/workflows/ci.yaml, job deploy-dev). Secrets: .kamal/secrets-common + .kamal/secrets.dev, fed from
+# dev: dev.unfret.net on Solana devnet (test money only). Deployed automatically on every push to main
+# (.forgejo/workflows/deploy-dev.yaml, through cd.yaml). Secrets: .kamal/secrets-common + .kamal/secrets.dev, fed from
 # the DEV_* repo secrets.
 proxy:
   hosts:

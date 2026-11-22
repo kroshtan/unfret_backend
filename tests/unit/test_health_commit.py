@@ -33,4 +33,7 @@ def test_the_image_and_the_deploys_pass_the_commit_on() -> None:
     assert "ARG GIT_SHA" in dockerfile
     assert "ENV UNFRET_GIT_SHA=$GIT_SHA" in dockerfile
     assert "GIT_SHA:" in (ROOT / "config" / "deploy.yml").read_text()
-    assert "GIT_SHA: ${{ forgejo.sha }}" in (ROOT / ".forgejo" / "workflows" / "ci.yaml").read_text()
+    workflows = ROOT / ".forgejo" / "workflows"
+    # dev's deploy (cd.yaml) builds the image from the commit it checked out, which deploy-dev.yaml names.
+    assert "GIT_SHA: ${{ steps.target.outputs.sha }}" in (workflows / "cd.yaml").read_text()
+    assert "ref: ${{ forgejo.sha }}" in (workflows / "deploy-dev.yaml").read_text()

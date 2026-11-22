@@ -24,7 +24,8 @@ claims, and the history, variation and cross-page checks as they land) should fi
    page, skill, type, evidence, verdict), so each check's precision can be measured and tuned on its own. Quitting
    halfway loses nothing. A page from elsewhere in the corpus can be put at the front of the queue to have its
    findings judged (``check --pin ID --why TEXT``, kept in ``deep_label_pins.json``); its label then becomes a
-   human one.
+   human one. ``label --review`` serves the LLM labeller's review queue instead (:mod:`evals.llm_label`: the pages
+   it was unsure of, then a random audit sample, those blind), ``label --test-set`` the human-only test set.
 
 Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 55] [--concurrency 3] [--rerun]``,
 ``... queue [--seed 7]``, ``... label [--batch 50]`` (``make deep-check``, ``make deep-queue``, ``make deep-label``).
@@ -49,7 +50,7 @@ from typing import Any
 import structlog
 from langchain_core.globals import get_llm_cache
 
-from evals.corpus import Corpus, LabelRecord, QueueItem, dump_json, now_iso
+from evals.corpus import Corpus, LabelRecord, QueueItem, dump_json, is_llm, now_iso
 from evals.label import read_key
 from evals.run import configure
 from evals.sources.deep_candidates import DATASET
@@ -525,7 +526,7 @@ def _candidate_item(record: LabelRecord, row: dict[str, Any]) -> tuple[QueueItem
 
 def _corpus_item(record: LabelRecord, row: dict[str, Any]) -> QueueItem | None:
     names = ", ".join(row["fired"])
-    if record.label == "legit" and record.label_source != "human" and row["fired"]:
+    if record.label == "legit" and record.label_source != "human" and not is_llm(record.label_source) and row["fired"]:
         return QueueItem(id=record.id, reason=f"{RELABEL}: legit, {names} fired", priority=5.5)
     if record.label is None and row["fired"]:
         return QueueItem(id=record.id, reason=f"unlabelled, {names} fired", priority=1.5)
@@ -592,7 +593,15 @@ def read_queue(corpus: Corpus) -> list[QueueItem]:
 
 
 def describe(
-    record: LabelRecord, row: dict[str, Any], item: QueueItem, *, n: int, total: int, html: str, hidden: bool = False
+    record: LabelRecord,
+    row: dict[str, Any],
+    item: QueueItem,
+    *,
+    n: int,
+    total: int,
+    html: str,
+    hidden: bool = False,
+    llm: dict[str, Any] | None = None,
 ) -> str:
     """
     One page as a compact screen of text.
@@ -603,7 +612,8 @@ def describe(
     :param n: Its position in the batch.
     :param total: The batch's size.
     :param html: The page's HTML.
-    :param hidden: Leave out the scorer's answer and why the page was queued (a blind page).
+    :param hidden: Leave out the scorer's answer, the LLM's and why the page was queued (a blind page).
+    :param llm: The LLM labeller's answer for the page (``llm_labels.jsonl``), shown unless ``hidden``.
     :return: The text.
     """
     facts, _ = parse_page(html, record.origin_url)
@@ -632,8 +642,15 @@ def describe(
         piece = row["piece_count"]
         lines.append(f"piece count: {json.dumps(piece, ensure_ascii=False)[:300]}")
     news = row.get("new_findings", [])
+    shown = llm if llm and not hidden else None
+    if shown:
+        lines.append(f"LLM ({shown['model']}): {shown['label']} ({shown['confidence']:.2f}): {shown['reason'][:300]}")
+    said = {f["evidence"]: f for f in shown["findings"]} if shown else {}
     lines.append(f"new findings ({len(news)}):" if news else "new findings: none")
-    lines += [f"  {i}. [{f['skill']}] {f['type']}: {f['evidence'][:300]}" for i, f in enumerate(news, start=1)]
+    for i, f in enumerate(news, start=1):
+        lines.append(f"  {i}. [{f['skill']}] {f['type']}: {f['evidence'][:300]}")
+        if (verdict := said.get(f["evidence"])) is not None:
+            lines.append(f"     LLM: {verdict['verdict']}: {verdict['why'][:150]}")
     others = [f for f in row.get("findings", []) if not is_new(f["skill"])][:4]
     if others:
         lines.append("other findings: " + "; ".join(f"{f['type']}" for f in others))
@@ -705,28 +722,68 @@ def ask_findings(findings: list[dict[str, Any]]) -> list[tuple[dict[str, Any], s
     return verdicts
 
 
-def label(corpus: Corpus, batch: int) -> None:
+def pages_to_label(corpus: Corpus, mode: str = "queue") -> list[QueueItem]:
     """
-    Label the next ``batch`` pages of the queue, one keypress per page (and one per new finding).
+    The pages a labelling session serves, in order.
+
+    - ``queue``: the labelling queue's pages without a human or LLM label (the reserved test set's pages included).
+    - ``review``: the LLM labeller's review queue (:mod:`evals.llm_label`): its unsure pages, then a random audit
+      sample; pages labelled by hand since drop out.
+    - ``test``: the human-only test set (``deep_test_set.json``) pages not labelled by hand yet, in queue order.
+
+    :param corpus: The corpus.
+    :param mode: ``queue``, ``review`` or ``test``.
+    :return: The queue items.
+    """
+    from evals import llm_label  # noqa: PLC0415 - it imports this module
+
+    results = label_rows(corpus)
+    known = corpus.labels()
+
+    def usable(item: QueueItem) -> bool:
+        return item.id in known and item.id in results and not notes_of(known[item.id]).get("rejected")
+
+    if mode == "review":
+        path = corpus.root / llm_label.REVIEW_QUEUE
+        items = [QueueItem.model_validate_json(x) for x in path.read_text().splitlines() if x] if path.exists() else []
+        return [i for i in items if usable(i) and is_llm(known[i.id].label_source)]
+    queue = [i for i in read_queue(corpus) if usable(i)]
+    if mode == "test":
+        path = corpus.root / llm_label.TEST_SET
+        reserved = set(json.loads(path.read_text())["ids"]) if path.exists() else set()
+        return [i for i in queue if i.id in reserved and known[i.id].label_source != "human"]
+    return [
+        i
+        for i in queue
+        if known[i.id].label is None
+        or (
+            i.reason.startswith((PINNED, RELABEL))
+            and known[i.id].label_source != "human"
+            and not is_llm(known[i.id].label_source)
+        )
+    ]
+
+
+def label(corpus: Corpus, batch: int, mode: str = "queue") -> None:
+    """
+    Label the next ``batch`` pages, one keypress per page (and one per new finding).
 
     :param corpus: The corpus.
     :param batch: Pages in this batch.
+    :param mode: Which pages (:func:`pages_to_label`): ``queue``, ``review`` (the LLM's labels to check) or
+        ``test`` (the human-only test set).
     """
+    from evals import llm_label  # noqa: PLC0415 - it imports this module
+
     results = label_rows(corpus)
-    known = corpus.labels()
-    queue = [
-        i
-        for i in read_queue(corpus)
-        if i.id in known
-        and i.id in results
-        and (
-            known[i.id].label is None
-            or (i.reason.startswith((PINNED, RELABEL)) and known[i.id].label_source != "human")
-        )
-        and not notes_of(known[i.id]).get("rejected")
-    ]
+    queue = pages_to_label(corpus, mode)
+    answers = {r["id"]: r for r in llm_label.read_jsonl(corpus.root / llm_label.LLM_LABELS)}
     if not queue:
-        print("Nothing to label: run `make deep-queue` after `make deep-check`.")  # noqa: T201
+        hint = {
+            "review": "run `uv run python -m evals.llm_label label` (or `review-queue`) first",
+            "test": "the test set is labelled, or not reserved yet (`evals.llm_label label`)",
+        }.get(mode, "run `make deep-queue` after `make deep-check`")
+        print(f"Nothing to label: {hint}.")  # noqa: T201 - interactive tool
         return
     todo = queue[:batch]
     print(f"{len(queue)} page(s) in the queue; this batch: {len(todo)}.")  # noqa: T201 - interactive tool
@@ -734,8 +791,12 @@ def label(corpus: Corpus, batch: int) -> None:
     for n, item in enumerate(todo, start=1):
         record = corpus.labels()[item.id]
         row = results[item.id]
-        hidden = blind(record.id)
-        screen = describe(record, row, item, n=n, total=len(todo), html=corpus.read_page(record.id), hidden=hidden)
+        # An audit page of the LLM's review queue is blind (unanchored by the LLM's answer), as is one page in five.
+        hidden = blind(record.id) or item.reason.startswith(llm_label.AUDIT)
+        llm = answers.get(record.id) if mode == "review" else None
+        screen = describe(
+            record, row, item, n=n, total=len(todo), html=corpus.read_page(record.id), hidden=hidden, llm=llm
+        )
         print("\n" + screen)  # noqa: T201 - interactive tool
         while True:
             key = read_key().lower()
@@ -781,6 +842,10 @@ def main() -> None:
     queue.add_argument("--random", type=int, default=None, help="pages in the random tier at most (default: all)")
     lab = sub.add_parser("label", help="label the next batch")
     lab.add_argument("--batch", type=int, default=int(os.getenv("BATCH", "50")))
+    lab.add_argument(
+        "--review", dest="mode", action="store_const", const="review", default="queue", help="the LLM's review queue"
+    )
+    lab.add_argument("--test-set", dest="mode", action="store_const", const="test", help="the human-only test set")
     sub.add_parser("summary", help="print the set's numbers")
     args = parser.parse_args()
     corpus = Corpus()
@@ -806,7 +871,7 @@ def main() -> None:
         )
         print(f"{len(items)} pages queued: {dict(tiers)}")  # noqa: T201 - command-line report
     elif args.command == "label":
-        label(corpus, args.batch)
+        label(corpus, args.batch, args.mode)
     else:
         print(json.dumps(summarise(corpus, read_results(corpus)), indent=1))  # noqa: T201 - command-line report
 

@@ -15,6 +15,7 @@ from solders.keypair import Keypair
 from tests.integration.conftest import bearer
 from tests.integration.test_credits import HOT, SOL_BOOK, ChainRpc, transfer, with_memos
 from tests.integration.test_keys import solve
+from tests.unit import test_polar
 from unfret.config import settings
 from unfret.credits import affiliates, keys, vat
 from unfret.credits.fiat import FakeFiatProvider
@@ -26,6 +27,15 @@ from unfret.visitors import DailyLimit
 ADMIN = {"Authorization": "Bearer operator-token"}
 SECRET = "whsec_" + base64.b64encode(b"affiliate-webhook-secret-32bytes").decode()
 CHECK = settings.analysis_price_usd_micros
+
+
+@pytest.fixture(autouse=True)
+def old_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests run at fixed prices ($6 / $20 before tax, €6 / €20 with VAT); the defaults have their own test."""
+    for name, value in test_polar.OLD_SETUP.items():
+        monkeypatch.setattr(settings, name, value)
+
+
 PACK_25 = 25 * CHECK  # $5 of checks
 PRICE_25 = 5_000_000  # the 25-pack, VAT included, in lamports at $1,000/SOL
 

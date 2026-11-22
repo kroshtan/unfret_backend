@@ -1,0 +1,210 @@
+name: CD
+
+# Deploys one commit of main to one destination with Kamal. It is the only place a deploy happens, and it has no
+# gates of its own beyond "the commit is on main": the callers hold them.
+#
+#   dev         deploy-dev.yaml calls it on every push to main (after its test guard). It builds the image, tagged with
+#               the commit SHA, pushes it and deploys it to dev.unfret.net (Solana devnet).
+#   production  deploy-production.yaml calls it, by hand only, after its gates (CI and dev deploy green for the commit,
+#               dev runs it, the e2e sweep against dev, the release tag). It never builds: it deploys the exact image
+#               dev ran for that SHA (`--skip-push --version`).
+#
+# Run by hand (Actions → CD → Run workflow) it redeploys a commit of main to DEV only, without deploy-dev.yaml's test
+# guard: a recovery tool (a failed deploy, a new scorer in the model store). Production cannot be chosen there, and a
+# direct run asking for it is refused below. A hand run does not count for the production gate (README, "Deploying").
+on:
+  workflow_call:
+    inputs:
+      destination:
+        description: "dev or production"
+        required: true
+        type: string
+      ref:
+        description: "The commit to deploy (a SHA on main)"
+        required: true
+        type: string
+      scorer:
+        description: "production only: the scorer versions ('<full> <quick>') the gate checked dev runs"
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      destination:
+        description: "Only dev: production deploys through Deploy production"
+        required: true
+        default: dev
+        type: choice
+        options: [dev]
+      ref:
+        description: "The commit of main to deploy to dev (main: its newest commit)"
+        required: true
+        default: main
+        type: string
+
+# Forgejo applies `concurrency` to whole runs. The callers queue their own runs (deploy-unfret-dev,
+# deploy-unfret-production); this group queues hand runs of this workflow. The deploy runner's `capacity: 1` is what
+# keeps any two deploy jobs of this repository apart, whichever workflow started them. Never cancelled: a deploy is
+# never cut off half-way.
+concurrency:
+  group: cd-unfret-${{ inputs.destination }}
+  cancel-in-progress: false
+
+jobs:
+  # The deploy runner: its own rootless docker daemon to build on, and the deploy credentials as read-only files
+  # under /creds.
+  deploy:
+    name: Kamal deploy
+    runs-on: kroshtan-deploy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - name: Check the target
+        id: target
+        env:
+          DESTINATION: ${{ inputs.destination }}
+          REF: ${{ inputs.ref }}
+          # Set only when this workflow itself was run by hand: a caller's event carries its own inputs, not ours.
+          DISPATCHED_DESTINATION: ${{ forgejo.event.inputs.destination }}
+        run: |
+          set -euo pipefail
+          [[ "$DESTINATION" =~ ^(dev|production)$ ]] || { echo "::error::unknown destination '$DESTINATION'"; exit 1; }
+          if [[ "$DESTINATION" == production && -n "$DISPATCHED_DESTINATION" ]]; then
+            echo "::error::production deploys only through Actions → Deploy production, never a hand run of CD"
+            exit 1
+          fi
+          git fetch -q origin main
+          sha="$(git rev-parse HEAD)"
+          git merge-base --is-ancestor "$sha" origin/main \
+            || { echo "::error::$REF ($sha) is not on main"; exit 1; }
+          echo "sha=$sha" >> "$FORGEJO_OUTPUT"
+          echo "Deploying $sha to $DESTINATION"
+      - name: Load the deploy credentials
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          install -m 600 /creds/ssh_key ~/.ssh/id_ed25519
+          install -m 644 /creds/known_hosts ~/.ssh/known_hosts
+          value="$(cat /creds/KAMAL_REGISTRY_PASSWORD 2> /dev/null || true)"
+          [[ -n "$value" ]] && echo "::add-mask::$value"
+          printf 'KAMAL_REGISTRY_PASSWORD=%s\n' "$value" >> "$FORGEJO_ENV"
+
+      - name: Deploy to dev
+        if: inputs.destination == 'dev'
+        # Repo secrets prefixed DEV_ map onto the app's names in .kamal/secrets.dev (Settings → Actions → Secrets).
+        # Optional ones may be unset: an empty secret keeps its feature off. The database accessory (unfret-dev-db)
+        # is booted once, on the first deploy, and takes over the data of the dev database from before the rename.
+        env:
+          # Baked into the image (Dockerfile ARG, config/deploy.yml builder.args) and shown by /v1/health as
+          # `commit`; the production deploy waits for dev to report the release's commit before its e2e sweep.
+          GIT_SHA: ${{ steps.target.outputs.sha }}
+          UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.DEV_POSTGRES_PASSWORD }}
+          UNFRET_SESSION_SECRET: ${{ secrets.DEV_SESSION_SECRET }}
+          UNFRET_HOT_WALLET_KEY: ${{ secrets.DEV_HOT_WALLET_KEY }}
+          UNFRET_COLD_ADDRESS: ${{ secrets.DEV_COLD_ADDRESS }}
+          UNFRET_ADMIN_TOKEN: ${{ secrets.DEV_ADMIN_TOKEN }}
+          UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.DEV_POLAR_ACCESS_TOKEN }}
+          UNFRET_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
+          UNFRET_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
+          UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
+          # Read-only access to the private model store (README, "The model"); unset: the open baseline scorer.
+          MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
+          UNFRET_X402_BASE_HOT_KEY: ${{ secrets.DEV_BASE_HOT_KEY }}
+          UNFRET_BASE_PAY_TO: ${{ secrets.DEV_BASE_PAY_TO }}
+          UNFRET_BASE_COLD_ADDRESS: ${{ secrets.DEV_BASE_COLD_ADDRESS }}
+          UNFRET_CDP_API_KEY_ID: ${{ secrets.DEV_CDP_API_KEY_ID }}
+          UNFRET_CDP_API_KEY_SECRET: ${{ secrets.DEV_CDP_API_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          [[ -n "$UNFRET_LLM_API_KEY" ]] || { echo "::error::repo secret LLM_API_KEY is not set"; exit 1; }
+          [[ -n "$POSTGRES_PASSWORD" ]] || { echo "::error::repo secret DEV_POSTGRES_PASSWORD is not set"; exit 1; }
+          # The scorer: the model store's current release, or the baseline (fetched before anything changes).
+          scorer="$RUNNER_TEMP/scorer"
+          scripts/private-model.sh fetch "$scorer"
+          # Build and push first: a failed build then leaves the running service alone.
+          kamal build push -d dev
+          # `details` echoes its docker ps command (which names the container), so match a running row instead.
+          if ! kamal accessory details db -d dev 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
+            kamal accessory boot db -d dev
+          fi
+          scripts/private-model.sh install dev "$scorer"
+          while read -r line; do export "$line"; done < <(scripts/private-model.sh env "$scorer")
+          kamal deploy -d dev --skip-push
+          # The production deploy runs the release dev runs, so dev must report exactly these versions.
+          scripts/private-model.sh verify https://dev.unfret.net "$scorer"
+
+      - name: Fetch the scorer dev runs
+        if: inputs.destination == 'production'
+        id: scorer
+        # Retrained scorers come from the private model store, never from the image. Production runs the store's
+        # current release only when it is the release the gate saw dev run (the `scorer` input) and dev still runs it.
+        env:
+          MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
+          GATE_SCORER: ${{ inputs.scorer }}
+        run: |
+          set -euo pipefail
+          if [[ ! -x scripts/private-model.sh ]]; then
+            echo "::warning::this release predates private scorers (v0.12 or older): it runs the baseline in its image"
+            echo "managed=false" >> "$FORGEJO_OUTPUT"
+            exit 0
+          fi
+          echo "managed=true" >> "$FORGEJO_OUTPUT"
+          scripts/private-model.sh fetch "$RUNNER_TEMP/scorer"
+          fetched="$(scripts/private-model.sh expected "$RUNNER_TEMP/scorer")"
+          [[ "$fetched" == "$GATE_SCORER" ]] \
+            || { echo "::error::the model store now names '$fetched', not '$GATE_SCORER' that dev passed the e2e sweep with: deploy dev again, then run Deploy production again"; exit 1; }
+          scripts/private-model.sh verify https://dev.unfret.net "$RUNNER_TEMP/scorer" \
+            || { echo "::error::dev runs another scorer than the model store's current release: deploy dev again (Actions → Deploy dev → Run workflow) and test it"; exit 1; }
+      - name: Deploy to production
+        if: inputs.destination == 'production'
+        # Repo secrets prefixed PROD_ map onto the app's names in .kamal/secrets.production. Every one is required:
+        # production never starts with a feature silently off or pointing at the wrong network.
+        env:
+          SHA: ${{ steps.target.outputs.sha }}
+          SCORER_MANAGED: ${{ steps.scorer.outputs.managed }}
+          UNFRET_LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_POSTGRES_PASSWORD }}
+          UNFRET_SOLANA_RPC_URL: ${{ secrets.PROD_SOLANA_RPC_URL }}
+          UNFRET_SESSION_SECRET: ${{ secrets.PROD_SESSION_SECRET }}
+          UNFRET_HOT_WALLET_KEY: ${{ secrets.PROD_HOT_WALLET_KEY }}
+          UNFRET_COLD_ADDRESS: ${{ secrets.PROD_COLD_ADDRESS }}
+          UNFRET_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
+          # Card top-ups (Polar): all three or none.
+          UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.PROD_POLAR_ACCESS_TOKEN }}
+          UNFRET_POLAR_PRODUCTS: ${{ secrets.PROD_POLAR_PRODUCTS }}
+          UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.PROD_FIAT_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in UNFRET_LLM_API_KEY POSTGRES_PASSWORD UNFRET_SOLANA_RPC_URL UNFRET_SESSION_SECRET \
+            UNFRET_HOT_WALLET_KEY UNFRET_COLD_ADDRESS UNFRET_ADMIN_TOKEN; do
+            [[ -n "${!name}" ]] || missing+=("$name")
+          done
+          ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
+          polar=0
+          for name in UNFRET_POLAR_ACCESS_TOKEN UNFRET_POLAR_PRODUCTS UNFRET_FIAT_WEBHOOK_SECRET; do
+            [[ -n "${!name}" ]] && polar=$((polar + 1))
+          done
+          ((polar == 0 || polar == 3)) \
+            || { echo "::error::set all of PROD_POLAR_ACCESS_TOKEN, PROD_POLAR_PRODUCTS, PROD_FIAT_WEBHOOK_SECRET, or none"; exit 1; }
+          ((polar == 3)) && echo "card top-ups: on (Polar production)" || echo "card top-ups: off (no PROD_POLAR_* secrets)"
+          [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
+            || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }
+          # `details` echoes its docker ps command (which names the container), so match a running row instead.
+          if ! kamal accessory details db -d production 2> /dev/null | grep -qE ' Up [0-9a-zA-Z]'; then
+            kamal accessory boot db -d production
+          fi
+          if [[ "$SCORER_MANAGED" == true ]]; then
+            scripts/private-model.sh install production "$RUNNER_TEMP/scorer"
+            while read -r line; do export "$line"; done < <(scripts/private-model.sh env "$RUNNER_TEMP/scorer")
+          fi
+          # --skip-push pulls the image dev built for this commit instead of building one; --version pins it.
+          kamal deploy -d production --skip-push --version "$SHA"
+          if [[ "$SCORER_MANAGED" == true ]]; then
+            scripts/private-model.sh verify https://unfret.net "$RUNNER_TEMP/scorer"
+          fi
+      - name: Discard the deploy key
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519

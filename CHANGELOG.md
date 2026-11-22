@@ -2,14 +2,22 @@
 
 ## Unreleased
 
+### CI/CD
+
+* **CI and CD are separate workflows.** `ci.yaml` only tests (pull requests, by hand); a merge to `main` no longer
+  runs the whole suite again before dev deploys. `deploy-dev.yaml` deploys every push to `main` through the new
+  reusable `cd.yaml`, after a tree guard: a merge whose tree is the pull request head CI passed deploys straight away,
+  anything else (a pull request merged onto a `main` that had moved) is checked first. `deploy-production.yaml` keeps
+  its gates and tag and deploys through the same `cd.yaml`. The production and publish gates read *Deploy dev*'s
+  `Deploy` status (older commits: `CI / check (push)`). Repo secrets are unchanged (README, "Pull requests and CI")
+
 ### MCP
 
 * **The remote MCP server's tools are ready for Claude's connector directory.** Each tool now has a one-sentence
   description of what it does and returns (instead of its docstring), and all five annotations (`check_store_deep`
   stays not read-only and not idempotent: it uses one of the pass's paid checks, so a client asks first). The tools
-  can only call
-  `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other header, so no
-  payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
+  can only call `POST /v1/check`, `GET /v1/credits` and `GET /v1/pricing`, with the caller's pass and no other
+  header, so no payment route (x402, wallets, card checkout) is reachable from `/mcp`; tests check the annotations, the
   descriptions and that no tool can pay.
 
 * **Sign in to the remote MCP server with OAuth, for Claude's connector directory.** With
@@ -29,6 +37,15 @@
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 
 ### Prices
+
+* **Card prices include tax: $6.50 / €6.50 and $21.00 / €21.00.** 25 and 100 checks by card now cost $6.50 and
+  $21.00 in dollars and €6.50 and €21.00 in the euro area, tax included in both currencies (Polar sets tax behaviour
+  for the whole account, now inclusive). New settings `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` (on by default) and
+  `UNFRET_POLAR_ORG_TAX_INCLUSIVE` (on by default: a Polar price with no tax behaviour of its own counts as inclusive);
+  `UNFRET_CARD_PRICES_USD` and `UNFRET_CARD_PRICES_EUR` default to `25=6.50,100=21.00`. `/v1/pricing` reports
+  `card_tax_inclusive: {"usd": true, "eur": true}`, and a dollar order is credited when its amount with tax is the
+  pack's price. The crypto prices ($5 / $20, VAT included) are unchanged and still below card. This replaces the
+  €6.00 / €20.00 and $6.00 / $20.00 (before tax) described below.
 
 * **Crypto prices include VAT: $5 and $20 for everyone.** An EU buyer paying with SOL or USDC now pays the pack's
   crypto price as shown, VAT included, instead of the price plus VAT ($6.05 / $24.20 at the Dutch 21%), and is

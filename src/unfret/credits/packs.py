@@ -89,6 +89,7 @@ class Pack:
     card_usd_micros: int  # the price by card, before the provider's sales tax/VAT
     card_eur_cents: int | None = None  # the price by card in euros (cents); None: dollars only
     card_eur_tax_inclusive: bool = True  # whether card_eur_cents includes VAT (else VAT is added at checkout)
+    card_usd_tax_inclusive: bool = True  # whether card_usd_micros includes sales tax/VAT (else added at checkout)
 
     def card_cents(self, currency: str) -> int | None:
         """
@@ -106,8 +107,11 @@ class Pack:
         Whether the card price in the currency includes sales tax/VAT (the buyer pays exactly that price).
 
         :param currency: ``usd`` or ``eur``.
-        :return: True for euros when ``card_prices_eur_tax_inclusive``; dollar prices are always before tax.
+        :return: True for euros when ``card_prices_eur_tax_inclusive``, for dollars when
+            ``card_prices_usd_tax_inclusive``.
         """
+        if currency == "usd":
+            return self.card_usd_tax_inclusive
         return currency == "eur" and self.card_eur_tax_inclusive
 
 
@@ -141,6 +145,7 @@ def packs(settings: Settings) -> list[Pack]:
             usd[n] * cent if n in usd else card_price(n * per_check, settings),
             eur.get(n),
             settings.card_prices_eur_tax_inclusive,
+            settings.card_prices_usd_tax_inclusive,
         )
         for n in settings.packs
     ]

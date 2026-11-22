@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The scorer a deploy runs: the open baseline in src/unfret/scoring/, or a retrained one from the private model store.
-# Used by the deploy workflows (.forgejo/workflows/ci.yaml, deploy-production.yaml); README, "The model".
+# Used by the deploy workflows (.forgejo/workflows/cd.yaml, deploy-production.yaml); README, "The model".
 #
 #   scripts/private-model.sh fetch DIR             the store's current release into DIR (model.json, model-quick.json);
 #                                                  DIR stays empty (the baseline) without MODEL_READ_TOKEN or when

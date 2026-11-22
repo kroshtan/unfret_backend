@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import re
 from typing import Any
 
@@ -180,6 +181,10 @@ def associated_token_address(owner: Pubkey, mint: Pubkey = WSOL_MINT) -> Pubkey:
 
 
 _POLL_S = 0.4  # about one slot
+# Polls slow down to this many _POLL_S: the public devnet RPC allows ~10 getSignatureStatuses per 10 s per IP and
+# keeps refusing (429) a client that polls faster, so a fixed 0.4 s poll never saw a payment that had landed.
+_POLL_BACKOFF = 1.5
+_MAX_POLL_FACTOR = 4
 
 
 class RpcError(RuntimeError):
@@ -452,8 +457,12 @@ class SolanaRpc:
                             return signature
                     elif polls and polls % 8 == 0:
                         # Leaders drop transactions; resending the same signed bytes is idempotent.
-                        await self.call("sendTransaction", [encoded, {"encoding": "base64", "skipPreflight": True}])
+                        # It was accepted once already, so a refused resend (a 429, say) isn't an outcome either.
+                        with contextlib.suppress(RpcError):
+                            await self.call(
+                                "sendTransaction", [encoded, {"encoding": "base64", "skipPreflight": True}]
+                            )
+                    await asyncio.sleep(_POLL_S * min(_POLL_BACKOFF**polls, _MAX_POLL_FACTOR))
                     polls += 1
-                    await asyncio.sleep(_POLL_S)
         except TimeoutError as exc:
             raise SettlementPendingError(signature) from exc

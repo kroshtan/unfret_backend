@@ -1,6 +1,7 @@
 """SolanaRpc over a mock transport: error wrapping, confirmation polling, and what a pending payment leads to."""
 
 import asyncio
+import itertools
 import json
 from typing import Any
 
@@ -197,6 +198,40 @@ async def test_a_dropped_transaction_is_resent_while_unknown(monkeypatch: pytest
 
     resends = [params for method, params in endpoint.requests[1:] if method == "sendTransaction"]
     assert resends == [["AQ==", {"encoding": "base64", "skipPreflight": True}]]  # once, after 8 unanswered polls
+
+
+async def test_polling_slows_down_to_stay_under_the_public_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The public devnet RPC answers 429 to more than ~10 status polls per 10 s and keeps doing so while polled faster.
+    sleeps: list[float] = []
+
+    async def no_wait(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("unfret.x402.solana.asyncio.sleep", no_wait)
+    landed = {"err": None, "confirmationStatus": "confirmed"}
+    endpoint = Recorder(sendTransaction="5ig", getSignatureStatuses=statuses(*[None] * 12, landed))
+
+    assert await rpc(endpoint).send_and_confirm(b"\x01", timeout_s=5) == "5ig"
+
+    assert sleeps[0] == pytest.approx(0.4)
+    assert sleeps == sorted(sleeps) and max(sleeps) == pytest.approx(1.6)
+    assert sum(1 for elapsed in itertools.accumulate(sleeps) if elapsed < 10) <= 9  # polls in the first 10 s
+
+
+async def test_a_refused_resend_keeps_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("unfret.x402.solana._POLL_S", 0)
+    sent = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal sent
+        body = json.loads(request.content)
+        if body["method"] == "sendTransaction":
+            sent += 1
+            return answer("5ig") if sent == 1 else httpx.Response(429)
+        landed = {"err": None, "confirmationStatus": "confirmed"}
+        return answer({"value": [landed if sent > 1 else None]})
+
+    assert await rpc(handler).send_and_confirm(b"\x01", timeout_s=5) == "5ig"
 
 
 async def test_a_refused_submission_is_an_rpc_error_not_pending() -> None:

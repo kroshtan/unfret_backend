@@ -45,6 +45,9 @@ proxy:
       log-driver: none
   ssl: false
   app_port: 8080
+  # kamal-proxy cuts a request off after 30 s by default; a deep check answers within analysis_timeout_s (90 s),
+  # and an x402 one waits for its payment first, so allow the slowest answer plus some margin.
+  response_timeout: 120
   healthcheck:
     # Readiness, not liveness: a container that can't reach its database never receives traffic.
     path: /v1/health/ready

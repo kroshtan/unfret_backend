@@ -23,6 +23,10 @@
   signing in without an account, the four tools, what a check costs, example prompts, reading a result,
   troubleshooting, disconnecting and support (hello@unfret.net, security reports too). Only while OAuth sign-in to
   `/mcp` is on; `/developers` links to it
+* **An end-to-end test of the MCP sign-in, as Claude's connector does it** (`make e2e-oauth`, marker `e2e_oauth`,
+  with `UNFRET_E2E_OAUTH_URL` pointing at dev): lazy sign-in, the 401 that shows Claude's Connect card, discovery,
+  claude.ai's and Claude Code's real client metadata documents and DCR, both ways through the sign-in page, the code
+  exchange, refresh rotation, revocation and the error shapes. Free checks only; it makes one pass on dev a run.
 * **unfret-mcp 0.3.0 pays USDC on Base** next to Solana (`UNFRET_MCP_BASE_KEY`; Base mainnet unless
   `UNFRET_MCP_BASE_NETWORK=base-sepolia`; `UNFRET_MCP_PREFER` picks the network with both wallets). Not published yet
   ([mcp/CHANGELOG.md](mcp/CHANGELOG.md))

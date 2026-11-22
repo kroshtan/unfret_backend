@@ -1,4 +1,4 @@
-.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check
+.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -94,6 +94,15 @@ deep-queue:  ## Order the checked candidates for labelling: new finding + unsure
 
 deep-label:  ## Label the next batch: page and new findings, one keypress each; 1 in 5 pages blind (BATCH=50)
 	uv run python -m evals.candidates label --batch $(or $(BATCH),50)
+
+deep-review:  ## Check the LLM labeller's labels: its unsure pages, then a random audit sample (blind) (BATCH=50)
+	uv run python -m evals.candidates label --review --batch $(or $(BATCH),50)
+
+deep-label-test:  ## Label the human-only test set the LLM labeller never labels (BATCH=50)
+	uv run python -m evals.candidates label --test-set --batch $(or $(BATCH),50)
+
+llm-label:  ## LLM-label the deep-label queue after validating on the human labels (LLM_LABEL_ARGS="label --model glm-5.3 --pages 600")
+	uv run python -m evals.llm_label $(or $(LLM_LABEL_ARGS),validate --model glm-5.3)
 
 markets:  ## Per-market metrics (EU, US, other) of the shipped scorers; no LLM calls (MARKETS_ARGS="--train")
 	uv run python -m evals.markets $(MARKETS_ARGS)

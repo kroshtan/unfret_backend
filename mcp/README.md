@@ -6,8 +6,8 @@ An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents as
 [Unfret](https://unfret.net) whether a store, a marketplace seller or a product listing shows signs of scams, fake
 sellers, dropshipping of generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
-Each check is paid per call over [x402](https://www.x402.org) from the **agent's own Solana wallet**, in USDC or
-wSOL. Prices are in US dollars (quick $0.01, deep $0.20; `get_pricing` has the live prices): USDC pays them exactly,
+Each check is paid per call over [x402](https://www.x402.org) from the **agent's own wallet**: on Solana in USDC or
+wSOL, or on **Base** in USDC (see "Paying on Base" below). Prices are in US dollars (quick $0.01, deep $0.20; `get_pricing` has the live prices): USDC pays them exactly,
 wSOL at Unfret's SOL/USD quote. By default the server pays in USDC when Unfret offers it and the wallet holds enough,
 otherwise in wSOL (`UNFRET_MCP_PAY_WITH=SOL` to always use SOL); if the wallet holds plain SOL, it wraps what it needs
 first. The spend
@@ -34,10 +34,18 @@ Every tool, here and there, has a title and explicit hints: `check_store` (and t
 read-only (it spends a payment or a check), not destructive, not idempotent and open-world (it reads a third-party
 page); the others are read-only.
 
-Unfret can also take USDC on Base (x402's `exact` scheme with an EIP-3009 authorization). This server doesn't pay on
-Base yet: it holds one Solana keypair, and paying on Base would mean giving the agent a second private key (an EVM
-one) and a new signing library. It ignores the Base option in Unfret's 402 and pays on Solana as before. Agents with
-an EVM wallet can call `POST /v1/check` directly with any x402 client (see Unfret's `/llms.txt`).
+**Paying on Base.** Set `UNFRET_MCP_BASE_KEY` to the agent's EVM private key (hex) and the server pays in USDC on
+Base: x402's `exact` scheme, an EIP-3009 `transferWithAuthorization` of exactly the offered amount to Unfret's
+`payTo`, signed with [eth-account](https://github.com/ethereum/eth-account). Unfret's facilitator submits it and
+pays the gas, so the wallet needs only USDC, no ETH. The key is never logged, printed or put in an error message.
+
+- **Mainnet only when you say so.** `UNFRET_MCP_BASE_NETWORK` is `base-sepolia` (test USDC, for
+  `https://dev.unfret.net`) unless set to `base-mainnet` (real USDC, for `https://unfret.net`). An offer on Base
+  mainnet is refused otherwise, and the error names the setting.
+- **Which network.** With only one wallet, that one. With a Solana keypair and a Base key, `UNFRET_MCP_PREFER`
+  (`solana` by default, or `base`) is tried first; the other is used only if the preferred one can't be paid (not
+  offered, or no affordable Solana option). A spend-cap refusal never falls back to the other network.
+- The dollar caps below apply to Base exactly as to Solana (USDC at face value).
 
 | Tool | Input | Output |
 | --- | --- | --- |
@@ -60,7 +68,10 @@ fetches.
 | Variable | Default | |
 | --- | --- | --- |
 | `UNFRET_PASS` | — | An Unfret pass (`ufk_…`): pay checks from it instead of a wallet (the settings below are then unused) |
-| `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58); not needed with `UNFRET_PASS` |
+| `UNFRET_MCP_KEYPAIR` | — | Path to the agent's Solana CLI keypair JSON (or `UNFRET_MCP_SECRET_KEY`, base58); not needed with `UNFRET_PASS` or a Base key |
+| `UNFRET_MCP_BASE_KEY` | — | The agent's EVM private key (hex), to pay USDC on Base |
+| `UNFRET_MCP_BASE_NETWORK` | `base-sepolia` | `base-mainnet` to pay real USDC on Base (refused until set) |
+| `UNFRET_MCP_PREFER` | `solana` | `base` to try Base first when both wallets are set |
 | `UNFRET_MCP_NETWORK` | `solana-mainnet` | `solana-devnet` to try it with test money against `https://dev.unfret.net` |
 | `UNFRET_MCP_RPC_URL` | the network's public RPC | The public RPCs are rate-limited; use your own for anything busy |
 | `UNFRET_MCP_PAY_WITH` | USDC when offered and held, else SOL | `SOL` to always pay in wSOL |
@@ -71,7 +82,8 @@ fetches.
 
 ## Install
 
-Needs [uv](https://docs.astral.sh/uv/) (Python 3.12 or newer) and a Solana wallet holding a little USDC or SOL. Give
+Needs [uv](https://docs.astral.sh/uv/) (Python 3.12 or newer) and a Solana wallet holding a little USDC or SOL, or
+an EVM wallet holding a little USDC on Base. Give
 the agent a wallet of its own with only what it may spend, never your main wallet: the caps above are the server's,
 the wallet balance is the real limit.
 
@@ -86,6 +98,15 @@ To try it without real money, use devnet (free test SOL from `solana airdrop`, t
 ```json
 {"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],
   "env": {"UNFRET_MCP_KEYPAIR": "~/.config/solana/devnet-agent.json", "UNFRET_MCP_NETWORK": "solana-devnet",
+          "UNFRET_API_URL": "https://dev.unfret.net"}}}}
+```
+
+With an EVM wallet on Base Sepolia (test USDC from [faucet.circle.com](https://faucet.circle.com)), against Unfret's
+test server; for real USDC on unfret.net, drop `UNFRET_API_URL` and set `UNFRET_MCP_BASE_NETWORK` to `base-mainnet`:
+
+```json
+{"mcpServers": {"unfret": {"command": "uvx", "args": ["unfret-mcp"],
+  "env": {"UNFRET_MCP_BASE_KEY": "0x…", "UNFRET_MCP_BASE_NETWORK": "base-sepolia",
           "UNFRET_API_URL": "https://dev.unfret.net"}}}}
 ```
 

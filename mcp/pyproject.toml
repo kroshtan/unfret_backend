@@ -4,14 +4,14 @@ build-backend = "uv_build"
 
 [project]
 name = "unfret-mcp"
-description = "MCP server for Unfret: checks a store, marketplace seller or product listing for scam signals before an AI agent buys; paid per check (x402, USDC or SOL) or with an Unfret pass"
-version = "0.2.0"
+description = "MCP server for Unfret: checks a store, marketplace seller or product listing for scam signals before an AI agent buys; paid per check (x402: USDC or SOL on Solana, USDC on Base) or with an Unfret pass"
+version = "0.3.0"
 authors = [{ name = "Floris van Beers", email = "hello@unfret.net" }]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-keywords = ["mcp", "model-context-protocol", "x402", "solana", "scam-detection", "ai-agents", "shopping", "e-commerce", "marketplace"]
+keywords = ["mcp", "model-context-protocol", "x402", "solana", "base", "usdc", "scam-detection", "ai-agents", "shopping", "e-commerce", "marketplace"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -26,6 +26,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "eth-account>=0.13",
     "httpx>=0.28.1",
     "mcp>=2.3",
     "solders>=0.29",

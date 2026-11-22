@@ -11,7 +11,7 @@ import pytest
 
 from tests.integration.conftest import DROP_ALL, FakeGraph
 from tests.unit import test_polar  # Polar's sample payloads
-from unfret.config import settings
+from unfret.config import Settings, settings
 from unfret.credits import fiat, keys, ledger, polar
 from unfret.credits.fiat import FakeFiatProvider, FiatEvent
 from unfret.credits.packs import EURO_AREA
@@ -22,6 +22,13 @@ from unfret.migrations import MIGRATIONS, migrate
 SECRET = "whsec_" + base64.b64encode(b"fake-webhook-secret-32-bytes!!!!").decode()
 BUYER = {"email": "jan.jansen@example.nl", "name": "Jan Jansen", "billing_address": {"line1": "Kerkstraat 1"}}
 PAGE = {"page_content": "<h1>Sweater</h1>", "url": "https://shop.test/sweater"}
+
+
+@pytest.fixture(autouse=True)
+def old_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests run at fixed prices ($6 / $20 before tax, €6 / €20 with VAT); the defaults have their own test."""
+    for name, value in test_polar.OLD_SETUP.items():
+        monkeypatch.setattr(settings, name, value)
 
 
 @pytest.fixture
@@ -418,15 +425,17 @@ def from_country(country: str) -> dict[str, str]:
 
 @pytest.mark.parametrize(("country", "currency"), [("NL", "eur"), ("BE", "eur"), ("US", "usd"), ("DK", "usd")])
 async def test_pricing_has_euro_card_prices_and_the_visitors_card_currency(
-    client: httpx.AsyncClient, country: str, currency: str
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, country: str, currency: str
 ) -> None:
+    for name in test_polar.OLD_SETUP:  # the shipped defaults
+        monkeypatch.setattr(settings, name, Settings.model_fields[name].default)
     body = (await client.get("/v1/pricing", headers=from_country(country))).json()
     assert body["card_currency"] == currency
     assert body["vat"]["country_hint"] == country
     packs = [(p["checks"], p["price_usd"], p["price_eur"], p["price_eur_cents"]) for p in body["packs"]]
-    assert packs == [(25, "$6.00", "€6.00", 600), (100, "$20.00", "€20.00", 2000)]
-    assert body["card_tax_inclusive"] == {"usd": False, "eur": True}  # €6 / €20 is the final price everywhere
-    assert body["packs"][0]["price_usd_micros"] == 6_000_000  # every dollar field stays
+    assert packs == [(25, "$6.50", "€6.50", 650), (100, "$21.00", "€21.00", 2100)]
+    assert body["card_tax_inclusive"] == {"usd": True, "eur": True}  # the final price everywhere
+    assert body["packs"][0]["price_usd_micros"] == 6_500_000  # every dollar field stays
     assert (await client.get("/v1/pricing")).json()["card_currency"] == "usd"  # no hint: dollars
 
 

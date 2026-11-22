@@ -1090,10 +1090,12 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
-| `UNFRET_CARD_PRICES_USD` | `25=6.00,100=20.00` | Each pack's card price in dollars (before tax), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |
+| `UNFRET_CARD_PRICES_USD` | `25=6.50,100=21.00` | Each pack's card price in dollars (tax included while `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` is on), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |
 | `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How the card price of a pack without one in `UNFRET_CARD_PRICES_USD` is derived |
-| `UNFRET_CARD_PRICES_EUR` | `25=6.00,100=20.00` | Each pack's card price in euros for visitors from the euro area; one per pack on sale (others are ignored), or empty for dollars only. Each Polar product needs the same EUR price |
+| `UNFRET_CARD_PRICES_EUR` | `25=6.50,100=21.00` | Each pack's card price in euros for visitors from the euro area; one per pack on sale (others are ignored), or empty for dollars only. Each Polar product needs the same EUR price |
 | `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` | `true` | The euro card prices include VAT (the final price, the same for every buyer); each product's EUR price must have the tax behaviour *inclusive* in Polar. `false`: VAT is added at checkout, like the dollar prices |
+| `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` | `true` | The dollar card prices include sales tax/VAT (the final price); `false`: tax is added at checkout |
+| `UNFRET_POLAR_ORG_TAX_INCLUSIVE` | `true` | Polar's organisation-wide tax behaviour is *inclusive*: a price with no tax behaviour of its own (`null`) counts as inclusive. `false`: `null` counts as exclusive |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
 | `UNFRET_HOT_WALLET_KEY` / `UNFRET_COLD_ADDRESS` | — | x402 and credit purchases (see above); off while empty |

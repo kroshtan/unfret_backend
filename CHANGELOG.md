@@ -51,6 +51,13 @@
   and only a check (or `get_checks_left`) asks for sign-in. The page is one Continue button (the pass is made in the
   background), with pasting a pass as the second option. Migration 36 adds `oauth_clients`, `oauth_codes` and `oauth_grants`.
 
+### Fixes
+
+* **The domain history names Common Crawl's failure first.** With both archives failing, the error now reads
+  "Common Crawl failed: HTTP 504 … The Internet Archive failed too: …" instead of only the Internet Archive's pace,
+  which hid Common Crawl's real cause (its status or timeout). When the Internet Archive steps in, Common Crawl's
+  failure is logged (`domain_history.common_crawl_failed`, never the address). The fallback is unchanged.
+
 ## [0.15.0](https://github.com/kroshtan/unfret_backend/compare/0.14.0...0.15.0) (2026-11-21)
 
 ### Prices

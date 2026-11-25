@@ -123,8 +123,8 @@ async def test_the_link_field_checks_on_the_link_checker_with_free_checks(client
 async def test_the_test_shop_result_is_the_real_one(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
     sample = page.split('class="sample"', 1)[1].split("</figure>", 1)[0]
-    band, reasons = DEEP_VERDICT  # the deep check's answer (a quick check reads less, so its reasons can differ)
-    assert band == QUICK_VERDICT[0]  # free (quick) or deep, the test shop gets the same band
+    band, reasons = DEEP_VERDICT
+    assert (band, reasons) == QUICK_VERDICT  # free (quick) or deep, the test shop gets the same answer
     assert f'<div class="verdict {band}">' in sample
     assert f'<p class="label">{CATALOGUE["labels"][band]}</p>' in sample
     cards = re.findall(

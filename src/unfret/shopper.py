@@ -170,6 +170,22 @@ CONTEXT_FEATURES = frozenset(
 # Reasons that only say something is missing from the page (which a page fetched without its footer, or a shop
 # outside the EU, can lack without being any less reliable).
 ABSENCE_REASONS = ("no_withdrawal", "no_return_policy", "no_imprint", "missing_trust_info")
+
+
+def evidence_rank(reason_type: str) -> tuple[int, int]:
+    """
+    How strong a reason's evidence is, as a sort key (strongest first).
+
+    Something seen on the page or elsewhere comes before something missing from it (:data:`ABSENCE_REASONS`), then
+    by severity.
+
+    :param reason_type: A card reason's type.
+    :return: A sort key.
+    """
+    missing = 1 if reason_type in ABSENCE_REASONS else 0
+    return missing, _SEVERITY_RANK[REASON_SEVERITY.get(reason_type, "medium")]
+
+
 # Not enough on its own for the quick tier: a countdown that doesn't restart is an ordinary promotion (Black Friday
 # banners) as often as pressure; one that restarts on reload is "timer_resets", which is.
 _QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
@@ -1455,7 +1471,12 @@ def build(
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.
         del fired["implausible_claims"]
     order = list(REASON_SEVERITY)
-    keys = sorted(fired, key=lambda k: (order_key(k), _SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
+    # Which reasons are shown: the strongest evidence first, whatever its level, so a reason that only says something
+    # is missing never pushes a proven trick off the card. How they are shown: by level (worst first), then strength.
+    shown = 1 if band == "reliable" else 3
+    strongest = sorted(fired, key=lambda k: (evidence_rank(k), order_key(k), order.index(k)))
+    by_level = lambda ks: sorted(ks, key=lambda k: (order_key(k), evidence_rank(k), order.index(k)))  # noqa: E731
+    keys = by_level(strongest[:shown]) + by_level(strongest[shown:])
     reasons = [_reason(k, fired[k]) for k in keys]
     positives = [_positive(k, v) for k, v in _positive_params(evidence).items()]
 

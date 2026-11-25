@@ -288,7 +288,12 @@ async def report_queue(
 class LabelRequest(BaseModel):
     """The human decision on a reported page."""
 
-    label: Literal["legit", "junk", "scam", "reject"]
+    label: Literal["legit", "junk", "scam", "reject"] | None = Field(
+        default=None, description="legit, junk or scam, or reject (no sample); or give a level instead."
+    )
+    level: int | None = Field(
+        default=None, ge=0, le=4, description="The page's level (higher is worse); sets the label."
+    )
 
 
 def _handled(done: reports.Handled) -> dict[str, Any]:
@@ -296,6 +301,7 @@ def _handled(done: reports.Handled) -> dict[str, Any]:
         "label": done.label,
         "gap": done.gap,
         "training": done.training,
+        "level": done.level,
     }
 
 
@@ -305,13 +311,16 @@ async def label_report(report_id: int, body: LabelRequest, request: Request) -> 
     Label a reported page: keep the page as training data, unlink it.
 
     :param report_id: The item.
-    :param body: The label, or ``reject`` (not a product page, unusable, can't tell): no sample.
+    :param body: A level (0-4, higher is worse), or a label, or ``reject`` (not a product page, unusable, can't
+        tell): no sample.
     :param request: The incoming request.
     :return: The gap and whether the page counts as training data.
-    :raises HTTPException: 404 if the item is gone (handled or expired).
+    :raises HTTPException: 404 if the item is gone (handled or expired), 422 with neither a level nor a label.
     """
-    label = None if body.label == "reject" else body.label
-    done = await reports.handle(_pool(request), settings, report_id, label)
+    if body.level is None and body.label is None:
+        raise HTTPException(422, "Send a level or a label.")
+    label = None if body.label is None or body.label == "reject" else body.label
+    done = await reports.handle(_pool(request), settings, report_id, label, body.level)
     if done is None:
         raise HTTPException(404, "No such open report.")
     return _handled(done)

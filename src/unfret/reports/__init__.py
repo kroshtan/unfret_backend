@@ -1,34 +1,33 @@
 """
-Reports of wrong results: "this is wrong" from a shopper, ``POST /v1/reports`` from an API user.
+"Wrong result?" reports: one flow for shoppers, the app, the extension and API users.
 
-**The check behind a report.** Every analysis result for an account, quick or deep, carries a ``report_token``: an
-HMAC over the account, the score, a hash of exactly what was analysed (a quick check's tier included) and of the
-explanation, and an expiry. Nothing is stored when a check runs. A quick check without an account gets none. Only
-when the reporter consents does the client send the analysed request and the explanation back with the token, which
-proves they are what that account was shown, so a report can't claim a score the model never gave.
+**One action.** A report says which level the shopper thinks is right (0 none … 4 won't arrive, higher is worse) and
+which findings are wrong or missing (:mod:`unfret.crowd` keeps that label, with the anti-poisoning rules, the optional
+contributor key and the leaderboard). It always keeps the page it is about: the client sends the analysed request
+back with the result's ``label_token`` (``POST /v1/labels``), which binds a hash of exactly what was analysed, so the
+page provably is the one checked; a URL-only check is fetched again. Personal details are scrubbed before anything is
+stored (:mod:`unfret.reports.scrub`), and nothing about who sent it is kept: no account, no IP address, no time
+(only the day). The report is the act: there is no separate consent.
+
+``POST /v1/reports`` (the older "Wrong result?" of the extension and app versions in the stores) stays as a
+compatible alias: its ``report_token`` (account-bound, never stored) and ``reason`` become the same report, anonymous.
 
 **Before the queue.** A report is about a page (:func:`~unfret.reports.scrub.page_identity`). If that page is
-already in the queue, the report is closed as ``already_reported`` and counts as corroboration (raising the item's
-value); if it was labelled within ``report_known_days``, it is closed as ``already_known``. Only a new page enters
-the queue, so every queued item is a different page.
-Limits: ``reports_per_month`` per account and one per page per account.
+already in the queue, the report counts as corroboration (raising the item's value, when its label weighs anything);
+if it was labelled within ``report_known_days``, it is ``already_known``. Only a new page enters the queue, so every
+queued item is a different page.
 
 **A full queue.** Every item has a :func:`value`: how far the reporter says the score is off, whether the page and
 its shop are new to the labelled data, and how many others confirmed it. With ``report_queue_cap`` items open, a new
-report takes the place of the item worth least if it is worth more (that item goes as if it had expired), and is
-refused (``QUEUE_FULL``) otherwise. So grinding fills the queue with the reports that teach the model most, and a
-burst of low-value ones can't push out the good ones.
+report takes the place of the item worth least if it is worth more, and is refused (``QUEUE_FULL``) otherwise.
 
 **A second opinion.** A queued item gets one model's proposed label (:mod:`unfret.reports.second_opinion`), shown to
-the operator to confirm or overrule; it never becomes a label or a training sample by itself.
+the reviewer to confirm or overrule; it never becomes a label or a training sample by itself.
 
-**Handling.** A human labels the item legit, junk or scam (or rejects it), one by one or by confirming confident
-proposals in bulk (:func:`confirm_proposals`). The label's zone is legit ≥ 70, junk and scam ≤ 40; a score at least
-``report_training_gap`` points outside it makes the page a training sample. Reports pay nothing. The labelled page
-(scrubbed facts, text, score, label) is kept as training data, and the report itself, the only link to the account, is
-deleted. Items nobody handled are deleted after ``report_expiry_days``. The item records the tier that gave the score
-(``payload["tier"]``); the labelled page is the same training data either way (``make reports`` writes it to the
-corpus, whose pages both the deep and the quick scorer are trained on).
+**Handling.** A person labels the item (a level 0-4, or legit / junk / scam), or rejects it. The labelled page
+(scrubbed facts, text, score, label, level) is kept as training data (``make reports`` writes it to the private
+corpus), the page's open labels settle on that level (reputations move), and the item is deleted. Reports pay
+nothing. Items nobody handled are deleted after ``report_expiry_days``.
 """
 
 import base64
@@ -36,6 +35,7 @@ import hashlib
 import hmac
 import json
 import time
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -43,7 +43,7 @@ from typing import Any, Literal
 import asyncpg
 import structlog
 
-from unfret import result_cache
+from unfret import crowd, levels, page_fetch, result_cache
 from unfret.config import Settings
 from unfret.reports.scrub import page_identity, page_of
 from unfret.schemas.requests import AnalyzeRequest
@@ -185,21 +185,24 @@ def check_token(
 # ── Submitting ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def account_tag(secret: str, account: str) -> bytes:
+# What an older report's reason says about the level; junk and other say "something wrong" without one.
+REASON_LEVEL: dict[str, int] = {"real_brand": 0, "scam": 4}
+LABEL_LEVEL: dict[str, int] = {"legit": 0, "scam": 4}
+
+
+def reason_for(level: int | None) -> Reason:
     """
-    A keyed hash of an account, for the per-account limits (the plain account is stored only with an open item).
+    The older reason a level stands for (the queue's value and the second opinion still read it).
 
-    :param secret: The session secret.
-    :param account: The account.
-    :return: 16 bytes.
+    :param level: 0–4, or ``None``.
+    :return: real_brand for 0, scam for 4, junk for 1–3, other without a level.
     """
-    return hashlib.blake2b(
-        account.encode(), key=secret.encode()[:64], digest_size=16, person=b"unfret-report"
-    ).digest()
+    if level is None:
+        return "other"
+    return "real_brand" if level == 0 else "scam" if level == LEVELS_MAX else "junk"
 
 
-def _month(now: datetime) -> str:
-    return now.strftime("%Y-%m")
+LEVELS_MAX = 4
 
 
 @dataclass(frozen=True)
@@ -207,79 +210,103 @@ class Submitted:
     """What happened to a report."""
 
     outcome: Outcome
-    used: int
-    limit: int
+    status: crowd.Status
     report_id: int | None = None  # the new item, when queued
+
+
+def check_label(
+    shown: crowd.Shown, level: int | None, wrong: list[str], missing: list[str], reason: Reason | None
+) -> None:
+    """
+    Refuse a report that says nothing, or names findings it can't.
+
+    :param shown: What the result said.
+    :param level: The level the reporter thinks is right.
+    :param wrong: Findings they say are wrong (must be ones the result showed).
+    :param missing: Findings they say are missing (known finding types the result didn't show).
+    :param reason: An older report's reason, if any.
+    :raises crowd.LabelError: ``BAD_LABEL``.
+    """
+    if level is None and not wrong and not missing and reason is None:
+        raise crowd.LabelError("BAD_LABEL", "Say which level is right, or which findings are wrong or missing.")
+    if not set(wrong) <= set(shown.types):
+        raise crowd.LabelError("BAD_LABEL", "You can only call wrong the findings this result showed.")
+    if not set(missing) <= set(levels.FINDING_LEVELS) - set(shown.types):
+        raise crowd.LabelError("BAD_LABEL", "A missing finding is one Unfret checks for and this result didn't show.")
 
 
 async def submit(
     pool: asyncpg.Pool,
     settings: Settings,
     *,
-    account: str,
-    claim: Claim,
     body: AnalyzeRequest,
-    reason: Reason,
-    explanation: str,
-    verdict: dict[str, Any] | None,
+    shown: crowd.Shown,
+    level: int | None,
+    wrong: list[str],
+    missing: list[str],
+    contributor_key: str | None = None,
+    reason: Reason | None = None,
+    explanation: str = "",
+    verdict: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> Submitted:
     """
-    Take a verified report: close it at once when the page is queued or known already, else queue it.
+    Take a verified report: its label, then its page into the queue unless the page is queued or known already.
 
-    A report of the test shop (:mod:`unfret.test_shop`) is closed as ``already_known`` without being stored or
-    counted: its tricks are deliberate, and it must never become training data.
+    The label goes through :func:`unfret.crowd.record` (its limits and weight).
+
+    A report of the test shop (:mod:`unfret.test_shop`) is ``already_known`` without anything being stored: its
+    tricks are deliberate, and it must never become training data.
 
     :param pool: The database pool.
     :param settings: The service settings.
-    :param account: The reporter.
-    :param claim: The verified token.
-    :param body: The analysed request.
-    :param reason: What the reporter says the page is.
-    :param explanation: The explanation they were shown.
-    :param verdict: The verdict they were shown, if any.
+    :param body: The analysed request (verified against the token by the caller).
+    :param shown: What the result said.
+    :param level: The level the reporter thinks is right, or ``None``.
+    :param wrong: Findings the reporter says are wrong.
+    :param missing: Findings the reporter says are missing.
+    :param contributor_key: The device's contributor key, or ``None``.
+    :param reason: An older report's reason (``POST /v1/reports``); derived from the level otherwise.
+    :param explanation: The explanation the reporter was shown, if sent.
+    :param verdict: The verdict the reporter was shown, if sent.
     :param now: Current time (injectable for tests).
-    :return: The outcome and the reporter's monthly count.
-    :raises ReportError: ``REPORT_LIMIT``, ``ALREADY_REPORTED_BY_YOU`` or ``QUEUE_FULL``.
+    :return: The outcome (:func:`check_label`, :func:`unfret.crowd.record` and a full queue refuse with
+        :class:`unfret.crowd.LabelError` or :class:`ReportError`).
     """
+    wrong, missing = list(dict.fromkeys(wrong)), list(dict.fromkeys(missing))
+    check_label(shown, level, wrong, missing, reason)
     now = now or datetime.now(UTC)
-    secret = settings.session_secret.get_secret_value()
-    tag, month, limit = account_tag(secret, account), _month(now), settings.reports_per_month
+    said = reason or reason_for(level)
     if is_test_shop(body.url):
-        used = await pool.fetchval("SELECT count FROM report_quota WHERE account_tag = $1 AND month = $2", tag, month)
-        logger.info("report_received", outcome="already_known", reason=reason)
-        return Submitted("already_known", int(used or 0), limit)
+        logger.info("report_received", outcome="already_known", reason=said)
+        return Submitted("already_known", "recorded")
     facts, text, url = page_of(body)
     page_key, domain = page_identity(body, facts, url, text)
     async with pool.acquire() as conn, conn.transaction():
         # Reports of one page take turns, so two of them can't both open an item.
         await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", page_key)
-        used = int(
-            await conn.fetchval("SELECT count FROM report_quota WHERE account_tag = $1 AND month = $2", tag, month)
-            or 0
+        status, weight = await crowd.record(
+            conn,
+            settings,
+            shown,
+            page_key=page_key,
+            level=level,
+            wrong=wrong,
+            missing=missing,
+            contributor_key=contributor_key,
         )
-        if used >= limit:
-            raise ReportError(
-                "REPORT_LIMIT", "You've used this month's reports; thank you!", {"used": used, "limit": limit}
-            )
         outcome: Outcome
+        report_id: int | None = None
         open_id = await conn.fetchval("SELECT id FROM reports WHERE page_key = $1", page_key)
         if open_id is not None:
-            voted = await conn.fetchval(
-                "INSERT INTO report_votes (report_id, account_tag) VALUES ($1, $2) ON CONFLICT DO NOTHING "
-                "RETURNING TRUE",
-                open_id,
-                tag,
-            )
-            if not voted:
-                raise ReportError("ALREADY_REPORTED_BY_YOU", "You've already reported this page.")
-            await conn.execute(
-                "UPDATE reports SET corroborations = corroborations + 1, "
-                "value = value + CASE WHEN corroborations < $2 THEN $3 ELSE 0 END WHERE id = $1",
-                open_id,
-                MAX_VALUED_CORROBORATIONS,
-                CORROBORATION_VALUE,
-            )
+            if weight > 0 and status == "recorded":
+                await conn.execute(
+                    "UPDATE reports SET corroborations = corroborations + 1, "
+                    "value = value + CASE WHEN corroborations < $2 THEN $3 ELSE 0 END WHERE id = $1",
+                    open_id,
+                    MAX_VALUED_CORROBORATIONS,
+                    CORROBORATION_VALUE,
+                )
             outcome = "already_reported"
         elif await conn.fetchval(
             "SELECT TRUE FROM labelled_pages WHERE page_key = $1 AND labelled_at > $2 LIMIT 1",
@@ -289,8 +316,8 @@ async def submit(
             outcome = "already_known"
         else:
             worth = value(
-                claim.score,
-                reason,
+                shown.score,
+                said,
                 new_page=not await conn.fetchval(
                     "SELECT TRUE FROM labelled_pages WHERE page_key = $1 LIMIT 1", page_key
                 ),
@@ -308,30 +335,28 @@ async def submit(
                 "flags": body.flags,
                 "explanation": explanation[:2000],
                 "verdict": verdict,
-                "tier": body.tier,  # which check gave the score: quick (rules only) or deep
+                "tier": shown.tier,  # which check gave the score: quick (rules only) or deep
+                "shown_level": shown.level,
+                "level": level,
+                "wrong": wrong,
+                "missing": missing,
             }
             report_id = await conn.fetchval(
-                "INSERT INTO reports (page_key, domain, account, reason, score, payload, created_at, value) "
-                "VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8) RETURNING id",
+                "INSERT INTO reports (page_key, domain, reason, score, level, shown_level, payload, created_at, "
+                "value) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9) RETURNING id",
                 page_key,
                 domain,
-                account,
-                reason,
-                claim.score,
+                said,
+                shown.score,
+                level,
+                shown.level,
                 json.dumps(payload, ensure_ascii=False),
-                now,
+                now.replace(hour=0, minute=0, second=0, microsecond=0),  # the day only
                 worth,
             )
-            await conn.execute("INSERT INTO report_votes (report_id, account_tag) VALUES ($1, $2)", report_id, tag)
             outcome = "queued"
-        await conn.execute(
-            "INSERT INTO report_quota (account_tag, month, count) VALUES ($1, $2, 1) "
-            "ON CONFLICT (account_tag, month) DO UPDATE SET count = report_quota.count + 1",
-            tag,
-            month,
-        )
-    logger.info("report_received", outcome=outcome, reason=reason)
-    return Submitted(outcome, used + 1, limit, report_id if outcome == "queued" else None)
+    logger.info("report_received", outcome=outcome, reason=said)
+    return Submitted(outcome, status, report_id)
 
 
 def claimed_gap(score: int, reason: Reason) -> int:
@@ -352,7 +377,7 @@ def value(score: int, reason: Reason, *, new_page: bool, new_domain: bool, corro
 
     The larger the disagreement the reporter claims, the more the model learns if they are right (and a
     claim that large is quick to judge); a page, and a shop, that the labelled data doesn't have yet adds more than
-    another page of a known one; each confirmation by another account makes the report likelier to be right.
+    another page of a known one; each confirmation by another report makes it likelier to be right.
 
     :param score: The model's score.
     :param reason: What the reporter says the page is.
@@ -385,8 +410,27 @@ async def _make_room(conn: asyncpg.Connection, settings: Settings, worth: int) -
     )
     if least is None or least["value"] >= worth:
         raise ReportError("QUEUE_FULL", "Our review queue is full right now; please try again in a few days.")
-    await conn.execute("DELETE FROM reports WHERE id = $1", least["id"])  # its account link goes with it
+    await conn.execute("DELETE FROM reports WHERE id = $1", least["id"])
     logger.info("report_replaced", value=least["value"], by_value=worth)
+
+
+async def with_page(analysed: AnalyzeRequest) -> AnalyzeRequest:
+    """
+    The analysed request with its page: a URL-only check (the web link checker) is fetched again for the report.
+
+    The token vouches for the URL and the result; the page is fetched only now, for the report. If it can't be
+    fetched any more, the report keeps just the URL.
+
+    :param analysed: The analysed request, as sent back.
+    :return: The request to store the report from.
+    """
+    if not analysed.url_only or is_test_shop(analysed.url):  # a test shop report is never kept: nothing to fetch
+        return analysed
+    try:
+        page = await page_fetch.fetch_page(analysed.url.strip())
+    except page_fetch.PageUnreadableError:
+        return analysed
+    return analysed.model_copy(update={"page_content": page.html, "url": page.url})  # by the page's own address
 
 
 # ── Handling ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -436,7 +480,7 @@ async def queue(
     min_confidence: float | None = None,
 ) -> list[dict[str, Any]]:
     """
-    The open items with their second opinions, without the reporters' accounts.
+    The open items with their second opinions and what the reports on each page said (never who sent them).
 
     :param pool: The database pool.
     :param settings: The service settings.
@@ -448,8 +492,9 @@ async def queue(
         ``agreement``, and the ``gap`` that confirming the proposal would mean).
     """
     rows = await pool.fetch(
-        "SELECT id, page_key, domain, reason, score, corroborations, value, created_at, opinion_state, llm_label, "
-        "llm_confidence, llm_reason, llm_model FROM reports ORDER BY value DESC, created_at ASC, id ASC"
+        "SELECT id, page_key, domain, reason, score, level, shown_level, corroborations, value, created_at, "
+        "opinion_state, llm_label, llm_confidence, llm_reason, llm_model FROM reports "
+        "ORDER BY value DESC, created_at ASC, id ASC"
     )
     items = []
     for row in rows:
@@ -479,8 +524,21 @@ async def queue(
         r["id"]: r["payload"]
         for r in await pool.fetch("SELECT id, payload FROM reports WHERE id = ANY($1)", [i["id"] for i in items])
     }
+    said = await pool.fetch(
+        "SELECT page_key, level, wrong, missing, anonymous FROM report_labels "
+        "WHERE page_key = ANY($1) AND NOT settled",
+        [i["page_key"] for i in items],
+    )
     for item in items:
         item["payload"] = payloads.get(item["id"], "{}")
+        mine = [r for r in said if r["page_key"] == item["page_key"]]
+        item["reports"] = {
+            "count": len(mine),
+            "anonymous": sum(r["anonymous"] for r in mine),
+            "levels": dict(Counter(str(r["level"]) for r in mine if r["level"] is not None)),
+            "wrong": dict(Counter(t for r in mine for t in r["wrong"])),
+            "missing": dict(Counter(t for r in mine for t in r["missing"])),
+        }
     return items
 
 
@@ -491,32 +549,54 @@ class Handled:
     label: Label | None
     gap: int
     training: bool
+    level: int | None = None
+
+
+def legacy_label(level: int) -> Label:
+    """
+    The legit / junk / scam label a level stands for (the binary scorer's training data).
+
+    :param level: 0–4.
+    :return: legit for 0, scam for 4, junk for 1–3.
+    """
+    return "legit" if level == 0 else "scam" if level == LEVELS_MAX else "junk"
 
 
 async def _label(
-    conn: asyncpg.Connection, settings: Settings, row: asyncpg.Record, label: Label | None, *, bulk: bool
+    conn: asyncpg.Connection,
+    settings: Settings,
+    row: asyncpg.Record,
+    label: Label | None,
+    *,
+    bulk: bool,
+    level: int | None = None,
 ) -> Handled:
     """
-    Apply a person's label to a locked item: keep the page as training data, unlink.
+    Apply a person's decision to a locked item: keep the page as training data, settle its labels, delete the item.
 
     :param conn: The connection, in a transaction holding the row.
     :param settings: The service settings.
     :param row: The item.
-    :param label: The label, or ``None`` to reject.
+    :param label: The label, or ``None`` to reject (or to take it from ``level``).
     :param bulk: Whether the label is a second opinion the operator confirmed in bulk.
+    :param level: The person's level (0–4), if they gave one.
     :return: What happened.
     """
-    await conn.execute("DELETE FROM reports WHERE id = $1", row["id"])  # the account goes with it
+    await conn.execute("DELETE FROM reports WHERE id = $1", row["id"])
+    if level is not None:
+        label = legacy_label(level)
     if label is None:
         logger.info("report_rejected")
         return Handled(None, 0, training=False)
+    level = level if level is not None else LABEL_LEVEL.get(label)
     off = gap(row["score"], label)
     await conn.execute(
-        "INSERT INTO labelled_pages (page_key, domain, label, score, reason, payload, llm_label, llm_confidence, "
-        "confirmed_in_bulk) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "INSERT INTO labelled_pages (page_key, domain, label, level, score, reason, payload, llm_label, "
+        "llm_confidence, confirmed_in_bulk) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         row["page_key"],
         row["domain"],
         label,
+        level,
         row["score"],
         row["reason"],
         row["payload"],
@@ -524,25 +604,30 @@ async def _label(
         row["llm_confidence"],
         bulk,
     )
-    logger.info("report_labelled", label=label, gap=off, bulk=bulk)
-    return Handled(label, off, training=off >= settings.report_training_gap)
+    if level is not None:
+        await crowd.settle_by_person(conn, settings, row["page_key"], level)
+    logger.info("report_labelled", label=label, level=level, gap=off, bulk=bulk)
+    return Handled(label, off, training=off >= settings.report_training_gap, level=level)
 
 
-async def handle(pool: asyncpg.Pool, settings: Settings, report_id: int, label: Label | None) -> Handled | None:
+async def handle(
+    pool: asyncpg.Pool, settings: Settings, report_id: int, label: Label | None, level: int | None = None
+) -> Handled | None:
     """
-    Label an item (or reject it with ``None``): keep the page as training data, unlink.
+    Label an item (a level, or legit / junk / scam), or reject it: keep the page as training data, delete the item.
 
     :param pool: The database pool.
     :param settings: The service settings.
     :param report_id: The item.
     :param label: The human label, or ``None`` to reject (not a product page, unusable, can't tell).
+    :param level: The human level (0–4); it sets the label.
     :return: What happened, or ``None`` if the item is gone (handled or expired meanwhile).
     """
     async with pool.acquire() as conn, conn.transaction():
         row = await conn.fetchrow("SELECT * FROM reports WHERE id = $1 FOR UPDATE", report_id)
         if row is None:
             return None
-        return await _label(conn, settings, row, label, bulk=False)
+        return await _label(conn, settings, row, label, bulk=False, level=level)
 
 
 ConfirmOutcome = Literal["labelled", "gone", "changed"]
@@ -583,7 +668,7 @@ async def confirm_proposals(
 
 async def expire(pool: asyncpg.Pool, settings: Settings, now: datetime | None = None) -> int:
     """
-    Delete items nobody handled in time (and with them the account link) and past months' report counts.
+    Delete items nobody handled in time, and old second-opinion day counts.
 
     :param pool: The database pool.
     :param settings: The service settings.
@@ -594,7 +679,6 @@ async def expire(pool: asyncpg.Pool, settings: Settings, now: datetime | None = 
     status = await pool.execute(
         "DELETE FROM reports WHERE created_at < $1", now - timedelta(days=settings.report_expiry_days)
     )
-    await pool.execute("DELETE FROM report_quota WHERE month < $1", _month(now))
     await pool.execute("DELETE FROM report_opinion_days WHERE day < $1", now.date() - timedelta(days=7))
     expired = int(status.split()[-1])
     if expired:

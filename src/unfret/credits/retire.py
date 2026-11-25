@@ -2,11 +2,11 @@
 Retiring passes: the operator's fresh start (``python -m unfret.admin_cli retire-passes``, admin API).
 
 Every pass made before a moment is deleted, with every row that names it: its balance and flags (``wallets``), its free
-checks (a column of ``api_keys``), open card checkouts and crypto quotes for it, its open reports and the keyed hashes
-behind the report limits, and the MCP server's OAuth codes and grants for it. Wallet (crypto) accounts go the same way:
-a wallet keeps no date, so every wallet account is retired, whatever the moment. Rows of passes that no longer exist (a
-refund that landed after a pass was deleted, say) go too. What stays are anonymous counts: how many passes and wallets
-were retired on a day (``usage_counters``).
+checks (a column of ``api_keys``), open card checkouts and crypto quotes for it (reports name no account), and the MCP
+server's OAuth codes and grants for it. Wallet (crypto) accounts go the same way: a wallet keeps no date, so every
+wallet account is retired, whatever the moment. Rows of passes that no longer exist (a refund that landed after a pass
+was deleted, say) go too. What stays are anonymous counts: how many passes and wallets were retired on a day
+(``usage_counters``).
 
 A retired pass is then unknown: it answers ``401 INVALID_API_KEY`` like any key the server doesn't know, and the
 clients drop it and start the free-pass flow (with the free deep checks if that browser never had them).
@@ -34,7 +34,6 @@ import structlog
 
 from unfret.config import Settings
 from unfret.credits import keys
-from unfret.reports import account_tag
 
 logger = structlog.get_logger("unfret")
 
@@ -48,9 +47,6 @@ ACCOUNT_COLUMNS = {
     ("wallets", "pubkey"),
     ("fiat_payments", "account"),
     ("fiat_checkouts", "account"),
-    ("reports", "account"),
-    ("report_votes", "account_tag"),
-    ("report_quota", "account_tag"),
     ("vat_quotes", "beneficiary"),
     ("oauth_grants", "key_id"),
     ("oauth_codes", "key_id"),
@@ -108,8 +104,8 @@ class Report:
     purchases: int = 0
     card_checkouts: int = 0
     crypto_quotes: int = 0
-    open_reports: int = 0
-    report_limits: int = 0
+    open_reports: int = 0  # always 0: reports name no account (kept for the JSON)
+    report_limits: int = 0  # always 0: reports are no longer counted per account (kept for the JSON)
     wallets: int = 0
     wallets_with_balance: int = 0
     wallet_balance_usd_micros: int = 0
@@ -134,7 +130,6 @@ async def _orphans(conn: asyncpg.Connection) -> list[str]:
         SELECT account FROM (
             SELECT pubkey AS account FROM wallets
             UNION SELECT account FROM fiat_checkouts
-            UNION SELECT account FROM reports
             UNION SELECT beneficiary FROM vat_quotes WHERE beneficiary IS NOT NULL
         ) named
         WHERE account LIKE 'key:%' AND NOT EXISTS (SELECT 1 FROM api_keys k WHERE 'key:' || k.id = named.account)
@@ -197,16 +192,6 @@ async def _count_attached(
     named = "SELECT count(*) FROM {} WHERE {} = ANY($1::text[])"
     report.card_checkouts = await _count(conn, named.format("fiat_checkouts", "account"), accounts)
     report.crypto_quotes = await _count(conn, named.format("vat_quotes", "beneficiary"), accounts)
-    report.open_reports = await _count(conn, named.format("reports", "account"), accounts)
-
-
-async def _count_hashed(conn: asyncpg.Connection, tags: list[bytes], report: Report) -> None:
-    report.report_limits = await _count(
-        conn,
-        "SELECT (SELECT count(*) FROM report_quota WHERE account_tag = ANY($1::bytea[])) "
-        "+ (SELECT count(*) FROM report_votes WHERE account_tag = ANY($1::bytea[]))",
-        tags,
-    )
 
 
 def _refusals(report: Report, *, include_wallet_balances: bool, include_purchases: bool) -> list[str]:
@@ -226,14 +211,10 @@ async def _delete(
     conn: asyncpg.Connection,
     selected: list[str],
     accounts: list[str],
-    tags: list[bytes],
     report: Report,
     *,
     period: str,
 ) -> None:
-    await conn.execute("DELETE FROM report_votes WHERE account_tag = ANY($1::bytea[])", tags)
-    await conn.execute("DELETE FROM report_quota WHERE account_tag = ANY($1::bytea[])", tags)
-    await conn.execute("DELETE FROM reports WHERE account = ANY($1::text[])", accounts)  # their votes cascade
     for table, column in (
         ("vat_quotes", "beneficiary"),
         ("fiat_checkouts", "account"),
@@ -282,7 +263,7 @@ async def retire_passes(
     :raises RetireError: If ``before`` is in the future or a key id is malformed.
     """
     cut = Cutoff.of(before, now)
-    secret, price = settings.session_secret.get_secret_value(), settings.analysis_price_usd_micros
+    price = settings.analysis_price_usd_micros
     if any(not keys.is_key_id(k) for k in keep):
         raise RetireError("The passes to keep must be key ids (10 letters a-z and 2-7).")
     keep = sorted(set(keep))
@@ -298,19 +279,16 @@ async def retire_passes(
             conn,
             "SELECT (SELECT count(*) FROM wallets WHERE pubkey = ANY($1::text[])) "
             "+ (SELECT count(*) FROM fiat_checkouts WHERE account = ANY($1::text[])) "
-            "+ (SELECT count(*) FROM reports WHERE account = ANY($1::text[])) "
             "+ (SELECT count(*) FROM vat_quotes WHERE beneficiary = ANY($1::text[]))",
             orphans,
         )
         await _count_attached(conn, passes, accounts, report, price)
-        tags = [account_tag(secret, a) for a in accounts]
-        await _count_hashed(conn, tags, report)
         report.refused = _refusals(
             report, include_wallet_balances=include_wallet_balances, include_purchases=include_purchases
         )
         if not confirm or report.refused:
             return report
-        await _delete(conn, selected, accounts, tags, report, period=(now or datetime.now(UTC)).date().isoformat())
+        await _delete(conn, selected, accounts, report, period=(now or datetime.now(UTC)).date().isoformat())
         report.retired = True
     logger.info("passes_retired", passes=report.passes, wallets=report.wallets, orphans=report.orphan_rows)
     return report

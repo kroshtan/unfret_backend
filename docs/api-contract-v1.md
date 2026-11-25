@@ -1763,3 +1763,25 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   seen on the page or elsewhere before something missing from it, then by severity. They are then ordered by level
   (worst first), then strength. `risk.because` is ordered the same way within each level. The level itself is
   unchanged.
+
+## Changes (one "Wrong result?" flow; backwards-compatible for older clients)
+
+- **One flow.** `POST /v1/labels` is the "Wrong result?" report: `{"label_token": str, "request": <the analysed
+  request, exactly as sent>, "level"?: 0-4, "wrong"?: [reason type], "missing"?: [reason type], "explanation"?: str,
+  "verdict"?: <as returned>, "contributor_key"?: str}` → 201 `{"status": "queued"|"already_reported"|"already_known",
+  "updated": bool, "anonymous": bool}`. `request` is now **required** (the report keeps that page, scrubbed; a
+  URL-only check's page is fetched again); the token binds a hash of it, so another page is 400 `BAD_LABEL_TOKEN`.
+  `wrong` (alias `disagree`) names findings the result showed; `missing` names reason types of the copy catalogue it
+  didn't show; at least one of `level`, `wrong`, `missing` is required (400 `BAD_LABEL`). 503 `QUEUE_FULL` when the
+  review queue is full and the report is worth less than everything in it. Label tokens from before this change are
+  refused (400 `BAD_LABEL_TOKEN`: check again).
+- `label_token` now comes with every analysis result that has a score (with or without a URL, a level or an account).
+- A report never keeps who sent it: no account, IP address or time of day. No consent is asked; the report is the
+  act.
+- `POST /v1/reports` (older clients) works as before and becomes the same report: `consent` is optional and ignored,
+  `reason` real_brand = level 0, scam = level 4 (junk and other: no level), one report per result (409
+  `ALREADY_REPORTED_BY_YOU` for the same result twice), `reports_used` is always 0, `REPORT_LIMIT` is no longer sent.
+  `report_token` is deprecated: new clients use `label_token`.
+- `POST /v1/contributors` adds `points` (reports that agreed with the settled answer, or with the reviewer's level).
+- Admin: `POST /v1/admin/reports/{id}/label` takes `{"level": 0-4}` as well as `{"label": …}`; `GET /v1/admin/reports`
+  items add `level`, `shown_level` and `reports` (`count`, `anonymous`, `levels`, `wrong`, `missing`).

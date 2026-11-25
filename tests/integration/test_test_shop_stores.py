@@ -16,7 +16,7 @@ from solders.keypair import Keypair
 from tests.conftest import page_fetcher
 from tests.integration.test_privacy import PAGE, URL, dump, outside, stores, x402_client  # noqa: F401 - fixtures
 from tests.unit.x402_helpers import expected, payment_header, payment_instructions, sign_payment
-from unfret import reports, shop_store
+from unfret import crowd, reports, shop_store
 from unfret.config import settings
 from unfret.graph import SKILLS, build_graph
 from unfret.graph.skills import reverse_image
@@ -109,17 +109,13 @@ async def test_a_paid_check_of_the_test_shop_keeps_nothing(
 async def test_a_report_of_the_test_shop_is_never_queued(stores: asyncpg.Pool) -> None:  # noqa: F811
     body = AnalyzeRequest(url=TEST_SHOP, page_content=render("product.html"))
 
+    shown = crowd.Shown(
+        input_hash=reports.input_hash(body), tier="deep", score=3, level=4, types=(), token_hash=b"t" * 16
+    )
     done = await reports.submit(
-        stores,
-        settings,
-        account="reporter",
-        claim=reports.Claim(account="reporter", score=3),
-        body=body,
-        reason="real_brand",
-        explanation="Fake countdown.",
-        verdict=None,
+        stores, settings, body=body, shown=shown, level=0, wrong=[], missing=[], explanation="Fake countdown."
     )
 
-    assert (done.outcome, done.used) == ("already_known", 0)
+    assert done.outcome == "already_known"
     assert await kept(stores) == {}
-    assert not await stores.fetchval("SELECT COUNT(*) FROM report_quota")
+    assert not await stores.fetchval("SELECT COUNT(*) FROM report_labels")

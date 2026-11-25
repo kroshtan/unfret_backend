@@ -10,10 +10,21 @@
   corpus; they just pay nothing. Migration 40 drops the tables and columns (affiliate earnings and payouts stay if
   any were ever written). `docs/api-contract-v1.md` lists every field that went.
 
-### Labels from the product
+### One "Wrong result?" flow
 
-* **`POST /v1/labels`**: a shopper disagrees with a result's findings and/or gives the page's overall risk level,
-  with the result's new `label_token` (every analysis result with a URL and a level; no sign-in). Optional
+* **Reports and labels are one flow** (`POST /v1/labels`): the level the shopper thinks is right (0-4) and which
+  findings are wrong (`wrong`, `disagree` accepted) or missing (`missing`), with the result's `label_token` and the
+  analysed request. A report always keeps the page it is about, scrubbed as reports were (a URL-only check's page is
+  fetched again), in the review queue (`make reports`, now with level keys 0-4 and what the reports on the page said),
+  and never who sent it: reports no longer keep an account, the per-account monthly limit and its keyed hashes are
+  gone, and the queue keeps the day only. No consent tick: the report is the act. `POST /v1/reports` stays as a
+  compatible alias for the extension and app versions in the stores (`reason` real_brand = level 0, scam = 4; one
+  report per result; `reports_used` is always 0). Migration 42 moves open reports (each confirmation an anonymous
+  label) and the earlier labels into the one store (`report_labels`, `report_answers`, `report_tokens_used`; drops
+  `report_votes`, `report_quota` and `reports.account`; `labelled_pages.level`). A reviewer's level settles the page's
+  reports and gives contributors their points. Retiring passes no longer touches reports.
+* **Labels from the product** (now part of the flow above): the result's `label_token` (every analysis result; no
+  sign-in). Optional
   **contributor key** made on the device (sent only with labels, never with checks; kept as a keyed hash):
   reputation per key, probation for new keys, a daily limit; anonymous labels weigh little, count only where another
   agrees and are single-use per result. A page's answer settles (hourly housekeeping) only with enough weight, a

@@ -404,16 +404,17 @@ def _response(
         report_token=report_token,
     )
     secret = settings.session_secret.get_secret_value()
-    risk = (result.get("verdict") or {}).get("risk")
-    if shared_from is not None and risk and settings.crowd_labels:
-        # Lets whoever sees this result label it (POST /v1/labels); nothing is stored now, and it names no one.
+    verdict = result.get("verdict") or {}
+    risk = verdict.get("risk") or {}
+    if shared_from is not None and settings.crowd_labels and 0 <= int(result["score"]) <= 100:
+        # Lets whoever sees this result report it (POST /v1/labels); nothing is stored now, and it names no one.
         response.label_token = crowd.issue_token(
             secret,
-            shared_from.url,
+            reports.input_hash(shared_from),
             tier=tier,
-            level=int(risk["level"]),
-            types=[b["type"] for b in risk.get("because", [])]
-            + [r["type"] for r in result["verdict"].get("reasons", [])],
+            score=int(result["score"]),
+            level=int(risk["level"]) if "level" in risk else None,
+            types=[b["type"] for b in risk.get("because", [])] + [r["type"] for r in verdict.get("reasons", [])],
             ttl_s=settings.crowd_label_token_ttl_s,
         )
     if shared_from is not None and shared_from.tier == "deep" and secret and not result.get(_PRIVATE):

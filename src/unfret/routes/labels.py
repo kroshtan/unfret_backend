@@ -1,17 +1,19 @@
 """
-``POST /v1/labels`` and ``/v1/contributors``: labels from the product, contributor profiles, the leaderboard.
+``POST /v1/labels`` ("Wrong result?") and ``/v1/contributors``: reports, contributor profiles, the leaderboard.
 
-See :mod:`unfret.crowd` for what is kept and how labels are weighed. No sign-in, no IP address kept or used.
+One flow (:mod:`unfret.reports`, :mod:`unfret.crowd`): a report keeps the page it is about, scrubbed, never who
+sent it. ``POST /v1/reports`` is its older, compatible form. No sign-in, no IP address kept or used.
 """
 
 from typing import Literal, NoReturn
 
 import asyncpg
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from unfret import crowd
+from unfret import crowd, reports
 from unfret.config import settings
+from unfret.reports import second_opinion
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -19,6 +21,8 @@ from unfret.schemas.errors import (
     ServiceUnavailableError,
     TooManyRequestsError,
 )
+from unfret.schemas.requests import AnalyzeRequest
+from unfret.shopper import Verdict
 
 router = APIRouter(tags=["Labels"])
 
@@ -29,29 +33,49 @@ KEY_DESCRIPTION = (
 
 
 class LabelRequest(BaseModel):
-    """A shopper's label of one result."""
+    """A "Wrong result?" report: the level you think is right, and which findings are wrong or missing."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     label_token: str = Field(max_length=1500, description="The label_token from the analysis result.")
+    request: AnalyzeRequest = Field(
+        description="The analysed request, exactly as it was sent: the report keeps that page (scrubbed of personal "
+        "details); a URL-only check's page is fetched again."
+    )
     level: int | None = Field(
         default=None,
         ge=0,
         le=4,
         description="The page's OVERALL risk level as you see it, higher is worse: 0 no concern, 1 pressure and "
-        "tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe. "
-        "Optional when disagreeing with findings only.",
+        "tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe.",
     )
-    disagree: list[str] = Field(
+    wrong: list[str] = Field(
         default_factory=list,
         max_length=crowd.MAX_TYPES,
-        description="Reason types of this result you say are wrong (verdict.reasons[].type or risk.because[].type).",
+        validation_alias=AliasChoices("wrong", "disagree"),
+        description="Findings of this result that are wrong (verdict.reasons[].type or risk.because[].type). "
+        "`disagree` is accepted as the same.",
     )
+    missing: list[str] = Field(
+        default_factory=list,
+        max_length=crowd.MAX_TYPES,
+        description="Findings this result should have shown: reason types from the copy catalogue it didn't show.",
+    )
+    explanation: str = Field(default="", max_length=4000, description="The result's explanation, as returned.")
+    verdict: Verdict | None = Field(default=None, description="The result's verdict, as returned.")
     contributor_key: str | None = Field(default=None, max_length=64, description=KEY_DESCRIPTION)
 
 
 class LabelResponse(BaseModel):
-    """The label is in."""
+    """The report is in."""
 
-    status: crowd.Status = Field(description="recorded, or updated (this contributor had labelled the page before).")
+    status: reports.Outcome = Field(
+        description="queued (the page is in the review queue), already_reported (it was: yours confirms it), "
+        "already_known (reviewed recently)."
+    )
+    updated: bool = Field(
+        default=False, description="This contributor had reported the page before: this replaces it."
+    )
     anonymous: bool = Field(description="True without a contributor key: it counts only where others agree.")
 
 
@@ -78,7 +102,8 @@ class Contributor(BaseModel):
 
     handle: str | None
     public: bool
-    labels: int = Field(description="Labels sent.")
+    points: int = Field(description="Reports whose level agreed with the settled answer (the leaderboard's score).")
+    labels: int = Field(description="Reports sent.")
     settled: int = Field(description="Labels on pages whose answer has settled.")
     agreed: int = Field(description="Of those, how many agreed with the settled answer.")
     trusted: bool = Field(description="Past probation: labels count fully.")
@@ -116,46 +141,60 @@ _ERRORS: dict[str, type[CustomAPIError]] = {
     "ALREADY_LABELLED": ConflictError,
     "LABEL_LIMIT": TooManyRequestsError,
     "LABELS_PAUSED": ServiceUnavailableError,
+    "QUEUE_FULL": ServiceUnavailableError,
 }
 
 
-def _refused(exc: crowd.LabelError) -> NoReturn:
+def _refused(exc: crowd.LabelError | reports.ReportError) -> NoReturn:
     raise _ERRORS[exc.code](exc.detail, error_code=exc.code) from exc
 
 
 def _pool(request: Request) -> asyncpg.Pool:
     pool = request.app.db_pool
     if pool is None or not settings.crowd_labels or not settings.session_secret.get_secret_value():
-        raise ServiceUnavailableError("Labels aren't taken right now.", error_code="LABELS_OFF")
+        raise ServiceUnavailableError("Reports aren't taken right now.", error_code="LABELS_OFF")
     return pool
 
 
 @router.post("/v1/labels", response_model=LabelResponse, status_code=201)
 async def send_label(body: LabelRequest, request: Request) -> LabelResponse:
     """
-    Label a result: the page's overall risk level, and/or the findings you disagree with.
+    Report a wrong result: the level you think is right, and which findings are wrong or missing.
 
-    Send the result's ``label_token`` back. Labels never change a result; agreeing labels become training data and a
-    review queue. Without a contributor key a label is anonymous, weighs little and counts only where others agree;
-    one label per result. With a key: one per page (a new one replaces the old), 50 a day.
+    Send the result's ``label_token`` back with the analysed request exactly as it was sent: the report keeps that
+    page (scrubbed of personal details) for review, never who sent it. Reports never change a result; reviewed and
+    agreeing reports become training data. Without a contributor key a report is anonymous, weighs little and counts
+    only where others agree; one per result. With a key: one per page (a new one replaces the old), 50 a day, and
+    points on the leaderboard (opt-in).
 
-    :param body: The label.
+    :param body: The report.
     :param request: The incoming request.
     :return: What happened.
+    :raises crowd.LabelError: (as an HTTP error) a token for another page.
     """
     pool = _pool(request)
+    secret = settings.session_secret.get_secret_value()
     try:
-        status = await crowd.submit(
+        shown = crowd.check_token(secret, body.label_token)
+        if shown.input_hash != reports.input_hash(body.request):
+            raise crowd.LabelError("BAD_LABEL_TOKEN", "The page data doesn't match the check it claims to be.")
+        done = await reports.submit(
             pool,
             settings,
-            token=body.label_token,
+            body=await reports.with_page(body.request),
+            shown=shown,
             level=body.level,
-            disagree=body.disagree,
+            wrong=body.wrong,
+            missing=body.missing,
             contributor_key=body.contributor_key,
+            explanation=body.explanation,
+            verdict=body.verdict.model_dump(mode="json") if body.verdict else None,
         )
-    except crowd.LabelError as exc:
+    except (crowd.LabelError, reports.ReportError) as exc:
         _refused(exc)
-    return LabelResponse(status=status, anonymous=body.contributor_key is None)
+    if done.report_id is not None:
+        second_opinion.schedule(pool, settings, done.report_id)
+    return LabelResponse(status=done.outcome, updated=done.status == "updated", anonymous=body.contributor_key is None)
 
 
 @router.post("/v1/contributors", response_model=Contributor)

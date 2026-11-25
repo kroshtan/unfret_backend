@@ -68,8 +68,17 @@ async def test_a_report_enters_the_queue_scrubbed(
     response = await report(client, headers, body, result)
 
     assert response.status_code == 201
-    assert response.json() == {"status": "queued", "reports_used": 1, "reports_per_month": 15}
+    assert response.json() == {"status": "queued", "reports_used": 0, "reports_per_month": 15}
     row = await pool.fetchrow("SELECT * FROM reports")
+    assert "account" not in dict(row)  # never who sent it
+    assert row["created_at"].time().isoformat() == "00:00:00"  # the day only
+    label = await pool.fetchrow("SELECT * FROM report_labels")
+    assert (label["page_key"], label["level"], label["anonymous"], label["contributor_id"]) == (
+        "amazon.nl|asin:B000000001",
+        4,
+        True,
+        None,
+    )
     assert row["page_key"] == "amazon.nl|asin:B000000001"
     assert row["score"] == 80
     stored = row["payload"]
@@ -81,10 +90,12 @@ async def test_a_report_enters_the_queue_scrubbed(
     assert data["facts"]["meta"] == {"og:title": "x"}
 
 
-async def test_consent_is_required(client: httpx.AsyncClient, wallet: Wallet) -> None:
+async def test_the_report_is_the_act_no_consent_tick_needed(client: httpx.AsyncClient, wallet: Wallet) -> None:
     headers, body = await reporter(wallet), page()
     result = await check(client, headers, body)
-    assert (await report(client, headers, body, result, consent=False)).status_code == 422
+    payload = {"report_token": result["report_token"], "reason": "junk", "request": body, "explanation": "x"}
+    payload["explanation"] = result["explanation"]
+    assert (await client.post("/v1/reports", json=payload, headers=headers)).status_code == 201
 
 
 async def test_reports_must_match_the_check(client: httpx.AsyncClient, wallet: Wallet) -> None:
@@ -105,7 +116,8 @@ async def test_duplicates_are_closed_before_the_queue_and_corroborate(
 ) -> None:
     body = page()
     first, second, third = await reporter(wallet), await reporter(wallet), await reporter(wallet)
-    assert (await report(client, first, body, await check(client, first, body))).json()["status"] == "queued"
+    first_result = await check(client, first, body)
+    assert (await report(client, first, body, first_result)).json()["status"] == "queued"
     # The same product with another tracking query string is the same page.
     again = page(url="https://amazon.nl/dp/B000000001?tag=affiliate-21")
     second_result = await check(client, second, again)
@@ -116,7 +128,7 @@ async def test_duplicates_are_closed_before_the_queue_and_corroborate(
     assert response.json()["status"] == "already_reported"
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 1
     assert await pool.fetchval("SELECT corroborations FROM reports") == 2
-    twice = await report(client, first, body, await check(client, first, body))
+    twice = await report(client, first, body, first_result)  # one report per result
     assert twice.status_code == 409
     assert twice.json()["error_code"] == "ALREADY_REPORTED_BY_YOU"
 
@@ -136,15 +148,17 @@ async def test_a_recently_labelled_page_is_already_known(
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 0
 
 
-async def test_monthly_limit(client: httpx.AsyncClient, wallet: Wallet, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, "reports_per_month", 2)
+async def test_anonymous_reports_have_a_daily_cap(
+    client: httpx.AsyncClient, wallet: Wallet, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "crowd_anonymous_daily_cap", 2)
     headers = await reporter(wallet)
     statuses = []
     for n in range(3):
         body = page(asin=f"B00000000{n}")
         statuses.append((await report(client, headers, body, await check(client, headers, body))).status_code)
 
-    assert statuses == [201, 201, 429]
+    assert statuses == [201, 201, 503]
 
 
 async def test_a_full_queue_gives_up_its_least_valuable_item_for_a_better_one(
@@ -214,9 +228,10 @@ async def test_labelling_keeps_the_page_pays_nothing_and_unlinks(  # noqa: PLR09
     assert response.json()["training"] is training
     assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == 0
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 0
-    assert await pool.fetchval("SELECT COUNT(*) FROM report_votes") == 0
+    assert await pool.fetchval("SELECT COUNT(*) FROM report_labels WHERE contributor_id IS NOT NULL") == 0
     sample = await pool.fetchrow("SELECT * FROM labelled_pages")
     assert sample["label"] == label
+    assert sample["level"] == {"legit": 0, "scam": 4}.get(label)
     assert sample["score"] == score
     assert address not in json.dumps(dict(sample), default=str)  # the training sample belongs to the page
     gone = await client.post(
@@ -264,8 +279,6 @@ async def test_unhandled_reports_expire_and_unlink(
     assert await reports.expire(pool, settings, now=datetime.now(UTC) + timedelta(days=29)) == 0
     assert await reports.expire(pool, settings, now=datetime.now(UTC) + timedelta(days=31)) == 1
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 0
-    assert await pool.fetchval("SELECT COUNT(*) FROM report_votes") == 0
-    assert await pool.fetchval("SELECT COUNT(*) FROM report_quota") == 0  # a past month's counts go too
 
 
 async def test_api_keys_can_report(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -276,7 +289,8 @@ async def test_api_keys_can_report(client: httpx.AsyncClient, pool: asyncpg.Pool
     response = await report(client, headers, body, await check(client, headers, body))
 
     assert response.json()["status"] == "queued"
-    assert await pool.fetchval("SELECT account FROM reports") == issued.account
+    stored = json.dumps([dict(r) for r in await pool.fetch("SELECT * FROM reports")], default=str)
+    assert issued.account not in stored and issued.key_id not in stored  # never who sent it
 
 
 async def test_the_operator_grants_a_little_credit_to_an_existing_key_only(
@@ -361,4 +375,5 @@ async def test_a_quick_result_can_be_reported_and_becomes_training_data_with_its
 @pytest.mark.usefixtures("quick")
 async def test_an_anonymous_quick_check_gets_no_report_token(client: httpx.AsyncClient) -> None:
     result = await check(client, {}, page(tier="quick"))
-    assert "report_token" not in result  # reports are per account (the monthly limit)
+    assert "report_token" not in result  # the older report needs an account
+    assert result["label_token"]  # the report everyone can send (POST /v1/labels)

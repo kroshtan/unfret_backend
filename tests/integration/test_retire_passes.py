@@ -10,7 +10,6 @@ from solders.keypair import Keypair
 
 from unfret.config import settings
 from unfret.credits import keys, ledger, retire
-from unfret.reports import account_tag
 
 ADMIN = {"Authorization": "Bearer operator-token"}
 CHECK = settings.analysis_price_usd_micros
@@ -46,15 +45,12 @@ async def snapshot(pool: asyncpg.Pool) -> dict[str, int]:
         "fiat_checkouts",
         "fiat_payments",
         "vat_quotes",
-        "reports",
-        "report_votes",
-        "report_quota",
     )
     return {t: int(await pool.fetchval(f"SELECT count(*) FROM {t}")) for t in tables}  # noqa: S608 - fixed names
 
 
 async def attach_everything(pool: asyncpg.Pool, account: str) -> None:
-    """Every kind of row that can name a pass: checkout, quote, report, report limits."""
+    """Every kind of row that can name a pass: checkout, quote (reports name none)."""
     await pool.execute(
         "INSERT INTO fiat_checkouts (provider, checkout_id, account) VALUES ('polar', $1, $2)",
         "co-" + account,
@@ -66,15 +62,6 @@ async def attach_everything(pool: asyncpg.Pool, account: str) -> None:
         ("q" + account.removeprefix("key:") * 2)[:20],
         account,
     )
-    report = await pool.fetchval(
-        "INSERT INTO reports (page_key, domain, account, reason, score, payload) "
-        "VALUES ($1, 'shop.example', $2, 'scam', 80, '{}') RETURNING id",
-        "page-" + account,
-        account,
-    )
-    tag = account_tag(settings.session_secret.get_secret_value(), account)
-    await pool.execute("INSERT INTO report_votes (report_id, account_tag) VALUES ($1, $2)", report, tag)
-    await pool.execute("INSERT INTO report_quota (account_tag, month, count) VALUES ($1, '2026-11', 1)", tag)
 
 
 async def test_a_dry_run_counts_and_changes_nothing(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -99,7 +86,7 @@ async def test_a_dry_run_counts_and_changes_nothing(client: httpx.AsyncClient, p
     }
     assert (result["with_balance"], result["balance_checks"]) == (1, 5)
     assert (result["card_checkouts"], result["crypto_quotes"]) == (1, 1)
-    assert (result["open_reports"], result["report_limits"]) == (1, 2)
+    assert (result["open_reports"], result["report_limits"]) == (0, 0)  # reports name no account
     assert (result["wallets"], result["wallets_with_balance"]) == (1, 0)
     text = str(result)
     assert old.key_id not in text and "ufk_" not in text  # counts only
@@ -130,14 +117,10 @@ async def test_confirm_retires_exactly_the_old_passes_and_what_names_them(
         ("wallets", "pubkey"),
         ("fiat_checkouts", "account"),
         ("vat_quotes", "beneficiary"),
-        ("reports", "account"),
     ):
         named = {r[0] for r in await pool.fetch(f"SELECT {column} FROM {table}")}  # noqa: S608 - fixed names
         assert old.account not in named and wallet not in named and "key:gonegonego" not in named
         assert reviewer.account in named  # the kept pass keeps everything
-    secret = settings.session_secret.get_secret_value()
-    tags = {bytes(r[0]) for r in await pool.fetch("SELECT account_tag FROM report_quota")}
-    assert tags == {account_tag(secret, reviewer.account)}
     assert await ledger.balance(pool, reviewer.account) == 2 * CHECK
     counters = dict(await pool.fetch("SELECT name, count FROM usage_counters WHERE name LIKE '%_retired'"))
     assert counters == {retire.PASSES_COUNTER: 1, retire.WALLETS_COUNTER: 1}

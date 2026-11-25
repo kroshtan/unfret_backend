@@ -32,6 +32,7 @@ async def test_analysis_is_paid_from_the_balance(
     assert response.status_code == 200
     body = response.json()
     assert body.pop("report_token")  # lets this account report the result later; nothing is stored now
+    assert body.pop("label_token")  # lets whoever sees it report it ("Wrong result?"); nothing is stored now
     assert body.pop("share_token")  # lets whoever sees it share it later, anonymously
     assert body == {
         "score": 80,
@@ -63,8 +64,6 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "fiat_payments",
         "fiat_checkouts",
         "reports",
-        "report_votes",
-        "report_quota",
         "report_opinion_days",  # second-opinion calls per day: a count, nothing about a page
         "labelled_pages",
         "vat_quotes",
@@ -85,20 +84,20 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "usage_events",  # anonymous usage events: coarse enums only, never a page (test_usage.py)
         "uptime_probes",  # Unfret's own endpoints' health, written by the uptime probe
         "oauth_spent_refresh",  # hashes of rotated-away refresh tokens, so presenting one revokes its grant
-        "contributors",  # labels from the product (unfret.crowd): only once someone sends a label
-        "crowd_labels",
-        "crowd_tokens_used",
-        "crowd_answers",
+        "contributors",  # "Wrong result?" reports (unfret.crowd): only once someone sends one
+        "report_labels",
+        "report_tokens_used",
+        "report_answers",
         "schema_migrations",
     }
-    for table in ("contributors", "crowd_labels", "crowd_tokens_used", "crowd_answers"):
+    for table in ("contributors", "report_labels", "report_tokens_used", "report_answers"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608 - a check stores no label
     for table in ("vat_quotes", "crypto_sales", "objections"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     for table in ("oauth_clients", "oauth_codes", "oauth_grants", "oauth_spent_refresh"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM shared_results") == 0  # only a confirmed share adds one
-    for table in ("reports", "report_votes", "report_quota", "labelled_pages", "report_opinion_days"):
+    for table in ("reports", "labelled_pages", "report_opinion_days"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     assert await pool.fetchval("SELECT COUNT(*) FROM fact_cache") == 0
     # Price observations are keyed by a product hash and hold no URL; this page has no public product ID anyway.
@@ -433,7 +432,7 @@ async def test_stream_sends_findings_then_result(client: httpx.AsyncClient, pool
     assert '"type": "discount"' in events[1][1]
     assert "85% off" not in events[1][1]  # steps are progress only: the evidence comes with the charged result
     result = json.loads(events[2][1].removeprefix("data: "))
-    assert result.pop("report_token") and result.pop("share_token")
+    assert result.pop("report_token") and result.pop("share_token") and result.pop("label_token")
     assert result == {
         "score": 80,
         "explanation": "Looks legitimate.",

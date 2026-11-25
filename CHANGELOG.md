@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Risk levels
+
+* **One overall risk level per result** (`verdict.risk`, and `risk` on `POST /v1/check`): 1 may not arrive or may
+  not be safe, 2 may not work as described, 3 may cost more than it's worth, 4 pressure and tricks, 0 no concerns
+  found; with the findings behind it (`because`, ordered by level), the combining step when smaller problems add up
+  (`combined`) and the protection step when the payment raised or lowered it (`modifier`), in one line
+  (`explanation`). Each card reason carries the level it is evidence for (`level`, the table in `unfret.levels`), and
+  the card orders reasons by level. Until a level model sets it, the level is the scorer's band translated
+  (`source: "band"`). `verdict.band` stays, deprecated, until the clients read the level.
+
 ### Usage statistics
 
 * **Anonymous usage events** (`usage_events`, migration 37): passes made (by source), quick and deep checks (route,

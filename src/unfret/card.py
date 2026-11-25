@@ -25,7 +25,7 @@ calls a shop names.
 from collections.abc import Callable, Iterable
 from typing import Any, Literal
 
-from unfret import scoring, shopper
+from unfret import levels, scoring, shopper
 from unfret.config import settings
 from unfret.credits import packs
 from unfret.facts import PageFacts
@@ -1021,6 +1021,15 @@ def complete(
             market=shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")),
         ):
             titles.setdefault(key, str(catalogue()["reasons"][key]["title"]))
+    # The card orders reasons by level (1 first); within a level the verdict's own order (severity) stands.
+    parsed.reasons.sort(key=lambda r: levels.order_key(r.type))
+    if parsed.risk is None:
+        parsed.risk = levels.from_band(
+            parsed.band,
+            sorted(titles, key=levels.order_key),
+            positive_types=[p.type for p in parsed.positives],
+            titles=titles,
+        )
     concerns: dict[str, str] = {}
     for key, title in titles.items():
         if (area := area_of(key, kind)) is not None:

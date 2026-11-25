@@ -1273,6 +1273,71 @@
     "title": "KeyResponse",
     "type": "object"
    },
+   "LevelModifier": {
+    "description": "Protection moved the level.",
+    "properties": {
+     "direction": {
+      "description": "raised (payment you can't get back) or lowered (recourse).",
+      "enum": [
+       "raised",
+       "lowered"
+      ],
+      "title": "Direction",
+      "type": "string"
+     },
+     "text": {
+      "description": "In words: \"Raised: only payments you can't get back.\"",
+      "title": "Text",
+      "type": "string"
+     },
+     "type": {
+      "description": "The reason (or positive) type behind it: irreversible_payment_only, \u2026",
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "direction",
+     "type",
+     "text"
+    ],
+    "title": "LevelModifier",
+    "type": "object"
+   },
+   "LevelReason": {
+    "description": "One finding behind the level.",
+    "properties": {
+     "level": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The level this finding is evidence for (1\u20134), or null for a modifier.",
+      "title": "Level"
+     },
+     "title": {
+      "description": "The finding in words: \"Fake countdown\".",
+      "title": "Title",
+      "type": "string"
+     },
+     "type": {
+      "description": "The card reason's type (the same as in verdict.reasons).",
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "level",
+     "title"
+    ],
+    "title": "LevelReason",
+    "type": "object"
+   },
    "Licence": {
     "description": "A (US) licence number the page states, with its state when given (\"CA Lic. #1234567\").",
     "properties": {
@@ -2406,6 +2471,18 @@
       "title": "Detail",
       "type": "string"
      },
+     "level": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The risk level this finding is evidence for: 1 won't arrive or unsafe, 2 doesn't work, 3 overpaying, 4 manipulation; null for a protection modifier or the small signs. The card orders reasons by it.",
+      "title": "Level"
+     },
      "links": {
       "description": "Up to three links to the evidence elsewhere (archived copies: a web.archive.org copy, or the copy's record in Common Crawl's index, index.commoncrawl.org).",
       "items": {
@@ -2725,6 +2802,104 @@
      }
     },
     "title": "Review",
+    "type": "object"
+   },
+   "Risk": {
+    "description": "The overall risk level and why.",
+    "properties": {
+     "because": {
+      "description": "The findings that drove the level, ordered by level (most serious first).",
+      "items": {
+       "$ref": "#/components/schemas/LevelReason"
+      },
+      "title": "Because",
+      "type": "array"
+     },
+     "combined": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set when lower-level problems together moved the level up: which ones, in words.",
+      "title": "Combined"
+     },
+     "confidence": {
+      "anyOf": [
+       {
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The model's confidence, when it has one.",
+      "title": "Confidence"
+     },
+     "explanation": {
+      "description": "One line: \"Level 1 because: A claim that doesn't add up + Far below the usual price + Fake countdown. Raised: only payments you can't get back.\"",
+      "title": "Explanation",
+      "type": "string"
+     },
+     "key": {
+      "description": "wont_arrive, doesnt_work, overpaying, manipulation or none.",
+      "enum": [
+       "wont_arrive",
+       "doesnt_work",
+       "overpaying",
+       "manipulation",
+       "none"
+      ],
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "description": "The level in words: \"May not arrive, or may not be safe\", \u2026",
+      "title": "Label",
+      "type": "string"
+     },
+     "level": {
+      "description": "1 (most serious) to 4; 0 = no concern found.",
+      "maximum": 4.0,
+      "minimum": 0.0,
+      "title": "Level",
+      "type": "integer"
+     },
+     "modifier": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/LevelModifier"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set when protection raised or lowered it."
+     },
+     "source": {
+      "description": "Who set it: band (translated from the scorer's band, until a level model is on), judge (the level judge), classifier (a level classifier).",
+      "enum": [
+       "band",
+       "judge",
+       "classifier"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "level",
+     "key",
+     "label",
+     "explanation",
+     "source"
+    ],
+    "title": "Risk",
     "type": "object"
    },
    "Rules": {
@@ -3641,6 +3816,7 @@
     "description": "The shopper-facing result of an analysis.",
     "properties": {
      "band": {
+      "description": "Deprecated in favour of risk.level (kept until every client reads the level): reliable, concerns, careful or junk_or_scam.",
       "enum": [
        "reliable",
        "concerns",
@@ -3735,6 +3911,17 @@
       "maxItems": 3,
       "title": "Reasons",
       "type": "array"
+     },
+     "risk": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Risk"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The overall risk level (1 most serious \u2026 4; 0 none) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
      },
      "same_product": {
       "anyOf": [
@@ -3803,6 +3990,7 @@
     "description": "The shopper-facing result of an analysis.",
     "properties": {
      "band": {
+      "description": "Deprecated in favour of risk.level (kept until every client reads the level): reliable, concerns, careful or junk_or_scam.",
       "enum": [
        "reliable",
        "concerns",
@@ -3897,6 +4085,17 @@
       "maxItems": 3,
       "title": "Reasons",
       "type": "array"
+     },
+     "risk": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Risk"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The overall risk level (1 most serious \u2026 4; 0 none) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
      },
      "same_product": {
       "anyOf": [
@@ -4015,6 +4214,17 @@
       ],
       "title": "Policy Applied",
       "type": "string"
+     },
+     "risk": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Risk"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The overall risk level: level 1 (may not arrive, or may not be safe), 2 (may not work as described), 3 (may cost more than it's worth), 4 (pressure and tricks), 0 (no concerns found), with the findings behind it and the combining or protection step. Replaces band once clients read it."
      },
      "risk_score": {
       "anyOf": [

@@ -11,6 +11,7 @@ from unfret.config import settings
 from unfret.graph.skills import Skill
 from unfret.graph.skills.eu_registry import EuRegistrySkill
 from unfret.graph.skills.pricing import PricingSkill
+from unfret.levels import Risk
 from unfret.shopper import DeepCheck
 
 Tier = Literal["quick", "deep"]
@@ -121,6 +122,12 @@ class Verdict(BaseModel):
         default=None,
         description='reliable, concerns, careful or junk_or_scam: the same verdict a shopper sees, in words "Looks '
         'fine", "Worth a look", "Think twice" or "Serious concerns".',
+    )
+    risk: Risk | None = Field(
+        default=None,
+        description="The overall risk level: level 1 (may not arrive, or may not be safe), 2 (may not work as "
+        "described), 3 (may cost more than it's worth), 4 (pressure and tricks), 0 (no concerns found), with the "
+        "findings behind it and the combining or protection step. Replaces band once clients read it.",
     )
     summary: str | None = Field(default=None, description="One plain sentence for the human you're buying for.")
     page_type: str | None = Field(
@@ -236,6 +243,7 @@ def to_verdict(result: dict[str, Any], *, policy: Policy, tier: Tier) -> Verdict
             checked_at=now,
             model_version=str(assessment.get("model_version") or "") or None,
             band=shopper_verdict.get("band"),
+            risk=shopper_verdict.get("risk"),
             summary=shopper_verdict.get("headline") or result.get("explanation"),
             page_type=result.get("page_type"),
             deep_check=_deep_check(shopper_verdict, tier),

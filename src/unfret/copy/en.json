@@ -1034,5 +1034,20 @@
       "run_deep": "Run a deep check",
       "get_checks": "Get checks"
     }
+  },
+  "levels": {
+    "labels": {
+      "wont_arrive": "May not arrive, or may not be safe",
+      "doesnt_work": "May not work as described",
+      "overpaying": "May cost more than it's worth",
+      "manipulation": "Pressure and tricks",
+      "none": "No concerns found"
+    },
+    "because": "Level {level} because: {reasons}.",
+    "small_signs": "small signs",
+    "none_explanation": "No concerns found.",
+    "combined": "smaller problems that add up ({reasons})",
+    "raised": "Raised: {reason}.",
+    "lowered": "Lowered: {reason}."
   }
 }

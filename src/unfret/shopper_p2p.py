@@ -30,7 +30,7 @@ Wording is factual, never "scam": what the ad says or shows, and what that usual
 from dataclasses import dataclass
 from typing import Any
 
-from unfret import shopper
+from unfret import levels, shopper
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.skills import seller_profile
@@ -265,6 +265,7 @@ def _reason(key: str, params: dict[str, str]) -> shopper.Reason:
         title=copy["title"],
         detail=copy["detail"].format(**params),
         severity=_severity(key),
+        level=levels.level_of(key),
         thumbnails=params.get("thumbnails", "").split(),
     )
 

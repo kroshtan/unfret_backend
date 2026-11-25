@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from unfret.config import settings
 from unfret.facts.schema import PageFacts
 from unfret.graph.state import Finding
+from unfret.levels import Risk, level_of, order_key
 
 Band = Literal["reliable", "concerns", "careful", "junk_or_scam"]
 Severity = Literal["high", "medium", "low"]
@@ -207,6 +208,12 @@ class Reason(BaseModel):
     title: str
     detail: str
     severity: Severity
+    level: int | None = Field(
+        default=None,
+        description="The risk level this finding is evidence for: 1 won't arrive or unsafe, 2 doesn't work, "
+        "3 overpaying, 4 manipulation; null for a protection modifier or the small signs. The card orders reasons "
+        "by it.",
+    )
     thumbnails: list[str] = Field(
         default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
     )
@@ -337,8 +344,16 @@ class DeepCheck(BaseModel):
 class Verdict(BaseModel):
     """The shopper-facing result of an analysis."""
 
-    band: Band
+    band: Band = Field(
+        description="Deprecated in favour of risk.level (kept until every client reads the level): reliable, "
+        "concerns, careful or junk_or_scam."
+    )
     label: str = Field(description="The band in words.")
+    risk: Risk | None = Field(
+        default=None,
+        description="The overall risk level (1 most serious … 4; 0 none) and why: the findings behind it, ordered by "
+        "level, and the combining or protection step when one applied.",
+    )
     headline: str = Field(description="One plain sentence explaining the verdict.")
     reasons: list[Reason] = Field(default_factory=list, max_length=3)
     positives: list[Positive] = Field(default_factory=list, max_length=3)
@@ -1275,6 +1290,7 @@ def _reason(key: str, params: dict[str, str]) -> Reason:
         title=copy["title"],
         detail=copy["detail"].format(**params),
         severity=REASON_SEVERITY[key],
+        level=level_of(key),
         thumbnails=thumbnails,
         links=params.get("links", "").split()[:3],
     )
@@ -1439,7 +1455,7 @@ def build(
         # measurable claim ("reduces microplastics by up to 90 %"), on an established shop: it contradicts the rest.
         del fired["implausible_claims"]
     order = list(REASON_SEVERITY)
-    keys = sorted(fired, key=lambda k: (_SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
+    keys = sorted(fired, key=lambda k: (order_key(k), _SEVERITY_RANK[REASON_SEVERITY[k]], order.index(k)))
     reasons = [_reason(k, fired[k]) for k in keys]
     positives = [_positive(k, v) for k, v in _positive_params(evidence).items()]
 

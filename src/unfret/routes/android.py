@@ -1,7 +1,12 @@
 """
-``/android``: the Android app, for a direct install of its signed APK (Google Play comes later).
+``/android``: the Android app, Google Play first, then the beta APK, and Unfret Dev on dev only.
 
-What the app does, the download with its version and size, the APK's SHA-256 and the signing certificate's
+Three channels (Floris, 2026-11-25): Google Play first ("Get it on Google Play", the
+stable app); below it the beta, the signed APK "for testers and phones without Google Play" (the same app and key, so
+it installs over the Play version and Play takes over again once its version is newer); and on dev only, Unfret Dev,
+the test build of main (:mod:`unfret.android_dev`), which production never shows.
+
+What the app does, the APK with its version and size, the APK's SHA-256 and the signing certificate's
 fingerprint, how to install it and turn "Install unknown apps" off again, how updates work, its permissions and its
 privacy. The release comes from :mod:`unfret.android_release`; until one is published the page says the download is
 coming soon and offers no file. A beta (a pre-release version, ``0.1.0-beta.1``) is labelled "Beta" next to its
@@ -19,13 +24,24 @@ import html
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from unfret import android_app_links, android_release
+from unfret import android_app_links, android_dev, android_release
+from unfret.android_dev import DevBuild
 from unfret.android_release import AndroidRelease
+from unfret.config import settings
 from unfret.routes.pages import PAGE_HEADERS, template, versioned
 
 HEADERS = {**PAGE_HEADERS, "X-Robots-Tag": "noindex"}
 
 router = APIRouter(include_in_schema=False)
+
+PLAY_URL = "https://play.google.com/store/apps/details?id=net.unfret.android"
+
+# The APK's heading: the beta channel's, or for a stable version on the same channel, without the word.
+BETA_HEADING = "Beta: for testers and phones without Google Play"
+APK_HEADING = "The APK: for testers and phones without Google Play"
+BETA_INTRO = """<p>The same app as on Google Play, as an APK from Unfret's own code forge, sometimes a little ahead of
+        it. It installs over the Play version, and Play takes over again (and updates it) once Play's version is
+        newer.</p>"""
 
 COMING_SOON = """<section class="panel notice apk-download" aria-labelledby="download">
       <h2 id="download">Download coming soon</h2>
@@ -58,7 +74,8 @@ def download_panel(release: AndroidRelease) -> str:
     label = f" {BETA_LABEL}" if release.prerelease else ""
     note = f"\n      {BETA_NOTE}" if release.prerelease else ""
     return f"""<section class="panel apk-download" aria-labelledby="download">
-      <h2 id="download">Download</h2>{note}
+      <h2 id="download">{BETA_HEADING if release.prerelease else APK_HEADING}</h2>
+      {BETA_INTRO}{note}
       <p class="buttons"><a class="button primary large" href="{url}" type="application/vnd.android.package-archive"
         download>Download Unfret {version} (APK, {size})</a></p>
       <dl class="facts">
@@ -72,6 +89,38 @@ def download_panel(release: AndroidRelease) -> str:
         <dd>Unfret's own code forge, over HTTPS:
           <a href="{html.escape(release.release_url)}" rel="noopener">release {html.escape(release.tag)}</a>
           (<a href="{html.escape(release.sums_url)}" rel="noopener">SHA256SUMS</a>)</dd>
+      </dl>
+    </section>"""
+
+
+def dev_panel(build: DevBuild) -> str:
+    """
+    Unfret Dev's download and facts: on dev only.
+
+    :param build: The latest dev build.
+    :return: The panel's HTML.
+    """
+    version = html.escape(build.version)
+    size = android_release.megabytes(build.size)
+    return f"""<section class="panel apk-download apk-dev" aria-labelledby="dev">
+      <h2 id="dev">Unfret Dev: test builds (dev.unfret.net only)</h2>
+      <p>A test build of every change to the app, for testers. It is its own app, "Unfret Dev", next to Unfret: it
+        talks to dev.unfret.net only and is signed with a separate dev key, so it never updates or replaces Unfret.</p>
+      <p class="buttons"><a class="button large" href="{html.escape(build.apk_url)}"
+        type="application/vnd.android.package-archive" download>Download Unfret Dev {version} (APK, {size})</a></p>
+      <dl class="facts hashes">
+        <dt>Version</dt>
+        <dd>{version} (CI run {build.run}), built {html.escape(build.built)}</dd>
+        <dt>Commit</dt>
+        <dd><a href="{html.escape(build.commit_url)}" rel="noopener"
+          ><code>{html.escape(build.commit[:12])}</code></a></dd>
+        <dt>{html.escape(build.apk)} (SHA-256)</dt>
+        <dd><code class="hash">{html.escape(build.sha256)}</code></dd>
+        <dt>Signing certificate (dev key, SHA-256)</dt>
+        <dd><code class="hash">{html.escape(android_release.fingerprint(android_dev.DEV_CERT_SHA256))}</code></dd>
+        <dt>From</dt>
+        <dd><a href="{html.escape(build.release_url)}" rel="noopener">the rolling dev pre-release</a>
+          (<a href="{html.escape(build.sums_url)}" rel="noopener">SHA256SUMS</a>)</dd>
       </dl>
     </section>"""
 
@@ -96,9 +145,11 @@ def permission_items(permissions: tuple[str, ...]) -> str:
 
 
 @router.get("/android", response_class=HTMLResponse)
-def android_page() -> HTMLResponse:
+async def android_page() -> HTMLResponse:
     """
-    Unfret for Android: download and install the signed APK, or "coming soon" while none is published.
+    Unfret for Android: Google Play first, then the beta APK, and Unfret Dev on dev only.
+
+    The beta is "coming soon" while none is published.
 
     :return: The page.
     """
@@ -114,8 +165,11 @@ def android_page() -> HTMLResponse:
         download = COMING_SOON
         apk_hash = "<dt>The APK (SHA-256)</dt>\n      <dd>Listed here with each release.</dd>"
         permissions, min_sdk = android_release.DEFAULT_PERMISSIONS, android_release.DEFAULT_MIN_SDK
+    dev_build = await android_dev.latest() if settings.android_dev_builds else None
     fields = {
+        "play_url": html.escape(PLAY_URL),
         "download": download,
+        "dev": dev_panel(dev_build) if dev_build else "",
         "apk_hash": apk_hash,
         "cert_fingerprint": html.escape(android_release.fingerprint(android_release.SIGNING_CERT_SHA256)),
         "permissions": permission_items(permissions),

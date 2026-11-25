@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### The Android page: Google Play first, the beta below, Unfret Dev on dev
+
+* **/android leads with "Get it on Google Play"** (the stable app). The signed APK follows as "Beta: for testers and
+  phones without Google Play" (for a stable APK: "The APK: …"): the same app and key, so it installs over the Play
+  version and Play takes over again once its version is newer. The copy no longer mentions passes.
+* **Unfret Dev on dev only** (`UNFRET_ANDROID_DEV_BUILDS`, on in `config/deploy.dev.yml`, off by default):
+  `unfret.android_dev` reads the app repository's rolling `dev` pre-release (`dev.json`, cached 5 minutes) and shows
+  its APK with version, CI run, commit, SHA-256 and the dev key's certificate. A build that isn't
+  `net.unfret.android.dev` or is signed with any key but the dev key's (`DEV_CERT_SHA256`), the release key's
+  included, is not shown. Production never fetches or shows it (tested).
 ### Several donations at once
 
 * `make free-pool ARGS="add 25 10 5"` and `POST /v1/admin/free-pool/donations` `{"amounts_eur": [...]}` add several

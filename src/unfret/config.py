@@ -420,6 +420,9 @@ class Settings(BaseSettings):
 
     # x402 pay-per-check (POST /v1/check). Off (503) until both the hot wallet key and the cold address are set.
     public_base_url: str = "https://unfret.net"
+    # /android also offers Unfret Dev, the Android app's test build of main (unfret.android_dev). On in dev only
+    # (config/deploy.dev.yml); production never shows it.
+    android_dev_builds: bool = False
     # Links the link checker (/check) offers to try, as [label, address] pairs (an address on this site may be a
     # path). The test shop first, then its sister shop and the clean shop: three verdicts, no real shop.
     check_examples: list[tuple[str, str]] = [

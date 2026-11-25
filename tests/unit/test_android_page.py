@@ -5,12 +5,14 @@ import json
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 
-from unfret import android_release
+from unfret import android_dev, android_release
+from unfret.config import settings
 from unfret.main import app
 from unfret.routes.pages import STATIC_DIR, asset_tag
 
@@ -82,8 +84,10 @@ async def test_the_page_has_a_strict_policy_the_shared_frame_and_nothing_from_el
     assert re.search(r"<script(?![^>]*\bsrc=)[^>]*>", page) is None  # no inline scripts
     # Every outside address is Unfret's own, over HTTPS.
     for link in re.findall(r'href="(https?://[^"]*)"', page):
-        assert link.startswith(("https://git.kroshtan.com/kroshtan/", "https://github.com/kroshtan/",
-                                "https://kroshtan.com")), link  # fmt: skip
+        assert link.startswith((
+            "https://git.kroshtan.com/kroshtan/", "https://github.com/kroshtan/", "https://kroshtan.com",
+            "https://play.google.com/store/apps/details?id=net.unfret.android",
+        )), link  # fmt: skip
 
 
 async def test_the_page_is_noindex_until_it_is_linked(client: httpx.AsyncClient, release_file: Path) -> None:
@@ -161,14 +165,14 @@ async def test_the_page_says_how_to_install_update_and_what_it_asks_for(
         "Allow from this source",
         "Install unknown apps",
         "Turn it off again.",
-        "The app doesn't update itself yet.",
-        "it installs over the old one and keeps your pass",
+        "Installed from Google Play, Play updates it.",
+        "it installs over the old one",
         "signed with the same key",
+        "an APK installs over the Play version, and Play takes over again once its version is newer",
         "apksigner verify --print-certs",
         "Internet ( android.permission.INTERNET )",
         "No location, contacts, camera, microphone, files or notifications.",
         "Nothing is read until you tap Check this page.",
-        "Unfret will be on Google Play later",
     ):
         assert phrase in text, phrase
     page = (await client.get("/android")).text
@@ -305,3 +309,116 @@ def test_fetch_refuses_a_release_that_does_not_match(
 ) -> None:
     with _forge(release, apk, assets) as client, pytest.raises(ValueError, match=error):
         android_release.fetch("v0.1.0", client)
+
+
+PLAY = "https://play.google.com/store/apps/details?id=net.unfret.android"
+
+
+async def test_google_play_comes_first_and_the_beta_below_it(client: httpx.AsyncClient, release_file: Path) -> None:
+    release_file.write_text(json.dumps(BETA))
+    page = (await client.get("/android")).text
+    text = _text(page)
+
+    assert f'href="{PLAY}"' in page and "Get it on Google Play" in text
+    assert page.index(PLAY) < page.index(BETA_URL)
+    assert "Beta: for testers and phones without Google Play" in text
+    assert (
+        "It installs over the Play version, and Play takes over again (and updates it) once Play's version is newer."
+        in text
+    )
+    assert "Unfret Dev:" not in text and 'id="dev"' not in page  # not on production
+
+
+DEV_FACTS: dict[str, Any] = {
+    "package": "net.unfret.android.dev",
+    "apk": "unfret-dev-0.1.0-dev.57.apk",
+    "version": "0.1.0-dev.57",
+    "version_code": 57,
+    "run": 57,
+    "commit": "a1b2c3d4e5" + "0" * 30,
+    "size": 1_576_705,
+    "sha256": "e" * 64,
+    "cert_sha256": android_dev.DEV_CERT_SHA256,
+    "min_sdk": 26,
+    "built": "2026-11-25T20:54:15Z",
+}
+DEV_URL = "https://git.kroshtan.com/kroshtan/unfret_android/releases/download/dev/unfret-dev-0.1.0-dev.57.apk"
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_dev_build() -> None:
+    android_dev.forget()
+
+
+async def test_production_never_shows_or_fetches_a_dev_build(
+    client: httpx.AsyncClient, published: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "android_dev_builds", False)
+
+    def no_fetch(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("production fetched the dev build")
+
+    monkeypatch.setattr(android_dev, "httpx", SimpleNamespace(AsyncClient=no_fetch, HTTPError=httpx.HTTPError))
+    assert await android_dev.latest() is None
+    page = (await client.get("/android")).text
+    assert "Unfret Dev:" not in page and 'id="dev"' not in page and "releases/download/dev/" not in page
+    assert settings.model_fields["android_dev_builds"].default is False
+
+
+async def test_dev_shows_unfret_dev_with_its_version_commit_and_digest(
+    client: httpx.AsyncClient, published: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "android_dev_builds", True)
+    forge = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=DEV_FACTS)))
+    build = await android_dev.latest(forge)
+    assert build is not None and build.apk_url == DEV_URL
+
+    async def cached(*_args: Any, **_kwargs: Any) -> android_dev.DevBuild | None:
+        return build
+
+    monkeypatch.setattr(android_dev, "latest", cached)
+    page = (await client.get("/android")).text
+    text = _text(page)
+    assert f'href="{DEV_URL}"' in page and "Download Unfret Dev 0.1.0-dev.57 (APK, 1.6 MB)" in text
+    assert "0.1.0-dev.57 (CI run 57), built 2026-11-25T20:54:15Z" in text
+    assert f'href="https://git.kroshtan.com/kroshtan/unfret_android/commit/{DEV_FACTS["commit"]}"' in page
+    assert f"unfret-dev-0.1.0-dev.57.apk (SHA-256) {'e' * 64}" in text
+    assert android_release.fingerprint(android_dev.DEV_CERT_SHA256) in page
+    # Below the Play button and the beta.
+    assert page.index(PLAY) < page.index(APK_URL) < page.index(DEV_URL)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"package": "net.unfret.android"},
+        {"cert_sha256": android_release.SIGNING_CERT_SHA256},
+        {"cert_sha256": "0" * 64},
+        {"apk": "unfret-dev-0.1.0-dev.58.apk"},
+        {"version": "0.1.0"},
+        {"commit": "main"},
+        {"run": 0},
+        {"size": 0},
+        {"sha256": "E" * 64},
+        {"built": "yesterday"},
+    ],
+)
+def test_a_dev_build_that_does_not_check_out_is_not_shown(change: dict[str, Any]) -> None:
+    assert android_dev.parse(DEV_FACTS) is not None
+    assert android_dev.parse({**DEV_FACTS, **change}) is None
+
+
+async def test_an_unreachable_forge_shows_no_dev_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "android_dev_builds", True)
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("down", request=request)
+
+    assert await android_dev.latest(httpx.AsyncClient(transport=httpx.MockTransport(down))) is None
+    android_dev.forget()
+    missing = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(404)))
+    assert await android_dev.latest(missing) is None
+
+
+def test_the_dev_key_is_not_the_release_key() -> None:
+    assert android_dev.DEV_CERT_SHA256 != android_release.SIGNING_CERT_SHA256

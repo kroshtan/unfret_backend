@@ -717,7 +717,7 @@ endpoint, `GET /v1/stats/live` (`unfret.live_stats`), computed at most once a mi
 `Cache-Control: public, max-age=60`: checks that answered today, this month and all time (`usage_counters`
 `checks_quick` / `checks_deep`, a number a UTC day, written with the usage events and kept for good; migration 46
 filled them from the events already recorded), free checks left today (the free pool's remainder at
-`UNFRET_LIVE_CHECK_COST_EUR`, €0.05, a check; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
+`UNFRET_PUBLIC_COST_PER_CHECK_EUR`, €0.05, a check, as `/v1/pricing` counts it; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
 (€90; this month's rows in the free pool's ledger of donations, `free_pool_donations`: a donation added with
 `make free-pool` shows within a minute), the stores' row counts, verified "Wrong result?" reports and the top ten nicknames.
 

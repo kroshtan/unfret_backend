@@ -398,9 +398,9 @@ class Settings(BaseSettings):
     usage_events_retention_days: int = Field(default=400, ge=1)
 
     # The public live stats (/live, GET /v1/stats/live; unfret.live_stats): this month's donations (the free pool's
-    # ledger) against live_funding_goal_eur, and the free pool, shown as checks at live_check_cost_eur each.
+    # ledger) against live_funding_goal_eur, and the free pool, shown as checks at public_cost_per_check_eur each
+    # (the same count as /v1/pricing's free.deep_checks_left_today).
     live_funding_goal_eur: float = Field(default=90.0, gt=0)
-    live_check_cost_eur: float = Field(default=0.05, gt=0)
 
     # /terms shows a visible "draft" note at the top, for a new version of the terms that isn't approved yet.
     terms_draft: bool = False

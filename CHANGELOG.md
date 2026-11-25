@@ -4,8 +4,8 @@
 
 ### The public count of free checks
 
-* `free.deep_checks_left_today` is the euros left today ÷ `UNFRET_PUBLIC_COST_PER_CHECK_EUR` (€0.05): €3 shows 60.
-  It was the measured average (or the €0.005 estimate), which showed 600.
+* `free.deep_checks_left_today` and `/live` are the euros left today ÷ `UNFRET_PUBLIC_COST_PER_CHECK_EUR` (€0.05): €3 shows 60.
+  It was the measured average (or the €0.005 estimate), which showed 600. `UNFRET_LIVE_CHECK_COST_EUR` is folded into it.
 
 ### Live stats
 

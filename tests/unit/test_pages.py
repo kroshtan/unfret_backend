@@ -689,3 +689,15 @@ async def test_the_old_pass_pages_speak_to_developers(client: httpx.AsyncClient)
         text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get(path)).text)).split())
         assert line in text, path
         assert "gift code" not in text.lower() and "invite" not in text.lower(), path
+
+
+async def test_the_support_page_says_what_a_donation_keeps_free_in_the_visitors_currency(
+    client: httpx.AsyncClient,
+) -> None:
+    euro = " ".join((await client.get("/support")).text.split())
+    assert "€5 keeps about 100 checks free." in euro and "Every donated euro goes into free checks" in euro
+    us = {"x-edge-peer": "172.64.0.1", "cf-ipcountry": "US"}
+    dollar = " ".join((await client.get("/support", headers=us)).text.split())
+    assert "$5 keeps about 100 checks free." in dollar and "Every donated dollar goes into free checks" in dollar
+    for page in (euro, dollar):
+        assert "{{" not in page and "budget" not in page.lower()  # never the daily budget in money

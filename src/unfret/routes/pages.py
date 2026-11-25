@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from unfret import __version__, accuracy, clients_info, levels, shopper
 from unfret.config import settings
 from unfret.credits import topup as topups
+from unfret.credits import vat
 from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
@@ -672,18 +673,25 @@ def money() -> HTMLResponse:
 DONATE_CLICKS = "donate_clicks"
 
 
+# What a small donation keeps free, in the visitor's currency: dollars for the US (Cloudflare's country), else euros.
+DONATION_EXAMPLE = {"usd": ("$5", "dollar"), "eur": ("€5", "euro")}
+
+
 @router.get("/support", response_class=HTMLResponse)
-def support() -> HTMLResponse:
+def support(request: Request) -> HTMLResponse:
     """
     Support Unfret: what a donation pays for (the free deep checks), and that it buys nothing.
 
+    :param request: The incoming request (Cloudflare's country hint picks dollars or euros).
     :return: The page.
     """
     if settings.donate_url:
         button = '<p><a class="button primary large" href="/donate">Donate</a></p>'
     else:
         button = '<p class="notice">Donations aren\'t open yet.</p>'
+    amount, unit = DONATION_EXAMPLE["usd" if vat.edge_country(request.headers) == "US" else "eur"]
     page = template("support.html", "/support").replace("{{donate}}", button)
+    page = page.replace("{{donation_amount}}", amount).replace("{{donation_unit}}", unit)
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 

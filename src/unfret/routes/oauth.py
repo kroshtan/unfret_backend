@@ -277,8 +277,8 @@ def _authorize_page(
 
 def _checks_line(request: Request) -> str:
     door = get_credits(request)
-    if settings.free_checks_per_pass > 0 and door.free_passes.available(_ip(request)):
-        return f"; it includes {settings.free_checks_per_pass} free deep checks"
+    if settings.developer_free_checks > 0 and door.developer_passes.available(_ip(request)):
+        return f"; it includes {settings.developer_free_checks} free deep checks"
     return ""
 
 
@@ -319,7 +319,7 @@ async def _chosen_pass(
     if form.get("action") == "create":
         try:
             new, given = await issue_pass(
-                request, form.get("challenge", ""), form.get("solution", ""), free=True, source="mcp-oauth"
+                request, form.get("challenge", ""), form.get("solution", ""), developer=True, source="mcp-oauth"
             )
         except CustomAPIError as exc:
             return _authorize_page(request, found, params, f"{exc.detail} Or use a pass you already have.", 400)

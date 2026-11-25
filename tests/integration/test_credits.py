@@ -141,9 +141,9 @@ async def test_sign_in_issues_a_working_session(client: httpx.AsyncClient) -> No
     assert credits.json() == {
         "address": str(keypair.pubkey()),
         "balance_usd_micros": 0,
-        "checks_remaining": 0,
+        "checks_remaining": 10,  # an older client's free deep checks this hour (no bought checks)
         "balance_lamports": 0,
-        "free_checks_remaining": 0,  # only a pass has free checks
+        "free_checks_remaining": 10,
         "free_checks_paused": False,
         "api_free_checks_remaining": 0,
     }

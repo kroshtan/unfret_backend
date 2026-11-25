@@ -285,8 +285,6 @@ console.log(pass.key, pass.recovery_code, pass.free_checks); // save both: shown
             <tr><td><code>TOO_MANY_REQUESTS</code></td><td>429</td><td>Over a pass's per-minute limit
               ({{quick_per_minute}} quick checks, {{fetch_per_minute}} pages Unfret fetches): wait
               <code>metadata.retry_after_s</code> seconds. Also for too many new passes in a day.</td></tr>
-            <tr><td><code>FREE_CHECKS_PAUSED</code></td><td>429</td><td>Only free checks left and today's are all
-              used: back at 00:00 UTC (<code>metadata.retry_after_s</code>). Quick checks still work.</td></tr>
             <tr><td><code>BAD_CHALLENGE</code></td><td>400</td><td><code>POST /v1/keys</code>: the challenge is
               wrong, expired, used or unsolved, or (for a developer pass) not a developer challenge: get a new one
               from <code>GET /v1/keys/challenge?developer=true</code>.</td></tr>

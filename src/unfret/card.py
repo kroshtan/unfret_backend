@@ -751,7 +751,7 @@ DEEP_EXTRAS: dict[str, tuple[tuple[str, tuple[str, ...], str | None], ...]] = {
         ("service_terms", ("terms",), "service_terms"),
     ),
 }
-DeepAction = Literal["run_deep", "get_checks"]
+DeepAction = Literal["run_deep", "get_checks", "donate"]
 # At most this many extras are named: the suggestion stays one sentence.
 MAX_DEEP_ADDS = 2
 
@@ -899,7 +899,21 @@ def deep_check_cost(
     return text.format(price=_dollars(smallest.card_usd_micros), checks=smallest.checks), "get_checks"
 
 
-def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
+def shopper_deep_check_cost(*, paused: bool, donate: bool = True) -> tuple[str, DeepAction | None]:
+    """
+    What a deep check costs a shopper (no bought checks): nothing, unless this month's free ones are paused.
+
+    :param paused: Whether free deep checks are paused (the month's LLM spend ceiling).
+    :param donate: Whether the client may show a donate link (a Google Play build may not).
+    :return: The words and the action (``run_deep``; while paused ``donate``, or none without a donate link).
+    """
+    cost: dict[str, str] = catalogue()["deep_check"]["cost"]
+    if not paused:
+        return cost["shopper_free"], "run_deep"
+    return (cost["shopper_paused"], "donate") if donate else (cost["shopper_paused_plain"], None)
+
+
+def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction | None]) -> DeepCheck:
     """
     A suggestion with what it costs this caller and its one button (nothing for one that isn't suggested).
 
@@ -910,7 +924,7 @@ def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
     if not offer.suggested:
         return offer
     text, action = cost
-    label = str(catalogue()["deep_check"]["actions"][action])
+    label = str(catalogue()["deep_check"]["actions"][action]) if action is not None else None
     return offer.model_copy(update={"cost": text, "action": action, "action_label": label})
 
 
@@ -952,6 +966,7 @@ def charge_note(
     free_check: bool,
     free_left: int | None = None,
     bought_left: int | None = None,
+    shopper: bool = False,
 ) -> str:
     """
     What this check cost the caller, as one sentence every client shows under the result.
@@ -962,6 +977,7 @@ def charge_note(
     :param free_check: Whether that was one of the free ones.
     :param free_left: The free checks left after it, when known.
     :param bought_left: The bought checks left after it, when known.
+    :param shopper: No account paid: a shopper's free deep check.
     :return: The sentence: "This check used one of your free checks; 4 are left.", "Quick checks are free.", …
     """
     copy: dict[str, str] = catalogue()["charge"]
@@ -969,6 +985,8 @@ def charge_note(
         return copy["quick"]
     if score < 0:
         return copy["not_assessed"]
+    if shopper:
+        return copy["shopper"]
     if not charged:
         return copy["repeat"]
     kind, left = ("free", free_left) if free_check else ("bought", bought_left)

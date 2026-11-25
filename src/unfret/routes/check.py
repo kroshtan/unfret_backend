@@ -471,7 +471,7 @@ router.add_api_route(
             "payment, or the pass has no checks left (INSUFFICIENT_CREDITS)"
         },
         422: {"description": "An invalid body, or a page Unfret couldn't fetch (PAGE_UNAVAILABLE, PAGE_BLOCKED)"},
-        429: {"description": "Over a rate limit (RATE_LIMITED, TOO_MANY_REQUESTS) or FREE_CHECKS_PAUSED"},
+        429: {"description": "Over a rate limit (RATE_LIMITED, TOO_MANY_REQUESTS)"},
         503: {"description": "Payments or the analysis are off for a moment: retry after Retry-After"},
         504: {"description": "The analysis timed out: not charged (x402 on Solana: credited to the paying wallet)"},
     },
@@ -949,7 +949,6 @@ ERRORS: dict[str, tuple[int, str, str]] = {
         ),
     ),
     "INSUFFICIENT_CREDITS": (402, "no", "the pass has no checks left: top it up, or pay with x402"),
-    "FREE_CHECKS_PAUSED": (429, "no", "the pass has only free checks and today's are used: after 00:00 UTC, or pay"),
     "VALIDATION_ERROR": (422, "no", "fix the request body (see `errors`); checked only with a payment or a pass"),
     "PAGE_UNAVAILABLE": (422, "no", "the page couldn't be fetched: send page_content"),
     "PAGE_BLOCKED": (422, "no", "the page is a bot check: send the real page as page_content"),
@@ -1300,11 +1299,11 @@ pass's checks (free ones first), a quick check is free (a few a minute), and the
 `balance_usd_micros` and `free_checks_left`. A developer pass (steps above) comes with {dev["free_deep_checks"]} free
 deep checks, for the API and the MCP server: they count on POST /v1/check only, not on /v1/analyze (the website, the
 browser extension, the phone app). It is for trying Unfret out: one per network a day, and developer passes' free
-checks have their own daily budget: once it is used, a developer pass with only free checks gets 402
-INSUFFICIENT_CREDITS until 00:00 UTC (other passes with only free checks: 429 FREE_CHECKS_PAUSED). Buy more checks for
-a pass at {url}/checkout; bought checks work everywhere. GET {url}/v1/credits with the pass answers
-`checks_remaining`, `free_checks_remaining`, `api_free_checks_remaining` (a developer pass's), `free_checks_paused`
-and `balance_usd_micros`.
+checks have their own daily budget: once it is used (or this month's LLM spend ceiling is reached), a developer
+pass with only free checks gets 402 INSUFFICIENT_CREDITS until it is back (`retry_after_s`). Buy more checks for a
+pass at {url}/checkout; bought checks work everywhere. GET {url}/v1/credits with the pass answers
+`checks_remaining`, `api_free_checks_remaining` (a developer pass's), `free_checks_paused` and
+`balance_usd_micros`.
 
 ## Response
 

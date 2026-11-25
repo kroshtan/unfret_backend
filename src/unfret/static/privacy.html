@@ -38,20 +38,21 @@
       fingerprints described below.</p>
     <p>The <a href="/check">link checker</a> sends only the link, when you tap <strong>Check</strong>. Our server then
       fetches the page itself, so the shop sees our server, not you. A link shared to Unfret from another app stays in
-      your browser until you tap Check. The page keeps no history; only your Unfret pass (or a wallet's sign-in) stays
-      in your browser, until you remove it on My checks, and a note that this browser has had its free pass.</p>
+      your browser until you tap Check. The page keeps no history; only an Unfret pass you added (or a wallet's
+      sign-in) stays in your browser, until you remove it on My checks.</p>
 
-    <p><strong>Free checks.</strong> When you install the extension, or tap Check on the link checker for the first
-      time, it asks our server for a new Unfret pass with a few free checks. That request carries nothing about you or
-      the pages you visit. To give free checks only once, the extension remembers in your browser's own extension
-      storage that it got them (your browser may sync that note between your devices, as it does settings), and the
-      link checker in this browser's storage; neither note says anything else. Removing the extension removes its
-      note, so before it asks for free checks, the welcome page it opens tells it whether the link checker's note is
-      in this browser: a yes or no, from the page to the extension in your browser, nowhere else. A pass made with
-      free checks sets that note too. Our server counts new free passes per
-      internet connection for a day, in memory only and under a salted one-way hash of the address, gone at the next
-      restart: <strong>it never stores your IP address for this</strong>. Of the free checks it stores only how many
-      a pass has left, and how many were used in all today.</p>
+    <p><strong>Free checks.</strong> Quick and deep checks are free and need no pass: a free check carries nothing
+      that names you or your device. For a deep check, your browser or app first solves a small puzzle (a proof of
+      work, a few seconds of computing) that our server issues; the puzzle names nothing either. To keep free checks
+      fair, our server counts free deep checks per internet connection for an hour, in memory only and under a salted
+      one-way hash of the address, gone at the next restart: <strong>it never stores your IP address for this</strong>.
+      It also adds up what the AI model costs us each month, as one number, so free deep checks can pause when a
+      month's donations are used up.</p>
+
+    <p><strong>Donations.</strong> "Support Unfret" sends you to a payment provider's page. What you enter there goes to
+      that provider and, like any payment, shows in our business account (the amount, and the name the provider passes
+      on). It is never linked to anything you check. Our server only counts how many times the donate link is opened
+      in a month, as one number.</p>
 
     <p>Your <strong>Unfret pass</strong> is what holds your checks (developers know it as an API key). When the
       checkout page or My checks gives you a pass, it can hand it to the Unfret extension in the same browser, so you
@@ -208,8 +209,7 @@
       <li><strong>A new pass</strong> made on the checkout page, until you confirm you've saved its backup code.</li>
       <li><strong>Claim tokens</strong> for a card purchase, to confirm it once you are back from paying, for up to
         three days.</li>
-      <li><strong>A note</strong> that this browser has had its free pass, on the link checker or in the extension,
-        so it gets one only once.</li>
+      <li><strong>A note</strong> from earlier versions that this browser had its free pass (no longer used).</li>
       <li><strong>A date</strong> on which this browser made a developer pass on the page for developers, so it makes
         one only once (the pass itself is shown to you, not kept).</li>
       <li>For one browser tab only (session storage): a wallet's sign-in on the checkout and wallet pages; and a link

@@ -34,8 +34,8 @@
               <button class="primary large" type="submit">Check</button>
             </div>
             <p class="error-text" data-error role="alert" hidden></p>
-            <p class="start-hint" id="start-hint">Your first <span data-free-count>5</span> deep checks are free, then
-              quick checks stay free. No key, no account, nothing to install to try it.
+            <p class="start-hint" id="start-hint">Quick and deep checks are free. No key, no account, nothing to
+              install to try it.
               <button type="button" class="link" data-example="/test-shop">Try the test shop</button></p>
           </form>
           <div class="buttons get-buttons">
@@ -172,39 +172,23 @@
     <section class="section" aria-labelledby="price-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="price-heading">Start free, pay only for what you use</h2>
-          <p>Your first <span data-free-count>5</span> deep checks are free, and quick checks stay free. Need more?
-            Checks come in packs that never expire, with no subscription and no account.</p>
+          <h2 id="price-heading">Free for shoppers</h2>
+          <p>Quick checks and deep checks are free, with no account and nothing that says who you are. Deep checks
+            run on donations: if a month's run out, they pause until the 1st of the next month, and quick checks keep
+            working.</p>
         </div>
         <div class="pricing">
           <div class="price-list">
-          <ul class="prices" id="prices">
-            <li class="free"><a href="/check">
-              <span class="n">Free</span>
-              <span class="unit"><span data-free-count>5</span> deep checks, then quick checks</span>
-              <span class="card-price">$0</span>
-              <span class="choose">Start</span></a></li>
-            <li data-checks="25"><a href="/checkout?checks=25">
-              <span class="n">25</span>
-              <span class="unit">checks</span>
-              <span class="card-price">$6.50</span>
-              <span class="choose">Choose</span></a></li>
-            <li data-checks="100" class="featured"><a href="/checkout?checks=100">
-              <span class="n">100</span>
-              <span class="unit">checks</span>
-              <span class="card-price">$21.00</span>
-              <span class="choose">Choose</span></a></li>
-          </ul>
-          <p class="small muted price-note" id="price-note">Card prices include tax: $6.50 and $21.00, or
-            in the euro area €6.50 and €21.00 with VAT included. What you see is what you pay.</p>
-          <p class="small muted price-note">Pay by card, or in the Netherlands with iDEAL | Wero. Paying with crypto?
-            <a href="/checkout?mode=crypto">USDC and SOL</a> work too, at a lower price with VAT
-            included.</p>
+          <p><a class="button primary" href="/check">Check a link</a> <a class="button" href="/support">Support
+            Unfret</a></p>
+          <p class="small muted price-note">Building an AI agent or an app? Checks for the API and the MCP server are
+            on <a href="/developers">Developers and AI agents</a>.</p>
           </div>
           <div class="code-box">
             <h3>What's a quick check?</h3>
             <p>A quick check reads only the page, by Unfret's rules, and is always free. A deep check also looks the
-              seller up elsewhere and has the page read by a language model; that's what a pack pays for.</p>
+              seller up elsewhere and has the page read by a language model, which costs money each time: that's what
+              donations pay for.</p>
             <p class="small">Unfret never earns from shops: no affiliate links to shops, no paid placements.</p>
           </div>
         </div>
@@ -244,10 +228,8 @@
           </details>
           <details>
             <summary>Do I need an account?</summary>
-            <p>No. Your checks are held by an Unfret pass, made for you on your first check. Your pass is a code
-              saved in your browser. It holds your checks. No name, no email. “My checks” in the menu shows your
-              pass and what's left on it. Paying by card, our payment provider asks for your email for the receipt;
-              with crypto, nobody does.</p>
+            <p>No. Checks are free and need no account, no pass, no name and no email: nothing ties a check to
+              you. (Developers who buy checks for the API get an Unfret pass, a code that holds them.)</p>
           </details>
           <details>
             <summary>Do passes or checks expire?</summary>
@@ -258,7 +240,8 @@
           </details>
           <details>
             <summary>How does Unfret make money?</summary>
-            <p>From the checks people buy, and nothing else: no ads, no selling data, no affiliate links to shops.
+            <p>Shoppers' checks run on donations; developers and AI agents pay for theirs. Nothing else: no ads, no
+              selling data, no affiliate links to shops.
               <a href="/money">How Unfret makes money</a>.</p>
           </details>
           <details>

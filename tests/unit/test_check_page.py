@@ -414,7 +414,7 @@ def test_the_page_drops_an_ended_pass_before_treating_a_401_as_an_expired_sign_i
     retired = retired[: retired.index("\n}\n")]
     assert "forgetNewPass(" in retired and "signedOut(false)" in retired and "ended = true" in retired
     assert "passEndedHint(fresh ? freePerPass() : 0)" in script
-    assert "function freeAvailable() {\n  return !account && !freeGiven()" in script  # the free pass follows
+    assert 'await run(link, "deep", abort, null, work)' in script  # checks go on, free and without the pass
     mine = (STATIC_DIR / "my-checks.js").read_text()
     assert "Unfret has a new free start: the pass that was on this device has ended." in mine
 

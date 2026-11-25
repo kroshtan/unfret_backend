@@ -1048,6 +1048,21 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         UPDATE labelled_pages SET level = CASE label WHEN 'legit' THEN 0 WHEN 'scam' THEN 4 END;
         """,
     ),
+    (
+        43,
+        "LLM spend per month; shoppers' free checks off passes",
+        """
+        -- The LLM spend a calendar month (UTC), in micro-euros (unfret.spend): one number a month, nothing about a
+        -- page, a caller or a model. Free deep checks pause once it reaches the ceiling.
+        CREATE TABLE llm_spend (
+            month      TEXT PRIMARY KEY CHECK (month ~ '^[0-9]{4}-[0-9]{2}$'),
+            micro_eur  BIGINT NOT NULL DEFAULT 0 CHECK (micro_eur >= 0)
+        );
+        -- Shoppers' deep checks are free without a pass now: a pass's own free checks are a developer pass's only.
+        UPDATE api_keys SET free_checks = 0 WHERE NOT developer AND free_checks <> 0;
+        DELETE FROM usage_counters WHERE name = 'free_checks';
+        """,
+    ),
 ]
 
 

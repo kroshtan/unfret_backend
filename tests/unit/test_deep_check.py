@@ -196,7 +196,7 @@ def test_the_copy_is_in_the_catalogue_and_never_calls_names() -> None:
     for page_type, extras in card.DEEP_EXTRAS.items():
         kind = card.kind_of(page_type)
         assert {a for _, areas, _ in extras for a in areas} <= set(COPY["checklist"]["areas"][kind]), page_type
-    assert set(copy["actions"]) == {"run_deep", "get_checks"}
+    assert set(copy["actions"]) == {"run_deep", "get_checks", "donate"}
     assert not public_result.FORBIDDEN_RE.search(json.dumps(copy))
     # No urgency: no countdowns, deadlines or pressure words in the suggestion.
     assert not re.search(r"\b(now|hurry|today|last chance|limited|only)\b", json.dumps(copy), re.IGNORECASE)

@@ -11,7 +11,7 @@ from tests.integration.test_keys import PAGE, PRICE, bearer, solve
 from tests.unit.test_card import state, verdict
 from unfret import card
 from unfret.config import settings
-from unfret.credits import ledger, packs
+from unfret.credits import ledger
 from unfret.facts import PageFacts
 from unfret.graph import SKILLS
 from unfret.main import app
@@ -46,10 +46,11 @@ def quick(monkeypatch: pytest.MonkeyPatch) -> FakeGraph:
     return graph
 
 
-async def new_pass(client: httpx.AsyncClient, *, free_checks: bool = True) -> dict[str, Any]:
-    challenge = (await client.get("/v1/keys/challenge")).json()
+async def new_pass(client: httpx.AsyncClient, *, developer: bool = False) -> dict[str, Any]:
+    query = {"developer": "true"} if developer else {}
+    challenge = (await client.get("/v1/keys/challenge", params=query)).json()
     body = {"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], challenge["bits"])}
-    response = await client.post("/v1/keys", json={**body, "free": free_checks})
+    response = await client.post("/v1/keys", json={**body, "developer": developer})
     assert response.status_code == 201
     issued: dict[str, Any] = response.json()
     return issued
@@ -64,27 +65,20 @@ def offer(response: httpx.Response) -> dict[str, Any]:
 async def test_the_suggestion_says_what_a_deep_check_costs_each_caller(
     client: httpx.AsyncClient, pool: asyncpg.Pool, quick: FakeGraph
 ) -> None:
-    smallest = packs.packs(settings)[0]
-    price = card._dollars(smallest.card_usd_micros)
     anonymous = offer(await client.post("/v1/analyze", json=QUICK))
     assert anonymous["suggested"] and anonymous["reason"] == "on_the_fence"
     assert anonymous["text"].startswith("A deep check also looks at how old this shop is")
     assert (anonymous["cost"], anonymous["action"], anonymous["action_label"]) == (
-        f"Deep checks come in packs, from {price} for {smallest.checks}.", "get_checks", "Get checks"
+        "Deep checks are free.", "run_deep", "Run a deep check"
     )  # fmt: skip
 
-    with_free = await new_pass(client)
-    free_offer = offer(await client.post("/v1/analyze", json=QUICK, headers=bearer(with_free["key"])))
-    assert (free_offer["cost"], free_offer["action"]) == ("Uses 1 of your 5 free deep checks.", "run_deep")
-    assert free_offer["action_label"] == "Run a deep check"
-
-    bought = await new_pass(client, free_checks=False)
+    bought = await new_pass(client)
     await ledger.credit(pool, bought["account"], 12 * PRICE)
     bought_offer = offer(await client.post("/v1/analyze", json=QUICK, headers=bearer(bought["key"])))
     assert bought_offer["cost"] == "Uses 1 check (you have 12)."
 
-    empty = await new_pass(client, free_checks=False)
-    assert offer(await client.post("/v1/analyze", json=QUICK, headers=bearer(empty["key"])))["action"] == "get_checks"
+    empty = await new_pass(client)  # a pass without bought checks: a shopper's free check
+    assert offer(await client.post("/v1/analyze", json=QUICK, headers=bearer(empty["key"])))["action"] == "run_deep"
     assert len(quick.calls) == 1  # one analysis, from the cache after that, each priced for its own caller
 
 
@@ -97,9 +91,9 @@ async def test_no_price_and_no_button_without_a_suggestion(client: httpx.AsyncCl
 async def test_a_quick_check_on_v1_check_with_a_pass_is_priced_for_the_pass(
     client: httpx.AsyncClient, quick: FakeGraph
 ) -> None:
-    issued = await new_pass(client)
+    issued = await new_pass(client, developer=True)
     response = await client.post("/v1/check", json=QUICK, headers=bearer(issued["key"]))
     assert response.status_code == 200, response.text
     found = response.json()["deep_check"]
-    assert found["suggested"] and found["cost"] == "Uses 1 of your 5 free deep checks."
+    assert found["suggested"] and found["cost"] == "Uses 1 of your 20 free deep checks."
     assert found["adds"][0] == {"key": "shop_age", "area": "who", "label": "how old this shop is"}

@@ -375,8 +375,37 @@ report of it is answered `already_known` without being queued (`tests/integratio
 
 ## API
 
-Interactive docs are served at `/docs` (`/openapi.json`). `/v1/analyze*` and `/v1/credits` take
-`Authorization: Bearer <session token>` or an Unfret pass (`Bearer ufk_…`).
+Interactive docs are served at `/docs` (`/openapi.json`). `/v1/analyze*` takes no `Authorization` for a shopper's
+free check, or a pass with bought checks (`Bearer ufk_…`, or a wallet's session token); `/v1/credits` takes either.
+
+### Free checks for shoppers (no pass, no identity)
+
+Shoppers (the browser extension, the Android app, [`/check`](https://unfret.net/check)) check for free, quick and
+deep, with **no pass and nothing that names them or their device** (the client API contract:
+[`docs/api-contract-v1.md`](docs/api-contract-v1.md), "Free checks"). Abuse is held back without identity:
+
+- **Proof of work** (`src/unfret/deep_pow.py`): a deep check sent without `Authorization` needs a solved challenge
+  from `GET /v1/analyze/challenge` as `proof_of_work`: stateless, HMAC-signed, `UNFRET_DEEP_POW_BITS` (20) leading
+  zero bits of SHA-256, valid for `UNFRET_DEEP_POW_TTL_S`, used once. Without one: `428 PROOF_OF_WORK_REQUIRED`.
+- **A per-network limit** in memory (`UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, salted hashes, never stored), behind
+  Cloudflare's edge rate limits, which come first (configured in Cloudflare, not here).
+- **A global LLM spend ceiling** (`src/unfret/spend.py`): every chat model call is priced from the provider's token
+  counts (`UNFRET_LLM_PRICES_EUR_PER_MTOK`, euros per million input/output tokens; a model not listed costs
+  `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`) and added up per calendar month (UTC) in `llm_spend` (one number a month).
+  Once it reaches `UNFRET_LLM_SPEND_CEILING_EUR` (€100), free deep checks answer `429 FREE_CHECKS_PAUSED` with
+  `reason: "spend_ceiling"`, `message_key: "free_checks_run_on_donations"` and `donate_url` until the 1st of next
+  month; quick checks, bought checks, developer passes' bought checks and x402 go on (a developer pass's free checks
+  pause too). Embedding calls are not metered.
+- **No report tokens**: a free check carries no `report_token` (reports are per account); its `label_token` and
+  `share_token` work as for any result.
+
+A pass with bought checks still pays for a deep check on `/v1/analyze` (and needs no proof of work); a pass without
+them is not charged, and the check is a free one: older store clients, which send their pass and solve no challenge,
+get it without the work, at most `UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` per pass an hour (in memory), and
+`GET /v1/credits` shows them that allowance as free checks. A client that may not link to donations (a Google Play
+build) sends `X-Unfret-Donate: off` and gets no donate link. **Donations** ("Support Unfret", `/support`) go through
+`/donate`, a redirect to `UNFRET_DONATE_URL`, so the payment link can change without a client release; clicks are
+counted as a number a month (`usage_counters` `donate_clicks`), nothing else. A donation buys nothing.
 
 Developers and agents have **three ways in**, all running the same check at the same prices
 ([`/developers`](https://unfret.net/developers), and [`/llms.txt`](https://unfret.net/llms.txt) for agents):
@@ -393,7 +422,8 @@ Developers and agents have **three ways in**, all running the same check at the 
 | --- | --- | --- |
 | `GET` | `/v1/auth/nonce` | Start a Sign-In With Solana: nonce and message fields |
 | `POST` | `/v1/auth/verify` | Finish it: `{address, signed_message, signature}` → session token (30 days) |
-| `POST` | `/v1/analyze` | Analyse a page, paid from credits: `{ "url", "page_content"?, "page_facts"?, "checkout_content"? }` |
+| `GET` | `/v1/analyze/challenge` | A proof-of-work challenge for a free deep check (and whether free deep checks are paused) |
+| `POST` | `/v1/analyze` | Analyse a page, free (with `proof_of_work` for a deep check) or paid from a pass: `{ "url", "page_content"?, "page_facts"?, "checkout_content"?, "tier"?, "proof_of_work"? }` |
 | `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
 | `GET` | `/v1/credits` | The balance of the signed-in wallet or the pass |
 | `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
@@ -790,7 +820,6 @@ Every error from the API is JSON with `detail` and `error_code` (validation erro
 | `INVALID_PAYMENT` | 400 | no | the PAYMENT-SIGNATURE header couldn't be decoded |
 | `INVALID_API_KEY` | 401 | no | the Authorization header isn't a valid Unfret pass (unknown, replaced with its backup code, or retired): fix it, or pay with x402 |
 | `INSUFFICIENT_CREDITS` | 402 | no | the pass has no checks left: top it up, or pay with x402 |
-| `FREE_CHECKS_PAUSED` | 429 | no | the pass has only free checks and today's are used: after 00:00 UTC, or pay |
 | `VALIDATION_ERROR` | 422 | no | fix the request body (see `errors`); checked only with a payment or a pass |
 | `PAGE_UNAVAILABLE` | 422 | no | the page couldn't be fetched: send page_content |
 | `PAGE_BLOCKED` | 422 | no | the page is a bot check: send the real page as page_content |
@@ -1128,13 +1157,16 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,100]` | Pack sizes in checks |
-| `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
-| `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
 | `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |
 | `UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR` | `1.00` | Developer passes' free deep checks together a UTC day, in euros of estimated cost (200 checks at the default cost: ten full developer passes), apart from the shoppers' budget; then a developer pass with only free checks gets `402` until 00:00 UTC. 0 turns them off |
 | `UNFRET_DEVELOPER_POW_EXTRA_BITS` | `4` | How much harder a developer pass's proof of work is than an ordinary pass's (`UNFRET_KEY_POW_BITS`, 18): each bit doubles the work, so 4 is 16 times |
-| `UNFRET_FREE_DAILY_BUDGET_EUR` | `5.00` | Shoppers' free deep checks together a UTC day, in euros of estimated cost (developer passes have their own budget); then "back tomorrow" (bought and quick checks go on). 0 turns free deep checks off |
-| `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): the budget over this is the day's number of free deep checks (1,000 by default) |
+| `UNFRET_DEEP_POW_BITS` / `UNFRET_DEEP_POW_TTL_S` | `20` / `300` | A free deep check's proof of work: leading zero bits of SHA-256 (each bit doubles the work), and how long a challenge stays valid |
+| `UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR` | `30` | Free deep checks per visitor network an hour (in memory, salted hashes) |
+| `UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` | `10` | Free deep checks an hour per pass from older store clients, which send a pass instead of a proof of work |
+| `UNFRET_LLM_SPEND_CEILING_EUR` | `100` | The LLM spend a calendar month (UTC) at which free deep checks pause until the 1st of next month |
+| `UNFRET_LLM_PRICES_EUR_PER_MTOK` / `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK` | Mistral Small 3.2 and GLM-5.3 / `2.00/6.00` | List prices per model, `model=input/output` in euros per million tokens, comma-separated; the second for any model not listed |
+| `UNFRET_DONATE_URL` | — | Where `/donate` redirects (an `https://` payment link); empty: donations aren't open |
+| `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): developer passes' day's budget over this is their day's number of free deep checks |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
 | `UNFRET_CARD_PRICES_USD` | `25=6.50,100=21.00` | Each pack's card price in dollars (tax included while `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` is on), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |

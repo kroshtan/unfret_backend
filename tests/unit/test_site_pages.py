@@ -168,7 +168,8 @@ async def test_money_is_paid_checks_and_nothing_else(client: httpx.AsyncClient) 
     for phrase in ("No ads", "No affiliate links to shops; Unfret never earns from shops", "No selling data",
                    "No money from shops"):  # fmt: skip
         assert phrase in text, phrase
-    assert "paid for by the checks people buy" in text and "x402" in text
+    assert "run on donations" in text and "x402" in text and 'href="/support"' in text
+    assert "nothing in return (no checks, no perks)" in text
     # No affiliate program, gift codes or intro codes.
     assert 'href="/affiliates"' not in text
     assert "gift code" not in text and "intro code" not in text.lower()
@@ -228,9 +229,8 @@ async def test_why_says_what_the_free_tier_covers_as_the_quick_tier_runs(client:
     text = " ".join((await client.get("/why")).text.split())
 
     assert f"up to {settings.quick_checks_per_minute} a minute" in text
-    assert f"comes with {settings.free_checks_per_pass} free deep checks, once per browser" in text
-    assert "while the day's free checks last" in text  # the daily budget (FREE_CHECKS_PAUSED)
-    assert 'href="/#price-heading"' in text and "no subscription" in text and "checks never expire" in text
+    assert "Quick checks and deep checks are free for shoppers, with no pass" in text
+    assert "Deep checks run on donations" in text and 'href="/donate"' in text  # the spend ceiling
     # What a quick check reads is what the quick tier runs; what it leaves to a deep check, the quick tier skips.
     for skill in ("listing", "dark_patterns", "shop_policies", "shop_links", "us_identity"):
         assert skill in QUICK_SKILLS, skill

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -77,6 +78,7 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "ad_contacts",
         "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
         "x402_audit_flags",
+        "llm_spend",  # the LLM spend a month: one number, nothing about a page or a caller
         "objections",  # what a shop owner sends from /objection, never a check
         "oauth_clients",  # the MCP server's OAuth (unfret.oauth): clients, and hashes of codes and tokens for a pass
         "oauth_codes",
@@ -110,31 +112,25 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
 
 
-async def test_insufficient_credits(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
+async def test_an_account_short_of_a_check_gets_a_free_check_instead(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
     _, headers = await wallet(PRICE - 1)
 
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
 
-    assert response.status_code == 402
-    body = response.json()
-    assert body["error_code"] == "INSUFFICIENT_CREDITS"
-    assert body["metadata"] == {
-        "balance_usd_micros": PRICE - 1,
-        "analysis_usd_micros": PRICE,
-        "balance_lamports": PRICE - 1,  # deprecated aliases, for extensions up to 0.5.0
-        "analysis_lamports": PRICE,
-    }
-    assert graph.calls == []
+    # Not charged and not refused for money: a shopper's free deep check (an older client's, without the work).
+    assert response.status_code == 200 and response.json()["free_check"] is True
+    assert "charged" in response.json() and response.json()["charged"] is False
 
 
 async def test_unknown_wallet_has_no_credits(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
-    assert response.status_code == 402
-    assert response.json()["metadata"]["balance_lamports"] == 0
+    assert response.status_code == 200 and response.json()["free_check"] is True  # free, not paid by the wallet
 
 
-@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer nonsense"}, {"Authorization": "Basic YTpi"}])
+@pytest.mark.parametrize("headers", [{"Authorization": "Bearer nonsense"}, {"Authorization": "Basic YTpi"}])
 async def test_sign_in_required(client: httpx.AsyncClient, headers: dict[str, str]) -> None:
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
     assert response.status_code == 401
@@ -154,7 +150,11 @@ async def test_concurrent_analyses_never_overspend(
     bodies = [{**PAGE, "url": f"https://shop.test/{i}"} for i in range(10)]  # distinct, so no cache hits
     responses = await asyncio.gather(*(client.post("/v1/analyze", json=b, headers=headers) for b in bodies))
 
-    assert sorted(r.status_code for r in responses) == [200] * 3 + [402] * 7
+    # Exactly three are paid. The rest: refused (402) when they raced past the balance check, or, once the balance was
+    # seen empty, free checks (the wallet isn't charged then).
+    paid = [r for r in responses if r.status_code == 200 and r.json()["charged"]]
+    assert len(paid) == 3
+    assert all(r.status_code == 402 or r.json()["free_check"] for r in responses if r not in paid)
     assert await balance(pool, address) == 0
 
 
@@ -311,10 +311,10 @@ async def test_a_cached_result_streams_at_once_and_charged(
 
 
 @pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
-async def test_an_account_without_checks_cant_tell_a_page_was_checked(
+async def test_an_account_without_checks_gets_a_cached_or_fresh_page_alike(
     client: httpx.AsyncClient, graph: FakeGraph, wallet: Any, path: str
 ) -> None:
-    # Security audit M6: a 200 from the cache (vs a 402) told an empty account that someone checked the page lately.
+    # Security audit M6 was about a 200 from the cache vs a 402. Free checks answer both alike now: a free check.
     _, first = await wallet(PRICE)
     await client.post("/v1/analyze", json=PAGE, headers=first)
     _, empty = await wallet(0)
@@ -322,9 +322,9 @@ async def test_an_account_without_checks_cant_tell_a_page_was_checked(
     cached = await client.post(path, json=PAGE, headers=empty)
     unchecked = await client.post(path, json={**PAGE, "url": "https://shop.test/never-checked"}, headers=empty)
 
-    assert cached.status_code == unchecked.status_code == 402
-    assert cached.json() == unchecked.json()
-    assert len(graph.calls) == 1
+    assert cached.status_code == unchecked.status_code == 200
+    assert all(re.search(r'"free_check": ?true', r.text) for r in (cached, unchecked))
+    assert len(graph.calls) == 2
 
 
 async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
@@ -341,7 +341,7 @@ async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
 
     assert (cached.json()["score"], cached.json()["charged"]) == (-1, False)
     assert await balance(pool, address) == PRICE
-    assert refused.status_code == 402
+    assert refused.status_code == 200 and refused.json()["score"] == -1  # a free check: the same answer
     assert len(graph.calls) == 1
 
 
@@ -465,10 +465,10 @@ async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
     assert await balance(pool, address) == PRICE
 
 
-async def test_stream_needs_credits(client: httpx.AsyncClient, wallet: Any) -> None:
+async def test_stream_needs_credits_or_a_proof_of_work(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)
-    assert response.status_code == 402
+    assert response.status_code == 200 and '"free_check": true' in response.text  # an older client's free check
 
 
 async def test_stream_failure_is_refunded_without_details(

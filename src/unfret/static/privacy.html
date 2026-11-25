@@ -182,30 +182,22 @@
       <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
 
     <h2>Reporting a wrong result</h2>
-    <p>If you press <strong>Wrong result?</strong> (or an API user sends a report) and agree, that check's page facts,
-      page text and result are shared for review. Personal details are removed in your browser and again on our
+    <p>When you press <strong>Wrong result?</strong> (in the app, the extension or through the API), you say which risk
+      level you think is right and which findings are wrong or missing. A report always keeps the page it is about, so
+      a person can review it: that check's page facts, page text and result. It never keeps who sent it: no IP address,
+      no pass or account, no time of day (only the date). Personal details are removed in your browser and again on our
       server: greetings with your name, delivery and e-mail addresses, phone numbers, bank and card numbers, and
       everything after the <code>?</code> in links. The checkout page is never kept.</p>
-    <p>Until it is reviewed, a report is linked to your wallet or pass, only so a good report can earn free checks, and
-      we count your reports per month (as a keyed hash). To help the person who reviews it, a language model hosted by
-      Scaleway in the EU (the same provider that reads pages for the checks) reads the report once, as stored: the
-      page facts and text with personal details removed, the result you were shown and the reason you chose. It
-      suggests a label; a person decides. Nothing that identifies you is sent with it, and the suggestion is kept only
-      with the report. After review the report is deleted; the page and its label stay, without any link to you, as an
-      example for improving the checks. Reports not reviewed within 30 days are deleted, and when the review queue is
-      full, a newer report that tells us more may take the place of one that tells us less, which is then deleted the
-      same way.</p>
-
-    <h2>Labeling a result</h2>
-    <p>When you disagree with a finding or give your own risk level for a page, the app sends that label with a code
-      from the result. We keep the label, the level the result showed, the findings it listed, the day, and a one-way
-      code of the page: never its address, your IP address or the time. A label never changes a result; labels that
-      agree become examples for improving the checks.</p>
+    <p>To help the person who reviews it, a language model hosted by Scaleway in the EU (the same provider that reads
+      pages for the checks) reads the report once, as stored, and suggests a label; a person decides. A report never
+      changes a result. Once reviewed, the page and its label stay as an example for improving the checks; reports not
+      reviewed within 30 days are deleted, and when the review queue is full, a newer report that tells us more may
+      take the place of one that tells us less.</p>
     <p>If you turn on contributing, your device makes a random contributor key and keeps it. It is sent only with your
-      labels, never with a check. We keep a one-way code of it, how many of your labels agreed with others, and, only
-      if you choose one, a nickname, shown on the public leaderboard only if you opt in. The link between your key and
-      a page is removed once the page's labels agree, or after 30 days. You can delete your contributor profile from
-      the app at any time; labels already sent stay, without any link to you.</p>
+      reports, never with a check. We keep a one-way code of it, how many of your reports agreed with the final answer
+      (your points), and, only if you choose one, a nickname, shown on the public leaderboard only if you opt in. The
+      link between your key and a page is removed once the page is settled, or after 30 days. You can delete your
+      contributor profile from the app at any time; reports already sent stay, without any link to you.</p>
 
     <h2>What your browser keeps</h2>
     <p>This website sets <strong>no cookies</strong>. It keeps a few things in your browser's local storage, only what

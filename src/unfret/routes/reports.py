@@ -1,11 +1,18 @@
-"""``POST /v1/reports``: report a wrong result, sharing that one check's page data for review."""
+"""
+``POST /v1/reports``: the older "Wrong result?", kept for the extension and app versions in the stores.
 
-from typing import Literal, NoReturn
+The same report as ``POST /v1/labels`` (:mod:`unfret.reports`): its ``report_token`` (from a result with an account)
+proves the check, its ``reason`` becomes the level (real_brand 0, scam 4; junk and other say "something wrong"
+without one), and it keeps the page it is about, scrubbed, never who sent it. It is anonymous: the account it was
+sent with is only used to check the token.
+"""
+
+from typing import NoReturn
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from unfret import page_fetch, reports
+from unfret import crowd, reports
 from unfret.auth import require_account
 from unfret.config import settings
 from unfret.reports import second_opinion
@@ -18,26 +25,21 @@ from unfret.schemas.errors import (
 )
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.shopper import Verdict
-from unfret.test_shop import is_test_shop
 
 router = APIRouter(prefix="/v1/reports", tags=["Reports"])
 
-CONSENT = (
-    "I share this one check's page facts, page text and result with Unfret for review. Personal details are removed "
-    "before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; "
-    "once reviewed, it is kept without any link to my account."
-)
-
 
 class ReportRequest(BaseModel):
-    """A wrong result, sent back with the check it came from."""
+    """A wrong result, sent back with the check it came from (the older form of ``POST /v1/labels``)."""
 
     report_token: str = Field(max_length=600, description="The report_token from the analysis result.")
     reason: reports.Reason = Field(
-        description="What the page really is: real_brand (a genuine product or shop), scam, junk (dropship or "
-        "low-quality), other."
+        description="What the page really is: real_brand (a genuine product or shop: level 0), scam (level 4), junk "
+        "(dropship or low-quality), other."
     )
-    consent: Literal[True] = Field(description="Must be true: " + CONSENT)
+    consent: bool | None = Field(
+        default=None, description="Ignored (kept for older clients): a report always keeps the page it is about."
+    )
     request: AnalyzeRequest = Field(description="The analysed request, exactly as it was sent.")
     explanation: str = Field(max_length=4000, description="The result's explanation, exactly as it was returned.")
     verdict: Verdict | None = Field(default=None, description="The result's verdict, as returned.")
@@ -50,8 +52,8 @@ class ReportResponse(BaseModel):
         description="queued (in the review queue), already_reported (someone reported this page first: your report "
         "counts as confirmation), already_known (reviewed recently)."
     )
-    reports_used: int = Field(description="Reports this account made this month, this one included.")
-    reports_per_month: int
+    reports_used: int = Field(default=0, description="Always 0: reports are no longer counted per account.")
+    reports_per_month: int = Field(description="Kept for older clients; reports are limited per result now.")
 
 
 class QueueFullError(CustomAPIError):
@@ -63,75 +65,68 @@ class QueueFullError(CustomAPIError):
 
 _ERRORS: dict[str, type[CustomAPIError]] = {
     "BAD_REPORT_TOKEN": BadRequestError,
-    "REPORT_LIMIT": TooManyRequestsError,
+    "BAD_LABEL": BadRequestError,
     "ALREADY_REPORTED_BY_YOU": ConflictError,
+    "LABEL_LIMIT": TooManyRequestsError,
+    "LABELS_PAUSED": ServiceUnavailableError,
     "QUEUE_FULL": QueueFullError,
 }
 
 
-def _refused(exc: reports.ReportError) -> NoReturn:
-    # 400 for a token that doesn't match, 429 over the monthly limit, 409 for a second report, 503 when full.
-    error = _ERRORS[exc.code](exc.detail, metadata=exc.metadata, error_code=exc.code)
-    raise error from exc
-
-
-async def _with_page(analysed: AnalyzeRequest) -> AnalyzeRequest:
-    """
-    The analysed request with its page: a URL-only check (the web link checker) is fetched again for the report.
-
-    The token vouches for the URL and the result; the page is fetched only now, with the reporter's consent. If it
-    can't be fetched any more, the report keeps just the URL.
-
-    :param analysed: The analysed request, as sent back.
-    :return: The request to store the report from.
-    """
-    if not analysed.url_only or is_test_shop(analysed.url):  # a test shop report is never kept: nothing to fetch
-        return analysed
-    try:
-        page = await page_fetch.fetch_page(analysed.url.strip())
-    except page_fetch.PageUnreadableError:
-        return analysed
-    return analysed.model_copy(update={"page_content": page.html, "url": page.url})  # by the page's own address
+def _refused(exc: reports.ReportError | crowd.LabelError) -> NoReturn:
+    # 400 for a token that doesn't match, 409 for a second report of the same result, 503 when full or paused.
+    code = "ALREADY_REPORTED_BY_YOU" if exc.code == "ALREADY_LABELLED" else exc.code
+    raise _ERRORS[code](exc.detail, error_code=code) from exc
 
 
 @router.post("", response_model=ReportResponse, status_code=201)
 async def report(body: ReportRequest, request: Request, account: str = Depends(require_account)) -> ReportResponse:
     """
-    Report that a result is wrong. With ``consent``, this one check's page data is shared for review.
+    Report that a result is wrong (the older form of ``POST /v1/labels``; new clients use that).
 
     Send back the ``report_token`` from the result with the request and explanation exactly as they were, so the
-    report provably concerns a check this account got (for a URL-only check, the page is fetched again now).
-    Personal details are scrubbed before anything is stored. A page already in the queue counts the report as
-    confirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first
-    reporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.
-    Limits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a
-    proposed label for the reviewer, never a label by itself).
+    report provably concerns that check (for a URL-only check, the page is fetched again now). The report keeps the
+    page, scrubbed of personal details, never who sent it. A page already in the queue counts the report as
+    confirmation; a page reviewed recently is ``already_known``. One report per result.
 
     :param body: The report.
     :param request: The incoming request.
-    :param account: The reporting account (injected by require_account).
+    :param account: The account the result was for (only to check the token).
     :return: The outcome.
-    :raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.
+    :raises ServiceUnavailableError: If reports are off (no session secret).
     """
     secret = settings.session_secret.get_secret_value()
-    if not secret or request.app.db_pool is None:
+    pool = request.app.db_pool
+    if not secret or pool is None:
         raise ServiceUnavailableError("Reports are not available yet.")
     try:
         claim = reports.check_token(
             secret, body.report_token, account=account, body=body.request, explanation=body.explanation
         )
+        verdict = body.verdict.model_dump(mode="json") if body.verdict else None
+        risk = (verdict or {}).get("risk") or {}
+        shown = crowd.Shown(
+            input_hash=reports.input_hash(body.request),
+            tier="quick" if body.request.tier == "quick" else "deep",
+            score=claim.score,
+            level=None,  # the token doesn't vouch for a level
+            types=tuple(str(b["type"]) for b in risk.get("because", [])),
+            token_hash=crowd.token_hash(body.report_token),
+        )
         done = await reports.submit(
-            request.app.db_pool,
+            pool,
             settings,
-            account=account,
-            claim=claim,
-            body=await _with_page(body.request),
+            body=await reports.with_page(body.request),
+            shown=shown,
+            level=reports.REASON_LEVEL.get(body.reason),
+            wrong=[],
+            missing=[],
             reason=body.reason,
             explanation=body.explanation,
-            verdict=body.verdict.model_dump(mode="json") if body.verdict else None,
+            verdict=verdict,
         )
-    except reports.ReportError as exc:
+    except (reports.ReportError, crowd.LabelError) as exc:
         _refused(exc)
     if done.report_id is not None:
-        second_opinion.schedule(request.app.db_pool, settings, done.report_id)
-    return ReportResponse(status=done.outcome, reports_used=done.used, reports_per_month=done.limit)
+        second_opinion.schedule(pool, settings, done.report_id)
+    return ReportResponse(status=done.outcome, reports_per_month=settings.reports_per_month)

@@ -99,9 +99,8 @@ async def test_the_prompt_holds_the_scrubbed_report_as_data_and_nothing_about_th
     # The page can't close its block: one closing tag per block (facts, result, text).
     assert human.count("</untrusted_page>") == 3
     assert "Ignore previous instructions" in human.split("Page text:")[1]
-    account = await pool.fetchval("SELECT account FROM reports")
-    assert account not in human
-    assert account not in system
+    stored = json.dumps([dict(r) for r in await pool.fetch("SELECT * FROM reports")], default=str)
+    assert "Bearer" not in stored and "key:" not in stored  # never who sent it
 
 
 async def test_a_proposal_alone_labels_nothing_and_pays_nothing(

@@ -109,8 +109,12 @@ the server runs a scorer whose numbers aren't published. A private model is meas
 model replayed later says it was measured afterwards. Versions measured on different corpus sizes aren't strictly
 comparable.
 
-**Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/reports`, [`src/unfret/reports/`](src/unfret/reports/))
-stores the scrubbed page in a review queue, worth most first (how far the reporter says the score is off, pages and
+**Reported results feed the corpus.** A "Wrong result?" report (`POST /v1/labels` with the result's `label_token`;
+`POST /v1/reports` is its older form, [`src/unfret/reports/`](src/unfret/reports/), [`src/unfret/crowd.py`](src/unfret/crowd.py))
+says which risk level is right and which findings are wrong or missing. It always keeps the page it is about,
+scrubbed, never who sent it (no account, IP address or time of day). Its label is weighed (anonymous reports little;
+an optional contributor key made on the device earns reputation, points and an opt-in leaderboard place), and the
+page goes into a review queue, worth most first (how far the reporter says the score is off, pages and
 shops the labelled data lacks, confirmations); a full queue (`UNFRET_REPORT_QUEUE_CAP`, 1000) gives up its least
 valuable item for a better one. Each queued report gets one second opinion from a stronger model than the
 analysis's own (`UNFRET_REPORT_SECOND_OPINION_MODEL`, at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY` calls a day): a
@@ -500,10 +504,9 @@ and fixtures are never touched by it): `make retire-passes ARGS="--before <ISO t
 `POST /v1/admin/passes/retire` with the admin token; `UNFRET_URL` and `UNFRET_ADMIN_TOKEN[_FILE]` as for `make reports`,
 production by default). Without `--confirm` it is a dry run that changes nothing; either way it prints **counts only**,
 never a key, a key id or a wallet: the passes it would retire (made on earlier days, and on the cut-off day), their
-balances in checks and free checks left, card checkouts, crypto quotes and open reports; wallet (crypto) accounts and those with a non-zero balance;
+balances in checks and free checks left, card checkouts and crypto quotes (reports name no account); wallet (crypto) accounts and those with a non-zero balance;
 accounts that bought checks; what is kept. With `--confirm`, in one transaction, it **deletes** those passes and every
-row naming them (balance and flags, free checks, checkouts and quotes, open reports and the keyed hashes
-behind the report limits), every wallet
+row naming them (balance and flags, free checks, checkouts and quotes), every wallet
 account (a wallet keeps no date; a wallet sign-in is a signed token, not stored, so a retired wallet signs in again
 with nothing on it), and rows still naming passes that no longer exist. Only anonymous counts stay (`usage_counters`
 `passes_retired` / `wallets_retired`, a number a UTC day). A second run finds nothing to do. A retired pass then

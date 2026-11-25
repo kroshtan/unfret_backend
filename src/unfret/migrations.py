@@ -1012,6 +1012,42 @@ MIGRATIONS: list[tuple[int, str, str]] = [
                 WHEN 1 THEN 4 WHEN 2 THEN 3 WHEN 3 THEN 2 WHEN 4 THEN 1 ELSE shown_level END;
         """,
     ),
+    (
+        42,
+        "one report flow: wrong-result reports and labels",
+        """
+        -- "Wrong result?" reports and in-product labels are one flow (unfret.reports, unfret.crowd). Every report
+        -- keeps its label in report_labels (no account, no IP address, the day only) and its page, scrubbed, in the
+        -- review queue (reports) until a person labels it; nothing about who sent it is kept.
+        ALTER TABLE crowd_labels RENAME TO report_labels;
+        ALTER TABLE crowd_answers RENAME TO report_answers;
+        ALTER TABLE crowd_tokens_used RENAME TO report_tokens_used;
+        ALTER INDEX crowd_labels_open_idx RENAME TO report_labels_open_idx;
+        ALTER INDEX crowd_labels_contributor_idx RENAME TO report_labels_contributor_idx;
+        ALTER INDEX crowd_answers_page_idx RENAME TO report_answers_page_idx;
+        ALTER TABLE report_labels RENAME COLUMN disagree TO wrong;
+        ALTER TABLE report_labels ADD COLUMN missing TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE report_labels ALTER COLUMN shown_level DROP NOT NULL;
+        ALTER TABLE report_answers RENAME COLUMN disagree TO wrong;
+        ALTER TABLE report_answers ALTER COLUMN shown_level DROP NOT NULL;
+        ALTER TABLE report_answers ADD COLUMN by_person BOOLEAN NOT NULL DEFAULT FALSE;
+        -- Labels sent before keyed their page by a hash of its address, which reports can't join: they stay as data,
+        -- closed and unlinked.
+        UPDATE report_labels SET settled = TRUE, contributor_id = NULL WHERE NOT settled;
+        ALTER TABLE reports ADD COLUMN level SMALLINT CHECK (level BETWEEN 0 AND 4);
+        ALTER TABLE reports ADD COLUMN shown_level SMALLINT CHECK (shown_level BETWEEN 0 AND 4);
+        UPDATE reports SET level = CASE reason WHEN 'real_brand' THEN 0 WHEN 'scam' THEN 4 END,
+            created_at = date_trunc('day', created_at);
+        -- Each open report and each confirmation of it becomes an anonymous label of its page.
+        INSERT INTO report_labels (page_key, anonymous, tier, shown_level, level, weight, created_day)
+        SELECT r.page_key, TRUE, COALESCE(r.payload->>'tier', 'deep'), NULL, r.level, 0.2, r.created_at::date
+        FROM reports r JOIN report_votes v ON v.report_id = r.id;
+        ALTER TABLE reports DROP COLUMN account;
+        DROP TABLE report_votes, report_quota;
+        ALTER TABLE labelled_pages ADD COLUMN level SMALLINT CHECK (level BETWEEN 0 AND 4);
+        UPDATE labelled_pages SET level = CASE label WHEN 'legit' THEN 0 WHEN 'scam' THEN 4 END;
+        """,
+    ),
 ]
 
 

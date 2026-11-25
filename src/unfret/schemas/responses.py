@@ -86,13 +86,14 @@ class AnalyzeResponse(BaseModel):
     )
     report_token: str | None = Field(
         default=None,
-        description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account), "
-        "for a quick check as for a deep one. Absent for pages that couldn't be analysed and without an account.",
+        description="Deprecated: the older 'Wrong result?' (POST /v1/reports, by the same account). New clients use "
+        "label_token with POST /v1/labels. Absent for pages that couldn't be analysed and without an account.",
     )
     label_token: str | None = Field(
         default=None,
-        description="Pass to POST /v1/labels (no sign-in) to label this result: the page's overall risk level and the "
-        "findings you disagree with (within 7 days). Absent without a URL or a risk level.",
+        description="'Wrong result?': pass to POST /v1/labels (no sign-in) with the analysed request, the level you "
+        "think is right and the findings that are wrong or missing (within 7 days). The report keeps the page, "
+        "never who sent it. Absent for pages that couldn't be analysed.",
     )
     verdict: Verdict | None = Field(
         default=None,

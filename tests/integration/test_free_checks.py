@@ -212,7 +212,9 @@ async def test_a_quick_check_is_free_for_everyone_and_never_charged(
     anonymous = await client.post("/v1/analyze", json={**PAGE, "tier": "quick"})
 
     assert anonymous.status_code == 200
-    assert anonymous.json() == {
+    answer = anonymous.json()
+    assert answer.pop("label_token")  # anyone can report it ("Wrong result?")
+    assert answer == {
         "score": 60,
         "explanation": "A quick look.",
         "charged": False,

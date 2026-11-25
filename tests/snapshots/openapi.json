@@ -161,7 +161,7 @@
         "type": "null"
        }
       ],
-      "description": "Pass to POST /v1/labels (no sign-in) to label this result: the page's overall risk level and the findings you disagree with (within 7 days). Absent without a URL or a risk level.",
+      "description": "'Wrong result?': pass to POST /v1/labels (no sign-in) with the analysed request, the level you think is right and the findings that are wrong or missing (within 7 days). The report keeps the page, never who sent it. Absent for pages that couldn't be analysed.",
       "title": "Label Token"
      },
      "page_type": {
@@ -185,7 +185,7 @@
         "type": "null"
        }
       ],
-      "description": "Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account), for a quick check as for a deep one. Absent for pages that couldn't be analysed and without an account.",
+      "description": "Deprecated: the older 'Wrong result?' (POST /v1/reports, by the same account). New clients use label_token with POST /v1/labels. Absent for pages that couldn't be analysed and without an account.",
       "title": "Report Token"
      },
      "score": {
@@ -411,8 +411,13 @@
       "title": "Handle"
      },
      "labels": {
-      "description": "Labels sent.",
+      "description": "Reports sent.",
       "title": "Labels",
+      "type": "integer"
+     },
+     "points": {
+      "description": "Reports whose level agreed with the settled answer (the leaderboard's score).",
+      "title": "Points",
       "type": "integer"
      },
      "public": {
@@ -445,6 +450,7 @@
     "required": [
      "handle",
      "public",
+     "points",
      "labels",
      "settled",
      "agreed",
@@ -1240,7 +1246,7 @@
     "type": "object"
    },
    "LabelRequest": {
-    "description": "A shopper's label of one result.",
+    "description": "A \"Wrong result?\" report: the level you think is right, and which findings are wrong or missing.",
     "properties": {
      "contributor_key": {
       "anyOf": [
@@ -1255,14 +1261,12 @@
       "description": "Optional contributor key: 32 random bytes in base64url (43 characters, no padding), made on the device and kept there. Send it only with labels and profile calls, never with a check. Unfret keeps a keyed hash of it.",
       "title": "Contributor Key"
      },
-     "disagree": {
-      "description": "Reason types of this result you say are wrong (verdict.reasons[].type or risk.because[].type).",
-      "items": {
-       "type": "string"
-      },
-      "maxItems": 40,
-      "title": "Disagree",
-      "type": "array"
+     "explanation": {
+      "default": "",
+      "description": "The result's explanation, as returned.",
+      "maxLength": 4000,
+      "title": "Explanation",
+      "type": "string"
      },
      "label_token": {
       "description": "The label_token from the analysis result.",
@@ -1281,18 +1285,52 @@
         "type": "null"
        }
       ],
-      "description": "The page's OVERALL risk level as you see it, higher is worse: 0 no concern, 1 pressure and tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe. Optional when disagreeing with findings only.",
+      "description": "The page's OVERALL risk level as you see it, higher is worse: 0 no concern, 1 pressure and tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe.",
       "title": "Level"
+     },
+     "missing": {
+      "description": "Findings this result should have shown: reason types from the copy catalogue it didn't show.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 40,
+      "title": "Missing",
+      "type": "array"
+     },
+     "request": {
+      "$ref": "#/components/schemas/AnalyzeRequest",
+      "description": "The analysed request, exactly as it was sent: the report keeps that page (scrubbed of personal details); a URL-only check's page is fetched again."
+     },
+     "verdict": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Verdict-Input"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The result's verdict, as returned."
+     },
+     "wrong": {
+      "description": "Findings of this result that are wrong (verdict.reasons[].type or risk.because[].type). `disagree` is accepted as the same.",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 40,
+      "title": "Wrong",
+      "type": "array"
      }
     },
     "required": [
-     "label_token"
+     "label_token",
+     "request"
     ],
     "title": "LabelRequest",
     "type": "object"
    },
    "LabelResponse": {
-    "description": "The label is in.",
+    "description": "The report is in.",
     "properties": {
      "anonymous": {
       "description": "True without a contributor key: it counts only where others agree.",
@@ -1300,13 +1338,20 @@
       "type": "boolean"
      },
      "status": {
-      "description": "recorded, or updated (this contributor had labelled the page before).",
+      "description": "queued (the page is in the review queue), already_reported (it was: yours confirms it), already_known (reviewed recently).",
       "enum": [
-       "recorded",
-       "updated"
+       "queued",
+       "already_reported",
+       "already_known"
       ],
       "title": "Status",
       "type": "string"
+     },
+     "updated": {
+      "default": false,
+      "description": "This contributor had reported the page before: this replaces it.",
+      "title": "Updated",
+      "type": "boolean"
      }
     },
     "required": [
@@ -2639,13 +2684,19 @@
     "type": "object"
    },
    "ReportRequest": {
-    "description": "A wrong result, sent back with the check it came from.",
+    "description": "A wrong result, sent back with the check it came from (the older form of ``POST /v1/labels``).",
     "properties": {
      "consent": {
-      "const": true,
-      "description": "Must be true: I share this one check's page facts, page text and result with Unfret for review. Personal details are removed before it is stored; a language model hosted in the EU may read it to suggest a label, and a person decides; once reviewed, it is kept without any link to my account.",
-      "title": "Consent",
-      "type": "boolean"
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Ignored (kept for older clients): a report always keeps the page it is about.",
+      "title": "Consent"
      },
      "explanation": {
       "description": "The result's explanation, exactly as it was returned.",
@@ -2654,7 +2705,7 @@
       "type": "string"
      },
      "reason": {
-      "description": "What the page really is: real_brand (a genuine product or shop), scam, junk (dropship or low-quality), other.",
+      "description": "What the page really is: real_brand (a genuine product or shop: level 0), scam (level 4), junk (dropship or low-quality), other.",
       "enum": [
        "real_brand",
        "scam",
@@ -2689,7 +2740,6 @@
     "required": [
      "report_token",
      "reason",
-     "consent",
      "request",
      "explanation"
     ],
@@ -2700,11 +2750,13 @@
     "description": "What happened to the report.",
     "properties": {
      "reports_per_month": {
+      "description": "Kept for older clients; reports are limited per result now.",
       "title": "Reports Per Month",
       "type": "integer"
      },
      "reports_used": {
-      "description": "Reports this account made this month, this one included.",
+      "default": 0,
+      "description": "Always 0: reports are no longer counted per account.",
       "title": "Reports Used",
       "type": "integer"
      },
@@ -2721,7 +2773,6 @@
     },
     "required": [
      "status",
-     "reports_used",
      "reports_per_month"
     ],
     "title": "ReportResponse",
@@ -5267,7 +5318,7 @@
   },
   "/v1/labels": {
    "post": {
-    "description": "Label a result: the page's overall risk level, and/or the findings you disagree with.\n\nSend the result's ``label_token`` back. Labels never change a result; agreeing labels become training data and a\nreview queue. Without a contributor key a label is anonymous, weighs little and counts only where others agree;\none label per result. With a key: one per page (a new one replaces the old), 50 a day.\n\n:param body: The label.\n:param request: The incoming request.\n:return: What happened.",
+    "description": "Report a wrong result: the level you think is right, and which findings are wrong or missing.\n\nSend the result's ``label_token`` back with the analysed request exactly as it was sent: the report keeps that\npage (scrubbed of personal details) for review, never who sent it. Reports never change a result; reviewed and\nagreeing reports become training data. Without a contributor key a report is anonymous, weighs little and counts\nonly where others agree; one per result. With a key: one per page (a new one replaces the old), 50 a day, and\npoints on the leaderboard (opt-in).\n\n:param body: The report.\n:param request: The incoming request.\n:return: What happened.",
     "operationId": "send_label_v1_labels_post",
     "requestBody": {
      "content": {
@@ -5375,7 +5426,7 @@
   },
   "/v1/reports": {
    "post": {
-    "description": "Report that a result is wrong. With ``consent``, this one check's page data is shared for review.\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns a check this account got (for a URL-only check, the page is fetched again now).\nPersonal details are scrubbed before anything is stored. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. Once a person has labelled the page, the first\nreporter gets free checks if the score was off: 5 when it was 30+ points outside the label's zone, 1 when 10-29.\nLimits: 15 reports per account per month, one per page. A queued report gets an automatic second opinion (a\nproposed label for the reviewer, never a label by itself).\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The reporting account (injected by require_account).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret) or the queue is full.",
+    "description": "Report that a result is wrong (the older form of ``POST /v1/labels``; new clients use that).\n\nSend back the ``report_token`` from the result with the request and explanation exactly as they were, so the\nreport provably concerns that check (for a URL-only check, the page is fetched again now). The report keeps the\npage, scrubbed of personal details, never who sent it. A page already in the queue counts the report as\nconfirmation; a page reviewed recently is ``already_known``. One report per result.\n\n:param body: The report.\n:param request: The incoming request.\n:param account: The account the result was for (only to check the token).\n:return: The outcome.\n:raises ServiceUnavailableError: If reports are off (no session secret).",
     "operationId": "report_v1_reports_post",
     "requestBody": {
      "content": {

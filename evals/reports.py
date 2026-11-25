@@ -6,20 +6,22 @@ keypresses.
 
 Every queued report carries a second opinion when the service could get one (``unfret.reports.second_opinion``): a
 proposed label, a confidence and a one-line reason. A proposal is only a suggestion; it becomes a label when you
-confirm it here, and only then is it training data or pays the reporter.
+confirm it here, and only then is it training data. Each item also shows what the reports on that page said
+(levels, findings called wrong or missing; never who sent them).
 
 1. **Summary**: open items, the queue's cap, and how the second opinions side (with the reporter, with the score,
    neither, unsure, none yet).
 2. **Bulk**: the items whose proposal is at least ``--min-confidence`` (0.9) sure are listed (shop, title, score,
    proposal, what it would pay). ``y`` confirms them all as your labels, ``n`` goes through them one by one.
 3. **One by one**: the rest, worth most first (``--order confidence``: the surest proposals first; ``--agreement``
-   picks one kind). Keys: ``Enter`` or ``a`` accept the proposal, ``l`` legit, ``j`` junk, ``s`` scam, ``r`` reject
-   (not a product page, unusable, can't tell), ``k`` skip, ``q`` quit.
+   picks one kind). Keys: ``Enter`` or ``a`` accept the proposal, ``0``-``4`` the page's level (higher is worse; it
+   sets the label too), or ``l`` legit, ``j`` junk, ``s`` scam; ``r`` reject (not a product page, unusable, can't
+   tell), ``k`` skip, ``q`` quit.
 
 A label is written to the corpus first (``pages/report-<hash>.html`` with the scrubbed text and the product JSON-LD,
 ``pages/report-<hash>.facts.json`` with the client's facts, and a ``label_source="human"`` record in
-``labels.jsonl`` with the second opinion in its ``llm_*`` fields), then sent to the service, which pays the reporter
-if the score was off, keeps the page as a training sample and deletes the report (its only link to the account).
+``labels.jsonl`` with the second opinion in its ``llm_*`` fields), then sent to the service, which keeps the page as a
+training sample, settles the page's reports on the level (contributors' reputations move) and deletes the item.
 Quitting halfway loses nothing; an item whose label didn't reach the service shows up again and overwrites the same
 corpus page.
 
@@ -38,11 +40,12 @@ from typing import Any
 
 import httpx
 
-from evals.corpus import Corpus, Label, LabelRecord, dump_json, now_iso, page_id
+from evals.corpus import Corpus, Label, LabelRecord, dump_json, legacy_label, now_iso, page_id
 from evals.label import read_key
 
 KEYS: dict[str, Label | None] = {"l": "legit", "j": "junk", "s": "scam", "r": None}
 ACCEPT = {"a", "\r", "\n"}
+LEVEL_KEYS: dict[str, int] = {str(n): n for n in range(5)}  # the page's level, higher is worse
 LABELS: frozenset[str] = frozenset({"legit", "junk", "scam"})
 _EXCERPT_CHARS = 1200
 _PLATFORMS = {"amazon": "amazon", "bol.com": "bol.com"}
@@ -98,9 +101,11 @@ def describe(item: dict[str, Any], n: int, total: int, in_corpus: str | None = N
     lines = [
         f"── {n}/{total} " + "─" * 60,
         (
-            f"{item['domain']}  ·  {get('platform', 'generic')}  ·  reported as {item['reason']}  ·  "
-            f"{payload.get('tier', 'deep')} check  ·  +{item['corroborations']} confirmations"
+            f"{item['domain']}  ·  {get('platform', 'generic')}  ·  reported as {item['reason']}"
+            + (f" (level {item['level']})" if item.get("level") is not None else "")
+            + f"  ·  {payload.get('tier', 'deep')} check  ·  +{item['corroborations']} confirmations"
         ),
+        _reports_line(item),
         f"url: {payload['url'] or '(none)'}",
         f"model score: {item['score']}  ·  {payload['explanation'][:200]}",
         opinion_line(item),
@@ -114,18 +119,35 @@ def describe(item: dict[str, Any], n: int, total: int, in_corpus: str | None = N
         textwrap.fill(excerpt, 110),
         "",
         ("[Enter/a]ccept proposal  " if proposal(item) else "")
-        + "[l]egit  [j]unk  [s]cam  [r]eject  [k] skip  [q]uit",
+        + "level [0]-[4] (higher is worse)  or [l]egit  [j]unk  [s]cam  ·  [r]eject  [k] skip  [q]uit",
     ]
     return "\n".join(lines)
 
 
-def corpus_entry(item: dict[str, Any], label: Label, *, bulk: bool = False) -> tuple[LabelRecord, str]:
+def _reports_line(item: dict[str, Any]) -> str:
+    said = item.get("reports") or {}
+    if not said.get("count"):
+        return "reports: (none open)"
+    parts = [f"{said['count']} report(s), {said.get('anonymous', 0)} anonymous"]
+    if said.get("levels"):
+        parts.append("levels " + ", ".join(f"{k}×{v}" for k, v in sorted(said["levels"].items())))
+    if said.get("wrong"):
+        parts.append("wrong: " + ", ".join(f"{k}×{v}" for k, v in said["wrong"].items()))
+    if said.get("missing"):
+        parts.append("missing: " + ", ".join(f"{k}×{v}" for k, v in said["missing"].items()))
+    return "reports: " + "  ·  ".join(parts)
+
+
+def corpus_entry(
+    item: dict[str, Any], label: Label, *, bulk: bool = False, level: int | None = None
+) -> tuple[LabelRecord, str]:
     """
     A labelled report as a corpus record and page, in the same layout as every other page.
 
     :param item: The queue item.
     :param label: The human label.
     :param bulk: Whether it is a second opinion confirmed in bulk.
+    :param level: The human level (0-4), when given.
     :return: The record and the page's HTML.
     """
     payload, facts = item["payload"], item["payload"]["facts"]
@@ -160,20 +182,23 @@ def corpus_entry(item: dict[str, Any], label: Label, *, bulk: bool = False) -> t
         llm_label=proposal(item),
         llm_confidence=opinion.get("confidence") or 0.0,
         llm_reason=opinion.get("reason") or "",
+        level=level,
+        level_source="human" if level is not None else None,
     )
     return record, page
 
 
-def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label) -> str:
+def to_corpus(corpus: Corpus, item: dict[str, Any], label: Label, level: int | None = None) -> str:
     """
     Store a labelled report in the corpus.
 
     :param corpus: The corpus.
     :param item: The queue item.
     :param label: The human label.
+    :param level: The human level, when given.
     :return: The corpus id.
     """
-    record, page = corpus_entry(item, label)
+    record, page = corpus_entry(item, label, level=level)
     corpus.add(record, page)
     dump_json(corpus.pages_dir / f"{record.id}.facts.json", item["payload"]["facts"])
     return record.id
@@ -253,8 +278,9 @@ def confirm_in_bulk(api: httpx.Client, corpus: Corpus, items: list[dict[str, Any
     return int(outcome["labelled"])
 
 
-def _send(api: httpx.Client, item: dict[str, Any], label: Label | None) -> bool:
-    response = api.post(f"/v1/admin/reports/{item['id']}/label", json={"label": label or "reject"})
+def _send(api: httpx.Client, item: dict[str, Any], label: Label | None, level: int | None = None) -> bool:
+    body: dict[str, Any] = {"level": level} if level is not None else {"label": label or "reject"}
+    response = api.post(f"/v1/admin/reports/{item['id']}/label", json=body)
     if response.status_code == 404:
         print("→ already handled or expired")  # noqa: T201 - interactive tool
         return False
@@ -281,15 +307,19 @@ def one_by_one(api: httpx.Client, corpus: Corpus, items: list[dict[str, Any]]) -
         key = read_key().lower()
         if key == "q":
             break
+        level: int | None = None
         if key in ACCEPT and proposal(item):
             label: Label | None = proposal(item)
+        elif key in LEVEL_KEYS:
+            level = LEVEL_KEYS[key]
+            label = legacy_label(level)
         elif key in KEYS:
             label = KEYS[key]
         else:
             continue
         if label is not None:
-            to_corpus(corpus, item, label)
-        done += _send(api, item, label)
+            to_corpus(corpus, item, label, level)
+        done += _send(api, item, label, level)
     return done
 
 

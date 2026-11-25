@@ -45,7 +45,7 @@ def test_describe_shows_what_matters() -> None:
     assert "model score: 82" in screen
     assert "+2 confirmations" in screen
     assert "85% off" in screen
-    assert "second opinion: scam (0.93) · sides with reporter, pays 5" in screen
+    assert "second opinion: scam (0.93) · sides with reporter · " in screen
     assert "[Enter/a]ccept proposal" in screen
     assert "new to the corpus" in screen
     assert "in the corpus already as junk" in describe(ITEM, 1, 3, "junk")
@@ -59,7 +59,7 @@ def test_bulk_candidates_are_confident_proposals_only() -> None:
     assert confident([ITEM], 0.95) == []
     table = preview([ITEM])
     assert "amazon.nl" in table
-    assert "score  82 → scam  0.93 reporter pays 5" in table
+    assert "score  82 → scam  0.93 reporter" in table
     assert "Big-brand goods" in table
     assert summary(
         {"open": 3, "cap": 1000, "second_opinions": {"done": 2, "waiting": 1}}, [ITEM, UNSURE, WAITING]

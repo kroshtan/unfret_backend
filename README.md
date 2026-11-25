@@ -116,8 +116,7 @@ valuable item for a better one. Each queued report gets one second opinion from 
 analysis's own (`UNFRET_REPORT_SECOND_OPINION_MODEL`, at most `UNFRET_REPORT_SECOND_OPINIONS_PER_DAY` calls a day): a
 proposed label, a confidence and a reason. `make reports` shows the queue with the proposals, confirms the
 confident ones in bulk after a preview and goes through the rest one by one; each decision is written to the corpus
-as a human label and only then pays the first reporter (5 checks when the score was 30+ points off, 1 when 10–29)
-and becomes a training sample. A proposal nobody confirmed is never a label. Reports of the test shop never enter
+as a human label and becomes a training sample (a report pays nothing). A proposal nobody confirmed is never a label. Reports of the test shop never enter
 the queue.
 
 ## Run your own
@@ -396,8 +395,7 @@ Developers and agents have **three ways in**, all running the same check at the 
 | `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
 | `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
-| `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid; with its `X-Unfret-Claim`, its invite codes once |
-| `POST` | `/v1/invites/redeem` | Redeem a gift code `{code}` for the signed-in wallet or API key (not the buyer's; one a month): 5 checks |
+| `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
 | `POST` | `/v1/shares/preview` \| `/v1/shares` | Share a result as a link, anonymously (no `Authorization`), see below |
 | `GET` `DELETE` | `/v1/shares/{id}` | A shared result; delete it with `X-Delete-Code` |
@@ -414,8 +412,7 @@ Developers and agents have **three ways in**, all running the same check at the 
 
 There are no accounts. A wallet signs in by signing a plain-text [SIWS](https://github.com/phantom/sign-in-with-solana)
 message (no spending rights; the nonce is stateless and expires in five minutes) and gets a session token. **The only
-user state stored is `wallet → balance in micro-dollars`** (and whether it redeemed a gift code and the month of
-its latest, and for a pass the affiliate it came through, if any): no emails, no purchase history (the chain is the
+user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the
 ledger), no record of what was analysed.
 
 **Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
@@ -433,8 +430,8 @@ euro area (Cloudflare's country hint) pay by card in **euros** instead: €6.50,
 (`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted; `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE`, on by default).
 The euro price is the final price, the same for every buyer whatever their country's VAT rate: Polar takes the VAT out
 of it instead of adding it, and the margin absorbs the difference between rates. The dollar prices include tax the
-same way (with `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` off they are before sales tax/VAT, and checkout adds it). The 50-pack is no longer sold: what it credited,
-and its gift codes, keep working, and an old `/checkout?checks=50` link picks the nearest pack and says so. Dutch visitors
+same way (with `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` off they are before sales tax/VAT, and checkout adds it). The 50-pack is no longer sold: what it credited
+keeps working, and an old `/checkout?checks=50` link picks the nearest pack and says so. Dutch visitors
 also get a **"Pay with iDEAL | Wero"** button above the card one (see *Local payment methods* below).
 
 **VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
@@ -503,11 +500,10 @@ and fixtures are never touched by it): `make retire-passes ARGS="--before <ISO t
 `POST /v1/admin/passes/retire` with the admin token; `UNFRET_URL` and `UNFRET_ADMIN_TOKEN[_FILE]` as for `make reports`,
 production by default). Without `--confirm` it is a dry run that changes nothing; either way it prints **counts only**,
 never a key, a key id or a wallet: the passes it would retire (made on earlier days, and on the cut-off day), their
-balances in checks and free checks left, gift codes they redeemed, affiliate attributions, card checkouts,
-crypto quotes, open reports and gift codes they bought; wallet (crypto) accounts and those with a non-zero balance;
+balances in checks and free checks left, card checkouts, crypto quotes and open reports; wallet (crypto) accounts and those with a non-zero balance;
 accounts that bought checks; what is kept. With `--confirm`, in one transaction, it **deletes** those passes and every
-row naming them (balance and flags, free checks, attribution, checkouts and quotes, open reports and the keyed hashes
-behind the report limits; the buyer hash on gift codes they bought is cleared, so the codes still work), every wallet
+row naming them (balance and flags, free checks, checkouts and quotes, open reports and the keyed hashes
+behind the report limits), every wallet
 account (a wallet keeps no date; a wallet sign-in is a signed token, not stored, so a retired wallet signs in again
 with nothing on it), and rows still naming passes that no longer exist. Only anonymous counts stay (`usage_counters`
 `passes_retired` / `wallets_retired`, a number a UTC day). A second run finds nothing to do. A retired pass then
@@ -523,16 +519,6 @@ exist (a typo would retire the pass it meant to keep), when a wallet holds a non
 unless `--include-wallet-balances`, and when an account bought checks (a card order on record, or crypto) unless
 `--include-purchases`. `--keep-from` reads the `key_id` field of a JSON file (the store reviewers' pass), never the rest.
 Open reports from retired passes are deleted with them: label them first (`make reports`) to keep them as training data.
-
-**Invites** (gift codes, `src/unfret/credits/invites.py`): every credited pack comes with gift codes to give away,
-one per 25 checks (25 → 1, 100 → 4), each worth 5 checks. Any account but the buyer's redeems one with its own sign-in
-(`POST /v1/invites/redeem`), each code once, and one gift code a calendar month (UTC) per pass or wallet: a second
-one that month is refused (`INVITE_MONTHLY_LIMIT`) and stays unused. Only each code's SHA-256 is stored, with the day
-issued and the day redeemed and a keyed hash of the buyer; per account only the month of its latest gift code: no
-redeemer, no IP. The buyer sees the codes once: the purchase comes with a random claim token (never on chain or
-sent to the card provider, stored only hashed); the codes are kept with the quote or card checkout until the first
-status request carrying that token takes them and wipes them in one statement. Invites are a gift: no VAT, no sales
-record. `GET /v1/admin/invites` counts those outstanding.
 
 ### Card payments for API keys (Polar)
 
@@ -558,8 +544,8 @@ default is inclusive, since it isn't readable with the checkout token; off, a pr
 wrong for a tax-inclusive pack). A product whose price or tax behaviour differs from the pack's (say, not
 yet changed in Polar after the setting) refuses its checkouts, so nobody pays the old price or VAT on top of a price
 shown with VAT; the other packs sell on. A tax-inclusive euro order is credited when its `net_amount + tax_amount` is
-the pack's price (Polar's `net_amount` is then the price less the buyer's VAT); refunds and affiliate commission still
-count from the `net_amount`. A checkout is created for the pack's product with `currency:
+the pack's price (Polar's `net_amount` is then the price less the buyer's VAT); refunds still count from
+the `net_amount`. A checkout is created for the pack's product with `currency:
 "usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our account id
 (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and
 `/checkout?paid=1&checkout={CHECKOUT_ID}` as the success URL (Polar fills in the checkout's id); nothing about the
@@ -588,14 +574,14 @@ will add for the chosen EU country (`/v1/pricing`'s `vat.card_rates_pct`: each c
 say that tax is added at checkout where it applies.
 
 **Back in another browser:** the pass (API key) for a card purchase is made in the buying browser and kept only there,
-with the claim token that collects the pack's invites. A bank app or a phone can return the buyer to another browser,
+with the claim token that confirms it. A bank app or a phone can return the buyer to another browser,
 which has neither. There `/checkout` reads the checkout's id from the return link and calls
 `POST /v1/credits/fiat-checkouts/{checkout_id}/pass`, which rotates the paid key (a new key and recovery code, the
-same id and balance; the old key stops working) and hands over the invites: once, within 24 hours of the payment, and
+same id and balance; the old key stops working): once, within 24 hours of the payment, and
 only while the buying browser hasn't picked the purchase up itself (its status poll with the claim token after
 payment sets `collected_at`), so an old link in a browser's history can't take over a pass in use. Only a pass made
 for the purchase is ever rotated: a checkout whose key had been credited before (a top-up), or got credit since (a
-code, another card order), is refused (`CHECKOUT_TOPPED_UP`), so a pass in use in the extension or on a phone is
+grant, another card order), is refused (`CHECKOUT_TOPPED_UP`), so a pass in use in the extension or on a phone is
 never signed out from another browser. The buying browser, opened later, learns from the status (`reissued: true`)
 that its key was replaced and forgets it. The page removes the checkout's id from the address bar at once.
 
@@ -610,54 +596,6 @@ webhook for disputes themselves. Other events are acknowledged and ignored.
 **Dev and production in one Polar organisation:** each site gets its own webhook endpoint (and secret), and Polar
 sends every order to both. A site credits only orders whose checkout it made (its own checkout record, or the
 metadata's site); another site's order answers `other_site` and leaves no trace (no balance, no payment row).
-
-### Affiliates and bonus codes
-
-People who recommend Unfret can earn from it (`src/unfret/credits/affiliates.py`, the program at `/affiliates`):
-
-- **Attribution.** An affiliate's link is `unfret.net/?ref=CODE`, on any page. The site keeps the code in the
-  browser's own storage (no cookie, no third party) until a pass exists, then sends it once: with `POST /v1/keys`
-  (`/check`, `/checkout`), or, for the extension's install pass, from `/welcome` through the extension
-  (`POST /v1/affiliates/attribute`). A code typed at checkout counts too, once the purchase is paid. Only a pass that has
-  never bought checks can be attributed, and only once (the first affiliate stays). Nothing is stored but the pass, the
-  affiliate and the time; no IP address.
-- **The buyer** gets 20% more checks on the first pack bought on an attributed pass (`UNFRET_AFFILIATE_BONUS_PCT`),
-  credited through the ledger in the purchase's own transaction, once per pass.
-- **The affiliate** earns 25% (`UNFRET_AFFILIATE_COMMISSION_PCT`) of the net revenue of every purchase on attributed
-  passes for 12 months (`UNFRET_AFFILIATE_MONTHS`): for a card order, Polar's `net_amount` (before
-  VAT/sales tax) less Polar's fee (`platform_fee_amount`; when Polar doesn't report it in the order's currency, the
-  configured worst case `UNFRET_CARD_FEE_PCT` + `UNFRET_CARD_FEE_FLAT_USD`, marked as estimated); for crypto, what
-  arrived less its VAT. Each purchase is recorded once (unique per order or transaction). Refunds reverse the refunded
-  share and chargebacks all of it, in the month they happen. Dollars and euros are kept apart.
-- **Bonus codes** made by the operator give more checks with a pack (`--bonus PCT`), optionally with a last day, a
-  number of uses (counted at payment, atomically) and an affiliate to count the sales for. Codes never lower the
-  price: card and crypto prices stay the same for everyone. One code per purchase; `/checkout` checks it before
-  anyone pays (`POST /v1/credits/codes/check`).
-- **Payouts** are made by hand, monthly. Commission counts as payable 30 days after the purchase
-  (`UNFRET_AFFILIATE_HOLD_DAYS`, Polar's refund window). A payout needs $25 or €25 per currency
-  (`UNFRET_AFFILIATE_MIN_PAYOUT_CENTS`, never converted), except for an affiliate who was switched off, who is paid
-  everything earned. A refund or chargeback after a payout leaves a negative balance that the next payouts make up for.
-- **Stats without an account**: each affiliate gets a private link `/affiliates/stats#ufa_…` (256 random bits, kept
-  as a hash, replaceable and revocable) with their passes, first checks, purchases and commission per month, and
-  never a pass, a buyer or a page.
-
-Operator commands, against the running service's admin API (`UNFRET_URL`, `UNFRET_ADMIN_TOKEN[_FILE]`, as for
-`make reports`):
-
-```bash
-make affiliates ARGS="create ANNA --name 'Anna (YouTube)' --note 'IBAN …'"   # prints her link and stats link
-make affiliates ARGS="list"                     # codes, passes, owed, payout notes
-make affiliates ARGS="report [--month 2026-12]" # per month: passes, first checks, purchases, earned, reversed, paid;
-                                                # per affiliate now: due, carried over, held
-make affiliates ARGS="paid ANNA --note 'SEPA ref'"   # records a payout of what is due now
-make affiliates ARGS="off ANNA | on ANNA | note ANNA TEXT | stats-link ANNA | revoke ANNA | reverse EARNING_ID | delete ANNA"
-make bonus-codes ARGS="create SPRING20 --bonus 20 --expires 2026-12-31 --uses 200 [--affiliate ANNA]"
-make bonus-codes ARGS="list | off SPRING20 | on SPRING20"
-```
-
-**Gift codes** (the invites that come with a pack) work on any pass or wallet, except the one whose purchase issued
-them, one a calendar month per pass or wallet. `GET /v1/admin/invites` also counts buyers by how they came: accounts
-that redeemed a code, how many of them bought, and buyers who never redeemed one.
 
 ### Sharing a result
 
@@ -1187,11 +1125,6 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
 | `UNFRET_PACKS` | `[25,100]` | Pack sizes in checks |
-| `UNFRET_INVITE_PER_CHECKS` / `UNFRET_INVITE_CHECKS` | `25` / `5` | One gift code per this many checks in a pack (0: none issued), worth this many checks; a pass or wallet redeems one a month |
-| `UNFRET_AFFILIATE_BONUS_PCT` / `UNFRET_AFFILIATE_COMMISSION_PCT` / `UNFRET_AFFILIATE_MONTHS` | `20` / `25` / `12` | Affiliates: more checks on an attributed pass's first pack; the affiliate's share of net revenue (after VAT and payment fees) of purchases on it, for this many months after attribution |
-| `UNFRET_AFFILIATE_HOLD_DAYS` / `UNFRET_AFFILIATE_MIN_PAYOUT_CENTS` | `30` / `2500` | Commission counts as payable this many days after the purchase; a payout needs this much per currency ($25 / €25), except for an affiliate who was switched off |
-| `UNFRET_CODE_CHECKS_PER_IP_PER_DAY` | `30` | Bonus-code look-ups and attributions per visitor network a day (in memory, salted hashes) |
-| `UNFRET_AFFILIATE_RECORDS_RETENTION_DAYS` / `UNFRET_AFFILIATE_PASS_RETENTION_DAYS` | `2557` / `548` | Commission and payout records (bookkeeping: seven years); which affiliate a pass came through (eighteen months) |
 | `UNFRET_FREE_CHECKS_PER_PASS` | `5` | Free deep checks on a new pass made with `"free": true` (the extension on install, `/check` on a first visit); 0 turns free passes off |
 | `UNFRET_FREE_PASSES_PER_IP_PER_DAY` | `2` | New passes with free checks per visitor network a day (in memory, salted hashes); past it a pass is made empty |
 | `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |

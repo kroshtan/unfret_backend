@@ -975,6 +975,27 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX crowd_answers_page_idx ON crowd_answers (page_key);
         """,
     ),
+    (
+        40,
+        "no affiliates, bonus codes or gift codes",
+        """
+        -- Affiliates, bonus codes and gift codes (invites) are gone. The affiliates' earnings and payouts
+        -- are bookkeeping records: their tables stay if any were ever written (nothing reads them any more), and go
+        -- with the rest otherwise.
+        DROP TABLE affiliate_passes;
+        DROP TABLE bonus_codes;
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM affiliate_earnings) AND NOT EXISTS (SELECT 1 FROM affiliate_payouts) THEN
+                DROP TABLE affiliate_reversals, affiliate_payouts, affiliate_earnings, affiliates;
+            END IF;
+        END $$;
+        DROP TABLE invites;
+        ALTER TABLE wallets DROP COLUMN invite_redeemed, DROP COLUMN gift_month;
+        ALTER TABLE vat_quotes DROP COLUMN claim_hash, DROP COLUMN invite_codes, DROP COLUMN code;
+        ALTER TABLE fiat_checkouts DROP COLUMN invite_codes, DROP COLUMN code;
+        """,
+    ),
 ]
 
 

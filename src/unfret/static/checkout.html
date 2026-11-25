@@ -21,7 +21,6 @@
     <div id="shop" hidden>
       <div class="tabs" role="tablist" aria-label="How would you like to get checks?">
         <button type="button" role="tab" id="tab-new" data-mode="new" aria-controls="panel-new" aria-selected="true">Buy checks</button>
-        <button type="button" role="tab" id="tab-code" data-mode="code" aria-controls="panel-code" aria-selected="false" tabindex="-1">Gift code</button>
         <button type="button" role="tab" id="tab-topup" data-mode="topup" aria-controls="panel-topup" aria-selected="false" tabindex="-1">Add to my pass</button>
       </div>
       <!-- Crypto is a way to pay, not a tab: a quiet link under the card buttons opens it, and it has its way back. -->
@@ -44,16 +43,6 @@
           <div id="packs" class="packs"></div>
         </fieldset>
         <p id="pack-note" class="small" role="status" hidden></p>
-        <div class="bonus-code">
-          <label for="code-input">Have a code? <span class="muted">It adds checks to your pack, at the same
-            price.</span></label>
-          <div class="code-form">
-            <input id="code-input" autocomplete="off" spellcheck="false" maxlength="24"
-              placeholder="A code you were given">
-            <button id="code-apply" type="button">Apply</button>
-          </div>
-          <p id="code-status" class="small" role="status" aria-live="polite"></p>
-        </div>
       </section>
 
       <!-- New here: pay by card (or the visitor's local method); the key is made for you and shown after paying. -->
@@ -81,21 +70,6 @@
         <p class="reassure-line"><span class="i i-lock" aria-hidden="true"></span> Secure checkout. Your checks come
           on an Unfret pass, made for you: no account and no password.</p>
         <p id="new-status" class="small" role="status" aria-live="polite"></p>
-      </section>
-
-      <!-- A gift code from a friend's pack: one click makes a pass and adds the free checks. -->
-      <section id="panel-code" role="tabpanel" aria-labelledby="tab-code" hidden>
-        <h2 class="step">Got a gift code from a friend?</h2>
-        <p class="muted">Every pack comes with gift codes to share. One adds free checks to a pass made for you here;
-          already have a pass? Use the code on <a href="/my-checks">My checks</a>.</p>
-        <label class="visually-hidden" for="invite-input">Your gift code</label>
-        <div class="code-form">
-          <input id="invite-input" autocomplete="off" spellcheck="false" placeholder="Your gift code (ufi_…)">
-          <button id="invite-redeem" class="primary" type="button">Get my free checks</button>
-        </div>
-        <p id="invite-status" class="small" role="status" aria-live="polite"></p>
-        <p class="small muted">Using the extension with a crypto wallet? Use your code on
-          <a href="/connect">Connect wallet</a> instead.</p>
       </section>
 
       <!-- Bought before: top up the key you have. -->

@@ -28,7 +28,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         yield client
 
 
-async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> None:
+async def test_welcome_page_offers_two_ways_in(client: httpx.AsyncClient) -> None:
     response = await client.get("/welcome")
 
     assert response.status_code == 200
@@ -36,13 +36,11 @@ async def test_welcome_page_offers_three_ways_in(client: httpx.AsyncClient) -> N
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
     page = response.text
     assert "<h1>Check before you pay</h1>" in page
-    assert 'href="/checkout?mode=code"' in page and 'href="/checkout"' in page and 'href="#have-key"' in page
+    assert 'href="/checkout"' in page and 'href="#have-key"' in page
     assert f'"/static/{asset_tag()}/site.css"' in page and '"/static/site.css"' not in page
-    # Nothing loaded from elsewhere: only our own scripts (the affiliate link's code, and handing it to the
-    # extension), and the only outside addresses are the footer's links.
+    # Nothing loaded from elsewhere: only our own script, and the only outside addresses are the footer's links.
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
         f"/static/{asset_tag()}/welcome.js",
-        f"/static/{asset_tag()}/ref.js",
     ]
     sources = [
         f'href="https://{host}/kroshtan/{repo}"'
@@ -309,7 +307,6 @@ async def test_the_welcome_page_after_a_free_pass_leads_straight_to_a_check(clie
     assert main.count('href="/checkout') == 1  # buying stays one quiet link away
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
         f"/static/{asset_tag()}/welcome.js",
-        f"/static/{asset_tag()}/ref.js",
     ]
     nav = page.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
     assert '<a class="cta" href="/check">Check a link</a>' in nav
@@ -355,7 +352,6 @@ async def test_the_welcome_page_waits_while_the_extension_makes_its_pass(client:
     assert "Getting your free checks ready" in page and "{{" not in page
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
         f"/static/{asset_tag()}/welcome.js",
-        f"/static/{asset_tag()}/ref.js",
     ]
     assert 'href="/welcome">Continue</a>' in page  # without scripts
 
@@ -372,13 +368,13 @@ async def test_the_welcome_page_says_why_a_pass_came_without_free_checks(client:
 
 def _run_welcome(tmp_path: Path, body: str) -> Any:
     """
-    Run ``body`` in node with ``welcome.js`` (and the ``ref.js`` it imports) and a fake same-origin window.
+    Run ``body`` in node with ``welcome.js`` and a fake same-origin window.
 
     :param tmp_path: Where to put the modules.
     :param body: An async function body using ``askFreeChecks``, ``nextWelcome``, ``makeWindow`` and ``makeStorage``.
     :return: What it printed, parsed.
     """
-    for name in ("welcome.js", "ref.js"):
+    for name in ("welcome.js",):
         (tmp_path / name).write_text((STATIC_DIR / name).read_text())
     script = f"""
 import {{ askFreeChecks, nextWelcome }} from {json.dumps((tmp_path / "welcome.js").as_uri())};

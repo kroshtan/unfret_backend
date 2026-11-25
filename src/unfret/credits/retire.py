@@ -1,14 +1,12 @@
 """
 Retiring passes: the operator's fresh start (``python -m unfret.admin_cli retire-passes``, admin API).
 
-Every pass made before a moment is deleted, with every row that names it: its balance and flags (``wallets``), its
-free checks (a column of ``api_keys``), an affiliate's attribution, open card checkouts and crypto quotes for it, its
-open reports and the keyed hashes behind the report limits, the MCP server's OAuth codes and grants for it, and the
-buyer hash on gift codes it bought. Wallet (crypto) accounts go the same way: a wallet keeps no date, so every wallet
-account is retired, whatever the moment.
-Rows of passes that no longer exist (a refund that landed after a pass was deleted, say) go too. What stays are
-anonymous counts: how many passes and wallets were retired on a day (``usage_counters``), and the aggregate tables that
-never named anyone (affiliate earnings).
+Every pass made before a moment is deleted, with every row that names it: its balance and flags (``wallets``), its free
+checks (a column of ``api_keys``), open card checkouts and crypto quotes for it, its open reports and the keyed hashes
+behind the report limits, and the MCP server's OAuth codes and grants for it. Wallet (crypto) accounts go the same way:
+a wallet keeps no date, so every wallet account is retired, whatever the moment. Rows of passes that no longer exist (a
+refund that landed after a pass was deleted, say) go too. What stays are anonymous counts: how many passes and wallets
+were retired on a day (``usage_counters``).
 
 A retired pass is then unknown: it answers ``401 INVALID_API_KEY`` like any key the server doesn't know, and the
 clients drop it and start the free-pass flow (with the free deep checks if that browser never had them).
@@ -35,7 +33,7 @@ import asyncpg
 import structlog
 
 from unfret.config import Settings
-from unfret.credits import invites, keys
+from unfret.credits import keys
 from unfret.reports import account_tag
 
 logger = structlog.get_logger("unfret")
@@ -54,8 +52,6 @@ ACCOUNT_COLUMNS = {
     ("report_votes", "account_tag"),
     ("report_quota", "account_tag"),
     ("vat_quotes", "beneficiary"),
-    ("affiliate_passes", "account"),
-    ("invites", "buyer_hash"),
     ("oauth_grants", "key_id"),
     ("oauth_codes", "key_id"),
 }
@@ -109,14 +105,11 @@ class Report:
     balance_usd_micros: int = 0
     balance_checks: int = 0
     free_checks: int = 0
-    redeemed_code: int = 0
     purchases: int = 0
     card_checkouts: int = 0
     crypto_quotes: int = 0
-    affiliate_links: int = 0
     open_reports: int = 0
     report_limits: int = 0
-    gift_codes_bought: int = 0
     wallets: int = 0
     wallets_with_balance: int = 0
     wallet_balance_usd_micros: int = 0
@@ -140,7 +133,6 @@ async def _orphans(conn: asyncpg.Connection) -> list[str]:
         """
         SELECT account FROM (
             SELECT pubkey AS account FROM wallets
-            UNION SELECT account FROM affiliate_passes
             UNION SELECT account FROM fiat_checkouts
             UNION SELECT account FROM reports
             UNION SELECT beneficiary FROM vat_quotes WHERE beneficiary IS NOT NULL
@@ -192,13 +184,10 @@ async def _wallets(conn: asyncpg.Connection, report: Report, price: int) -> list
 async def _count_attached(
     conn: asyncpg.Connection, passes: list[str], accounts: list[str], report: Report, price: int
 ) -> None:
-    balances = await conn.fetch(
-        "SELECT balance_usd_micros, invite_redeemed FROM wallets WHERE pubkey = ANY($1::text[])", passes
-    )
+    balances = await conn.fetch("SELECT balance_usd_micros FROM wallets WHERE pubkey = ANY($1::text[])", passes)
     report.with_balance = sum(1 for r in balances if r["balance_usd_micros"] != 0)
     report.balance_usd_micros = sum(max(int(r["balance_usd_micros"]), 0) for r in balances)
     report.balance_checks = _checks(report.balance_usd_micros, price)
-    report.redeemed_code = sum(1 for r in balances if r["invite_redeemed"])
     report.purchases = await _count(
         conn,
         "SELECT count(DISTINCT account) FROM (SELECT account FROM fiat_payments WHERE account = ANY($1::text[]) "
@@ -208,19 +197,15 @@ async def _count_attached(
     named = "SELECT count(*) FROM {} WHERE {} = ANY($1::text[])"
     report.card_checkouts = await _count(conn, named.format("fiat_checkouts", "account"), accounts)
     report.crypto_quotes = await _count(conn, named.format("vat_quotes", "beneficiary"), accounts)
-    report.affiliate_links = await _count(conn, named.format("affiliate_passes", "account"), accounts)
     report.open_reports = await _count(conn, named.format("reports", "account"), accounts)
 
 
-async def _count_hashed(conn: asyncpg.Connection, tags: list[bytes], buyers: list[bytes], report: Report) -> None:
+async def _count_hashed(conn: asyncpg.Connection, tags: list[bytes], report: Report) -> None:
     report.report_limits = await _count(
         conn,
         "SELECT (SELECT count(*) FROM report_quota WHERE account_tag = ANY($1::bytea[])) "
         "+ (SELECT count(*) FROM report_votes WHERE account_tag = ANY($1::bytea[]))",
         tags,
-    )
-    report.gift_codes_bought = await _count(
-        conn, "SELECT count(*) FROM invites WHERE buyer_hash = ANY($1::bytea[])", buyers
     )
 
 
@@ -241,21 +226,18 @@ async def _delete(
     conn: asyncpg.Connection,
     selected: list[str],
     accounts: list[str],
-    hashes: tuple[list[bytes], list[bytes]],
+    tags: list[bytes],
     report: Report,
     *,
     period: str,
 ) -> None:
-    tags, buyers = hashes
     await conn.execute("DELETE FROM report_votes WHERE account_tag = ANY($1::bytea[])", tags)
     await conn.execute("DELETE FROM report_quota WHERE account_tag = ANY($1::bytea[])", tags)
     await conn.execute("DELETE FROM reports WHERE account = ANY($1::text[])", accounts)  # their votes cascade
-    await conn.execute("UPDATE invites SET buyer_hash = NULL WHERE buyer_hash = ANY($1::bytea[])", buyers)
     for table, column in (
         ("vat_quotes", "beneficiary"),
         ("fiat_checkouts", "account"),
         ("fiat_payments", "account"),
-        ("affiliate_passes", "account"),
         ("wallets", "pubkey"),
     ):
         await conn.execute(f"DELETE FROM {table} WHERE {column} = ANY($1::text[])", accounts)  # noqa: S608 - fixed
@@ -315,21 +297,20 @@ async def retire_passes(
         report.orphan_rows = await _count(
             conn,
             "SELECT (SELECT count(*) FROM wallets WHERE pubkey = ANY($1::text[])) "
-            "+ (SELECT count(*) FROM affiliate_passes WHERE account = ANY($1::text[])) "
             "+ (SELECT count(*) FROM fiat_checkouts WHERE account = ANY($1::text[])) "
             "+ (SELECT count(*) FROM reports WHERE account = ANY($1::text[])) "
             "+ (SELECT count(*) FROM vat_quotes WHERE beneficiary = ANY($1::text[]))",
             orphans,
         )
         await _count_attached(conn, passes, accounts, report, price)
-        hashes = [account_tag(secret, a) for a in accounts], [invites.buyer_digest(settings, a) for a in accounts]
-        await _count_hashed(conn, *hashes, report)
+        tags = [account_tag(secret, a) for a in accounts]
+        await _count_hashed(conn, tags, report)
         report.refused = _refusals(
             report, include_wallet_balances=include_wallet_balances, include_purchases=include_purchases
         )
         if not confirm or report.refused:
             return report
-        await _delete(conn, selected, accounts, hashes, report, period=(now or datetime.now(UTC)).date().isoformat())
+        await _delete(conn, selected, accounts, tags, report, period=(now or datetime.now(UTC)).date().isoformat())
         report.retired = True
     logger.info("passes_retired", passes=report.passes, wallets=report.wallets, orphans=report.orphan_rows)
     return report

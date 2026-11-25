@@ -60,24 +60,11 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
         "$5.00",
         5_000_000,
     )
-    assert first["label"]["en"] == (
-        "25 checks — $6.50 · pay with crypto: $5.00, VAT included · with 1 gift code for a friend (5 checks)"
-    )
+    assert first["label"]["en"] == ("25 checks — $6.50 · pay with crypto: $5.00, VAT included")
     assert set(first["label"]) == {"en"}  # the app is in English; the map stays for clients that read it
-    # One 5-check gift code per 25 checks bought: 1 with the 25-pack, 4 with the 100-pack.
-    assert [p["invites"] for p in doc["packs"]] == [
-        {"count": 1, "checks_each": 5, "checks": 5},
-        {"count": 4, "checks_each": 5, "checks": 20},
-    ]
-    assert doc["packs"][1]["label"]["en"] == (
-        "100 checks — $21.00 · pay with crypto: $20.00, VAT included · with 4 gift codes for friends (5 checks each)"
-    )
-    assert doc["invites"] == {
-        "checks_each": 5,
-        "per_checks": 25,
-        "for": "any account but the buyer's: a wallet or an API key, new or in use",
-        "redeem_per_month": 1,
-    }
+    assert all("invites" not in p for p in doc["packs"])  # no gift codes any more
+    assert doc["packs"][1]["label"]["en"] == ("100 checks — $21.00 · pay with crypto: $20.00, VAT included")
+    assert "invites" not in doc
     assert doc["suggested_packs"][0] == {"checks": 25, "usd_micros": 5_000_000}
     assert doc["vat"]["mode"] == "nl_under_threshold"
     assert doc["vat"]["eu_rates_pct"]["DE"] == "21"  # Dutch VAT for every EU buyer under the threshold

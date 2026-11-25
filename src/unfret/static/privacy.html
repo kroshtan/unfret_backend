@@ -86,23 +86,6 @@
         address. If your bank app brings you back to another browser after paying, Polar's return link names the
         payment, and that browser can collect your checks once, within a day, as a new pass (the one made where you
         started then stops working); we note only that it happened, and when.</li>
-      <li><strong>Gift codes</strong>: for each gift code that comes with a pack, a one-way hash, the day it was issued
-        and the day it was used, and a keyed one-way hash of the pass or wallet that bought it, so it can't be used on
-        that one (a gift is for a friend). Not who used it, no IP address: nothing links the buyer to the friend who
-        used it. The codes are shown once, on your payment confirmation, and wiped from our server as they are shown
-        (unshown codes go with the purchase record within a week). Until then the checkout page keeps a random claim
-        token for them in your browser, for up to three days. An account that used a gift code is marked as having
-        used one, with the month it last did (a pass can use one a month), not which.</li>
-      <li><strong>Affiliates and bonus codes</strong>: if you came through an affiliate's link
-        (<code>unfret.net/?ref=…</code>) or used their code, this website keeps that code in your browser's own
-        storage (no cookie, nothing sent anywhere) until you get a pass; then we note, with the pass's public ID, which
-        affiliate it came through and when, and the day it made its first check. Nothing else: no IP address, no
-        pages, nothing about your browser. That is what gives you bonus checks on your first pack and pays the
-        affiliate a share of what is paid on that pass, for a year. Affiliates see only totals per month (passes,
-        first checks, purchases, amounts), never a pass, a buyer or what anyone checked. The note goes after 18 months;
-        the commission records (amounts, the order number or transaction, the day) stay for seven years for our
-        bookkeeping. A bonus code you use is counted, not linked to you. See <a href="/affiliates">the affiliate
-        program</a>.</li>
       <li><strong>Not the pages you check.</strong> Page addresses and contents aren't stored, on their own or
         with your wallet or pass. A result stays in memory for up to an hour. For that hour the server also keeps, in
         memory only, a one-way code made from your pass (or wallet) and the page, so that opening the same result
@@ -231,13 +214,12 @@
       <li><strong>Your sign-in</strong> on the link checker and My checks: your Unfret pass or a wallet's session,
         until you remove it on My checks.</li>
       <li><strong>A new pass</strong> made on the checkout page, until you confirm you've saved its backup code.</li>
-      <li><strong>Claim tokens</strong> for a purchase's invites, for up to three days.</li>
+      <li><strong>Claim tokens</strong> for a card purchase, to confirm it once you are back from paying, for up to
+        three days.</li>
       <li><strong>A note</strong> that this browser has had its free pass, on the link checker or in the extension,
         so it gets one only once.</li>
       <li><strong>A date</strong> on which this browser made a developer pass on the page for developers, so it makes
         one only once (the pass itself is shown to you, not kept).</li>
-      <li><strong>An affiliate's code</strong>, if you came through an affiliate's link, for up to 30 days or until you
-        get a pass (see "Affiliates and bonus codes" above).</li>
       <li>For one browser tab only (session storage): a wallet's sign-in on the checkout and wallet pages; and a link
         you paste on the home page, for the moment it takes to open the link checker, which removes it as it starts
         the check.</li>
@@ -294,7 +276,7 @@
       <li><strong>With your consent</strong>, which you can withdraw: a result you share (delete it with its delete
         code) and a wrong result you report.</li>
       <li><strong>Our legitimate interest</strong> in warning shoppers and keeping the service safe: the fingerprints
-        and price records above (shops, contact details, ads, photos, reviews, prices), the request limits, the country suggestion, affiliates' counts, the anonymous usage statistics, and handling a request a shop owner sends us.
+        and price records above (shops, contact details, ads, photos, reviews, prices), the request limits, the country suggestion, the anonymous usage statistics, and handling a request a shop owner sends us.
         You can object (below).</li>
       <li>What this site keeps in your browser is only what a feature you use needs, so it asks no consent for it.</li>
     </ul>

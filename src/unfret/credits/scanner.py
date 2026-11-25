@@ -11,9 +11,7 @@ exactly once even if two scanners run or one restarts mid-way.
 A purchase is valued in dollars at crediting time (:meth:`~unfret.prices.PriceBook.value`; USDC is exact, SOL is
 converted with Pyth's SOL/USD price), VAT included: the account is credited all of it (crypto prices include VAT), and
 the sale is recorded with its country and the VAT worked out of it (:mod:`unfret.credits.vat`) in the same database
-transaction, as are the pack's invites
-(:mod:`unfret.credits.invites`) at a quote's first payment, the quote's code and the account's affiliate bonus, and the
-affiliate's commission on the net amount (:mod:`unfret.credits.affiliates`). When SOL can't be valued
+transaction. When SOL can't be valued
 (oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
 
 Who is credited, and at which VAT rate: the quote's Solana Pay reference (a random public key that
@@ -41,7 +39,7 @@ from solders.pubkey import Pubkey
 
 from unfret import usage
 from unfret.config import Settings
-from unfret.credits import affiliates, invites, keys, ledger, vat
+from unfret.credits import keys, ledger, vat
 from unfret.prices import Currency, PriceBook, PriceUnavailableError
 from unfret.x402.solana import SolanaRpc, associated_token_address
 
@@ -303,41 +301,9 @@ class CreditScanner:
     async def _value(self, amount: int) -> int:
         return await self.book.value(amount, self.currency)
 
-    async def _credit(
-        self,
-        conn: asyncpg.Connection,
-        account: str,
-        sale: vat.Sale,
-        *,
-        quote: vat.Quote | None,
-        paid: int,
-        signature: str,
-        apply_code: bool,
-    ) -> None:
-        """Credit one account's purchase: its credits, a code's or affiliate's bonus, the affiliate's commission."""
-        await conn.execute("SELECT 1 FROM wallets WHERE pubkey = $1 FOR UPDATE", account)
-        first_purchase = await affiliates.never_bought(conn, account)
-        whole_pack = quote is not None and apply_code and paid * 100 >= quote.gross_usd_micros * invites.MIN_PAID_PCT
-        bonus = await affiliates.on_purchase(
-            conn,
-            self.settings,
-            account,
-            code=quote.code if quote is not None and apply_code else None,
-            checks=quote.checks if quote is not None and whole_pack else None,
-            first_purchase=first_purchase,
-        )
+    async def _credit(self, conn: asyncpg.Connection, account: str, sale: vat.Sale) -> None:
+        """Credit one account's purchase."""
         await ledger.credit(conn, account, sale.credited_usd_micros, purchase=True)
-        if bonus:
-            await ledger.credit(conn, account, bonus)
-        await affiliates.earn(
-            conn,
-            self.settings,
-            account,
-            source="crypto",
-            ref=f"{signature}:{account}",
-            currency="usd",
-            net_minor=sale.net_usd_micros // 10_000,
-        )
 
     async def scan_once(self) -> int:
         """
@@ -379,25 +345,12 @@ class CreditScanner:
                 if current != cursor:
                     logger.warning("credits_scanner_raced", expected=cursor, found=current)
                     return made  # another scanner moved on; it credits from here
-                # The quote's first payment (the checkout polls this) is the purchase: its code and pack apply.
-                first_payment = quote is not None and bool(sales) and await vat.mark_paid(conn, quote.id)
-                paid_total = sum(sale.credited_usd_micros for _, sale in sales.values())
-                for i, (account, (amount, sale)) in enumerate(sales.items()):
-                    # One purchase, one code: with several payers in one transaction, the first gets the code's bonus.
-                    await self._credit(
-                        conn,
-                        account,
-                        sale,
-                        quote=quote if first_payment else None,
-                        paid=paid_total,
-                        signature=signature,
-                        apply_code=i == 0,
-                    )
+                # The quote's first payment (the checkout polls this) marks it paid.
+                if quote is not None and sales:
+                    await vat.mark_paid(conn, quote.id)
+                for account, (amount, sale) in sales.items():
+                    await self._credit(conn, account, sale)
                     await vat.record_sale(conn, sale, self.currency, amount, signature=signature)
-                if first_payment and quote is not None:
-                    await invites.issue_for_quote(
-                        conn, self.settings, quote.id, paid_total, buyer=next(iter(sales)) if len(sales) == 1 else None
-                    )
                 await ledger.set_cursor(conn, self.name, signature)
             for _, sale in sales.values():
                 # Amounts only: which wallet bought is on chain already and needn't be in our logs.

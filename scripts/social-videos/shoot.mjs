@@ -203,7 +203,6 @@ async function shootPopup() {
           balance_lamports: 0,
           checks_remaining: 4,
           free_checks_remaining: 4,
-          invite_eligible: false,
         },
       }),
     );

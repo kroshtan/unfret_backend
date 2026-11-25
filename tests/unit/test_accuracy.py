@@ -293,8 +293,8 @@ async def test_the_page_is_served_with_the_strict_policy(client: httpx.AsyncClie
     assert "default-src 'none'" in response.headers["content-security-policy"]
     text = " ".join(response.text.split())
     assert "How accurate is Unfret?" in text
-    # The numbers are in the page, no script needed: the only one is the footer's (an affiliate link's code, ref.js).
-    assert response.text.count("<script") == 1 and "/ref.js" in response.text
+    # The numbers are in the page, no script needed.
+    assert response.text.count("<script") == 0
     for section in ("method", "false-alarms", "ads", "trades", "limits", "changelog"):
         assert f'id="{section}"' in response.text
 

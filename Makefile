@@ -1,4 +1,4 @@
-.PHONY: levels help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
+.PHONY: levels help install lint audit android-release retire-passes test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -124,12 +124,6 @@ label:  ## Work through the review queue, one keypress per page
 
 reports:  ## Label reported results into the corpus: confident proposals in bulk, then one by one (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE]; REPORTS_ARGS="--min-confidence 0.9 --no-bulk --order confidence --agreement reporter")
 	uv run python -m evals.reports $(REPORTS_ARGS)
-
-affiliates:  ## Affiliates: ARGS="list | create CODE --name NAME [--note T] | off|on CODE | note CODE T | stats-link|revoke CODE | report [--month M] | paid CODE [--note T] | reverse ID | delete CODE"
-	uv run python -m unfret.credits.affiliates_cli affiliate $(ARGS)
-
-bonus-codes:  ## Bonus codes: ARGS="list | create CODE --bonus PCT [--expires YYYY-MM-DD] [--uses N] [--affiliate CODE] | off|on CODE"
-	uv run python -m unfret.credits.affiliates_cli bonus $(ARGS)
 
 retire-passes:  ## Retire every pass made before a moment (dry run unless --confirm): ARGS="--before ISO [--keep ID | --keep-from FILE]... [--confirm]"
 	uv run python -m unfret.admin_cli retire-passes $(ARGS)

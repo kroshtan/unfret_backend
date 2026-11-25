@@ -1,7 +1,7 @@
 import pytest
 
 from unfret import reports
-from unfret.config import Settings, settings
+from unfret.config import Settings
 from unfret.credits import keys
 from unfret.credits.keys import KeyGuard
 from unfret.facts import PageFacts
@@ -113,16 +113,9 @@ def test_gap(score: int, label: reports.Label, gap: int) -> None:
     assert reports.gap(score, label) == gap
 
 
-@pytest.mark.parametrize(("off", "checks"), [(0, 0), (9, 0), (10, 1), (29, 1), (30, 5), (60, 5)])
-def test_rewards_come_in_two_steps(off: int, checks: int) -> None:
-    assert reports.reward_checks(settings, off) == checks
-
-
-def test_reward_settings_must_be_consistent() -> None:
-    with pytest.raises(ValueError, match="report_small_reward_checks"):
-        Settings(report_small_reward_checks=6, report_reward_checks=5)
+def test_the_training_gap_must_be_positive() -> None:
     with pytest.raises(ValueError, match="report_training_gap"):
-        Settings(report_training_gap=0)  # a "small reward" for a correct result
+        Settings(report_training_gap=0)  # a "wrong result" that was right
 
 
 @pytest.mark.parametrize(

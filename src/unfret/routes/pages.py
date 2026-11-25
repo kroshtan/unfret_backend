@@ -3,7 +3,7 @@ The site's pages: home, sign-in, checkout, the link checker, accuracy, and the p
 
 ``/`` introduces Unfret (``/nl`` is its one Dutch counterpart), ``/welcome`` greets a new extension install,
 ``/connect`` signs in and hands the session to the extension, then ``/checkout`` (which hands a new API key to the
-extension), ``/affiliates`` (the program) and ``/affiliates/stats`` (an affiliate's own numbers). ``/about``,
+extension). ``/about``,
 ``/why``, ``/money``, ``/press``, ``/terms``, ``/privacy`` and ``/objection`` (for shop owners) are in the footer.
 ``/check`` checks a link from any browser, phones first. It is a web page, not an installable app: on a phone,
 Unfret's website is ``/check`` in the browser. ``/pass`` is where a pass's QR code points: the Android app opens it
@@ -592,47 +592,6 @@ def privacy(app: str | None = None) -> HTMLResponse:
     return _policy_page("privacy.html", "/privacy", app)
 
 
-@router.get("/affiliates", response_class=HTMLResponse)
-def affiliates_page() -> HTMLResponse:
-    """
-    The affiliate program: how it works, the numbers, and the disclosure rules affiliates follow.
-
-    :return: The page.
-    """
-    page = with_affiliate_numbers(with_store_links(template("affiliates.html", "/affiliates")))
-    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
-
-
-def with_affiliate_numbers(page: str) -> str:
-    """
-    Fill in the affiliate program's numbers from the settings, so the program page and the terms say the same.
-
-    :param page: A page's HTML with ``{{bonus_pct}}``, ``{{commission_pct}}``, ``{{months}}``, ``{{hold_days}}`` and
-        ``{{min_payout}}``.
-    :return: The HTML with them filled in.
-    """
-    minimum = settings.affiliate_min_payout_cents // 100
-    for name, value in {
-        "bonus_pct": settings.affiliate_bonus_pct,
-        "commission_pct": settings.affiliate_commission_pct,
-        "months": settings.affiliate_months,
-        "hold_days": settings.affiliate_hold_days,
-        "min_payout": f"${minimum} or €{minimum}",
-    }.items():
-        page = page.replace("{{" + name + "}}", str(value))
-    return page
-
-
-@router.get("/affiliates/stats", response_class=HTMLResponse)
-def affiliate_stats_page() -> HTMLResponse:
-    """
-    An affiliate's own numbers, reached through their private link (the token is in the link's fragment).
-
-    :return: The page.
-    """
-    return _page("affiliate-stats.html")
-
-
 @router.get("/about", response_class=HTMLResponse)
 def about(app: str | None = None) -> HTMLResponse:
     """
@@ -697,14 +656,12 @@ def terms(app: str | None = None) -> HTMLResponse:
     """
     The terms of use for the site, the extension, the app and the API; marked as a draft while ``terms_draft`` is on.
 
-    The affiliate section's numbers come from the same settings as ``/affiliates``.
-
     :param app: ``play`` for the Google Play app's variant (:func:`play_variant`).
     :return: The page.
     """
 
     def fill(page: str) -> str:
-        return with_affiliate_numbers(page.replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else ""))
+        return page.replace("{{draft_note}}", TERMS_DRAFT_NOTE if settings.terms_draft else "")
 
     return _policy_page("terms.html", "/terms", app, fill)
 
@@ -865,7 +822,7 @@ def pass_link_page() -> HTMLResponse:
     return HTMLResponse(versioned(template("pass-link.html")), headers=PASS_HEADERS)
 
 
-# The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /pass, /affiliates/stats, shared
+# The pages meant to be found, for /sitemap.xml. Pages marked noindex (/android, /pass, shared
 # results, the test shop) and the ones for a visitor's own pass or purchase (/welcome, /checkout, /my-checks) stay out.
 SITEMAP_PATHS = (
     "/",
@@ -878,7 +835,6 @@ SITEMAP_PATHS = (
     "/money",
     "/developers",
     "/developers/http",
-    "/affiliates",
     "/connect",
     "/press",
     "/objection",

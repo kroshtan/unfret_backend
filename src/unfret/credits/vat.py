@@ -175,7 +175,6 @@ class Quote:
     vat_usd_micros: int
     beneficiary: str | None  # a wallet or key:<id>; None credits whoever pays
     reference: str | None = None  # the Solana Pay reference (base58) the transaction carries; None for older quotes
-    code: str | None = None  # the bonus or affiliate code the purchase was started with (unfret.credits.affiliates)
 
     @property
     def gross_usd_micros(self) -> int:
@@ -196,7 +195,6 @@ def price_quote(
     *,
     edge: str | None,
     beneficiary: str | None,
-    code: str | None = None,
 ) -> Quote:
     """
     Price a pack for a buyer in ``country`` (not stored yet: see :func:`save_quote`).
@@ -207,7 +205,6 @@ def price_quote(
     :param country: The buyer's stated country (normalised).
     :param edge: Cloudflare's country for the request, if known.
     :param beneficiary: Who to credit (``None``: whoever pays).
-    :param code: The bonus or affiliate code the buyer gave (applied when the payment is credited).
     :return: The quote.
     """
     bps = rate_bps(settings, country)
@@ -223,23 +220,20 @@ def price_quote(
         beneficiary=beneficiary,
         # A fresh public key nobody holds the private key of: only this purchase's transaction will carry it.
         reference=str(Keypair().pubkey()),
-        code=code,
     )
 
 
-async def save_quote(db: asyncpg.Pool, quote: Quote, *, claim_hash: bytes | None = None) -> None:
+async def save_quote(db: asyncpg.Pool, quote: Quote) -> None:
     """
     Store a quote so the scanner can apply it to the payment.
 
     :param db: The database pool.
     :param quote: The quote.
-    :param claim_hash: The hash of the buyer's claim token, which collects the purchase's invites
-        (:mod:`unfret.credits.invites`); ``None``: the purchase gets none.
     """
     await db.execute(
         "INSERT INTO vat_quotes (id, checks, country, country_mismatch, vat_rate_bps, net_usd_micros, "
-        "vat_usd_micros, beneficiary, reference, claim_hash, code) "
-        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "vat_usd_micros, beneficiary, reference) "
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         quote.id,
         quote.checks,
         quote.country,
@@ -249,8 +243,6 @@ async def save_quote(db: asyncpg.Pool, quote: Quote, *, claim_hash: bytes | None
         quote.vat_usd_micros,
         quote.beneficiary,
         quote.reference,
-        claim_hash,
-        quote.code,
     )
 
 

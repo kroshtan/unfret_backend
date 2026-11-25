@@ -22,13 +22,12 @@ from solders.pubkey import Pubkey
 from unfret import usage
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import affiliates, fiat, free, invites, keys, ledger, local_methods, vat
+from unfret.credits import claims, fiat, free, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
 from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
-from unfret.routes.affiliates import InvalidCodeError
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -65,10 +64,6 @@ class CreditsResponse(BaseModel):
     )
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
-    )
-    invite_eligible: bool = Field(
-        description="Whether a gift code (invite) can be redeemed onto this account: always true now, since a gift "
-        "code works on any account but the one whose pack it came with (POST /v1/invites/redeem says so for that one)."
     )
     free_checks_remaining: int = Field(
         default=0,
@@ -112,12 +107,6 @@ class PurchaseRequest(BaseModel):
         max_length=120,
         description="Top up this API key instead (its id, or the key itself: only the id is used).",
     )
-    code: str | None = Field(
-        default=None,
-        max_length=40,
-        description="A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks "
-        "are added when the payment is credited. One code per purchase; the price stays the same.",
-    )
 
     @model_validator(mode="after")
     def _one_target(self) -> PurchaseRequest:
@@ -152,10 +141,6 @@ class PurchaseResponse(BaseModel):
     checks: int
     price: VatBreakdown
     quote_id: str = Field(description="The purchase's quote: poll GET /v1/credits/quotes/{quote_id} to see it paid.")
-    claim: str = Field(
-        description="Send as X-Unfret-Claim when polling the quote: the first poll after payment returns the pack's "
-        "invite codes, once. Keep it in the buyer's page only; it isn't stored, so it can't be shown again."
-    )
 
 
 class UnknownQuoteError(NotFoundError):
@@ -165,18 +150,11 @@ class UnknownQuoteError(NotFoundError):
     headers = {"Cache-Control": "no-store"}
 
 
-INVITES_DESCRIPTION = (
-    "The pack's invite codes (ufi_...), to give away: returned once, in the first response after payment that "
-    "carries the purchase's X-Unfret-Claim, then never again (only their hashes are kept). Empty otherwise."
-)
-
-
 class QuoteStatusResponse(BaseModel):
-    """Whether a purchase's payment has been credited, and its invites once."""
+    """Whether a purchase's payment has been credited."""
 
     paid: bool = Field(description="True once a payment naming this quote has been credited.")
     checks: int = Field(description="The pack size the quote is for.")
-    invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
 
 
 def _method_document(method: local_methods.LocalMethod) -> dict[str, str]:
@@ -230,13 +208,7 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
         "currencies": ["usd", "eur"] if euros_on(settings) else ["usd"],
         "min_eur_cents": smallest.card_eur_cents,
     }
-    document["reports"] = {
-        "per_month": settings.reports_per_month,
-        "reward_checks": settings.report_reward_checks,
-        "reward_gap": settings.report_reward_gap,
-        "small_reward_checks": settings.report_small_reward_checks,
-        "small_reward_gap": settings.report_training_gap,
-    }
+    document["reports"] = {"per_month": settings.reports_per_month}
     response.headers["Cache-Control"] = "private, no-store"
     return document
 
@@ -248,8 +220,8 @@ async def get_balance(request: Request, address: str = Depends(require_account))
 
     :param request: The incoming request.
     :param address: The account (injected by require_account).
-    :return: The balance, how many analyses it covers (a developer pass's free checks apart: they are for the API),
-        and whether an invite can still be redeemed onto it.
+    :return: The balance and how many analyses it covers (a developer pass's free checks apart: they are for the
+        API).
     """
     pool = request.app.db_pool
     row = await ledger.balance(pool, address)
@@ -262,7 +234,6 @@ async def get_balance(request: Request, address: str = Depends(require_account))
         balance_usd_micros=balance,
         checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros + free_left,
         balance_lamports=balance,
-        invite_eligible=True,  # a gift code works on any account (but its buyer's: redeem refuses that one)
         free_checks_remaining=free_left,
         free_checks_paused=(bool(free_left) and await free.paused(pool, settings))
         or (bool(api_free) and await free.paused(pool, settings, developer=True)),
@@ -312,26 +283,14 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
     return wallet
 
 
-async def _code(request: Request, value: str | None) -> affiliates.Code | None:
-    """The usable code a purchase was started with; 404 ``INVALID_CODE`` for one that can't be used."""
-    if not value or not value.strip():
-        return None
-    found = await affiliates.usable(request.app.db_pool, value)
-    if found is None:
-        raise InvalidCodeError(affiliates.NOT_VALID)
-    return found
-
-
 async def _quote(
     request: Request,
     checks: int,
     country: str,
     currency: Currency,
     beneficiary: str | None,
-    *,
-    code: affiliates.Code | None = None,
-) -> tuple[vat.Quote, int, str]:
-    """Price and store a pack for ``country``, convert its total into ``currency``'s base units, make its claim."""
+) -> tuple[vat.Quote, int]:
+    """Price and store a pack for ``country``, and convert its total into ``currency``'s base units."""
     chosen = _pack(checks)
     edge = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
     quote = vat.price_quote(
@@ -341,15 +300,13 @@ async def _quote(
         _country(country),
         edge=edge,
         beneficiary=beneficiary,
-        code=code.code if code else None,
     )
     try:
         amount = await get_credits(request).book.amount(quote.gross_usd_micros, currency)
     except PriceUnavailableError as exc:
         raise ServiceUnavailableError("SOL can't be priced right now; pay in USDC or try again shortly.") from exc
-    claim = invites.new_claim()
-    await vat.save_quote(request.app.db_pool, quote, claim_hash=invites.digest(claim))
-    return quote, amount, claim
+    await vat.save_quote(request.app.db_pool, quote)
+    return quote, amount
 
 
 def _breakdown(quote: vat.Quote) -> VatBreakdown:
@@ -386,8 +343,7 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         beneficiary = await _key_account(request, body.key_id)
     elif body.beneficiary:
         beneficiary = str(_wallet(body.beneficiary, hot))
-    code = await _code(request, body.code)
-    quote, amount, claim = await _quote(request, body.checks, body.country, body.currency, beneficiary, code=code)
+    quote, amount = await _quote(request, body.checks, body.country, body.currency, beneficiary)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
     reference = Pubkey.from_string(quote.reference) if quote.reference else None
@@ -405,7 +361,6 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         checks=quote.checks,
         price=_breakdown(quote),
         quote_id=quote.id,
-        claim=claim,
     )
 
 
@@ -414,21 +369,17 @@ async def quote_status(
     request: Request,
     response: Response,
     quote_id: str,
-    x_unfret_claim: str | None = Header(default=None, max_length=100),
 ) -> QuoteStatusResponse:
     """
-    Whether a purchase has been paid: for the checkout to show when the checks have arrived, and its invites once.
+    Whether a purchase has been paid: for the checkout to show when the checks have arrived.
 
     No sign-in: the quote's id (from ``purchase-tx`` or the QR code's ``X-Unfret-Quote`` header) is random, so only
     whoever started the purchase knows it until the payment's memo puts it on chain, which shows as much already.
-    Says nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then). The
-    invite codes need the purchase's claim token too (``X-Unfret-Claim``), which never goes on chain; the first
-    response that carries it after payment returns them, and wipes them.
+    Says nothing about who pays or who gets the checks. Quotes are deleted a day after they expire (404 then).
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it changes once paid).
     :param quote_id: The quote's id.
-    :param x_unfret_claim: The purchase's claim token (from ``purchase-tx`` or the QR code's ``X-Unfret-Claim``).
     :return: Paid or not, and the pack size.
     :raises ServiceUnavailableError: Without a database.
     :raises UnknownQuoteError: For an unknown, expired or malformed id.
@@ -442,8 +393,7 @@ async def quote_status(
     if found is None:
         raise UnknownQuoteError("Unknown quote.")
     paid, checks = found
-    codes = await invites.take_from_quote(request.app.db_pool, quote_id, x_unfret_claim) if paid else []
-    return QuoteStatusResponse(paid=paid, checks=checks, invites=codes)
+    return QuoteStatusResponse(paid=paid, checks=checks)
 
 
 @router.get("/v1/credits/solana-pay.svg", response_class=Response)
@@ -455,15 +405,13 @@ async def solana_pay_qr(
     currency: Currency = Query(default="SOL"),
     beneficiary: str | None = Query(default=None, max_length=64),
     key_id: str | None = Query(default=None, max_length=120),
-    code: str | None = Query(default=None, max_length=40),
 ) -> Response:
     """
     The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
 
     The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
-    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``, and the claim
-    token that collects the pack's invites with that poll in ``X-Unfret-Claim``; the Solana Pay link itself (to open
-    a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
+    headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay
+    link itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
 
     :param request: The incoming request.
     :param checks: The pack size.
@@ -471,7 +419,6 @@ async def solana_pay_qr(
     :param currency: ``SOL`` or ``USDC``.
     :param beneficiary: The wallet to credit; without it the paying wallet is credited.
     :param key_id: The API key to credit instead.
-    :param code: A bonus or affiliate code, as for ``purchase-tx``.
     :return: An SVG image.
     """
     _quote_allowed(request)
@@ -479,7 +426,7 @@ async def solana_pay_qr(
     target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:
         target = await _key_account(request, key_id)
-    quote, amount, claim = await _quote(request, checks, country, currency, target, code=await _code(request, code))
+    quote, amount = await _quote(request, checks, country, currency, target)
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
@@ -492,7 +439,6 @@ async def solana_pay_qr(
         "X-Unfret-Total-Usd": format_usd(quote.gross_usd_micros),
         "X-Unfret-Vat-Rate": format(quote.vat_rate_bps / 100, "g"),
         "X-Unfret-Quote": quote.id,
-        "X-Unfret-Claim": claim,
         # The same request as a link, for a wallet app on the device the page is open on (a phone can't scan itself).
         "X-Unfret-Pay-Url": pay_url,
     }
@@ -530,12 +476,6 @@ class FiatCheckoutRequest(BaseModel):
         "from /v1/pricing's local_payment_methods for the buyer's chosen country (e.g. wero: iDEAL | Wero, a EUR "
         "checkout with the Netherlands prefilled as billing country). A local method is charged in its own currency.",
     )
-    code: str | None = Field(
-        default=None,
-        max_length=40,
-        description="A bonus or affiliate code (POST /v1/credits/codes/check shows what it gives): its bonus checks "
-        "are added when the order is paid. One code per purchase; the price stays the same.",
-    )
 
     @field_validator("currency", "payment_method", mode="before")
     @classmethod
@@ -564,7 +504,7 @@ class FiatCheckoutRequest(BaseModel):
 
 
 class FiatCheckoutResponse(BaseModel):
-    """Where to send the buyer, and how to collect the order's invites when they come back."""
+    """Where to send the buyer, and how to see the order paid when they come back."""
 
     checkout_url: str
     provider: str
@@ -575,18 +515,16 @@ class FiatCheckoutResponse(BaseModel):
     )
     checkout_id: str = Field(description="Poll GET /v1/credits/fiat-checkouts/{checkout_id} (with the claim) for it.")
     claim: str = Field(
-        description="Send as X-Unfret-Claim with that poll: the first one after payment returns the pack's invite "
-        "codes, once. Keep it in the buyer's browser (e.g. localStorage) across the provider's checkout; it isn't "
-        "stored and is never sent to the provider."
+        description="Send as X-Unfret-Claim with that poll. Keep it in the buyer's browser (e.g. localStorage) "
+        "across the provider's checkout; only its hash is stored, and it is never sent to the provider."
     )
 
 
 class FiatCheckoutStatusResponse(BaseModel):
-    """Whether a card checkout has been paid, and its invites once."""
+    """Whether a card checkout has been paid."""
 
     paid: bool = Field(description="True once the provider's webhook confirmed the payment and the key was credited.")
     checks: int | None = Field(description="The pack size the checkout is for.")
-    invites: list[str] = Field(default_factory=list, description=INVITES_DESCRIPTION)
     reissued: bool = Field(
         default=False,
         description="True when the purchase was picked up in another browser (POST /v1/credits/fiat-checkouts/"
@@ -603,7 +541,6 @@ class ReissuedPassResponse(BaseModel):
     account: str = Field(description="The ledger account, key:<id>.")
     checks: int | None = Field(description="The pack size the checkout paid for.")
     checks_remaining: int = Field(description="The key's balance in checks.")
-    invites: list[str] = Field(default_factory=list, description="The pack's invite codes, if not collected yet.")
 
 
 class CheckoutNotPaidError(ConflictError):
@@ -690,7 +627,6 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     if currency == "eur" and not euros_on(settings):
         raise BadRequestError("Card payments are in US dollars only.")
     account = await _key_account(request, body.key_id)
-    code = await _code(request, body.code)
     # The provider fills in the checkout's id: back in another browser (a bank app, a phone), which has neither the
     # pass nor the claim token, /checkout can still pick the purchase up (fiat_checkout_pass).
     return_url = f"{settings.public_base_url}/checkout?paid=1&checkout={provider.checkout_id_placeholder}"
@@ -710,15 +646,9 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
         raise ServiceUnavailableError(
             "Card payments are unavailable right now; try again later or pay with SOL or USDC."
         )
-    claim = invites.new_claim()
+    claim = claims.new_claim()
     await fiat.remember_checkout(
-        request.app.db_pool,
-        provider.name,
-        checkout,
-        account,
-        checks=chosen.checks,
-        claim_hash=invites.digest(claim),
-        code=code.code if code else None,
+        request.app.db_pool, provider.name, checkout, account, checks=chosen.checks, claim_hash=claims.digest(claim)
     )
     return FiatCheckoutResponse(
         checkout_url=checkout.url,
@@ -738,17 +668,16 @@ async def fiat_checkout_status(
     x_unfret_claim: str | None = Header(default=None, max_length=100),
 ) -> FiatCheckoutStatusResponse:
     """
-    Whether a card checkout has been paid, and the pack's invite codes once: for the checkout page on the way back.
+    Whether a card checkout has been paid: for the checkout page on the way back.
 
     Needs the checkout's claim token (``X-Unfret-Claim``, from ``fiat-checkout``): the provider knows the checkout's
-    id, but never the token. The first response after payment returns the codes and wipes them. 404 for an unknown
-    checkout, a wrong or missing token, or one older than a month.
+    id, but never the token. 404 for an unknown checkout, a wrong or missing token, or one older than a month.
 
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it changes once paid).
     :param checkout_id: The checkout's id (from ``fiat-checkout``).
     :param x_unfret_claim: The checkout's claim token.
-    :return: Paid or not, the pack size, and the invites the first time.
+    :return: Paid or not, and the pack size.
     :raises ServiceUnavailableError: While card payments are off.
     :raises UnknownCheckoutError: For an unknown checkout or a wrong or missing claim token.
     """
@@ -756,25 +685,23 @@ async def fiat_checkout_status(
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
-    found = await invites.checkout_status(request.app.db_pool, provider.name, checkout_id[:100], x_unfret_claim)
+    found = await claims.checkout_status(request.app.db_pool, provider.name, checkout_id[:100], x_unfret_claim)
     if found is None:
         raise UnknownCheckoutError("Unknown checkout.")
-    return FiatCheckoutStatusResponse(
-        paid=found.paid, checks=found.checks, invites=found.invites, reissued=found.reissued
-    )
+    return FiatCheckoutStatusResponse(paid=found.paid, checks=found.checks, reissued=found.reissued)
 
 
 @router.post("/v1/credits/fiat-checkouts/{checkout_id}/pass", response_model=ReissuedPassResponse)
 async def fiat_checkout_pass(request: Request, response: Response, checkout_id: str) -> ReissuedPassResponse:
     """
-    Pick up a card purchase in another browser: a fresh pass (API key) for the key it paid for, and its invites.
+    Pick up a card purchase in another browser: a fresh pass (API key) for the key it paid for.
 
     For a buyer whose bank app or phone brought them back to a browser without the pass that was made for the
     purchase. The provider's return link names the checkout (``/checkout?paid=1&checkout=<id>``). Allowed once,
     within 24 hours of the payment, and only while the browser that paid hasn't picked the purchase up itself (a
     status poll with its claim token after payment); the key is rotated: a new key and recovery code, the same id
     and balance, and the old key stops working. Only for a pass made for the purchase: a top-up of a pass that had
-    checks before (or got some since, from a code or another card order) is never rotated from here.
+    checks before (or got some since, from another card order) is never rotated from here.
 
     Refusals: 404 ``UNKNOWN_CHECKOUT``; 409 ``CHECKOUT_NOT_PAID`` (not confirmed yet: retry after a few seconds);
     409 ``CHECKOUT_TOPPED_UP`` (the checks went to a pass in use: nothing to collect here); 409
@@ -820,7 +747,6 @@ async def fiat_checkout_pass(request: Request, response: Response, checkout_id: 
         account=reissued.key.account,
         checks=reissued.checks,
         checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
-        invites=reissued.invites,
     )
 
 

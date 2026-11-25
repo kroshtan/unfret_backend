@@ -11,7 +11,7 @@ from pydantic import SecretStr
 from tests.integration.conftest import FakeGraph
 from unfret import reports
 from unfret.config import settings
-from unfret.credits import keys
+from unfret.credits import keys, ledger
 
 PRICE = settings.analysis_price_usd_micros
 ADMIN = {"Authorization": "Bearer operator-token"}
@@ -178,25 +178,24 @@ async def test_a_full_queue_gives_up_its_least_valuable_item_for_a_better_one(
 
 
 @pytest.mark.parametrize(
-    ("score", "label", "reward", "training"),
+    ("score", "label", "training"),
     [
-        (80, "scam", 5 * PRICE, True),  # 40 points above the scam zone (<= 40): the model was badly wrong
-        (70, "junk", 5 * PRICE, True),  # exactly 30 off
-        (60, "junk", PRICE, True),  # 20 off: training data, the small reward
-        (50, "scam", PRICE, True),  # exactly 10 off
-        (45, "scam", 0, False),  # 5 off: close enough
-        (20, "legit", 5 * PRICE, True),  # 50 below the legit zone (>= 70)
-        (80, "legit", 0, False),  # the model was right
+        (80, "scam", True),  # 40 points above the scam zone (<= 40): the model was badly wrong
+        (70, "junk", True),  # exactly 30 off
+        (60, "junk", True),  # 20 off: training data
+        (50, "scam", True),  # exactly 10 off
+        (45, "scam", False),  # 5 off: close enough
+        (20, "legit", True),  # 50 below the legit zone (>= 70)
+        (80, "legit", False),  # the model was right
     ],
 )
-async def test_labelling_rewards_the_reporter_and_unlinks(  # noqa: PLR0917 - fixtures and parameters
+async def test_labelling_keeps_the_page_pays_nothing_and_unlinks(  # noqa: PLR0917 - fixtures and parameters
     client: httpx.AsyncClient,
     pool: asyncpg.Pool,
     graph: FakeGraph,
     wallet: Wallet,
     score: int,
     label: str,
-    reward: int,
     training: bool,
 ) -> None:
     graph.result = {**graph.result, "score": score}
@@ -211,9 +210,9 @@ async def test_labelling_rewards_the_reporter_and_unlinks(  # noqa: PLR0917 - fi
         f"/v1/admin/reports/{queue['items'][0]['id']}/label", json={"label": label}, headers=ADMIN
     )
 
-    assert response.json()["reward_usd_micros"] == reward
+    assert "reward_usd_micros" not in response.json()
     assert response.json()["training"] is training
-    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == reward
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == 0
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 0
     assert await pool.fetchval("SELECT COUNT(*) FROM report_votes") == 0
     sample = await pool.fetchrow("SELECT * FROM labelled_pages")
@@ -223,7 +222,7 @@ async def test_labelling_rewards_the_reporter_and_unlinks(  # noqa: PLR0917 - fi
     gone = await client.post(
         f"/v1/admin/reports/{queue['items'][0]['id']}/label", json={"label": label}, headers=ADMIN
     )
-    assert gone.status_code == 404  # labelled once, rewarded once
+    assert gone.status_code == 404  # labelled once
 
 
 async def test_a_rejected_report_keeps_nothing(client: httpx.AsyncClient, pool: asyncpg.Pool, wallet: Wallet) -> None:
@@ -233,7 +232,7 @@ async def test_a_rejected_report_keeps_nothing(client: httpx.AsyncClient, pool: 
 
     response = await client.post(f"/v1/admin/reports/{report_id}/label", json={"label": "reject"}, headers=ADMIN)
 
-    assert response.json()["reward_usd_micros"] == 0
+    assert response.json()["label"] is None
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 0
     assert await pool.fetchval("SELECT COUNT(*) FROM labelled_pages") == 0
 
@@ -348,12 +347,11 @@ async def test_a_quick_result_can_be_reported_and_becomes_training_data_with_its
     assert item["score"] == 85 and item["payload"]["tier"] == "quick"
 
     labelled = await client.post(f"/v1/admin/reports/{item['id']}/label", json={"label": "scam"}, headers=ADMIN)
-    assert labelled.json()["training"] is True and labelled.json()["reward_usd_micros"] > 0  # 45 points off
+    assert labelled.json()["training"] is True  # 45 points off
     sample = await pool.fetchrow("SELECT label, score, payload FROM labelled_pages")
     assert (sample["label"], sample["score"], json.loads(sample["payload"])["tier"]) == ("scam", 85, "quick")
-    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) == (
-        settings.report_reward_checks * PRICE
-    )
+    assert await pool.fetchval("SELECT balance_usd_micros FROM wallets WHERE pubkey = $1", address) in {None, 0}
+    await ledger.credit(pool, address, PRICE)  # a report pays nothing: a deep check needs a bought one
     # The page is known now, whichever tier reports it next.
     deep_body = {k: v for k, v in body.items() if k != "tier"}
     again = await report(client, headers, deep_body, await check(client, headers, deep_body))
@@ -363,4 +361,4 @@ async def test_a_quick_result_can_be_reported_and_becomes_training_data_with_its
 @pytest.mark.usefixtures("quick")
 async def test_an_anonymous_quick_check_gets_no_report_token(client: httpx.AsyncClient) -> None:
     result = await check(client, {}, page(tier="quick"))
-    assert "report_token" not in result  # reports are per account (the monthly limit, the reward)
+    assert "report_token" not in result  # reports are per account (the monthly limit)

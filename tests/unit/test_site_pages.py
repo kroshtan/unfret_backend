@@ -122,38 +122,6 @@ async def test_the_terms_are_marked_as_a_draft_only_while_the_setting_is_on(
     assert "Draft, not in force." not in final and "draft-note" not in final
 
 
-async def test_the_terms_spell_out_the_affiliate_program_from_the_settings(client: httpx.AsyncClient) -> None:
-    text = " ".join((await client.get("/terms")).text.split())
-    section = text[text.index("<h2>7. Affiliates</h2>") : text.index("<h2>8.")]
-    assert "{{" not in section
-    minimum = settings.affiliate_min_payout_cents // 100
-    for phrase in (
-        'apply by writing to <a href="mailto:hello@unfret.net">hello@unfret.net</a>',
-        f"{settings.affiliate_bonus_pct}% more checks on their first pack",
-        f"earns {settings.affiliate_commission_pct}% of the net revenue",
-        f"for {settings.affiliate_months} months after the pass was attributed",
-        "after VAT and the payment provider's fees",
-        f"payable {settings.affiliate_hold_days} days after the purchase",
-        "monthly, by hand",
-        f"${minimum} or €{minimum} is payable in a currency",
-        "never converted",
-        "A refund or a chargeback reverses the commission",
-        "comes off your next payouts",
-        "everything earned is paid out",
-        "FTC",
-        "ACM",
-        "Reclame Code",
-        "misleading claims",
-        "calling a shop a scam",
-        "spam",
-        "bid on Unfret's name",
-        "self-referral rings",
-        "end the affiliate program",
-    ):
-        assert phrase in section, phrase
-    assert "<mark" not in section
-
-
 def test_the_approved_terms_show_no_draft_note_on_dev_or_production() -> None:
     dev = yaml.safe_load((CONFIG / "deploy.dev.yml").read_text())["env"]["clear"]
     production = yaml.safe_load((CONFIG / "deploy.production.yml").read_text())["env"]["clear"]
@@ -180,8 +148,8 @@ async def test_the_terms_cover_what_was_asked(client: httpx.AsyncClient) -> None
         "hello@unfret.net",
     ):
         assert phrase in text, phrase
-    assert "intro code" not in text and "gift code can't be used on the buyer's own pass" in text
-    assert 'href="/affiliates"' in text and "[Affiliate terms" not in text
+    assert "intro code" not in text and "gift code" not in text
+    assert 'href="/affiliates"' not in text and "Affiliates</h2>" not in text
     # The company details as the owner gave them, with no placeholder left.
     assert 'class="placeholder"' not in text
     for detail in (
@@ -201,10 +169,9 @@ async def test_money_is_paid_checks_and_nothing_else(client: httpx.AsyncClient) 
                    "No money from shops"):  # fmt: skip
         assert phrase in text, phrase
     assert "paid for by the checks people buy" in text and "x402" in text
-    # Promoters may earn a share of the sales they bring in (the affiliate program); shops never pay.
-    assert 'href="/affiliates"' in text
-    # Packs come with gift codes for friends; intro codes are gone.
-    assert "gift codes" in text and "intro code" not in text.lower()
+    # No affiliate program, gift codes or intro codes.
+    assert 'href="/affiliates"' not in text
+    assert "gift code" not in text and "intro code" not in text.lower()
 
 
 async def test_about_says_who_and_where_without_made_up_numbers(client: httpx.AsyncClient) -> None:
@@ -358,9 +325,9 @@ async def test_the_sitemap_lists_the_public_pages_at_this_servers_address(
     listed = re.findall(r"<loc>([^<]*)</loc>", response.text)
     assert listed == [f"https://dev.example.test{path}" for path in SITEMAP_PATHS]
     for path in ("/", "/nl", "/check", "/why", "/about", "/accuracy", "/developers", "/extension", "/money",
-                 "/press", "/privacy", "/terms", "/objection", "/affiliates", "/connect"):  # fmt: skip
+                 "/press", "/privacy", "/terms", "/objection", "/connect"):  # fmt: skip
         assert path in SITEMAP_PATHS, path
-    for path in ("/android", "/affiliates/stats", "/welcome", "/checkout", "/my-checks", "/test-shop"):
+    for path in ("/android", "/affiliates", "/welcome", "/checkout", "/my-checks", "/test-shop"):
         assert path not in SITEMAP_PATHS, path
 
 

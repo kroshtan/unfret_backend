@@ -72,19 +72,12 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "image_prints",
         "listing_verdicts",
         "shared_results",
-        "invites",
         "market_prices",
         "review_fingerprints",
         "ad_prints",
         "ad_contacts",
         "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
         "x402_audit_flags",
-        "affiliates",  # the operator's affiliates and codes; a pass, never a page or a check
-        "bonus_codes",
-        "affiliate_passes",
-        "affiliate_earnings",
-        "affiliate_reversals",
-        "affiliate_payouts",
         "objections",  # what a shop owner sends from /objection, never a check
         "oauth_clients",  # the MCP server's OAuth (unfret.oauth): clients, and hashes of codes and tokens for a pass
         "oauth_codes",
@@ -100,7 +93,7 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
     }
     for table in ("contributors", "crowd_labels", "crowd_tokens_used", "crowd_answers"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608 - a check stores no label
-    for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings", "objections"):
+    for table in ("vat_quotes", "crypto_sales", "objections"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     for table in ("oauth_clients", "oauth_codes", "oauth_grants", "oauth_spent_refresh"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608

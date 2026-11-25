@@ -25,12 +25,6 @@ async function prices() {
     if (!item) continue;
     const price = cardPrice(body, pack, "eur", "NL");
     if (price) item.querySelector(".card-price").textContent = euros(price.cents);
-    const gifts = Number(pack.invites?.count) || 0;
-    const gift = item.querySelector(".gift");
-    if (gift) {
-      gift.textContent = gifts === 1 ? "met 1 cadeaucode voor een vriend" : `met ${gifts} cadeaucodes voor vrienden`;
-      gift.hidden = gifts === 0;
-    }
   }
 }
 

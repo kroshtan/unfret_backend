@@ -150,10 +150,8 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert response.text.count(f'href="{settings.chrome_store_url}"') == 1
     assert response.text.count(f'href="{settings.firefox_store_url}"') == 1
     assert 'href="https://addons.mozilla.org/' in response.text
-    # Its script fills in the prices (/v1/pricing) and the store buttons; the footer's keeps an affiliate link's
-    # code (ref.js).
-    assert response.text.count("<script") == 2
-    assert f'<script type="module" src="/static/{asset_tag()}/ref.js"></script>' in response.text
+    # Its script fills in the prices (/v1/pricing) and the store buttons.
+    assert response.text.count("<script") == 1
     assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text
 
 
@@ -173,29 +171,6 @@ def test_scripts_only_load_images_the_policy_allows() -> None:
     # as the checkout's QR code once did.
     for script in STATIC_DIR.glob("*.js"):
         assert "createObjectURL" not in script.read_text(encoding="utf-8"), script.name
-
-
-async def test_privacy_statement_describes_gift_codes_and_affiliates(client: httpx.AsyncClient) -> None:
-    text = (await client.get("/privacy")).text
-    assert "<strong>Gift codes</strong>" in text and "nothing links the buyer to the friend who" in text
-    assert "<strong>Affiliates and bonus codes</strong>" in text and "no IP address" in text
-    assert "No affiliate links to shops" in text
-
-
-def test_pages_show_invites_and_offer_to_redeem_one() -> None:
-    wallet = (STATIC_DIR / "wallet.js").read_text()
-    assert "Share them with friends: each one gives a friend 5 free checks" in wallet
-    assert "can use one gift code a month" in wallet
-    assert "/v1/invites/redeem" in wallet and "copyButton(code)" in wallet  # Copy, as for the pass
-    checkout = (STATIC_DIR / "checkout.js").read_text()
-    assert '"X-Unfret-Claim"' in checkout and "inviteNodes(" in checkout  # the payment-received panel
-    assert "gift code for a friend" in checkout and "gift codes for friends" in checkout  # each pack's offer
-    for page in ("checkout", "connect", "check"):
-        html = (STATIC_DIR / f"{page}.html").read_text()
-        assert "Got a gift code from a friend?" in html and 'id="invite-redeem"' in html, page
-    for name in ("index.html", "checkout.html", "checkout.js", "wallet.js", "connect.html", "check.html"):
-        text = (STATIC_DIR / name).read_text().lower()
-        assert "free invite" not in text and "trial" not in text, name  # an invite, never "free" or a "trial"
 
 
 async def test_pages_name_their_assets_under_the_build(client: httpx.AsyncClient) -> None:
@@ -378,19 +353,19 @@ def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
     assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
     assert 'data-checks="50"' not in prices and "checks=50" not in home
     assert "$6.50" in prices and "$21.00" in prices and "$11.50" not in home and "$22.00" not in home
-    assert "with 1 gift code for a friend" in prices and "with 4 gift codes for friends" in prices
+    assert "gift code" not in home
     assert "deep checks, then quick checks" in prices
     home_js = (STATIC_DIR / "home.js").read_text()
-    assert "checks_per_pass" in home_js and "pack.invites" in home_js  # live from /v1/pricing
+    assert "checks_per_pass" in home_js and "invites" not in home_js  # live from /v1/pricing
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.index('id="free-first"') < checkout.index('id="packs"')
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
-    assert "25 checks for $6.50 (€6.50 in the euro area), with 1 gift code for a friend" in money
-    assert "100 checks for $21 (€21), with 4 gift codes for friends (5 checks each)" in money
+    assert "25 checks for $6.50 (€6.50 in the euro area), or 100 checks for $21 (€21)" in money
+    assert "gift code" not in money
     assert "Card prices include tax, in dollars and in euros" in money and "before tax" not in money
     assert money.index("5 free deep checks") < money.index("25 checks for $6.50")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
-    assert "A pass can use one gift code a month" in my_checks
+    assert "gift code" not in my_checks
 
 
 @pytest.mark.usefixtures("node")
@@ -484,7 +459,7 @@ def test_the_four_verdicts_and_a_reason_below_looks_fine(tmp_path: Path) -> None
 def test_checkout_has_three_tabs_and_crypto_behind_a_link() -> None:
     page = (STATIC_DIR / "checkout.html").read_text()
     tabs = re.findall(r'role="tab"[^>]*>([^<]+)</button>', page)
-    assert tabs == ["Buy checks", "Gift code", "Add to my pass"]
+    assert tabs == ["Buy checks", "Add to my pass"]
     assert "tab-crypto" not in page and page.count("data-to-crypto") == 2  # under Buy checks and Add to my pass
     assert 'id="crypto-back"' in page
     # The test network's "no real money" concerns crypto only: it sits with the crypto panel, not above the tabs.
@@ -643,8 +618,8 @@ async def test_no_page_mentions_the_retired_showcase(client: httpx.AsyncClient) 
 async def test_privacy_statement_covers_storage_logs_bases_and_rights(client: httpx.AsyncClient) -> None:
     text = " ".join((await client.get("/privacy")).text.split())
     assert "sets <strong>no cookies</strong>" in text
-    # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-ref, unfret-developer-pass
-    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "An affiliate's code", "A date"):
+    # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-developer-pass
+    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "A date"):
         assert f"<strong>{key}</strong>" in text
     assert "no request log" in text and "proxy log" not in text  # kamal-proxy runs with Docker's `none` log driver
     assert "salted one-way hash, in memory only" in text
@@ -660,7 +635,7 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
     for script in STATIC_DIR.glob("*.js"):
         keys |= set(re.findall(r'"(unfret-[a-z-]+)"', script.read_text()))
     # Message types between the page and the extension, not storage.
-    messages = {"unfret-key", "unfret-key-received", "unfret-ref-received", "unfret-session-status"}
+    messages = {"unfret-key", "unfret-key-received", "unfret-session-status"}
     messages |= {"unfret-free-ask", "unfret-free-answer"}
     assert keys - messages == {
         "unfret-account",
@@ -668,7 +643,6 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
         "unfret-invite-claims",
         "unfret-session",
         "unfret-free-pass",
-        "unfret-ref",
         "unfret-start-check",
         "unfret-developer-pass",
     }

@@ -858,9 +858,7 @@
     "pack": "{checks} checks — {price}",
     "crypto": "pay with crypto: {crypto}, VAT included",
     "vat_line": "{total}, including {rate}% VAT ({vat})",
-    "no_vat_line": "{total} (no VAT outside the EU)",
-    "invite_one": "with 1 gift code for a friend ({checks} checks)",
-    "invite_many": "with {count} gift codes for friends ({checks} checks each)"
+    "no_vat_line": "{total} (no VAT outside the EU)"
   },
   "shop_one": "shop",
   "shop_many": "shops",

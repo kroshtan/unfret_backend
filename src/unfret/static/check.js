@@ -38,7 +38,7 @@ import { chargeNoteOf, deepHintNode, deepHintOf, el, resultNodes } from "./check
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { makePass } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
-import { INVITE_RE, NOT_A_CODE, api, redeemInvite } from "./wallet.js";
+import { api } from "./wallet.js";
 
 const STORE_KEY = "unfret-account";
 const FREE_GIVEN = "unfret-free-pass"; // this browser asked for its free pass (once per browser)
@@ -83,7 +83,6 @@ let checks = null;
 let freeLeft = 0; // of `checks`, the free ones
 let freePaused = false; // today's free deep checks are all used
 let apiFree = 0; // a developer pass's free checks: for the API and the MCP server, not this page
-let inviteEligible = false;
 let pricing = null;
 let running = null; // the AbortController of the check in progress
 let last = null; // { body, result } of the check on screen, for a report or a share
@@ -227,8 +226,6 @@ function renderAccount() {
         : checksText(checks) + (apiFree > 0 ? ` (a developer pass: its ${apiFree} free checks are for the API)` : "");
     $("buy-more").href = buyPath();
   }
-  // The gift-code field: shown for any pass or wallet (a gift code works on any account but its buyer's).
-  $("invite").hidden = !(account && inviteEligible);
   $("sign-in-note").textContent = expired
     ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."
     : "Quick checks are free. Deep checks come in packs, with no subscription and no account.";
@@ -262,7 +259,6 @@ async function refreshChecks() {
     freeLeft = credits.free_checks_remaining ?? 0;
     freePaused = credits.free_checks_paused === true;
     apiFree = credits.api_free_checks_remaining ?? 0;
-    inviteEligible = credits.invite_eligible === true;
   } catch (error) {
     if (passEnded(error, account)) return passRetired();
     if (error.status === 401) return signedOut(true);
@@ -332,7 +328,7 @@ async function tryPass(pass) {
     }
     if (!response.ok) return { ok: false, reason: "Couldn't check the pass right now. Please try again." };
     const credits = await response.json();
-    return { ok: true, checks: credits.checks_remaining, inviteEligible: credits.invite_eligible === true };
+    return { ok: true, checks: credits.checks_remaining };
   } catch {
     return { ok: false, reason: "Couldn't reach Unfret. Check your connection." };
   }
@@ -353,7 +349,6 @@ async function useKey() {
     return;
   }
   checks = tried.checks;
-  inviteEligible = tried.inviteEligible;
   $("key").value = "";
   status.textContent = "";
   signedIn({ kind: "key", token: pass, address: `key:${id}` });
@@ -370,7 +365,6 @@ async function receivePass(pass) {
     $("pass-offer").hidden = true;
     if (!tried.ok) return showPassAdded(tried.reason);
     checks = tried.checks;
-    inviteEligible = tried.inviteEligible;
     signedIn({ kind: "key", token: pass, address: `key:${id}` });
     showPassAdded(`Your pass ${showPassId(id)} is on this device now.`);
   };
@@ -508,7 +502,7 @@ function renderResult(result, because = null) {
   $("report").hidden = true;
   $("report-status").hidden = true;
   resetShare(result);
-  $("report-consent").textContent = reportConsent(pricing?.reports);
+  $("report-consent").textContent = reportConsent();
 }
 
 function showError(message, refunded) {
@@ -745,24 +739,17 @@ async function readStream(stream, onStep) {
 
 // ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
 
-/** The consent line, with the rewards the server pays (`/v1/pricing` → reports) when it says them. */
-function reportConsent(reports) {
-  const base =
+/** The consent line. */
+function reportConsent() {
+  return (
     "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
     "Personal details are removed first; an AI model may suggest a label, a person decides; once reviewed, it is " +
-    "kept without any link to you.";
-  const big = reports?.reward_checks;
-  if (!big) return base;
-  const small = reports.small_reward_checks;
-  const checks = (n) => `${n} free check${n === 1 ? "" : "s"}`;
-  const reward = small
-    ? `If Unfret was clearly wrong, you get ${checks(big)}; if it was somewhat off, ${checks(small)}.`
-    : `If Unfret was clearly wrong, you get ${checks(big)}.`;
-  return `${base} ${reward}`;
+    "kept without any link to you."
+  );
 }
 
 const REPORT_OUTCOME = {
-  queued: "Thanks! We'll review this page. If we got it wrong, you get free checks.",
+  queued: "Thanks! We'll review this page.",
   already_reported: "Thanks! Someone reported this page first; your report counts as confirmation.",
   already_known: "Thanks! We reviewed this page recently.",
 };
@@ -966,34 +953,6 @@ $("again").addEventListener("click", () => {
   showOnly();
   renderPaste();
   field.focus();
-});
-// "Have an invite?": a code someone gave the user, for this (new) pass or wallet.
-$("invite-redeem").addEventListener("click", async () => {
-  const status = $("invite-status");
-  const code = $("invite-input").value.trim().toLowerCase();
-  if (!INVITE_RE.test(code)) {
-    status.textContent = NOT_A_CODE;
-    return;
-  }
-  if (!account) return;
-  $("invite-redeem").disabled = true;
-  try {
-    const added = await redeemInvite(code, account.token);
-    $("invite-input").value = "";
-    status.textContent = `✓ ${added.checks_added} checks added.`;
-    checks = added.checks_remaining;
-    renderAccount();
-  } catch (error) {
-    if (passEnded(error, account)) {
-      passRetired();
-      status.textContent = "";
-      return;
-    }
-    if (error.status === 401) signedOut(true);
-    status.textContent = error.message || "That code didn't work.";
-  } finally {
-    $("invite-redeem").disabled = false;
-  }
 });
 // The examples are links to the made-up shops: a plain click checks one here; a click for a new tab opens the shop.
 for (const example of document.querySelectorAll("[data-example]")) {

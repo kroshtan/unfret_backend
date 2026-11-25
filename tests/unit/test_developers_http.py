@@ -187,7 +187,7 @@ def test_the_sites_proof_of_work_finds_the_servers_first_counter(tmp_path: Path)
     # The site's solver (new-pass.js: SHA-256 in plain JavaScript, for /check, /checkout and /developers) must give the
     # first counter the server's own check accepts: challenges of many lengths, so the counter falls in the first or
     # the second block, after a challenge of more than one block too.
-    for name in ("new-pass.js", "ref.js"):
+    for name in ("new-pass.js",):
         (tmp_path / name).write_text((STATIC_DIR / name).read_text(encoding="utf-8"), encoding="utf-8")
     challenges = [f"{'x' * length}.{n}" for length in range(40, 140, 7) for n in range(3)]
     guard = KeyGuard(secret="s", bits=10, ttl_s=60, creations=DailyLimit(5, 500), recoveries=DailyLimit(5, 500),

@@ -16,14 +16,13 @@ API calls need an Organization Access Token with the ``checkouts:write`` scope o
 
 Webhooks (Standard Webhooks, the ``whsec_`` secret shown when the endpoint is created in Polar) and what they become:
 
-- ``order.paid`` → ``paid``, for the order's ``net_amount`` (after discounts, before sales tax/VAT: what refunds and
-  commission are counted against). Credited only if the order is for a configured pack's product and it paid exactly
+- ``order.paid`` → ``paid``, for the order's ``net_amount`` (after discounts, before sales tax/VAT: what refunds are
+  counted against). Credited only if the order is for a configured pack's product and it paid exactly
   that pack's card price in the order's currency (USD, or EUR for a pack with a euro price): its ``net_amount`` for a
   price before tax, its ``net_amount + tax_amount`` for a tax-inclusive price (Polar's ``net_amount`` is then the price
   less the buyer's VAT, which differs by country). Anything else (another currency, a zero or changed price, an
   unknown product) credits nothing and is logged as ``polar_order_not_credited`` for a person to look at.
-  Polar's fee (``platform_fee_amount``, when in the order's currency) goes along, for an affiliate's commission on
-  the net revenue (:mod:`unfret.credits.affiliates`).
+  Polar's fee (``platform_fee_amount``, when in the order's currency) goes along (not used for crediting).
 - ``order.refunded`` → ``refunded``, with the order's ``refunded_amount`` (the total refunded so far, before tax, in
   the order's currency; Polar reports the refunded tax separately in ``refunded_tax_amount``).
 - ``refund.created`` / ``refund.updated`` → ``disputed`` when the refund carries a dispute Polar lost; other refunds
@@ -236,7 +235,7 @@ class PolarProvider:
             )
             return None
         metadata = data.get("metadata") or {}
-        # Polar's fee, if it reports one in the order's currency; otherwise the commission estimates it.
+        # Polar's fee, if it reports one in the order's currency.
         fee, fee_currency = data.get("platform_fee_amount"), str(data.get("platform_fee_currency") or currency)
         return FiatEvent(
             kind="paid",

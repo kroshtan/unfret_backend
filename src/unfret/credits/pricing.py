@@ -13,7 +13,7 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from unfret.config import Settings
-from unfret.credits import invites, vat
+from unfret.credits import vat
 from unfret.credits.packs import Pack, format_eur, packs
 from unfret.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
 from unfret.shopper import LANGUAGE, catalogue
@@ -121,41 +121,22 @@ def purchase_transaction(
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))
 
 
-def pack_labels(pack: Pack, settings: Settings | None = None) -> dict[str, str]:
+def pack_labels(pack: Pack) -> dict[str, str]:
     """
-    How a pack is offered: the card price as *the* price, the crypto price, and its gift codes.
+    How a pack is offered: the card price as *the* price, and the crypto price.
 
     Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
-    discount for paying another way is fine. "Free checks" is the free tier's name (the checks a new pass comes with,
-    and quick checks: :mod:`unfret.credits.free`), never a "trial". Gift codes (invites) keep their own words: a gift
-    code is a buyer's gift for a friend ("with 1 gift code for a friend (5 checks)"), never a "free invite" or a
-    "trial".
+    discount for paying another way is fine.
 
     :param pack: The pack.
-    :param settings: The service settings (for the gift codes; without them, none are mentioned).
     :return: ``{"en": …}`` (keyed by language for the clients that read it that way), e.g. ``"25 checks — $6.00 ·
-        pay with crypto: $5.00, VAT included · with 1 gift code for a friend (5 checks)"``.
+        pay with crypto: $5.00, VAT included"``.
     """
-    count = invites.count_for(settings, pack.checks) if settings else 0
     text = catalogue()["pricing"]
     price, crypto = format_usd(pack.card_usd_micros), format_usd(pack.value_usd_micros)
-    label = f"{text['pack'].format(checks=pack.checks, price=price)} · {text['crypto'].format(crypto=crypto)}"
-    if count and settings:
-        gift = text["invite_one" if count == 1 else "invite_many"]
-        label += f" · {gift.format(count=count, checks=settings.invite_checks)}"
-    return {LANGUAGE: label}
-
-
-def pack_invites(settings: Settings, pack: Pack) -> dict[str, int]:
-    """
-    The invites a pack comes with, for ``/v1/pricing``.
-
-    :param settings: The service settings.
-    :param pack: The pack.
-    :return: ``count`` invites worth ``checks`` checks in all (``checks_each`` each).
-    """
-    count = invites.count_for(settings, pack.checks)
-    return {"count": count, "checks_each": settings.invite_checks, "checks": count * settings.invite_checks}
+    return {
+        LANGUAGE: f"{text['pack'].format(checks=pack.checks, price=price)} · {text['crypto'].format(crypto=crypto)}"
+    }
 
 
 async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc: Pubkey) -> dict[str, Any]:
@@ -166,8 +147,7 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     the price (by card; including sales tax/VAT while ``card_tax_inclusive.usd`` is true, the default), ``price_eur``
     the card price in euros for visitors from the euro area (``None`` while euro prices are off; VAT included while
     ``card_tax_inclusive.eur`` is true: the final price, the same for every buyer), and ``crypto_usd`` the lower price
-    when paying with SOL or USDC (VAT included; ``vat`` says how much of it is VAT for each country), and ``invites``
-    the gift codes it comes with to give away (the 25-pack: one of 5 checks; the 100-pack: four).
+    when paying with SOL or USDC (VAT included; ``vat`` says how much of it is VAT for each country).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -195,8 +175,7 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
                 "crypto_usd_micros": p.value_usd_micros,
                 "crypto_usd": format_usd(p.value_usd_micros),
                 "credited_usd_micros": p.value_usd_micros,
-                "invites": pack_invites(settings, p),
-                "label": pack_labels(p, settings),
+                "label": pack_labels(p),
             }
             for p in on_sale
         ],
@@ -208,12 +187,6 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
         # Deprecated: the packs' crypto prices under their old name.
         "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
         "vat": vat.describe(settings),
-        "invites": {
-            "checks_each": settings.invite_checks,
-            "per_checks": settings.invite_per_checks,
-            "for": "any account but the buyer's: a wallet or an API key, new or in use",
-            "redeem_per_month": invites.REDEEM_PER_MONTH,
-        },
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,
         # USDC base units are micro-dollars: USDC amounts equal the dollar prices.

@@ -8,10 +8,10 @@ sent it. ``POST /v1/reports`` is its older, compatible form. No sign-in, no IP a
 from typing import Literal, NoReturn
 
 import asyncpg
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from unfret import crowd, reports
+from unfret import crowd, levels, reports
 from unfret.config import settings
 from unfret.reports import second_opinion
 from unfret.schemas.errors import (
@@ -195,6 +195,50 @@ async def send_label(body: LabelRequest, request: Request) -> LabelResponse:
     if done.report_id is not None:
         second_opinion.schedule(pool, settings, done.report_id)
     return LabelResponse(status=done.outcome, updated=done.status == "updated", anonymous=body.contributor_key is None)
+
+
+class CatalogueFinding(BaseModel):
+    """One finding type a shopper can mark as missing."""
+
+    type: str = Field(description="The type, as in verdict.reasons[].type and POST /v1/labels' missing.")
+    title: str = Field(description='A short title in US English: "Fake countdown".')
+    level: int | None = Field(
+        description="The risk level this finding is evidence for by default (1 manipulation, 2 overpaying, 3 doesn't "
+        "work, 4 won't arrive; higher is worse), or null for a payment modifier. Data, not a rule: the result's "
+        "level is set by the whole page."
+    )
+    key: levels.LevelKey | None = Field(description="The level's key, or null with the level.")
+
+
+class FindingsCatalogue(BaseModel):
+    """Every finding type a shopper can mark as missing in a "Wrong result?" report."""
+
+    findings: list[CatalogueFinding]
+
+
+@router.get("/v1/catalogue/findings", response_model=FindingsCatalogue)
+async def findings_catalogue(response: Response) -> FindingsCatalogue:
+    """
+    The finding types a shopper can mark as missing in "Wrong result?", with a title and a default level.
+
+    Public and cacheable (a day): it changes only with a server release. Ordered by level, worst first.
+
+    :param response: The response (for its caching header).
+    :return: The catalogue.
+    """
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    types = sorted(levels.MARKABLE, key=lambda t: (levels.order_key(t), t))
+    return FindingsCatalogue(
+        findings=[
+            CatalogueFinding(
+                type=t,
+                title=levels.title_of(t),
+                level=levels.level_of(t),
+                key=None if levels.level_of(t) is None else levels.KEYS[levels.level_of(t) or 0],
+            )
+            for t in types
+        ]
+    )
 
 
 @router.post("/v1/contributors", response_model=Contributor)

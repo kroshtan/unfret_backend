@@ -231,7 +231,7 @@ def check_label(
         raise crowd.LabelError("BAD_LABEL", "Say which level is right, or which findings are wrong or missing.")
     if not set(wrong) <= set(shown.types):
         raise crowd.LabelError("BAD_LABEL", "You can only call wrong the findings this result showed.")
-    if not set(missing) <= set(levels.FINDING_LEVELS) - set(shown.types):
+    if not set(missing) <= set(levels.MARKABLE) - set(shown.types):
         raise crowd.LabelError("BAD_LABEL", "A missing finding is one Unfret checks for and this result didn't show.")
 
 

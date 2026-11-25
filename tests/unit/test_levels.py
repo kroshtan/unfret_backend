@@ -55,3 +55,20 @@ def test_a_higher_level_is_always_worse() -> None:
 def test_no_level_text_calls_a_shop_a_scam() -> None:
     text = str(catalogue()["levels"]).lower()
     assert "scam" not in text and "fraud" not in text
+
+
+async def test_the_findings_catalogue_lists_what_a_shopper_can_mark_missing() -> None:
+    import httpx  # noqa: PLC0415
+
+    from unfret.main import app  # noqa: PLC0415
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/v1/catalogue/findings")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=86400"
+    findings = response.json()["findings"]
+    assert {f["type"] for f in findings} == set(levels.FINDING_LEVELS) - {"overall"}
+    countdown = next(f for f in findings if f["type"] == "timer_resets")
+    assert countdown == {"type": "timer_resets", "title": "Fake countdown", "level": 1, "key": "manipulation"}
+    assert findings[0]["level"] == 4 and findings[-1]["level"] is None  # worst first, payment modifiers last
+    assert all(f["title"] and "scam" not in f["title"].lower() for f in findings)

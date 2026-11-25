@@ -119,6 +119,11 @@ NOTES: frozenset[str] = frozenset(
 )
 
 
+# Finding types a shopper can mark as missing in a "Wrong result?" report: every card reason but the scorer's small
+# signs ("overall", not a finding of its own). GET /v1/catalogue/findings lists them.
+MARKABLE: tuple[str, ...] = tuple(t for t in FINDING_LEVELS if t != "overall")
+
+
 def level_of(reason_type: str) -> int | None:
     """
     The level a finding is evidence for.

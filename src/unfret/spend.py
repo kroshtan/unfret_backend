@@ -405,31 +405,64 @@ async def checks_left_today(db: Executor | None, config: Settings | None = None)
     return standing_now.left_micro_eur // await average_free_check_micro_eur(db, config)
 
 
-async def add_donation(db: asyncpg.Pool, amount_eur: Decimal, note: str, config: Settings | None = None) -> int:
+async def add_donations(
+    db: asyncpg.Pool, amounts_eur: list[Decimal], note: str = "", config: Settings | None = None
+) -> list[int]:
     """
-    Add a donation to the pool (on top of the base part's cap), and keep it in the ledger: amount, day, note.
+    Add donations to the pool (on top of the base part's cap): one ledger entry each (amount, day, note).
+
+    The ledger, ``free_pool_donations``, has one row per donation, so its rows count the donations
+    (:func:`donation_count`, what /live shows as supporters). A donation is in the pool at once: today it can be spent
+    up to the day's limit (three times the base), which a donation never raises.
+
+    :param db: The pool.
+    :param amounts_eur: The donations' amounts in euros (each positive), one entry each.
+    :param note: A short note for every entry (never anything about a donor).
+    :param config: The settings (the service's by default).
+    :return: The ledger rows' ids, in order.
+    :raises ValueError: If there is none, or an amount isn't positive.
+    """
+    if not amounts_eur or any(a <= 0 for a in amounts_eur):
+        raise ValueError("donations must be positive, at least one")
+    micros = [int(a * MICRO) for a in amounts_eur]
+    day = today()
+    async with db.acquire() as conn, conn.transaction():
+        await _ensure_pool(conn, config or settings, day)
+        await conn.execute("UPDATE free_pool SET donated_micro_eur = donated_micro_eur + $1 WHERE id = 1", sum(micros))
+        return [
+            int(
+                await conn.fetchval(
+                    "INSERT INTO free_pool_donations (day, micro_eur, note) VALUES ($1, $2, $3) RETURNING id",
+                    day,
+                    micro,
+                    note[:200],
+                )
+            )
+            for micro in micros
+        ]
+
+
+async def add_donation(db: asyncpg.Pool, amount_eur: Decimal, note: str = "", config: Settings | None = None) -> int:
+    """
+    Add one donation to the pool (:func:`add_donations`).
 
     :param db: The pool.
     :param amount_eur: The amount in euros (positive).
     :param note: A short note (never anything about the donor).
     :param config: The settings (the service's by default).
     :return: The ledger row's id.
-    :raises ValueError: If the amount isn't positive.
     """
-    if amount_eur <= 0:
-        raise ValueError("a donation must be positive")
-    micro = int(amount_eur * MICRO)
-    async with db.acquire() as conn, conn.transaction():
-        await _ensure_pool(conn, config or settings, today())
-        await conn.execute("UPDATE free_pool SET donated_micro_eur = donated_micro_eur + $1 WHERE id = 1", micro)
-        return int(
-            await conn.fetchval(
-                "INSERT INTO free_pool_donations (day, micro_eur, note) VALUES ($1, $2, $3) RETURNING id",
-                today(),
-                micro,
-                note[:200],
-            )
-        )
+    return (await add_donations(db, [amount_eur], note, config))[0]
+
+
+async def donation_count(db: asyncpg.Pool) -> int:
+    """
+    How many donations the ledger holds: one entry each, nothing about who gave.
+
+    :param db: The pool.
+    :return: The number of donations.
+    """
+    return int(await db.fetchval("SELECT count(*) FROM free_pool_donations"))
 
 
 async def pool_summary(db: asyncpg.Pool, config: Settings | None = None) -> dict[str, Any]:

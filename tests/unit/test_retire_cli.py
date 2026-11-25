@@ -114,3 +114,29 @@ def test_a_keep_file_without_a_key_id_stops_before_sending(tmp_path: Path) -> No
 def test_a_malformed_moment_is_refused_by_the_command_line() -> None:
     with pytest.raises(SystemExit):
         admin_cli.run(api(REPORT, []), ["retire-passes", "--before", "next tuesday"])
+
+
+def test_free_pool_add_sends_one_ledger_entry_per_amount(capsys: pytest.CaptureFixture[str]) -> None:
+    sent: list[dict[str, Any]] = []
+    pool = {
+        "pool_eur": "107.50",
+        "base_eur": "90.00",
+        "donated_eur": "17.50",
+        "spent_today_eur": "0.00",
+        "day_limit_eur": "9.00",
+        "average_check_eur": "0.005",
+        "checks_left_today": 1800,
+        "paused": False,
+        "donations": [],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/admin/free-pool/donations"
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=pool)
+
+    client = httpx.Client(base_url="https://dev.example", transport=httpx.MockTransport(handle))
+    assert admin_cli.run(client, ["free-pool", "add", "5", "10", "2.50", "--note", "Revolut"]) == 0
+    assert sent[-1] == {"amounts_eur": ["5", "10", "2.50"], "note": "Revolut"}
+    assert "Pool €107.50" in capsys.readouterr().out
+    assert admin_cli.run(client, ["free-pool", "add"]) == 1  # no amount

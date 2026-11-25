@@ -394,8 +394,9 @@ deep, with **no pass and nothing that names them or their device** (the client A
   `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`) and added up a UTC day in `llm_spend_days`: free spend, and apart from it
   what runs for a bought check or x402 (which never counts and never pauses). Each day adds
   `UNFRET_FREE_POOL_DAILY_BASE_EUR` (€3) to the pool, its base part growing to `UNFRET_FREE_POOL_BASE_CAP_DAYS` (30)
-  days' worth; donations go in by hand on top (`make free-pool ARGS="add 25 --note '...'"`, a ledger of amount, day
-  and note). All free spend draws from it (shoppers' deep checks, developer passes' free checks, background work),
+  days' worth; donations go in by hand on top (`make free-pool ARGS="add 25 10 5 --note '...'"`: one entry per
+  donation in the ledger `free_pool_donations`, amount, day and note, never a donor; `spend.donation_count` counts
+  them), spendable at once within the day's limit. All free spend draws from it (shoppers' deep checks, developer passes' free checks, background work),
   at most `UNFRET_FREE_POOL_DAILY_MAX_MULTIPLE` (3) times the base a day. Empty pool or the day's limit spent: free
   deep checks answer `429 FREE_CHECKS_PAUSED` (`reason: "spend_ceiling"`, `scope: "day"`, `message_key`,
   `donate_url`) until 00:00 UTC. In public the pool is a number of checks (`/v1/pricing` → `free.deep_checks_left_today`),

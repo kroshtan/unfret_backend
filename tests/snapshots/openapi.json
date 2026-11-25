@@ -1281,7 +1281,7 @@
         "type": "null"
        }
       ],
-      "description": "The page's OVERALL risk level as you see it: 1 may not arrive or may not be safe, 2 may not work as described, 3 may cost more than it's worth, 4 pressure and tricks, 0 no concern. Optional when disagreeing with findings only.",
+      "description": "The page's OVERALL risk level as you see it, higher is worse: 0 no concern, 1 pressure and tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe. Optional when disagreeing with findings only.",
       "title": "Level"
      }
     },
@@ -1405,7 +1405,7 @@
         "type": "null"
        }
       ],
-      "description": "The level this finding is evidence for (1\u20134), or null for a modifier.",
+      "description": "The level this finding is evidence for (1\u20134, higher is worse), or null for a modifier.",
       "title": "Level"
      },
      "title": {
@@ -2511,7 +2511,7 @@
         "type": "null"
        }
       ],
-      "description": "The risk level this finding is evidence for: 1 won't arrive or unsafe, 2 doesn't work, 3 overpaying, 4 manipulation; null for a protection modifier or the small signs. The card orders reasons by it.",
+      "description": "The risk level this finding is evidence for (higher is worse): 1 manipulation, 2 overpaying, 3 doesn't work, 4 won't arrive or unsafe; null for a protection modifier or the small signs. The card orders reasons by it.",
       "title": "Level"
      },
      "links": {
@@ -2820,7 +2820,7 @@
       "title": "Confidence"
      },
      "explanation": {
-      "description": "One line: \"Level 1 because: A claim that doesn't add up + Far below the usual price + Fake countdown. Raised: only payments you can't get back.\"",
+      "description": "One line: \"Level 4 because: A claim that doesn't add up + Far below the usual price + Fake countdown. Raised: only payments you can't get back.\"",
       "title": "Explanation",
       "type": "string"
      },
@@ -2842,7 +2842,7 @@
       "type": "string"
      },
      "level": {
-      "description": "1 (most serious) to 4; 0 = no concern found.",
+      "description": "0 no concern found, then 1 to 4: higher is worse.",
       "maximum": 4.0,
       "minimum": 0.0,
       "title": "Level",
@@ -3791,7 +3791,7 @@
         "type": "null"
        }
       ],
-      "description": "The overall risk level (1 most serious \u2026 4; 0 none) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
+      "description": "The overall risk level (0 none, then 1 \u2026 4: higher is worse) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
      },
      "same_product": {
       "anyOf": [
@@ -3965,7 +3965,7 @@
         "type": "null"
        }
       ],
-      "description": "The overall risk level (1 most serious \u2026 4; 0 none) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
+      "description": "The overall risk level (0 none, then 1 \u2026 4: higher is worse) and why: the findings behind it, ordered by level, and the combining or protection step when one applied."
      },
      "same_product": {
       "anyOf": [
@@ -4094,7 +4094,7 @@
         "type": "null"
        }
       ],
-      "description": "The overall risk level: level 1 (may not arrive, or may not be safe), 2 (may not work as described), 3 (may cost more than it's worth), 4 (pressure and tricks), 0 (no concerns found), with the findings behind it and the combining or protection step. Replaces band once clients read it."
+      "description": "The overall risk level, higher is worse: 0 (no concerns found), 1 (pressure and tricks), 2 (may cost more than it's worth), 3 (may not work as described), 4 (may not arrive, or may not be safe), with the findings behind it and the combining or protection step. Replaces band once clients read it."
      },
      "risk_score": {
       "anyOf": [

@@ -5,27 +5,27 @@ import pytest
 from unfret import graph, level_judge, levels
 
 REASONS: list[dict[str, Any]] = [
-    {"type": "claim_contradicted", "title": "A claim that doesn't add up", "level": 2, "detail": "Says 10,000 mAh."},
-    {"type": "generic_brand", "title": "Unknown brand", "level": 3, "detail": ""},
-    {"type": "timer_resets", "title": "Fake countdown", "level": 4, "detail": ""},
+    {"type": "claim_contradicted", "title": "A claim that doesn't add up", "level": 3, "detail": "Says 10,000 mAh."},
+    {"type": "generic_brand", "title": "Unknown brand", "level": 2, "detail": ""},
+    {"type": "timer_resets", "title": "Fake countdown", "level": 1, "detail": ""},
     {"type": "irreversible_payment_only", "title": "Only payments you can't get back", "level": None, "detail": ""},
 ]
 
 
 def test_the_answer_becomes_the_cards_risk_with_its_reasons_and_steps() -> None:
     answer = level_judge.JudgeAnswer(
-        level=1,
+        level=4,
         used=["timer_resets", "claim_contradicted", "made_up_type", "generic_brand"],
         combined=["claim_contradicted", "generic_brand", "timer_resets"],
         modifier=level_judge.Modifier(direction="raised", type="irreversible_payment_only"),
         confidence=0.8,
     )
     risk = level_judge.to_risk(answer, REASONS, [])
-    assert (risk.level, risk.key, risk.source, risk.confidence) == (1, "wont_arrive", "judge", 0.8)
+    assert (risk.level, risk.key, risk.source, risk.confidence) == (4, "wont_arrive", "judge", 0.8)
     assert [r.type for r in risk.because] == ["claim_contradicted", "generic_brand", "timer_resets"]  # by level
     assert risk.combined and "Fake countdown" in risk.combined
     assert risk.modifier and risk.modifier.text == "Raised: Only payments you can't get back."
-    assert risk.explanation.startswith("Level 1 because: smaller problems that add up")
+    assert risk.explanation.startswith("Level 4 because: smaller problems that add up")
 
 
 def test_no_concern_lists_no_reasons_and_unknown_modifiers_are_dropped() -> None:
@@ -36,7 +36,7 @@ def test_no_concern_lists_no_reasons_and_unknown_modifiers_are_dropped() -> None
     assert (risk.level, risk.because, risk.modifier) == (0, [], None)
     lowered = level_judge.to_risk(
         level_judge.JudgeAnswer(
-            level=3,
+            level=2,
             used=["claim_contradicted"],
             modifier=level_judge.Modifier(direction="lowered", type="protected_payment"),
             confidence=0.7,
@@ -55,11 +55,11 @@ def test_the_prompt_wraps_the_page_and_carries_examples_and_the_classifier() -> 
         findings=[{"skill": "claim_audit", "type": "claim_contradicted", "evidence": "Says 10,000 mAh"}],
         classifier={"risk": 0.71, "confidence": 0.4},
         examples=[
-            level_judge.Example(summary="A power bank", reasons=["claim_contradicted"], level=2, why="Capacity.")
+            level_judge.Example(summary="A power bank", reasons=["claim_contradicted"], level=3, why="Capacity.")
         ],
     )
     assert text.count("</untrusted_page>") == 1  # the page can't close the block
-    assert "-> level 2" in text and "risk 0.71" in text and "irreversible_payment_only | modifier" in text
+    assert "-> level 3" in text and "risk 0.71" in text and "irreversible_payment_only | modifier" in text
 
 
 async def test_judge_asks_the_claims_model(monkeypatch: pytest.MonkeyPatch) -> None:

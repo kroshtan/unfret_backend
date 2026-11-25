@@ -56,6 +56,8 @@ KEY_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")  # 32 bytes, base64url without paddi
 HANDLE_RE = re.compile(r"^[A-Za-z0-9_-]{3,24}$")
 RESERVED_HANDLES = re.compile(r"unfret|admin|moderator|official|scam|fraud", re.IGNORECASE)
 MAX_TYPES = 40
+TOKEN_VERSION = "v2"  # noqa: S105 - a format version; v2: levels numbered so that higher is worse
+OLD_LEVEL = {0: 0, 1: 4, 2: 3, 3: 2, 4: 1}  # a v1 token's level (1 was the most serious) → today's
 
 
 class LabelError(Exception):
@@ -124,7 +126,7 @@ def issue_token(
         return None
     expires = int((time.time() if now is None else now) + ttl_s)
     shown = ",".join(dict.fromkeys(t for t in types if re.fullmatch(r"[a-z0-9_]{1,40}", t)))
-    payload = f"{page_key(secret, url)}|{tier}|{level}|{shown}|{expires}"
+    payload = f"{TOKEN_VERSION}|{page_key(secret, url)}|{tier}|{level}|{shown}|{expires}"
     return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=") + "." + _mac(secret, payload)
 
 
@@ -152,7 +154,12 @@ def check_token(secret: str, token: str, now: float | None = None) -> Shown:
     encoded, _, mac = token.partition(".")
     try:
         payload = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode()
-        page, tier, level, shown, expires = payload.split("|")
+        parts = payload.split("|")
+        # A token from before the renumbering (higher is worse) has no version, and its level the old way round.
+        version = parts.pop(0) if len(parts) == 6 else "v1"
+        page, tier, level, shown, expires = parts
+        if version == "v1":
+            level = str(OLD_LEVEL.get(int(level), int(level)))
         valid = bool(secret) and hmac.compare_digest(mac, _mac(secret, payload))
         fresh = int(expires) >= (time.time() if now is None else now)
     except ValueError:
@@ -460,7 +467,7 @@ def decide(votes: list[Vote], settings: Settings, shown_level: int) -> tuple[int
     if not settles:
         return None, False
     burst = max(sum(1 for v in votes if v.day == d) for d in {v.day for v in votes})
-    milder = (level == 0 and shown_level != 0) or (shown_level != 0 and level > shown_level)
+    milder = level < shown_level  # higher is worse
     return level, burst > settings.crowd_burst_labels and milder
 
 

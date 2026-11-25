@@ -28,3 +28,9 @@ def test_handles_never_pose_as_unfret_or_name_a_scam() -> None:
     for bad in ("ab", "unfret_team", "ScamBuster", "has space"):
         with pytest.raises(crowd.LabelError):
             crowd.valid_handle(bad)
+
+
+def test_a_token_from_before_the_renumbering_reads_the_level_the_new_way_round() -> None:
+    payload = f"{crowd.page_key('s', 'https://shop.example/p')}|deep|1|a|60"
+    token = crowd.base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=") + "." + crowd._mac("s", payload)
+    assert crowd.check_token("s", token, now=0).level == 4  # v1's 1 (won't arrive) is today's 4

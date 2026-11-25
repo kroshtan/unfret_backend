@@ -93,11 +93,12 @@ SURE_FINE = 35  # a score below this is the scorer saying the page is fine
 _EXCERPT_CHARS = 900
 FINDING_KEYS = {"c": "correct", "w": "wrong", "u": "unsure", "\r": "unsure", "\n": "unsure"}
 # From the level batches on (Floris, 2026-11-25) a page gets its OVERALL risk level, not the most serious single
-# finding: 1 may not arrive / unsafe / data theft, 2 doesn't work, 3 overpaying, 4 pressure and tricks, 0 none.
+# finding. Higher is worse: 0 none, 1 pressure and tricks, 2 overpaying, 3 doesn't work, 4 may not arrive / unsafe /
+# data theft.
 LEVEL_KEYS = {"1": 1, "2": 2, "3": 3, "4": 4, "0": 0, "n": 0}
 LEVEL_HELP = (
-    "level: [1] may not arrive/unsafe/data theft  [2] doesn't work  [3] overpaying  [4] pressure/tricks  "
-    "[0/n] no concern  ·  lower levels together can make 1; recourse lowers, irreversible payment raises"
+    "level (higher is worse): [0/n] no concern  [1] pressure/tricks  [2] overpaying  [3] doesn't work  "
+    "[4] may not arrive/unsafe/data theft  ·  1+2+3 together can make 4; recourse lowers, irreversible payment raises"
 )
 
 

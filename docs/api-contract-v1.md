@@ -1702,13 +1702,13 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 ## Changes (one overall risk level; backwards-compatible)
 
 - `verdict.risk` (`POST /v1/analyze`, the stream's result, shares) and `risk` (`POST /v1/check`): `{"level": 0-4,
-  "key": "wont_arrive"|"doesnt_work"|"overpaying"|"manipulation"|"none", "label": str, "because": [{"type", "level",
+  "key": "none"|"manipulation"|"overpaying"|"doesnt_work"|"wont_arrive", "label": str, "because": [{"type", "level",
   "title"}], "combined": str|null, "modifier": {"direction": "raised"|"lowered", "type", "text"}|null,
-  "explanation": str, "source": "band"|"judge"|"classifier", "confidence": float|null}`. Level 1 is the most serious;
-  0 is no concern. `because` lists every finding behind the level (not only the three cards), most serious first.
+  "explanation": str, "source": "band"|"judge"|"classifier", "confidence": float|null}`. A higher level is always
+  worse: 0 none, 1 manipulation, 2 overpaying, 3 doesn't work, 4 won't arrive. `because` lists every finding behind the level (not only the three cards), most serious first.
   New `key` or `source` values may be added.
 - `verdict.reasons[].level`: the level each reason is evidence for (null for a protection modifier and for the small
-  signs). The reasons are now ordered by level (1 first), then severity, so the three shown can differ from before.
+  signs). The reasons are now ordered by level (highest first), then severity, so the three shown can differ from before.
 - `verdict.band` (and `band` on `/v1/check`) is **deprecated**, unchanged in value. Retiring it: clients render
   `risk` (extension, Android, website, MCP server), then the field stays for one more minor release with its
   description saying so, then it is dropped from the shopper verdict (the x402 `band` and `never_warns_on_bands` move
@@ -1749,3 +1749,10 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `UNFRET_REDEEM_PER_IP_PER_10MIN`, `UNFRET_REPORT_REWARD_CHECKS`, `UNFRET_REPORT_REWARD_GAP`,
   `UNFRET_REPORT_SMALL_REWARD_CHECKS`. Migration 40 drops the affiliate, bonus-code and gift-code tables and columns
   (the affiliates' earnings and payouts tables stay if they ever held a row).
+
+## Changes (risk levels: higher is worse)
+
+- `risk.level`, `risk.because[].level`, `verdict.reasons[].level` and the `level` of `POST /v1/labels` are
+  renumbered so that a higher number is always worse: 0 none, 1 manipulation, 2 overpaying, 3 doesn't work, 4 won't
+  arrive (they were 1 won't arrive … 4 manipulation). `risk.key` is unchanged; read the key when in doubt. Label tokens
+  issued before the change are still accepted and read the old way round; stored labels were converted (migration 41).

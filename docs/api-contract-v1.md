@@ -1901,7 +1901,7 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   00:00 UTC"). The deep-check suggestion's paused cost reads "Free deep checks are paused until 00:00 UTC: they run
   on donations."
 - **In public the pool is checks, not euros:** `GET /v1/pricing` → `free.deep_checks_left_today` (what the pool and
-  the day's limit still allow, at the measured average cost of a free deep check; 0 while paused). `GET
+  the day's limit still allow ÷ €0.05, `UNFRET_PUBLIC_COST_PER_CHECK_EUR`; 0 while paused). `GET
   /v1/admin/free-pool` (operator) shows the euros and the ledger.
 - Settings removed: `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_SPEND_DAILY_PACING`. Migration 45: `free_pool`,
   `llm_spend_days` (free and paid spend and free deep checks a day), `free_pool_donations`; `llm_spend` is dropped.

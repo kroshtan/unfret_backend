@@ -540,6 +540,8 @@ def test_wrong_result_is_one_flow_without_the_pass() -> None:
     report = script.split("async function sendReport()", 1)[1].split("\n}\n", 1)[0]
     assert "headers(" not in report and "Authorization" not in report  # never the pass with a report
     assert "request: last.body" in report and "label_token" in report
+    assert "missing" in report and "comment" in report  # findings it missed, and the shopper's own words
+    assert '"/v1/catalogue/findings"' in script  # the server's list, never a hard-coded one
     page = (STATIC_DIR / "check.html").read_text()
     assert 'name="level" value="4"' in page and 'name="level" value="0"' in page and 'id="report-wrong"' in page
     assert 'name="reason"' not in page  # the old scam/junk choice is gone

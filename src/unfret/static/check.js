@@ -810,13 +810,42 @@ function resetReport(result) {
     }),
   );
   $("report-wrong-set").hidden = findings.length === 0;
+  $("report-missing-box").open = false;
   $("report-forget-row").hidden = !contributorKey();
 }
 
 function reportChoice() {
   const level = document.querySelector('#report input[name="level"]:checked')?.value;
   const wrong = [...document.querySelectorAll('#report input[name="wrong"]:checked')].map((box) => box.value);
-  return { level: level ? Number(level) : null, wrong };
+  const missing = [...document.querySelectorAll('#report input[name="missing"]:checked')].map((box) => box.value);
+  return { level: level ? Number(level) : null, wrong, missing };
+}
+
+// What a report can name as missing: the server's catalogue (GET /v1/catalogue/findings), less what the result
+// showed. Loaded once, when the shopper first opens "Something Unfret missed?".
+let catalogue = null;
+
+async function loadMissing() {
+  try {
+    catalogue ??= (await getJson("/v1/catalogue/findings")).findings ?? [];
+  } catch {
+    $("report-missing").replaceChildren(el("p", "small muted", "Couldn't load the list right now."));
+    return;
+  }
+  const shown = new Set(reportableFindings(last?.result).map((f) => f.type));
+  $("report-missing").replaceChildren(
+    ...catalogue
+      .filter((f) => f?.type && f.title && !shown.has(f.type))
+      .map(({ type, title }) => {
+        const label = el("label");
+        const box = el("input");
+        box.type = "checkbox";
+        box.name = "missing";
+        box.value = type;
+        label.append(box, ` ${title}`);
+        return label;
+      }),
+  );
 }
 
 async function postJson(path, body) {
@@ -841,8 +870,9 @@ async function contributorFor(handle) {
 
 async function sendReport() {
   if (!last?.result?.label_token) return;
-  const { level, wrong } = reportChoice();
-  if (level === null && !wrong.length) return;
+  const { level, wrong, missing } = reportChoice();
+  if (level === null && !wrong.length && !missing.length) return;
+  const comment = $("report-comment").value.trim();
   $("report-send").disabled = true;
   reportStatus("Sending…");
   try {
@@ -852,6 +882,8 @@ async function sendReport() {
       request: last.body,
       ...(level === null ? {} : { level }),
       ...(wrong.length ? { wrong } : {}),
+      ...(missing.length ? { missing } : {}),
+      ...(comment ? { comment } : {}),
       explanation: last.result.explanation ?? "",
       ...(last.result.verdict ? { verdict: last.result.verdict } : {}),
       ...(key ? { contributor_key: key } : {}),
@@ -1064,8 +1096,11 @@ $("report-cancel").addEventListener("click", () => {
   $("report-open-row").hidden = false;
 });
 $("report").addEventListener("change", () => {
-  const { level, wrong } = reportChoice();
-  $("report-send").disabled = level === null && !wrong.length;
+  const { level, wrong, missing } = reportChoice();
+  $("report-send").disabled = level === null && !wrong.length && !missing.length;
+});
+$("report-missing-box").addEventListener("toggle", () => {
+  if ($("report-missing-box").open) void loadMissing();
 });
 $("report-forget").addEventListener("click", () => void forgetContributor());
 $("share-open").addEventListener("click", () => void openShare());

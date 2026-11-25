@@ -116,6 +116,16 @@
             <legend>Which findings are wrong?</legend>
             <div id="report-wrong"></div>
           </fieldset>
+          <details class="choice" id="report-missing-box">
+            <summary>Something Unfret missed?</summary>
+            <fieldset class="checks-wrong missing-list">
+              <legend class="visually-hidden">Findings Unfret should have shown</legend>
+              <div id="report-missing"><p class="small muted">Loading…</p></div>
+            </fieldset>
+          </details>
+          <label for="report-comment">Anything else? (optional)</label>
+          <textarea id="report-comment" rows="3" maxlength="500"
+            placeholder="Please leave out your own name and details"></textarea>
           <details class="choice" id="report-name">
             <summary>Put my reports on the leaderboard</summary>
             <p class="small">Pick a name. This browser keeps a random key that is sent only with your reports, never

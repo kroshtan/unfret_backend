@@ -8,6 +8,7 @@ from typing import Any
 import asyncpg
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from tests.integration.conftest import DROP_ALL, FakeGraph
 from tests.integration.test_keys import PAGE, PRICE, balance, bearer, solve
@@ -386,6 +387,38 @@ async def test_donations_go_on_top_of_the_cap_but_a_day_spends_three_times_the_b
     assert paused.pool_micro_eur == 131_000_000
     # The base part was drawn first; the donation is still whole.
     assert await pool.fetchval("SELECT donated_micro_eur FROM free_pool") == 50_000_000
+
+
+async def test_several_donations_are_one_ledger_entry_each_and_spendable_today(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await pool.execute(
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, 0, 0, $1)",
+        spend.today(),
+    )
+    assert (await spend.standing(pool)).reached  # an empty pool: paused
+    monkeypatch.setattr(settings, "admin_token", SecretStr("admin-secret"))
+    admin = {"Authorization": "Bearer admin-secret"}
+    body = {"amounts_eur": ["5", "10", "2.50"], "note": "Revolut, 25 Nov"}
+    response = await client.post("/v1/admin/free-pool/donations", json=body, headers=admin)
+    assert response.status_code == 200
+    assert len(response.json()["ids"]) == 3 and response.json()["id"] == response.json()["ids"][0]
+    rows = await pool.fetch("SELECT day, micro_eur, note FROM free_pool_donations ORDER BY id")
+    assert [(r["day"], r["micro_eur"], r["note"]) for r in rows] == [
+        (spend.today(), 5_000_000, "Revolut, 25 Nov"),
+        (spend.today(), 10_000_000, "Revolut, 25 Nov"),
+        (spend.today(), 2_500_000, "Revolut, 25 Nov"),
+    ]
+    assert await spend.donation_count(pool) == 3  # what /live shows as supporters
+    # In the pool at once: free checks run again today, up to the day's limit (three times the base), never more.
+    now = await spend.standing(pool)
+    assert not now.reached and now.pool_micro_eur == 17_500_000 and now.left_micro_eur == 9_000_000
+    one = await client.post("/v1/admin/free-pool/donations", json={"amount_eur": "1"}, headers=admin)
+    assert one.status_code == 200 and await spend.donation_count(pool) == 4
+    bad_bodies: list[dict[str, Any]] = [{}, {"amounts_eur": []}, {"amounts_eur": ["0"]}, {"amount_eur": "-1"}]
+    for bad in bad_bodies:
+        assert (await client.post("/v1/admin/free-pool/donations", json=bad, headers=admin)).status_code in {400, 422}
+    assert await spend.donation_count(pool) == 4
 
 
 async def test_an_empty_pool_pauses_until_the_next_day_adds_its_base(pool: asyncpg.Pool) -> None:

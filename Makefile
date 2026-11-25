@@ -125,7 +125,7 @@ label:  ## Work through the review queue, one keypress per page
 reports:  ## Label reported results into the corpus: confident proposals in bulk, then one by one (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE]; REPORTS_ARGS="--min-confidence 0.9 --no-bulk --order confidence --agreement reporter")
 	uv run python -m evals.reports $(REPORTS_ARGS)
 
-free-pool:  ## The free pool, or add a donation to it by hand: ARGS="add 25 --note 'Revolut, 25 Nov'" (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
+free-pool:  ## The free pool, or add donations by hand, one ledger entry each: ARGS="add 25 10 --note 'Revolut, 25 Nov'" (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE])
 	uv run python -m unfret.admin_cli free-pool $(ARGS)
 
 retire-passes:  ## Retire every pass made before a moment (dry run unless --confirm): ARGS="--before ISO [--keep ID | --keep-from FILE]... [--confirm]"

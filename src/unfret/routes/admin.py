@@ -12,7 +12,7 @@ every pass made before a moment (``python -m unfret.admin_cli retire-passes``).
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,6 +26,7 @@ from unfret.credits import keys, ledger, retire, vat
 from unfret.fingerprint import contact_hash, normalise_address, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
 from unfret.routes.check import get_x402, get_x402_base
+from unfret.schemas.errors import BadRequestError
 
 logger = structlog.get_logger("unfret")
 
@@ -366,11 +367,23 @@ async def confirm_reports(body: ConfirmRequest, request: Request) -> dict[str, A
     }
 
 
-class DonationRequest(BaseModel):
-    """A donation to add to the free pool: the amount and a short note, nothing about who gave."""
+DonationAmount = Annotated[Decimal, Field(gt=0, le=Decimal(100_000), decimal_places=2)]
 
-    amount_eur: Decimal = Field(gt=0, le=Decimal(100_000), decimal_places=2)
+
+class DonationRequest(BaseModel):
+    """Donations to add to the free pool: one amount or several (one ledger entry each), a short note, no donors."""
+
+    amount_eur: DonationAmount | None = None
+    amounts_eur: list[DonationAmount] = Field(default_factory=list, max_length=500)
     note: str = Field(default="", max_length=200)
+
+    def amounts(self) -> list[Decimal]:
+        """
+        Every amount: ``amount_eur`` first, then ``amounts_eur``.
+
+        :return: The amounts (possibly none).
+        """
+        return ([self.amount_eur] if self.amount_eur is not None else []) + list(self.amounts_eur)
 
 
 @router.get("/free-pool")
@@ -390,16 +403,22 @@ async def free_pool(request: Request) -> dict[str, Any]:
 @router.post("/free-pool/donations")
 async def add_donation(body: DonationRequest, request: Request) -> dict[str, Any]:
     """
-    Add a donation to the free pool by hand (on top of the base part's 30 days' cap), with a note for the ledger.
+    Add donations to the free pool by hand (on top of the base part's 30 days' cap), one ledger entry each.
 
-    :param body: The amount in euros and a note (never the donor).
+    ``{"amount_eur": 25}`` adds one; ``{"amounts_eur": [5, 10, 25]}`` adds three (three supporters on /live).
+
+    :param body: The amount(s) in euros and a note (never a donor).
     :param request: The incoming request.
-    :return: The ledger row's id and the pool afterwards.
+    :return: The ledger rows' ids (``id``: the first, for older callers) and the pool afterwards.
+    :raises BadRequestError: Without an amount.
     """
+    amounts = body.amounts()
+    if not amounts:
+        raise BadRequestError("Say how much: amount_eur, or amounts_eur for several donations.")
     pool = _pool(request)
-    donation = await spend.add_donation(pool, body.amount_eur, body.note, settings)
-    logger.info("free_pool_donation", eur=str(body.amount_eur))
-    return {"id": donation, **await spend.pool_summary(pool, settings)}
+    ids = await spend.add_donations(pool, amounts, body.note, settings)
+    logger.info("free_pool_donations", count=len(ids), eur=str(sum(amounts)))
+    return {"id": ids[0], "ids": ids, **await spend.pool_summary(pool, settings)}
 
 
 # A grant is for support and store reviews, not a way to mint money: one grant is at most this much.

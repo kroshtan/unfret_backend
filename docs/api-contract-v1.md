@@ -1889,7 +1889,8 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
 
 - **A pool, not a monthly ceiling.** Each UTC day adds the daily base (`UNFRET_FREE_POOL_DAILY_BASE_EUR`, €3) to one
   free pool; its base part stops growing at `UNFRET_FREE_POOL_BASE_CAP_DAYS` (30) days' worth. Donations are added by
-  hand (`POST /v1/admin/free-pool/donations` `{"amount_eur", "note"}`, `make free-pool ARGS="add 25 --note ..."`;
+  hand (`POST /v1/admin/free-pool/donations` `{"amount_eur"}` or `{"amounts_eur": [..]}` for several, `"note"`?;
+  answers `{"id", "ids", …the pool}`; `make free-pool ARGS="add 25 10 --note ..."`; one ledger entry per donation;
   ledger: amount, day, note, nothing about donors) on top of that cap. All free LLM spend draws from the pool (the base
   part first): shoppers' free deep checks, developer passes' free deep checks, background work. Paid spend (bought
   checks, x402) never does: it is metered apart and never pauses anything. A day may spend at most `UNFRET_FREE_POOL_DAILY_MAX_MULTIPLE` (3) times the base.

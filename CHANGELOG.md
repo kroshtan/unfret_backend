@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Several donations at once
+
+* `make free-pool ARGS="add 25 10 5"` and `POST /v1/admin/free-pool/donations` `{"amounts_eur": [...]}` add several
+  donations in one go, one ledger entry each (`free_pool_donations`: amount, day, note), so the entries count the
+  donations (`spend.donation_count`). A donation is spendable at once, within the day's limit (three times the base).
+
 ### Top-ups by amount
 
 * The packs are gone: a pass is topped up by any amount from 10 (dollars or euros) **before VAT**; checks =

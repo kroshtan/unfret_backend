@@ -6,10 +6,11 @@ Environment: ``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKE
 
 Commands::
 
-    free-pool [add EUR --note TEXT]
+    free-pool [add EUR [EUR ...] --note TEXT]
 
 Show the free pool (:mod:`unfret.spend`), or add a donation to it by hand: the amount in euros and a note for the
-ledger, never who gave. Usage: ``make free-pool ARGS="add 25 --note 'Revolut, 25 Nov'"``.
+ledger, never who gave; several amounts are several donations, one ledger entry each. Usage:
+``make free-pool ARGS="add 25 10 5 --note 'Revolut, 25 Nov'"``.
 
     retire-passes --before ISO [--keep KEY_ID]... [--keep-from FILE]... [--confirm]
                   [--include-wallet-balances] [--include-purchases]
@@ -89,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     pool = commands.add_parser("free-pool", help="show the free pool, or add a donation to it")
     pool.add_argument("action", nargs="?", choices=["add"], help="add a donation")
-    pool.add_argument("amount", nargs="?", help="the amount in euros, e.g. 25 or 12.50")
+    pool.add_argument("amount", nargs="*", help="the amount(s) in euros, one per donation, e.g. 25 or 5 10 12.50")
     pool.add_argument("--note", default="", help="a short note for the ledger (never the donor)")
     retire = commands.add_parser("retire-passes", help="retire every pass made before a moment (dry run by default)")
     retire.add_argument("--before", type=_moment, required=True, help="ISO date or time, UTC unless it says otherwise")
@@ -177,9 +178,10 @@ def free_pool(api: httpx.Client, args: argparse.Namespace) -> int:
     """
     if args.action == "add":
         if not args.amount:
-            print("Say how much: free-pool add 25 --note '...'", file=sys.stderr)  # noqa: T201
+            print("Say how much: free-pool add 25 [10 5 ...] --note '...'", file=sys.stderr)  # noqa: T201
             return 1
-        response = api.post("/v1/admin/free-pool/donations", json={"amount_eur": args.amount, "note": args.note})
+        body = {"amounts_eur": list(args.amount), "note": args.note}  # one ledger entry per donation
+        response = api.post("/v1/admin/free-pool/donations", json=body)
     else:
         response = api.get("/v1/admin/free-pool")
     if response.is_error:

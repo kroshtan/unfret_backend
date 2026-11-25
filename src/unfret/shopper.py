@@ -210,9 +210,9 @@ class Reason(BaseModel):
     severity: Severity
     level: int | None = Field(
         default=None,
-        description="The risk level this finding is evidence for: 1 won't arrive or unsafe, 2 doesn't work, "
-        "3 overpaying, 4 manipulation; null for a protection modifier or the small signs. The card orders reasons "
-        "by it.",
+        description="The risk level this finding is evidence for (higher is worse): 1 manipulation, 2 "
+        "overpaying, 3 doesn't work, 4 won't arrive or unsafe; null for a protection modifier or the small signs. "
+        "The card orders reasons by it.",
     )
     thumbnails: list[str] = Field(
         default_factory=list, max_length=3, description="Up to three thumbnail URLs of the matching photos."
@@ -351,8 +351,8 @@ class Verdict(BaseModel):
     label: str = Field(description="The band in words.")
     risk: Risk | None = Field(
         default=None,
-        description="The overall risk level (1 most serious … 4; 0 none) and why: the findings behind it, ordered by "
-        "level, and the combining or protection step when one applied.",
+        description="The overall risk level (0 none, then 1 … 4: higher is worse) and why: the findings behind it, "
+        "ordered by level, and the combining or protection step when one applied.",
     )
     headline: str = Field(description="One plain sentence explaining the verdict.")
     reasons: list[Reason] = Field(default_factory=list, max_length=3)

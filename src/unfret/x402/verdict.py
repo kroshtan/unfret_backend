@@ -125,8 +125,8 @@ class Verdict(BaseModel):
     )
     risk: Risk | None = Field(
         default=None,
-        description="The overall risk level: level 1 (may not arrive, or may not be safe), 2 (may not work as "
-        "described), 3 (may cost more than it's worth), 4 (pressure and tricks), 0 (no concerns found), with the "
+        description="The overall risk level, higher is worse: 0 (no concerns found), 1 (pressure and tricks), 2 (may "
+        "cost more than it's worth), 3 (may not work as described), 4 (may not arrive, or may not be safe), with the "
         "findings behind it and the combining or protection step. Replaces band once clients read it.",
     )
     summary: str | None = Field(default=None, description="One plain sentence for the human you're buying for.")

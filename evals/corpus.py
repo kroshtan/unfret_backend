@@ -62,7 +62,8 @@ class LabelRecord(BaseModel):
         default=None,
         ge=0,
         le=4,
-        description="The overall risk level (1 most serious … 4; 0 no concern), from the level-labelling batches on. "
+        description="The overall risk level, higher is worse (0 none, 1 manipulation, 2 overpaying, 3 doesn't "
+        "work, 4 won't arrive), from the level-labelling batches on. "
         "The OVERALL level, not the most serious single finding.",
     )
     level_source: LabelSource | None = None
@@ -89,14 +90,12 @@ class LabelRecord(BaseModel):
     )
 
 
-# Levels in order of severity, as ranks: 0 none, 1 manipulation (level 4), 2 overpaying (3), 3 doesn't work (2),
-# 4 won't arrive (1). The ordinal scorer learns P(rank >= k) for k = 1..4.
-LEVEL_RANK: dict[int, int] = {0: 0, 4: 1, 3: 2, 2: 3, 1: 4}
-RANK_LEVEL: dict[int, int] = {v: k for k, v in LEVEL_RANK.items()}
-# What an old label says about the rank, as (lowest, highest): the old labels only mean "something wrong" or not.
-# scam = level 1; junk = real goods deceptively or badly represented: doesn't work or overpaying (not a shop that
-# may not deliver, more than pressure alone); legit = not misrepresented: no concern, pressure or overpaying at most.
-LEGACY_RANKS: dict[str, tuple[int, int]] = {"scam": (4, 4), "junk": (2, 3), "legit": (0, 2)}
+# Levels are ordinal, higher is worse: 0 none, 1 manipulation, 2 overpaying, 3 doesn't work, 4 won't arrive. The
+# ordinal scorer learns P(level >= k) for k = 1..4.
+# What an old label says about the level, as (lowest, highest): the old labels only mean "something wrong" or not.
+# scam = 4; junk = deceptively or badly represented (Floris): manipulation, overpaying or doesn't work (not a shop that
+# may not deliver); legit = not misrepresented: no concern, or pressure or overpaying at most.
+LEGACY_LEVELS: dict[str, tuple[int, int]] = {"scam": (4, 4), "junk": (1, 3), "legit": (0, 2)}
 
 
 def legacy_label(level: int) -> Label:
@@ -104,23 +103,22 @@ def legacy_label(level: int) -> Label:
     The legacy label for a level label, so the binary scorer keeps training on new labels.
 
     :param level: 0–4.
-    :return: legit for no concern, scam for level 1, junk for levels 2–4 ("something wrong").
+    :return: legit for no concern, scam for level 4, junk for levels 1–3 (deceptively or badly represented).
     """
-    return "legit" if level == 0 else "scam" if level == 1 else "junk"
+    return "legit" if level == 0 else "scam" if level == 4 else "junk"
 
 
-def rank_bounds(record: LabelRecord) -> tuple[int, int] | None:
+def level_bounds(record: LabelRecord) -> tuple[int, int] | None:
     """
-    What a record's labels say about its rank (:data:`LEVEL_RANK`): exact for a level label, a range for an old one.
+    What a record's labels say about its level: exact for a level label, a range for an old one.
 
     :param record: The record.
     :return: ``(lowest, highest)``, or ``None`` when unlabelled.
     """
     if record.level is not None:
-        rank = LEVEL_RANK[record.level]
-        return rank, rank
+        return record.level, record.level
     if record.label is not None:
-        return LEGACY_RANKS[record.label]
+        return LEGACY_LEVELS[record.label]
     return None
 
 

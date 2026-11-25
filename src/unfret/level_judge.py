@@ -30,31 +30,31 @@ from unfret.llm import UNTRUSTED_NOTICE, get_structured_claims_llm, untrusted
 
 logger = structlog.get_logger("unfret")
 
-PROMPT_VERSION = "level-judge-v1"
+PROMPT_VERSION = "level-judge-v2"  # v2: higher is worse (0 none … 4 won't arrive)
 PAGE_CHARS = 6_000
 MAX_EXAMPLES = 8
 
 SYSTEM = f"""\
 You set the overall risk level of an online offer for an ordinary shopper. Checks have already run; their findings \
-are listed with the level each is evidence for. You decide the ONE overall level:
+are listed with the level each is evidence for. You decide the ONE overall level. A higher number is always worse:
 
-1 = may not arrive at all (a shop that may not be real), card or personal data may be taken, or the product may be \
-unsafe.
-2 = may not work as described: claims that are false or don't add up, specs that contradict each other or the photos.
-3 = may cost much more than it's worth: generic goods relabelled, large markups (a 5x dropship markup can move up a \
-level), hidden costs, costly returns, poor quality.
-4 = pressure and tricks: fake countdowns, fake scarcity, fake viewer counts, misleading discounts, fake or inflated \
-reviews (also evidence for the levels above).
 0 = no concern worth telling the shopper.
+1 = pressure and tricks: fake countdowns, fake scarcity, fake viewer counts, misleading discounts, fake or inflated \
+reviews (also evidence for the levels above).
+2 = may cost much more than it's worth: generic goods relabelled, large markups (a 5x dropship markup can move up a \
+level), hidden costs, costly returns, poor quality.
+3 = may not work as described: claims that are false or don't add up, specs that contradict each other or the photos.
+4 = may not arrive at all (a shop that may not be real), card or personal data may be taken, or the product may be \
+unsafe.
 
 How to decide:
 - Judge the whole offer, not the most serious single finding. A finding can be wrong or immaterial: leave it out of \
 "used" when the page shows it doesn't matter.
-- Combine: several lower-level problems together can move the level up. Doesn't work + overpaying + pressure \
-together counts as level 1. Say which reasons combined in "combined".
+- Combine: several smaller problems together can move the level up. Doesn't work + overpaying + pressure \
+together counts as level 4. Say which reasons combined in "combined".
 - Protection is a modifier, not a level: real recourse (card payment with chargeback, the platform's buyer \
 protection, a real return address) lowers the level by one; payment you can't get back (bank transfer, crypto, gift \
-cards, cash up front) raises it by one. Recourse does not lower level 1 for card or data theft or an unsafe product. \
+cards, cash up front) raises it by one. Recourse does not lower level 4 for card or data theft or an unsafe product. \
 Name the reason or positive behind it in "modifier".
 - The classifier's risk is a second opinion from a statistical model trained on older labels ("something wrong" or \
 not); weigh it, don't copy it.
@@ -73,7 +73,7 @@ class Modifier(BaseModel):
 class JudgeAnswer(BaseModel):
     """The level judge's structured answer."""
 
-    level: int = Field(ge=0, le=4, description="0 (no concern) or 1 (most serious) to 4.")
+    level: int = Field(ge=0, le=4, description="0 (no concern) to 4 (most serious): higher is worse.")
     used: list[str] = Field(
         default_factory=list, description="The listed reason types the level rests on, most important first."
     )

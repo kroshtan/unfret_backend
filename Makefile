@@ -95,7 +95,7 @@ deep-check:  ## Deep-check the candidates, recording LLM answers in the corpus, 
 deep-queue:  ## Order the checked candidates for labelling: new finding + unsure scorer, then disagreements, then a random slice
 	uv run python -m evals.candidates queue $(DEEP_ARGS)
 
-deep-label:  ## Label the next batch: the page's overall risk level (1-4, 0) and each new finding, one keypress each; 1 in 5 blind (BATCH=50)
+deep-label:  ## Label the next batch: the page's overall risk level (0-4, higher is worse) and each new finding, one keypress each; 1 in 5 blind (BATCH=50)
 	uv run python -m evals.candidates label --batch $(or $(BATCH),50)
 
 deep-review:  ## Check the LLM labeller's labels: its unsure pages, then a random audit sample (blind) (BATCH=50)

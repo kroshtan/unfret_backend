@@ -26,9 +26,10 @@
 
 ### Risk levels
 
-* **One overall risk level per result** (`verdict.risk`, and `risk` on `POST /v1/check`): 1 may not arrive or may
-  not be safe, 2 may not work as described, 3 may cost more than it's worth, 4 pressure and tricks, 0 no concerns
-  found; with the findings behind it (`because`, ordered by level), the combining step when smaller problems add up
+* **One overall risk level per result** (`verdict.risk`, and `risk` on `POST /v1/check`), higher is worse: 0 no
+  concerns found, 1 pressure and tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not
+  arrive or may not be safe (renumbered before any client read it: it was 1 for the most serious; stored labels and
+  week-old label tokens are converted, migration 41); with the findings behind it (`because`, ordered by level), the combining step when smaller problems add up
   (`combined`) and the protection step when the payment raised or lowered it (`modifier`), in one line
   (`explanation`). Each card reason carries the level it is evidence for (`level`, the table in `unfret.levels`), and
   the card orders reasons by level. Until a level model sets it, the level is the scorer's band translated
@@ -38,9 +39,9 @@
   examples (`UNFRET_LEVEL_JUDGE_EXAMPLES_PATH`, a private file). It answers in parts (the level, the reasons it used,
   which ones combined, the protection step); the card's texts are built from those, never the model's words. Any
   failure keeps the band's level. To be compared with a level classifier on level labels before it is turned on.
-* **Level labels** (`make deep-label`): from the next batch on, a page is labelled with its OVERALL level (keys 1-4,
-  0 or n for none), and each new finding correct / wrong as before. `labels.jsonl` gains `level` and
-  `level_source` (only on records that have one); the legacy label follows from the level (0 legit, 1 scam, 2-4
+* **Level labels** (`make deep-label`): from the next batch on, a page is labelled with its OVERALL level (keys 0-4,
+  higher is worse; n is 0), and each new finding correct / wrong as before. `labels.jsonl` gains `level` and
+  `level_source` (only on records that have one); the legacy label follows from the level (0 legit, 4 scam, 1-3
   junk) so the current scorer keeps training. `label_decisions.jsonl` logs `level` and `level_before`.
 * **`make levels`** (`evals.levels`): the ordinal level classifier, four calibrated thresholds trained on what each
   label settles (old labels only bound the level), refusing to train before 150 level labels; and the level judge

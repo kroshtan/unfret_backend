@@ -1,16 +1,15 @@
 """
 Risk levels on the corpus: the level classifier's training (ordinal), and the level judge against the labels.
 
-**Labels.** From the level batches on a page's label is its OVERALL level (``level`` in ``labels.jsonl``: 1 may not
-arrive / unsafe / data theft, 2 doesn't work, 3 overpaying, 4 pressure and tricks, 0 none), not its most serious
-single finding. Older labels (legit / junk / scam) only bound it (:data:`evals.corpus.LEGACY_RANKS`).
+**Labels.** From the level batches on a page's label is its OVERALL level (``level`` in ``labels.jsonl``, higher is
+worse: 0 none, 1 pressure and tricks, 2 overpaying, 3 doesn't work, 4 may not arrive / unsafe / data theft), not its
+most serious single finding. Older labels (legit / junk / scam) only bound it (:data:`evals.corpus.LEGACY_LEVELS`).
 
-**The classifier (ordinal).** Levels in order of severity are ranks (:data:`evals.corpus.LEVEL_RANK`: none <
-pressure < overpaying < doesn't work < won't arrive). The classifier is four of the scorer's own sign-constrained,
-calibrated logistic regressions (:func:`evals.train.fit`), one per threshold ``P(rank >= k)``, k = 1..4, each trained
-on the pages whose labels settle that threshold: a level label settles all four, an old label only some (scam all;
-junk "something wrong" and "at least overpaying" yes, "won't arrive" no; legit "doesn't work" and "won't arrive"
-no). The level is the most severe rank whose threshold probability passes 0.5, after making the four monotone.
+**The classifier (ordinal).** The classifier is four of the scorer's own sign-constrained, calibrated logistic
+regressions (:func:`evals.train.fit`), one per threshold ``P(level >= k)``, k = 1..4, each trained on the pages whose
+labels settle that threshold: a level label settles all four, an old label only some (scam all; junk "any concern"
+yes and "won't arrive" no; legit "doesn't work" and "won't arrive" no). The level is the highest whose threshold
+probability passes 0.5, after making the four monotone.
 ``train`` refuses with fewer than ``--min-level-labels`` level labels (no retrain before the labels exist);
 ``--dry-run`` prints what each threshold would train on. A trained classifier goes to the private model store, never
 ``src/``.
@@ -38,7 +37,7 @@ from typing import Any
 import numpy as np
 
 from evals import candidates as cand
-from evals.corpus import RANK_LEVEL, Corpus, LabelRecord, dump_json, is_product, rank_bounds
+from evals.corpus import Corpus, LabelRecord, dump_json, is_product, level_bounds
 from evals.train import Dataset, feature_names, fit, load_features
 from unfret import level_judge, levels, shopper
 from unfret.config import settings
@@ -54,7 +53,7 @@ MIN_LEVEL_LABELS = 150
 
 @dataclass
 class Threshold:
-    """One threshold's training data: which pages settle ``rank >= k``, and how."""
+    """One threshold's training data: which pages settle ``level >= k``, and how."""
 
     k: int
     records: list[LabelRecord]
@@ -73,7 +72,7 @@ def thresholds(records: Sequence[LabelRecord]) -> list[Threshold]:
         kept: list[LabelRecord] = []
         y: list[int] = []
         for r in records:
-            bounds = rank_bounds(r)
+            bounds = level_bounds(r)
             if bounds is None:
                 continue
             low, high = bounds
@@ -87,11 +86,11 @@ def thresholds(records: Sequence[LabelRecord]) -> list[Threshold]:
     return out
 
 
-def predict_rank(probabilities: Sequence[float]) -> int:
+def predict_from_thresholds(probabilities: Sequence[float]) -> int:
     """
-    The rank from the four threshold probabilities, made monotone (``P(rank >= k)`` can't grow with k).
+    The level from the four threshold probabilities, made monotone (``P(level >= k)`` can't grow with k).
 
-    :param probabilities: ``P(rank >= k)`` for k = 1..4.
+    :param probabilities: ``P(level >= k)`` for k = 1..4.
     :return: 0–4.
     """
     monotone = np.minimum.accumulate(np.asarray(probabilities, dtype=float))
@@ -112,7 +111,7 @@ def predict_level(models: Sequence[Model], features: dict[str, float]) -> int:
     for model in models:
         assessment = scoring.score(features, [], model)
         probabilities.append(assessment.risk_score if assessment is not None else 0.0)
-    return RANK_LEVEL[predict_rank(probabilities)]
+    return predict_from_thresholds(probabilities)
 
 
 def _matrix(records: list[LabelRecord], features: dict[str, dict[str, float]], names: list[str]) -> np.ndarray:
@@ -134,7 +133,7 @@ def train(corpus: Corpus, *, features_path: Any, min_level_labels: int, dry_run:
     :return: The report.
     :raises SystemExit: With too few level labels and not a dry run.
     """
-    labelled = [r for r in corpus.labels().values() if is_product(r) and rank_bounds(r) is not None]
+    labelled = [r for r in corpus.labels().values() if is_product(r) and level_bounds(r) is not None]
     with_level = [r for r in labelled if r.level is not None]
     report: dict[str, Any] = {
         "level_labels": len(with_level),
@@ -143,7 +142,7 @@ def train(corpus: Corpus, *, features_path: Any, min_level_labels: int, dry_run:
     }
     split = [r for r in labelled if r.split == "train"]
     for t in thresholds(split):
-        report["thresholds"][f"rank>={t.k}"] = {"pages": len(t.records), "positive": sum(t.y)}
+        report["thresholds"][f"level>={t.k}"] = {"pages": len(t.records), "positive": sum(t.y)}
     if dry_run:
         return report
     if len(with_level) < min_level_labels:
@@ -248,15 +247,13 @@ def agreement(pairs: Sequence[tuple[int, int]]) -> dict[str, Any]:
     How a set of answers agrees with the labels.
 
     :param pairs: ``(label, answer)`` levels.
-    :return: Pages, exact, within one rank, any-concern agreement, and the confusion (label → answer → count).
+    :return: Pages, exact, within one level, any-concern agreement, and the confusion (label → answer → count).
     """
-    from evals.corpus import LEVEL_RANK  # noqa: PLC0415
-
     n = len(pairs)
     if not n:
         return {"pages": 0}
     exact = sum(a == b for a, b in pairs)
-    near = sum(abs(LEVEL_RANK[a] - LEVEL_RANK[b]) <= 1 for a, b in pairs)
+    near = sum(abs(a - b) <= 1 for a, b in pairs)
     concern = sum((a == 0) == (b == 0) for a, b in pairs)
     confusion: dict[str, Counter[str]] = {}
     for a, b in pairs:

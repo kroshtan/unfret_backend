@@ -36,9 +36,9 @@ class LabelRequest(BaseModel):
         default=None,
         ge=0,
         le=4,
-        description="The page's OVERALL risk level as you see it: 1 may not arrive or may not be safe, 2 may not work "
-        "as described, 3 may cost more than it's worth, 4 pressure and tricks, 0 no concern. Optional when "
-        "disagreeing with findings only.",
+        description="The page's OVERALL risk level as you see it, higher is worse: 0 no concern, 1 pressure and "
+        "tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive or may not be safe. "
+        "Optional when disagreeing with findings only.",
     )
     disagree: list[str] = Field(
         default_factory=list,

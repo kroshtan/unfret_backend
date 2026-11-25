@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration
 
 from evals import candidates as cand
-from evals.corpus import Corpus, Label, LabelRecord, legacy_label, rank_bounds
+from evals.corpus import Corpus, Label, LabelRecord, legacy_label, level_bounds
 from evals.sources.deep_candidates import DATASET, category_of, rank
 
 
@@ -190,11 +190,11 @@ def test_old_labels_only_bound_the_level() -> None:
     def record(label: Label, level: int | None = None) -> LabelRecord:
         return LabelRecord(id="x", source="live", origin_dataset="d", label=label, level=level)
 
-    assert rank_bounds(record("scam")) == (4, 4)  # level 1
-    assert rank_bounds(record("junk")) == (2, 3)  # doesn't work or overpaying
-    assert rank_bounds(record("legit")) == (0, 2)  # none, pressure or overpaying
-    assert rank_bounds(record("junk", 4)) == (1, 1)  # a level label is exact
-    assert [legacy_label(lv) for lv in range(5)] == ["legit", "scam", "junk", "junk", "junk"]
+    assert level_bounds(record("scam")) == (4, 4)  # won't arrive
+    assert level_bounds(record("junk")) == (1, 3)  # deceptively or badly represented: manipulation to doesn't work
+    assert level_bounds(record("legit")) == (0, 2)  # none, pressure or overpaying
+    assert level_bounds(record("junk", 3)) == (3, 3)  # a level label is exact
+    assert [legacy_label(lv) for lv in range(5)] == ["legit", "junk", "junk", "junk", "scam"]
 
 
 def test_records_without_a_level_are_written_as_before(tmp_path: Path) -> None:

@@ -1,18 +1,17 @@
 """
 One overall risk level per result, with the reasons that set it.
 
-Levels, from the most serious:
+Levels: a higher number is always worse.
 
-1. ``wont_arrive``: the order may never arrive (a shop that may not be real), card or personal data may be taken,
+4. ``wont_arrive``: the order may never arrive (a shop that may not be real), card or personal data may be taken,
    or the product may be unsafe.
-2. ``doesnt_work``: the product may not do what the page says (claims that don't add up, specs that contradict).
-3. ``overpaying``: it may cost much more than it is worth (generic goods relabelled, dropship markup, hidden costs,
+3. ``doesnt_work``: the product may not do what the page says (claims that don't add up, specs that contradict).
+2. ``overpaying``: it may cost much more than it is worth (generic goods relabelled, dropship markup, hidden costs,
    poor quality).
-4. ``manipulation``: pressure and tricks (fake countdowns and scarcity, misleading discounts, fake reviews).
+1. ``manipulation``: pressure and tricks (fake countdowns and scarcity, misleading discounts, fake reviews).
+0. ``none``: no concern found. Two things move a level that are not levels themselves:
 
-``0`` (``none``) is no concern found. Two things move a level that are not levels themselves:
-
-- **Combining.** Lower-level problems add up: a page with problems at levels 2, 3 and 4 together counts as level 1
+- **Combining.** Smaller problems add up: a page with problems at levels 1, 2 and 3 together counts as level 4
   (it doesn't work, costs too much and pushes you to buy anyway).
 - **Protection** is a modifier: recourse (card or platform payment with buyer protection, a real return address)
   lowers the level by one, payment you can't get back (bank transfer, crypto, gift cards, cash up front) raises it
@@ -21,7 +20,7 @@ Levels, from the most serious:
 **Who sets the level.** Checks only emit findings; a model sets the answer: the level judge
 (:mod:`unfret.level_judge`) when it is on, a level classifier once one is trained on level labels. Until then the
 level is a *translation of the band* the scorer set (:func:`from_band`, ``source="band"``): no concern at "Looks
-fine", level 1 at "Serious concerns", otherwise the level the findings shown point at, combined and modified as
+fine", level 4 at "Serious concerns", otherwise the level the findings shown point at, combined and modified as
 above. :data:`FINDING_LEVELS` is data (what each finding is evidence for, and the card's order), not a rule that
 sets the answer by itself.
 
@@ -42,7 +41,7 @@ LevelSource = Literal["band", "judge", "classifier"]
 
 NONE = 0
 LEVELS: tuple[int, ...] = (1, 2, 3, 4)
-KEYS: dict[int, LevelKey] = {1: "wont_arrive", 2: "doesnt_work", 3: "overpaying", 4: "manipulation", 0: "none"}
+KEYS: dict[int, LevelKey] = {4: "wont_arrive", 3: "doesnt_work", 2: "overpaying", 1: "manipulation", 0: "none"}
 LEVEL_OF_KEY: dict[str, int] = {v: k for k, v in KEYS.items()}
 
 
@@ -61,9 +60,9 @@ def _table(level: int | None, keys: str, modifier: Direction | None = None) -> d
 # Every card reason type (``copy/en.json`` "reasons") and what it is evidence for. Data for the level judge, the
 # classifier's features and the card's order; not a rule that sets the answer.
 FINDING_LEVELS: dict[str, FindingLevel] = {
-    # 1 · won't arrive / a shop that may not be real / data theft / unsafe
+    # 4 · won't arrive / a shop that may not be real / data theft / unsafe
     **_table(
-        1,
+        4,
         "new_domain domain_repurposed short_registration invalid_vat founded_contradicted far_below_market "
         "seller_lookalike linked_new_shops missing_trust_info no_imprint hidden_ai_text safety_gate_alert "
         "brand_photo_reused mailbox_address store_without_address shared_address origin_contradicted "
@@ -77,24 +76,24 @@ FINDING_LEVELS: dict[str, FindingLevel] = {
         "trade_town_name national_number_only address_elsewhere details_on_request unproven_profile "
         "shared_address_sites",
     ),
-    # 2 · doesn't work: false claims, specs that contradict each other or the photos
+    # 3 · doesn't work: false claims, specs that contradict each other or the photos
     **_table(
-        2,
+        3,
         "claim_contradicted implausible_claims data_inconsistency photo_count_mismatch photo_size_mismatch "
         "origin_doubt word_soup ai_text variant_bait_price",
     ),
-    # 3 · overpaying: generic goods relabelled, dropship markup, hidden costs, costly returns, poor quality
+    # 2 · overpaying: generic goods relabelled, dropship markup, hidden costs, costly returns, poor quality
     **_table(
-        3,
+        2,
         "generic_brand generic_product brand_no_presence rebranded_photo photo_reused dropshipping_tools "
         "supplier_links ships_from_far long_delivery seller_not_brand drip_pricing late_fees restocking_fee "
         "premium_number bait_callout vague_pricing quote_on_site low_platform_rating",
     ),
-    # 3: returns that cost a lot or can't be made (the money is the buyer's risk; the payment modifier is separate)
-    **_table(3, "returns_abroad return_address_withheld no_return_policy no_withdrawal"),
-    # 4 · manipulation: pressure, fake scarcity, misleading discounts, fake or inflated reviews
+    # 2: returns that cost a lot or can't be made (the money is the buyer's risk; the payment modifier is separate)
+    **_table(2, "returns_abroad return_address_withheld no_return_policy no_withdrawal"),
+    # 1 · manipulation: pressure, fake scarcity, misleading discounts, fake or inflated reviews
     **_table(
-        4,
+        1,
         "timer_resets fake_urgency_app countdown preticked_addon pushy_copy big_discount was_never_charged "
         "implausible_discount reference_anchor marketplace_reference brand_reference disclosed_reference "
         "permanent_sale review_velocity review_shape duplicate_reviews off_topic_reviews review_import_app "
@@ -133,20 +132,22 @@ def level_of(reason_type: str) -> int | None:
 
 def order_key(reason_type: str) -> int:
     """
-    The card's sort key for a reason: level 1 first, reasons without a level last.
+    The card's sort key for a reason: the highest (worst) level first, reasons without a level last.
 
     :param reason_type: A card reason's type.
     :return: The key.
     """
     level = level_of(reason_type)
-    return level if level is not None else 5
+    return -level if level is not None else 1
 
 
 class LevelReason(BaseModel):
     """One finding behind the level."""
 
     type: str = Field(description="The card reason's type (the same as in verdict.reasons).")
-    level: int | None = Field(description="The level this finding is evidence for (1–4), or null for a modifier.")
+    level: int | None = Field(
+        description="The level this finding is evidence for (1–4, higher is worse), or null for a modifier."
+    )
     title: str = Field(description='The finding in words: "Fake countdown".')
 
 
@@ -161,7 +162,7 @@ class LevelModifier(BaseModel):
 class Risk(BaseModel):
     """The overall risk level and why."""
 
-    level: int = Field(ge=0, le=4, description="1 (most serious) to 4; 0 = no concern found.")
+    level: int = Field(ge=0, le=4, description="0 no concern found, then 1 to 4: higher is worse.")
     key: LevelKey = Field(description="wont_arrive, doesnt_work, overpaying, manipulation or none.")
     label: str = Field(description='The level in words: "May not arrive, or may not be safe", …')
     because: list[LevelReason] = Field(
@@ -173,7 +174,7 @@ class Risk(BaseModel):
     )
     modifier: LevelModifier | None = Field(default=None, description="Set when protection raised or lowered it.")
     explanation: str = Field(
-        description="One line: \"Level 1 because: A claim that doesn't add up + Far below the usual price + Fake "
+        description="One line: \"Level 4 because: A claim that doesn't add up + Far below the usual price + Fake "
         "countdown. Raised: only payments you can't get back.\""
     )
     source: LevelSource = Field(
@@ -214,13 +215,13 @@ def title_of(reason_type: str, titles: dict[str, str] | None = None) -> str:
 
 def combine(levels: Iterable[int]) -> int | None:
     """
-    The combining step: problems at levels 2, 3 and 4 together count as level 1.
+    The combining step: problems at levels 1, 2 and 3 together count as level 4.
 
     :param levels: The levels found (1–4).
-    :return: 1 when they combine upward, else ``None``.
+    :return: 4 when they combine upward, else ``None``.
     """
     found = set(levels)
-    return 1 if 1 not in found and {2, 3, 4} <= found else None
+    return 4 if 4 not in found and {1, 2, 3} <= found else None
 
 
 def explain(
@@ -262,10 +263,10 @@ def from_band(
     """
     The level as a translation of the scorer's band, until a level model sets it (``source="band"``).
 
-    "Looks fine" is no concern; otherwise the most serious level the findings point at (level 1 at "Serious
+    "Looks fine" is no concern; otherwise the most serious level the findings point at (level 4 at "Serious
     concerns", which the scorer reserves for pages it is sure about), combined upward and moved by protection
     (:func:`combine`; one step either way). Two caps keep the translation as mild as the band: "Worth a look" is
-    never level 1 (it is a thing to look at, not a warning), and recourse never lowers level 1 (a chargeback doesn't
+    never level 4 (it is a thing to look at, not a warning), and recourse never lowers level 4 (a chargeback doesn't
     undo stolen card details or an unsafe product).
 
     :param band: reliable, concerns, careful or junk_or_scam.
@@ -283,29 +284,29 @@ def from_band(
         )
     weighed = [t for t in types if level_of(t) is not None and t not in NOTES]
     found = sorted({lv for t in weighed if (lv := level_of(t)) is not None})
-    level = found[0] if found else 4  # only the scorer's small signs: the mildest level
+    level = found[-1] if found else 1  # only the scorer's small signs: the mildest level
     combined_text: str | None = None
     if combine(found) is not None:
-        level = 1
-        parts = [title_of(next(t for t in weighed if level_of(t) == lv), titles) for lv in (2, 3, 4)]
+        level = 4
+        parts = [title_of(next(t for t in weighed if level_of(t) == lv), titles) for lv in (3, 2, 1)]
         combined_text = str(copy["combined"]).format(reasons=" + ".join(parts))
     if band == "junk_or_scam":
-        level = 1
+        level = 4
     modifier: LevelModifier | None = None
     raising = next((t for t in types if (e := FINDING_LEVELS.get(t)) and e.modifier == "raised"), None)
     lowering = next((t for t in positive_types if t in RECOURSE_POSITIVES), None)
-    if raising and level > 1:
-        level -= 1
+    if raising and level < 4:
+        level += 1
         modifier = LevelModifier(
             direction="raised", type=raising, text=str(copy["raised"]).format(reason=title_of(raising, titles))
         )
     elif lowering and not raising and 1 < level < 4:
-        level += 1
+        level -= 1
         modifier = LevelModifier(
             direction="lowered", type=lowering, text=str(copy["lowered"]).format(reason=title_of(lowering, titles))
         )
-    if band == "concerns" and level == 1:
-        level = 2
+    if band == "concerns" and level == 4:
+        level = 3
     because = sorted(
         (LevelReason(type=t, level=level_of(t), title=title_of(t, titles)) for t in types if t != "overall"),
         key=lambda r: order_key(r.type),

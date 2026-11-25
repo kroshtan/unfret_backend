@@ -11,16 +11,17 @@ import asyncpg
 import httpx
 import pytest
 
-from tests.integration.conftest import FakeGraph
+from tests.integration.conftest import DROP_ALL, FakeGraph
 from unfret import crowd
 from unfret.config import settings
+from unfret.migrations import MIGRATIONS, migrate
 
 URL = "https://www.shop.example/products/lamp?utm_source=mail&color=red#reviews"
 RISK = {
-    "level": 2,
+    "level": 3,
     "key": "doesnt_work",
     "label": "May not work as described",
-    "because": [{"type": "claim_contradicted", "level": 2, "title": "A claim that doesn't add up"}],
+    "because": [{"type": "claim_contradicted", "level": 3, "title": "A claim that doesn't add up"}],
     "combined": None,
     "modifier": None,
     "explanation": "Level 2 because: A claim that doesn't add up.",
@@ -61,11 +62,11 @@ async def test_a_result_can_be_labelled_and_nothing_names_the_page(
     client: httpx.AsyncClient, pool: asyncpg.Pool, token: Callable[..., Any]
 ) -> None:
     label_token = await token()
-    sent = await client.post("/v1/labels", json={"label_token": label_token, "level": 1, "disagree": ["countdown"]})
+    sent = await client.post("/v1/labels", json={"label_token": label_token, "level": 4, "disagree": ["countdown"]})
     assert sent.status_code == 201, sent.text
     assert sent.json() == {"status": "recorded", "anonymous": True}
     row = dict(await pool.fetchrow("SELECT * FROM crowd_labels"))
-    assert row["shown_level"] == 2 and row["level"] == 1 and row["disagree"] == ["countdown"]
+    assert row["shown_level"] == 3 and row["level"] == 4 and row["disagree"] == ["countdown"]
     assert row["contributor_id"] is None and row["weight"] == pytest.approx(settings.crowd_anonymous_weight)
     stored = " ".join(str(v) for v in row.values())
     assert "shop.example" not in stored and "lamp" not in stored  # a keyed hash, not the address
@@ -123,23 +124,23 @@ async def test_agreeing_labels_settle_the_page_and_move_reputations(
     keys = [new_key() for _ in range(2)]
     for key in keys:
         await _trusted(pool, key)
-    for key, level in zip(keys, (1, 3), strict=True):
+    for key, level in zip(keys, (4, 2), strict=True):
         sent = await client.post(
             "/v1/labels",
             json={"label_token": await token(), "level": level, "disagree": ["countdown"], "contributor_key": key},
         )
         assert sent.status_code == 201
     assert await crowd.settle(pool, settings) == 0  # one against one
-    await client.post("/v1/labels", json={"label_token": await token(), "level": 1})  # anonymous, alone: 0.2
+    await client.post("/v1/labels", json={"label_token": await token(), "level": 4})  # anonymous, alone: 0.2
     assert await crowd.settle(pool, settings) == 0  # 1.2 of 2.2: under the weight and two thirds
     await _trusted(pool, k := new_key())
     await client.post(
         "/v1/labels",
-        json={"label_token": await token(), "level": 1, "disagree": ["countdown"], "contributor_key": k},
+        json={"label_token": await token(), "level": 4, "disagree": ["countdown"], "contributor_key": k},
     )
     assert await crowd.settle(pool, settings) == 1  # 2.2 of 3.2
     answer = dict(await pool.fetchrow("SELECT * FROM crowd_answers"))
-    assert (answer["level"], answer["shown_level"], answer["held"], answer["disagree"]) == (1, 2, False, ["countdown"])
+    assert (answer["level"], answer["shown_level"], answer["held"], answer["disagree"]) == (4, 3, False, ["countdown"])
     reputations = [r["reputation"] for r in await pool.fetch("SELECT reputation FROM contributors ORDER BY id")]
     assert reputations[0] > 1 and reputations[1] < 1
     # Settled: no label links to a contributor any more.
@@ -185,3 +186,21 @@ async def test_profiles_and_the_leaderboard(client: httpx.AsyncClient, pool: asy
     gone = await client.post("/v1/contributors/forget", json={"contributor_key": key})
     assert gone.json() == {"deleted": True}
     assert (await client.get("/v1/contributors/leaderboard")).json() == {"entries": []}
+
+
+async def test_labels_stored_before_the_renumbering_flip(pool: asyncpg.Pool) -> None:
+    await pool.execute(DROP_ALL)
+    await pool.execute("DROP SCHEMA IF EXISTS stats CASCADE")
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 41])
+    await pool.execute(
+        "INSERT INTO crowd_labels (page_key, anonymous, tier, shown_level, level, weight, created_day) VALUES "
+        "('p', TRUE, 'deep', 1, 4, 0.2, CURRENT_DATE), ('q', TRUE, 'deep', 0, NULL, 0.2, CURRENT_DATE)"
+    )
+    await pool.execute(
+        "INSERT INTO crowd_answers (page_key, level, shown_level, tier, labels, weight, settled_on) "
+        "VALUES ('p', 2, 3, 'deep', 2, 2.0, CURRENT_DATE)"
+    )
+    await migrate(pool)
+    rows = [dict(r) for r in await pool.fetch("SELECT shown_level, level FROM crowd_labels ORDER BY page_key")]
+    assert rows == [{"shown_level": 4, "level": 1}, {"shown_level": 0, "level": None}]
+    assert dict(await pool.fetchrow("SELECT level, shown_level FROM crowd_answers")) == {"level": 3, "shown_level": 2}

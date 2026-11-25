@@ -996,6 +996,22 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE fiat_checkouts DROP COLUMN invite_codes, DROP COLUMN code;
         """,
     ),
+    (
+        41,
+        "risk levels: higher is worse",
+        """
+        -- Risk levels are renumbered so that a higher number is always worse: 0 none, 1 manipulation, 2 overpaying,
+        -- 3 doesn't work, 4 won't arrive (was 1 won't arrive ... 4 manipulation). Stored labels and answers flip.
+        UPDATE crowd_labels SET
+            level = CASE level WHEN 1 THEN 4 WHEN 2 THEN 3 WHEN 3 THEN 2 WHEN 4 THEN 1 ELSE level END,
+            shown_level = CASE shown_level
+                WHEN 1 THEN 4 WHEN 2 THEN 3 WHEN 3 THEN 2 WHEN 4 THEN 1 ELSE shown_level END;
+        UPDATE crowd_answers SET
+            level = CASE level WHEN 1 THEN 4 WHEN 2 THEN 3 WHEN 3 THEN 2 WHEN 4 THEN 1 ELSE level END,
+            shown_level = CASE shown_level
+                WHEN 1 THEN 4 WHEN 2 THEN 3 WHEN 3 THEN 2 WHEN 4 THEN 1 ELSE shown_level END;
+        """,
+    ),
 ]
 
 

@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from unfret import __version__, accuracy, clients_info
+from unfret import __version__, accuracy, clients_info, levels, shopper
 from unfret.config import settings
 from unfret.credits import packs
 from unfret.credits.keys import MAX_EXTRA_BITS
@@ -154,18 +154,27 @@ router = APIRouter(include_in_schema=False)
 @router.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     """
-    The home page: what Unfret is, for shoppers and for agents (also the homepage of the store listing).
+    The home page: Unfret for shoppers (also the homepage of the store listing), with one line to ``/developers``.
 
-    The agents' section quotes the x402 prices from the same settings as ``/developers``, and the page names ``/nl``
-    as its Dutch counterpart.
+    The risk levels are named in the result card's words (the copy catalogue), and the page names ``/nl`` as its
+    Dutch counterpart.
 
     :return: The page.
     """
     page = with_store_links(template("index.html", "/")).replace("{{hreflang}}", hreflang_links())
-    fields = developer_fields()
-    for name in ("base_url", "quick_price", "deep_price"):
-        page = page.replace("{{" + name + "}}", html.escape(fields[name]))
+    for level, key in levels.KEYS.items():
+        page = page.replace(f"{{{{level_{level}}}}}", html.escape(level_label(key)))
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+def level_label(key: str) -> str:
+    """
+    A risk level's words, as the result card says them.
+
+    :param key: The level's key (``wont_arrive`` … ``none``).
+    :return: The words.
+    """
+    return str(shopper.catalogue()["levels"]["labels"][key])
 
 
 def hreflang_links() -> str:

@@ -1502,3 +1502,63 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .android code { overflow-wrap: anywhere; }
 .android code.hash { word-break: break-all; font-size: 0.85em; line-height: 1.5; }
 @media (max-width: 34rem) { .android .hashes { grid-template-columns: 1fr; } }
+
+/* ── Risk levels: 0 (nothing found) to 4 (worst), a number and words, never colour alone ───────────────────────── */
+.level-num {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: var(--muted);
+  color: var(--surface);
+  font-weight: 800;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.level-0 .level-num { background: var(--good); }
+.level-1 .level-num { background: var(--note); }
+.level-2 .level-num, .level-3 .level-num { background: var(--care); }
+.level-4 .level-num { background: var(--stop); }
+.verdict.level-0 { background: var(--good-soft); border-color: transparent; }
+.verdict.level-1 { background: var(--note-soft); border-color: transparent; }
+.verdict.level-2, .verdict.level-3 { background: var(--care-soft); border-color: transparent; }
+.verdict.level-4 { background: var(--stop-soft); border-color: transparent; }
+.verdict .scale { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); }
+.verdict .modifier { margin: 0.15rem 0 0; font-size: 0.9rem; color: var(--ink-2); }
+
+/* The reasons behind a level, worst first: a small number for each one's level, then its title. */
+.because { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+.because li { display: flex; align-items: center; gap: 0.55rem; }
+.because .level-num { width: 1.45rem; height: 1.45rem; font-size: 0.8rem; font-weight: 750; }
+.because-more summary { margin-top: 0.4rem; color: var(--accent); font-size: 0.95rem; cursor: pointer; }
+.because-more .because { margin-top: 0.3rem; }
+
+/* The home page: the shopper's questions, the scale, the leaderboard. */
+.questions { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: 1rem; margin: 0; padding: 0; list-style: none; }
+.questions li {
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.questions h3 { margin: 0 0 0.3rem; font-size: 1.1rem; }
+.questions p { margin: 0; color: var(--ink-2); }
+.level-scale { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; max-width: var(--text); }
+.level-scale li { display: flex; align-items: center; gap: 0.85rem; }
+.level-scale b { color: var(--ink); }
+.level-scale span:last-child { color: var(--ink-2); }
+.leaderboard-box {
+  padding: 1.35rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.leaderboard-box h3 { margin: 0 0 0.35rem; font-size: 1.1rem; }
+.leaderboard { margin: 0.5rem 0 0; padding-left: 1.6rem; }
+.leaderboard li { padding: 0.2rem 0; }
+.leaderboard .who { font-weight: 650; overflow-wrap: anywhere; }
+.leaderboard .count { margin-left: 0.5rem; color: var(--muted); font-size: 0.9rem; }

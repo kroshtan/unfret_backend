@@ -427,7 +427,7 @@ async def test_the_play_variant_has_no_menu_and_no_link_to_buying(client: httpx.
             or url.startswith("https://www.autoriteitpersoonsgegevens.nl")
         ), url
     for purchase in ("/checkout", "/money", "/affiliates", "/extension", "/developers", "/check\"", "polar.sh",
-                     "/my-checks", 'href="/"', "kroshtan.com"):  # fmt: skip
+                     "/my-checks", 'href="/"', "kroshtan.com", "/support", "/donate"):  # fmt: skip
         assert purchase not in page, purchase
 
 
@@ -442,10 +442,10 @@ async def test_the_play_variant_keeps_the_text_and_points_to_the_normal_page(
     assert '<meta name="robots" content="noindex">' in variant
     assert f'<link rel="canonical" href="{settings.public_base_url.rstrip("/")}{path}">' in variant
     assert "canonical" not in normal and "noindex" not in normal
-    assert '<header class="site-header">' in normal and 'href="/checkout"' in normal
+    assert '<header class="site-header">' in normal and 'href="/support"' in normal
 
 
 async def test_any_other_app_gets_the_normal_page(client: httpx.AsyncClient) -> None:
     response = await client.get("/privacy", params={"app": "other"})
 
-    assert 'href="/checkout"' in response.text and "x-robots-tag" not in response.headers
+    assert 'href="/support"' in response.text and "x-robots-tag" not in response.headers

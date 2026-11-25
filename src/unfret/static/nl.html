@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Plak de link van een advertentie of webshop, en Unfret zegt je in gewone woorden wat opvalt. Gratis checks, geen account.">
-  <title>Unfret · Check de verkoper voordat je betaalt</title>
+  <meta name="description" content="Gratis bescherming voor wie online koopt. Plak de link van een advertentie of webshop, en Unfret zegt je hoe riskant het is, en waarom. Geen account, niets te betalen.">
+  <title>Unfret · gratis bescherming voor wie online koopt</title>
   {{hreflang}}
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -20,10 +20,11 @@
     <section class="hero hero-start">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Voor Marktplaats en webshops</p>
-          <h1>Check de verkoper <span class="soft">voordat je betaalt.</span></h1>
+          <p class="eyebrow">Consumentenbescherming, gratis voor iedereen</p>
+          <h1>Weet wat je koopt <span class="soft">voordat je betaalt.</span></h1>
           <p class="lead">Een koopje op Marktplaats, of een webshop die je nog niet kent? Plak de link hieronder. Unfret
-            leest die ene pagina en zegt je rustig wat opvalt, en waarom.</p>
+            kijkt of je bestelling wel aankomt, of je beschermd bent en of de pagina je onder druk zet, en geeft één
+            risiconiveau, met de redenen erbij.</p>
           <form class="start-check" id="start-check" novalidate data-empty="Plak eerst een link."
             data-invalid="Dat lijkt geen link. Kopieer het hele adres van de pagina.">
             <label class="visually-hidden" for="start-link">Link naar een advertentie of product</label>
@@ -33,9 +34,8 @@
               <button class="primary large" type="submit">Check</button>
             </div>
             <p class="error-text" data-error role="alert" hidden></p>
-            <p class="start-hint" id="start-hint">Je eerste <span data-free-count>5</span> uitgebreide checks zijn
-              gratis, daarna blijven snelle checks gratis. Geen account, niets te installeren. Unfret antwoordt in het
-              Engels.</p>
+            <p class="start-hint" id="start-hint">Snelle en uitgebreide checks zijn gratis. Geen account, niets te
+              installeren. Unfret antwoordt in het Engels.</p>
           </form>
         </div>
 
@@ -66,32 +66,29 @@
       </ul>
     </section>
 
-    <section class="section" aria-labelledby="nl-price-heading">
+    <section class="section" aria-labelledby="nl-free-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="nl-price-heading">Gratis beginnen</h2>
-          <p>Je eerste <span data-free-count>5</span> uitgebreide checks zijn gratis, en snelle checks blijven gratis.
-            Meer nodig? Koop een pakket: geen abonnement, en checks verlopen niet.</p>
+          <h2 id="nl-free-heading">Gratis, zonder account</h2>
+          <p>Snelle en uitgebreide checks zijn gratis, zonder account en zonder iets dat zegt wie je bent. Een
+            uitgebreide check laat een taalmodel de pagina lezen, en dat kost elke keer geld: donaties betalen dat. Zijn
+            de donaties van een maand op, dan wachten uitgebreide checks tot de 1e van de volgende maand; snelle checks
+            blijven werken.</p>
         </div>
-        <ul class="prices" id="prices">
-          <li class="free"><a href="/check">
-            <span class="n">Gratis</span>
-            <span class="unit"><span data-free-count>5</span> uitgebreide checks, daarna snelle checks</span>
-            <span class="card-price">€ 0</span>
-            <span class="choose">Begin</span></a></li>
-          <li data-checks="25"><a href="/checkout?checks=25" hreflang="en">
-            <span class="n">25</span>
-            <span class="unit">checks</span>
-            <span class="card-price">€ 6,50</span>
-            <span class="choose">Kies</span></a></li>
-          <li data-checks="100" class="featured"><a href="/checkout?checks=100" hreflang="en">
-            <span class="n">100</span>
-            <span class="unit">checks</span>
-            <span class="card-price">€ 21,00</span>
-            <span class="choose">Kies</span></a></li>
-        </ul>
-        <p class="small muted price-note">Prijzen inclusief btw: dit is wat je betaalt. Betaal met
-          <strong>iDEAL | Wero</strong> of met je kaart. Afrekenen gaat in het Engels.</p>
+        <ol class="level-scale" reversed>
+          <li class="level-4"><span class="level-num" aria-hidden="true">4</span><span><b>Komt misschien niet
+            aan.</b> De winkel is misschien niet echt, of je gegevens lopen risico.</span></li>
+          <li class="level-3"><span class="level-num" aria-hidden="true">3</span><span><b>Werkt misschien niet.</b>
+            Beweringen die niet kloppen.</span></li>
+          <li class="level-2"><span class="level-num" aria-hidden="true">2</span><span><b>Te duur.</b> Opslagen,
+            verborgen kosten, dure retouren.</span></li>
+          <li class="level-1"><span class="level-num" aria-hidden="true">1</span><span><b>Druk en trucs.</b>
+            Nepaftellers, nepkortingen, nepreviews.</span></li>
+          <li class="level-0"><span class="level-num" aria-hidden="true">0</span><span><b>Niets gevonden.</b> Niets
+            zorgwekkends op de pagina.</span></li>
+        </ol>
+        <p class="aside-note">Klopt een uitkomst niet? Tik op <b>Wrong result?</b> en zeg wat er volgens jou niet
+          klopt. Zo wordt Unfret beter voor iedereen. <a href="/support" hreflang="en">Unfret steunen</a></p>
       </div>
     </section>
 
@@ -111,6 +108,7 @@
             <li><a href="/" hreflang="en">Unfret in het kort</a></li>
             <li><a href="/accuracy" hreflang="en">Hoe nauwkeurig is Unfret?</a></li>
             <li><a href="/money" hreflang="en">Hoe Unfret geld verdient</a></li>
+            <li><a href="/support" hreflang="en">Unfret steunen met een donatie</a></li>
             <li><a href="/privacy" hreflang="en">Privacy</a> en <a href="/terms" hreflang="en">voorwaarden</a></li>
           </ul>
           <p>Vragen? Mail gerust in het Nederlands: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>

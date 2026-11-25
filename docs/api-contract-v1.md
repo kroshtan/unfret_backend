@@ -1698,3 +1698,18 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - `POST /v1/keys`: new optional `source` (`extension`, `website`, `android`, `api`), for Unfret's anonymous usage
   counts only, never stored with the pass; any other value is a 422 (snapshot updated). Left out, it is guessed from
   the request's `Origin`.
+
+## Changes (one overall risk level; backwards-compatible)
+
+- `verdict.risk` (`POST /v1/analyze`, the stream's result, shares) and `risk` (`POST /v1/check`): `{"level": 0-4,
+  "key": "wont_arrive"|"doesnt_work"|"overpaying"|"manipulation"|"none", "label": str, "because": [{"type", "level",
+  "title"}], "combined": str|null, "modifier": {"direction": "raised"|"lowered", "type", "text"}|null,
+  "explanation": str, "source": "band"|"judge"|"classifier", "confidence": float|null}`. Level 1 is the most serious;
+  0 is no concern. `because` lists every finding behind the level (not only the three cards), most serious first.
+  New `key` or `source` values may be added.
+- `verdict.reasons[].level`: the level each reason is evidence for (null for a protection modifier and for the small
+  signs). The reasons are now ordered by level (1 first), then severity, so the three shown can differ from before.
+- `verdict.band` (and `band` on `/v1/check`) is **deprecated**, unchanged in value. Retiring it: clients render
+  `risk` (extension, Android, website, MCP server), then the field stays for one more minor release with its
+  description saying so, then it is dropped from the shopper verdict (the x402 `band` and `never_warns_on_bands` move
+  to a level-based policy in the same release).

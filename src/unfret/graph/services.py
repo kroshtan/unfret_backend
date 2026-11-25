@@ -35,7 +35,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from unfret import shopper
+from unfret import levels, shopper
 from unfret.config import settings
 from unfret.facts import PageFacts
 from unfret.graph.state import AnalysisState, Finding
@@ -409,6 +409,7 @@ def _reason(key: str, params: dict[str, str]) -> shopper.Reason:
         title=copy["title"],
         detail=copy["detail"].format(**params),
         severity=REASON_SEVERITY[key],
+        level=levels.level_of(key),
         thumbnails=params.get("thumbnails", "").split(),
     )
 

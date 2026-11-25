@@ -4,15 +4,19 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
 
-![Unfret checking a test shop: Serious concerns, with a fake countdown, a pre-ticked extra and an unbelievable discount](docs/demo.gif)
+![Unfret checking a test shop, with a fake countdown, a pre-ticked extra and an unbelievable discount](docs/demo.gif)
 
-**Unfret checks a web shop, an ad or a company's website and says in plain words whether it all adds up.** This
+**Unfret is a free consumer protection tool for online shoppers.** It checks a product on a marketplace or web shop,
+a second-hand ad or a tradesperson's website, and gives one risk level from 0 to 4 (higher is worse: pressure and
+tricks, may cost more than it's worth, may not work as described, may not arrive or may not be safe) with the reasons
+behind it. Shoppers check for free, with no account and no pass; developers and shopping agents pay for theirs
+(a developer pass, or x402 per call). This
 repository is the service behind it: the API, the website ([unfret.net](https://unfret.net), including the
 [link checker](https://unfret.net/check)) and the MCP server for AI agents (remote at `/mcp`, and the local package in
 [`mcp/`](mcp/)). The analysis is a
 [LangGraph](https://github.com/langchain-ai/langgraph) pipeline of independent "skills" run in parallel; a small
-trained model turns their features into a calibrated 0–100 score and one of four verdicts (Looks fine, Worth a look,
-Think twice, Serious concerns), and an LLM writes the explanation from the signals that moved it.
+trained model turns their features into a calibrated 0–100 score, and the findings set the risk level with its
+reasons (the older four verdicts, Looks fine to Serious concerns, are still in the API while clients move over).
 
 | | |
 | --- | --- |
@@ -22,8 +26,9 @@ Think twice, Serious concerns), and an LLM writes the explanation from the signa
 | Android app | [git.kroshtan.com/kroshtan/unfret_android](https://git.kroshtan.com/kroshtan/unfret_android) · [GitHub mirror](https://github.com/kroshtan/unfret_android) |
 
 > **Project status: live, run by one person.** Unfret runs at [unfret.net](https://unfret.net) with the
-> [Chrome extension](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo), prepaid checks
-> (card via Polar, or USDC/SOL with a Solana wallet) and pay-per-check x402 for AI agents. It is a side project: no
+> [Chrome extension](https://chromewebstore.google.com/detail/unfret/giiengbpechhnphignbicmlcbklmcpjo), free checks for
+> shoppers (kept running by donations), and for developers prepaid checks (card via Polar, or USDC/SOL with a Solana
+> wallet) and pay-per-check x402 on Solana and Base. It is a side project: no
 > SLA, and scores are a signal, not a verdict (see [Limitations](#limitations-and-responsible-use)).
 
 ## How accurate it is
@@ -454,7 +459,8 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the
 ledger), no record of what was analysed.
 
-**Pricing.** A check costs `UNFRET_PRICE_PER_CHECK_USD` ($0.10; `UNFRET_PRICE_PER_CHECK_EUR`, €0.10, by card from the
+**Pricing** (for developer passes, and the passes older store clients made; shoppers' checks are free). A check
+costs `UNFRET_PRICE_PER_CHECK_USD` ($0.10; `UNFRET_PRICE_PER_CHECK_EUR`, €0.10, by card from the
 euro area): an analysis costs one check in credits and an x402 deep check costs one check ($0.10; quick stays $0.01).
 After the free ones (shoppers' checks, a developer pass's 20 free deep checks), a pass is **topped up by any amount**
 from `UNFRET_TOPUP_MIN_AMOUNT` (10, dollars or euros) **before VAT** (`src/unfret/credits/topup.py`):

@@ -1,7 +1,8 @@
 """
 Prices, balances and buying credits.
 
-``/v1/pricing``, ``/v1/credits``, ``/v1/credits/purchase-tx`` (a pack with SOL or USDC, VAT included), and
+``/v1/pricing``, ``/v1/pricing/topup``, ``/v1/credits``, ``/v1/credits/purchase-tx`` (a top-up with SOL or USDC, VAT
+added), and
 card top-ups for API keys (``/v1/credits/fiat-checkout`` and the provider's webhook, off until a provider is wired
 in).
 """
@@ -10,6 +11,7 @@ import base64
 import io
 import re
 import time
+from decimal import Decimal
 from typing import Any
 
 import segno
@@ -24,8 +26,17 @@ from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import claims, fiat, free, keys, ledger, local_methods, vat
 from unfret.credits.fiat import FiatProvider, FiatProviderError, FiatWebhookError
-from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, euros_on, pack, packs
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
+from unfret.credits.topup import (
+    EURO_AREA,
+    CardCurrency,
+    Topup,
+    card_currency,
+    format_money,
+    label,
+    topup,
+    valid,
+)
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
 from unfret.routes.analyze import donate_allowed, donate_link, legacy_free_left, paused_metadata
@@ -87,11 +98,22 @@ class CreditsResponse(BaseModel):
 
 
 class PurchaseRequest(BaseModel):
-    """Which pack, for whom, paid how, from where."""
+    """How much, for whom, paid how, from where."""
 
     address: str = Field(max_length=64, description="The paying wallet (base58), which signs and sends the transfer.")
     currency: Currency = Field(default="SOL", description="Pay in SOL or USDC.")
-    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing.")
+    amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        decimal_places=2,
+        description="The top-up in US dollars before VAT, at least /v1/pricing's topup.min_amount: it buys "
+        "floor(amount / price per check) checks plus the bonus tier's; VAT for the country is added on top.",
+    )
+    checks: int | None = Field(
+        default=None,
+        gt=0,
+        description="Deprecated (fixed packs are gone): the checks to buy, priced as checks × the price of a check.",
+    )
     country: str = Field(
         min_length=2,
         max_length=2,
@@ -124,9 +146,7 @@ class VatBreakdown(BaseModel):
     vat_rate_pct: str
     net_usd_micros: int = Field(description="The price less its VAT (the VAT is worked out of the price).")
     vat_usd_micros: int = Field(description="The VAT included in the price (zero outside the EU).")
-    total_usd_micros: int = Field(
-        description="What is charged, VAT included: the pack's crypto price, all of it credited to the account."
-    )
+    total_usd_micros: int = Field(description="What is charged: the amount before VAT plus the VAT for the country.")
     total_usd: str
 
 
@@ -156,7 +176,7 @@ class QuoteStatusResponse(BaseModel):
     """Whether a purchase's payment has been credited."""
 
     paid: bool = Field(description="True once a payment naming this quote has been credited.")
-    checks: int = Field(description="The pack size the quote is for.")
+    checks: int = Field(description="The checks the quote buys (with its bonus).")
 
 
 def _method_document(method: local_methods.LocalMethod) -> dict[str, str]:
@@ -168,7 +188,7 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     """
     The price of a check and everything derived from it.
 
-    The x402 tiers, the packs (by card in dollars and euros, and the lower crypto price), which countries pay by card
+    The x402 tiers, how top-ups are priced (any amount from the minimum, VAT added), which countries pay by card
     in euros and which have a local payment method, the suggested country and its card currency, the VAT rules for
     crypto, exact USDC amounts and a live SOL quote.
 
@@ -183,7 +203,7 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     # currency and the local method from the two tables below. Never stored or logged.
     document["vat"]["country_hint"] = country
     # The countries whose card prices are in euros (empty while euro prices are off); dollars everywhere else.
-    document["euro_area"] = sorted(EURO_AREA) if euros_on(settings) else []
+    document["euro_area"] = sorted(EURO_AREA) if settings.card_eur_enabled else []
     # Each country's local way to pay (iDEAL | Wero in the Netherlands), offered next to the card.
     document["local_payment_methods"] = {
         country_code: _method_document(method)
@@ -214,16 +234,79 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
         "developer_checks_per_pass": settings.developer_free_checks,
         "checks_per_pass": 0,  # deprecated: a shopper's pass came with free checks; no pass is needed now
     }
-    smallest = packs(settings)[0]
     document["fiat"] = {
         "available": get_fiat(request) is not None,
-        "min_usd_micros": smallest.card_usd_micros,
-        "currencies": ["usd", "eur"] if euros_on(settings) else ["usd"],
-        "min_eur_cents": smallest.card_eur_cents,
+        "min_usd_micros": int(settings.topup_min_amount * 1_000_000),
+        "currencies": ["usd", "eur"] if settings.card_eur_enabled else ["usd"],
+        "min_eur_cents": int(settings.topup_min_amount * 100) if settings.card_eur_enabled else None,
     }
     document["reports"] = {"per_month": settings.reports_per_month}
     response.headers["Cache-Control"] = "private, no-store"
     return document
+
+
+class TopupQuote(BaseModel):
+    """What an amount buys, and what it costs with VAT, for the checkout to show before anyone pays."""
+
+    currency: CardCurrency
+    amount: str = Field(description="Before VAT, in the currency.")
+    checks: int = Field(description="All the checks it buys: floor(amount / price per check) plus the bonus.")
+    base_checks: int
+    bonus_checks: int
+    bonus_pct: int
+    vat_pct: str | None = Field(
+        description="The VAT added at checkout for this country (null: unknown country, or outside the EU for a card, "
+        "where the provider may add sales tax)."
+    )
+    vat: str | None
+    total: str | None = Field(description="Amount plus VAT, in the currency (null while the VAT isn't known).")
+    label: str = Field(description='E.g. "€100.00 → 1,150 checks (incl. 150 bonus) · €121.00 incl. 21% VAT (NL)".')
+    min_amount: str
+
+
+@router.get("/v1/pricing/topup", response_model=TopupQuote)
+async def topup_quote(
+    amount: Decimal = Query(gt=0, le=1_000_000, decimal_places=2),
+    currency: CardCurrency = Query(default="usd"),
+    country: str | None = Query(default=None, min_length=2, max_length=2),
+    method: str = Query(default="card", pattern="^(card|crypto)$"),
+) -> TopupQuote:
+    """
+    What a top-up of ``amount`` (before VAT) buys, and its total with the VAT for ``country``.
+
+    For a card the provider adds the country's standard VAT rate in the EU; for crypto the rate is ours
+    (``/v1/pricing`` → ``vat``). Nothing is stored. An amount below the minimum still answers (``checks`` as computed),
+    so a page can show it while the buyer types; buying it is refused (``AMOUNT_TOO_SMALL``).
+
+    :param amount: The amount before VAT.
+    :param currency: ``usd`` or ``eur`` (crypto is always ``usd``).
+    :param country: The buyer's country (ISO 3166 alpha-2), once known.
+    :param method: ``card`` or ``crypto``.
+    :return: The checks, the VAT and the total.
+    """
+    cur: CardCurrency = "usd" if method == "crypto" else currency
+    top = topup(settings, amount, cur)
+    where = vat.normalise_country(country) if country else None
+    pct: Decimal | None = None
+    if where is not None:
+        if method == "crypto":
+            pct = Decimal(vat.rate_bps(settings, where)) / 100
+        elif where in vat.standard_rates():
+            pct = vat.standard_rates()[where]
+    tax = (top.amount * pct / 100).quantize(Decimal("0.01")) if pct is not None else None
+    return TopupQuote(
+        currency=cur,
+        amount=format(top.amount, "f"),
+        checks=top.checks,
+        base_checks=top.base_checks,
+        bonus_checks=top.bonus_checks,
+        bonus_pct=top.bonus_pct,
+        vat_pct=format(pct.normalize(), "f") if pct is not None else None,
+        vat=format(tax, "f") if tax is not None else None,
+        total=format(top.amount + tax, "f") if tax is not None else None,
+        label=label(top, pct, where),
+        min_amount=format(settings.topup_min_amount, "f"),
+    )
 
 
 @router.get("/v1/credits", response_model=CreditsResponse)
@@ -269,11 +352,30 @@ def _hot_for_purchase(request: Request, currency: Currency = "SOL") -> Pubkey:
     return door.hot
 
 
-def _pack(checks: int) -> Pack:
-    chosen = pack(settings, checks)
-    if chosen is None:
-        raise BadRequestError("Not a pack size.", metadata={"packs": settings.packs})
-    return chosen
+def _topup(amount: Decimal | None, checks: int | None, currency: str) -> Topup:
+    """
+    The top-up a request asks for: an amount before VAT, or (older clients) a number of checks at the check's price.
+
+    :param amount: The amount before VAT, in the currency.
+    :param checks: Deprecated: checks to buy.
+    :param currency: ``usd`` or ``eur``.
+    :return: The top-up.
+    :raises BadRequestError: Without an amount, or below the minimum (``AMOUNT_TOO_SMALL``).
+    """
+    if amount is None and checks is not None:
+        amount = Decimal(checks) * (
+            settings.price_per_check_eur if currency == "eur" else settings.price_per_check_usd
+        )
+    if amount is None:
+        raise BadRequestError("Say how much: amount, before VAT.", error_code="AMOUNT_REQUIRED")
+    if not valid(settings, amount.quantize(Decimal("0.01"))):
+        least = format_money(settings.topup_min_amount, currency)
+        raise BadRequestError(
+            f"A top-up is at least {least} before VAT.",
+            error_code="AMOUNT_TOO_SMALL",
+            metadata={"min_amount": format(settings.topup_min_amount, "f"), "currency": currency},
+        )
+    return topup(settings, amount, currency)
 
 
 def _country(value: str) -> str:
@@ -305,18 +407,17 @@ def _wallet(address: str, hot: Pubkey) -> Pubkey:
 
 async def _quote(
     request: Request,
-    checks: int,
+    top: Topup,
     country: str,
     currency: Currency,
     beneficiary: str | None,
 ) -> tuple[vat.Quote, int]:
-    """Price and store a pack for ``country``, and convert its total into ``currency``'s base units."""
-    chosen = _pack(checks)
+    """Price and store a top-up for ``country`` (VAT on top), and convert its total into ``currency``'s units."""
     edge = vat.edge_country({k.lower(): v for k, v in request.headers.items()})
     quote = vat.price_quote(
         settings,
-        chosen.checks,
-        chosen.value_usd_micros,
+        top.checks,
+        top.amount_cents * 10_000,
         _country(country),
         edge=edge,
         beneficiary=beneficiary,
@@ -343,15 +444,15 @@ def _breakdown(quote: vat.Quote) -> VatBreakdown:
 @router.post("/v1/credits/purchase-tx", response_model=PurchaseResponse)
 async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseResponse:
     """
-    Build the unsigned SOL or USDC transfer that buys a pack of credits; the buyer's wallet signs and sends it.
+    Build the unsigned SOL or USDC transfer that tops up an account; the buyer's wallet signs and sends it.
 
-    The pack costs its crypto price, VAT included: the buyer's country (see ``vat`` in ``/v1/pricing``) only decides
+    The buyer names an amount before VAT; the VAT for their country (see ``vat`` in ``/v1/pricing``) is added and
     how much of it is VAT. The transaction's memo names the stored quote. Credits arrive once the transfer is finalized
     (about 15–30 seconds): everything that arrived, credited to the paying wallet unless ``beneficiary`` or ``key_id``
     says otherwise.
     No sign-in needed: anyone may fund any wallet or API key.
 
-    :param body: Which pack, for whom, paid how, from where.
+    :param body: How much, for whom, paid how, from where.
     :param request: The incoming request.
     :return: The transaction (base64), a Solana Pay link for phone wallets, and the price breakdown.
     """
@@ -363,7 +464,8 @@ async def purchase_tx(body: PurchaseRequest, request: Request) -> PurchaseRespon
         beneficiary = await _key_account(request, body.key_id)
     elif body.beneficiary:
         beneficiary = str(_wallet(body.beneficiary, hot))
-    quote, amount = await _quote(request, body.checks, body.country, body.currency, beneficiary)
+    top = _topup(body.amount, body.checks, "usd")
+    quote, amount = await _quote(request, top, body.country, body.currency, beneficiary)
     door = get_credits(request)
     mint = door.usdc_mint if body.currency == "USDC" else None
     reference = Pubkey.from_string(quote.reference) if quote.reference else None
@@ -400,7 +502,7 @@ async def quote_status(
     :param request: The incoming request.
     :param response: The response (marked uncacheable: it changes once paid).
     :param quote_id: The quote's id.
-    :return: Paid or not, and the pack size.
+    :return: Paid or not, and the checks the quote buys.
     :raises ServiceUnavailableError: Without a database.
     :raises UnknownQuoteError: For an unknown, expired or malformed id.
     """
@@ -420,21 +522,23 @@ async def quote_status(
 async def solana_pay_qr(
     request: Request,
     *,
-    checks: int = Query(gt=0),
+    amount: Decimal | None = Query(default=None, gt=0, decimal_places=2),
+    checks: int | None = Query(default=None, gt=0),
     country: str = Query(min_length=2, max_length=2),
     currency: Currency = Query(default="SOL"),
     beneficiary: str | None = Query(default=None, max_length=64),
     key_id: str | None = Query(default=None, max_length=120),
 ) -> Response:
     """
-    The Solana Pay request for a pack as a QR code, for paying from a phone wallet.
+    The Solana Pay request for a top-up as a QR code, for paying from a phone wallet.
 
-    The price (VAT included) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
+    The total (VAT added) and its breakdown are in the ``X-Unfret-Total-Usd`` and ``X-Unfret-Vat-Rate``
     headers; the quote's id, to poll ``/v1/credits/quotes/{quote_id}`` with, in ``X-Unfret-Quote``; the Solana Pay
     link itself (to open a wallet app on the same phone) in ``X-Unfret-Pay-Url``.
 
     :param request: The incoming request.
-    :param checks: The pack size.
+    :param amount: The top-up in US dollars before VAT.
+    :param checks: Deprecated: checks to buy (priced at the check's price).
     :param country: The buyer's country (ISO 3166 alpha-2), for VAT.
     :param currency: ``SOL`` or ``USDC``.
     :param beneficiary: The wallet to credit; without it the paying wallet is credited.
@@ -446,12 +550,12 @@ async def solana_pay_qr(
     target = str(_wallet(beneficiary, hot)) if beneficiary else None
     if key_id:
         target = await _key_account(request, key_id)
-    quote, amount = await _quote(request, checks, country, currency, target)
+    quote, amount_due = await _quote(request, _topup(amount, checks, "usd"), country, currency, target)
     mint = get_credits(request).usdc_mint if currency == "USDC" else None
     # A standalone SVG document (with the SVG namespace): the page loads it as an <img>, and browsers don't draw an
     # <svg> without xmlns there. svg_inline() leaves the namespace out, since it's meant for embedding in HTML.
     buffer = io.BytesIO()
-    pay_url = solana_pay_url(hot, amount, quote.memo, mint, reference=quote.reference)
+    pay_url = solana_pay_url(hot, amount_due, quote.memo, mint, reference=quote.reference)
     segno.make(pay_url, error="m").save(buffer, kind="svg", scale=6, border=2, dark="#111", xmldecl=False)
     svg = buffer.getvalue()
     headers = {
@@ -479,13 +583,24 @@ def page_facts_schema() -> dict[str, Any]:
 
 
 class FiatCheckoutRequest(BaseModel):
-    """Which key to top up with which pack."""
+    """Which key to top up with how much."""
 
     key_id: str = Field(max_length=120, description="The API key's id (or the key itself: only the id is used).")
-    checks: int = Field(gt=0, description="The pack: one of the pack sizes in /v1/pricing.")
+    amount: Decimal | None = Field(
+        default=None,
+        gt=0,
+        decimal_places=2,
+        description="The top-up before VAT, in the checkout's currency, at least /v1/pricing's topup.min_amount: "
+        "floor(amount / price per check) checks plus the bonus tier's. The provider adds VAT/sales tax at checkout.",
+    )
+    checks: int | None = Field(
+        default=None,
+        gt=0,
+        description="Deprecated (fixed packs are gone): the checks to buy, priced as checks × the price of a check.",
+    )
     currency: CardCurrency | None = Field(
         default=None,
-        description="usd (charged the pack's price_usd) or eur (its price_eur; Polar then offers iDEAL | Wero to "
+        description="usd or eur (Polar then offers iDEAL | Wero to "
         "Dutch buyers once they choose the Netherlands as billing country). Default: /v1/pricing's card_currency for "
         "this visitor (eur from the euro area), or the payment method's currency.",
     )
@@ -544,7 +659,7 @@ class FiatCheckoutStatusResponse(BaseModel):
     """Whether a card checkout has been paid."""
 
     paid: bool = Field(description="True once the provider's webhook confirmed the payment and the key was credited.")
-    checks: int | None = Field(description="The pack size the checkout is for.")
+    checks: int | None = Field(description="The checks the checkout buys.")
     reissued: bool = Field(
         default=False,
         description="True when the purchase was picked up in another browser (POST /v1/credits/fiat-checkouts/"
@@ -612,10 +727,11 @@ def get_fiat(request: Request) -> FiatProvider | None:
 @router.post("/v1/credits/fiat-checkout", response_model=FiatCheckoutResponse)
 async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatCheckoutResponse:
     """
-    Start a card (or other fiat) payment for a pack that tops up an API key, at the provider's hosted checkout.
+    Start a card (or other fiat) payment that tops up an API key by an amount, at the provider's hosted checkout.
 
     The provider is the seller: it handles the buyer's details, invoice and sales tax/VAT; this service only learns
-    that the key was paid for. Credited the pack's value when the provider's webhook confirms the payment.
+    that the key was paid for. Credited the checks the amount buys (with its bonus) when the provider's webhook
+    confirms the payment.
 
     In euros for ``currency: "eur"`` (by default for visitors from the euro area), in dollars otherwise. A local
     payment method (``payment_method``, e.g. ``wero``) is a checkout in its currency with its billing country
@@ -623,7 +739,7 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     without its euro price yet), the buyer gets the dollar card checkout instead of none; ``currency`` and
     ``payment_method`` in the response say which it is.
 
-    :param body: The key, the pack, the currency and the payment method.
+    :param body: The key, the amount, the currency and the payment method.
     :param request: The incoming request.
     :return: The checkout URL.
     :raises ServiceUnavailableError: While no fiat provider is configured, or it can't start a checkout.
@@ -632,7 +748,6 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     provider = get_fiat(request)
     if provider is None or request.app.db_pool is None:
         raise ServiceUnavailableError("Card payments are not available yet; pay with SOL or USDC.")
-    chosen = _pack(body.checks)
     method = local_methods.method_by_id(body.payment_method)  # None: card
     if method is not None:
         if not local_methods.offered(settings, method):
@@ -644,8 +759,9 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
         currency = body.currency or card_currency(
             settings, vat.edge_country({k.lower(): v for k, v in request.headers.items()})
         )
-    if currency == "eur" and not euros_on(settings):
+    if currency == "eur" and not settings.card_eur_enabled:
         raise BadRequestError("Card payments are in US dollars only.")
+    chosen = _topup(body.amount, body.checks, currency)
     account = await _key_account(request, body.key_id)
     # The provider fills in the checkout's id: back in another browser (a bank app, a phone), which has neither the
     # pass nor the claim token, /checkout can still pick the purchase up (fiat_checkout_pass).
@@ -655,7 +771,8 @@ async def fiat_checkout(body: FiatCheckoutRequest, request: Request) -> FiatChec
     attempts = {(currency, method.billing_country if method else None): body.payment_method, ("usd", None): "card"}
     for (attempt, billing_country), attempt_method in attempts.items():
         try:
-            checkout = await provider.create_checkout(account, chosen, return_url, attempt, billing_country)
+            top = chosen if attempt == chosen.currency else topup(settings, chosen.amount, attempt)
+            checkout = await provider.create_checkout(account, top, return_url, attempt, billing_country)
         except FiatProviderError:
             if attempt != "usd" or billing_country:
                 logger.warning("fiat_checkout_eur_fallback", checks=chosen.checks, payment_method=attempt_method)
@@ -697,7 +814,7 @@ async def fiat_checkout_status(
     :param response: The response (marked uncacheable: it changes once paid).
     :param checkout_id: The checkout's id (from ``fiat-checkout``).
     :param x_unfret_claim: The checkout's claim token.
-    :return: Paid or not, and the pack size.
+    :return: Paid or not, and the checks the quote buys.
     :raises ServiceUnavailableError: While card payments are off.
     :raises UnknownCheckoutError: For an unknown checkout or a wrong or missing claim token.
     """

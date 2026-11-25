@@ -55,7 +55,7 @@ BOT_CHECK_PAGE = "bot-check-interstitial.html"
 THIN_PAGE = "script-shell.html"
 MISSING_PAGE = "no-such-page.html"  # not in the repository: the forge answers 404
 DEVNET_USDC = USDC_MINTS["solana-devnet"]
-PACK = 25
+AMOUNT = 10  # the least top-up, in dollars or euros before VAT
 QUOTE_PAID_WITHIN_S = 90
 SOL_CREDIT_TOLERANCE = 0.03  # SOL is valued when credited, so a SOL purchase may differ a little from its quote
 
@@ -105,9 +105,16 @@ async def pricing(api: httpx.AsyncClient) -> dict[str, Any]:
     return document
 
 
-def the_pack(document: dict[str, Any]) -> dict[str, Any]:
-    chosen: dict[str, Any] = next(p for p in document["packs"] if p["checks"] == PACK)
-    return chosen
+async def the_topup(api: httpx.AsyncClient, currency: str = "usd") -> dict[str, Any]:
+    response = await api.get("/v1/pricing/topup", params={"amount": AMOUNT, "currency": currency})
+    assert response.status_code == 200, response.text
+    quote: dict[str, Any] = response.json()
+    return quote
+
+
+async def credited(api: httpx.AsyncClient, top: dict[str, Any]) -> int:
+    """What a top-up credits a pass: its checks at the dollar price of a check."""
+    return int(top["checks"]) * int((await pricing(api))["analysis_usd_micros"])
 
 
 async def offered(api: httpx.AsyncClient, url: str, tier: str) -> list[dict[str, Any]]:
@@ -533,50 +540,50 @@ async def test_a_paid_check_of_a_bot_check_page_charges_nothing(
 # ── Buying credits with crypto ─────────────────────────────────────────────────────────────────────────────────
 
 
-async def test_a_pack_bought_in_usdc_credits_exactly_its_price(
+async def test_a_top_up_bought_in_usdc_credits_exactly_its_checks(
     api: httpx.AsyncClient, account: Account, payer: Keypair, rpc: Rpc
 ) -> None:
-    pack = the_pack(await pricing(api))
+    top = await the_topup(api)
     before = await key_balance(api, account.key)
     response = await api.post(
         "/v1/credits/purchase-tx",
         json={
             "address": str(payer.pubkey()),
             "currency": "USDC",
-            "checks": PACK,
+            "amount": str(AMOUNT),
             "country": "US",
             "key_id": account.key_id,
         },
     )
     assert response.status_code == 200, response.text
     purchase = response.json()
-    assert purchase["checks"] == PACK
+    assert purchase["checks"] == top["checks"]
     assert purchase["mint"] == str(DEVNET_USDC)
     assert purchase["price"]["vat_usd_micros"] == 0
-    assert purchase["price"]["net_usd_micros"] == purchase["amount"] == pack["crypto_usd_micros"]
+    assert purchase["price"]["net_usd_micros"] == purchase["amount"] == AMOUNT * 1_000_000
     assert purchase["solana_pay_url"].startswith(f"solana:{purchase['hot_wallet']}?")
 
     signature = await rpc.send_and_confirm(sign_purchase(purchase["transaction"], payer))
 
     assert (await quote_paid(api, purchase["quote_id"]))["paid"], f"not credited within {QUOTE_PAID_WITHIN_S} s"
     assert await confirmed_on_chain(rpc, signature)
-    assert await key_balance(api, account.key) - before == pack["credited_usd_micros"]
+    assert await key_balance(api, account.key) - before == await credited(api, top)
 
 
-async def test_a_pack_paid_in_sol_by_its_solana_pay_reference_alone(
+async def test_a_top_up_paid_in_sol_by_its_solana_pay_reference_alone(
     api: httpx.AsyncClient, account: Account, payer: Keypair, rpc: Rpc
 ) -> None:
     document = await pricing(api)
-    pack = the_pack(document)
+    top = await the_topup(api)
     before = await key_balance(api, account.key)
     qr = await api.get(
         "/v1/credits/solana-pay.svg",
-        params={"checks": PACK, "country": "US", "currency": "SOL", "key_id": account.key_id},
+        params={"amount": AMOUNT, "country": "US", "currency": "SOL", "key_id": account.key_id},
     )
     assert qr.status_code == 200, qr.text
     assert qr.headers["content-type"].startswith("image/svg+xml")
     assert qr.headers["cache-control"] == "no-store"
-    assert qr.headers["x-unfret-total-usd"] == pack["crypto_usd"]
+    assert qr.headers["x-unfret-total-usd"] == f"${AMOUNT:.2f}"  # no VAT outside the EU
     assert qr.headers["x-unfret-vat-rate"] == "0"
     assert qr.text.lstrip().startswith("<svg") and 'xmlns="http://www.w3.org/2000/svg"' in qr.text
     request = parse_solana_pay(qr.headers["x-unfret-pay-url"])
@@ -590,9 +597,9 @@ async def test_a_pack_paid_in_sol_by_its_solana_pay_reference_alone(
         f"not credited within {QUOTE_PAID_WITHIN_S} s"
     )
     assert await confirmed_on_chain(rpc, signature)
-    credited = await key_balance(api, account.key) - before
-    expected = pack["credited_usd_micros"]
-    assert abs(credited - expected) <= expected * SOL_CREDIT_TOLERANCE, f"credited {credited}, the pack is {expected}"
+    got = await key_balance(api, account.key) - before
+    expected = await credited(api, top)
+    assert abs(got - expected) <= expected * SOL_CREDIT_TOLERANCE, f"credited {got}, the top-up is {expected}"
 
 
 async def test_an_unknown_quote_is_a_404(api: httpx.AsyncClient) -> None:
@@ -615,7 +622,7 @@ async def test_a_card_checkout_is_a_polar_checkout_page(
 ) -> None:
     skip_without_fiat(config)
 
-    response = await api.post("/v1/credits/fiat-checkout", json={"key_id": account.key_id, "checks": PACK})
+    response = await api.post("/v1/credits/fiat-checkout", json={"key_id": account.key_id, "amount": str(AMOUNT)})
 
     assert response.status_code == 200, response.text
     assert response.json()["provider"] == "polar"
@@ -630,11 +637,11 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
 ) -> None:
     skip_without_fiat(config)
     secret = config.need("fiat_webhook_secret")
-    product = config.polar_products.get(PACK) or pytest.fail(f"UNFRET_E2E_POLAR_PRODUCTS has no {PACK}-pack product")
-    pack = the_pack(await pricing(api))
-    if currency == "eur" and not pack.get("price_eur_cents"):
-        pytest.skip("no euro card prices on the target")
-    cents = pack["price_eur_cents"] if currency == "eur" else pack["price_usd_micros"] // 10_000
+    product = config.polar_product or pytest.fail("UNFRET_E2E_POLAR_TOPUP_PRODUCT is not set")
+    top = await the_topup(api, currency)
+    if top["currency"] != currency:
+        pytest.skip(f"no {currency} card prices on the target")
+    cents = AMOUNT * 100
     order_id = f"e2e-{secrets.token_hex(12)}"  # made up, never a real order; not the run's marker (it is logged)
     account_id = f"key:{account.key_id}"
     before = await key_balance(api, account.key)
@@ -648,11 +655,11 @@ async def test_a_paid_card_order_credits_once_and_its_refund_takes_it_back(
     paid = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
     assert paid.status_code == 200, paid.text
     assert paid.json() == {"status": "credited"}
-    assert await key_balance(api, account.key) == before + pack["credited_usd_micros"]
+    assert await key_balance(api, account.key) == before + await credited(api, top)
 
     resent = await api.post("/v1/webhooks/fiat", content=body, headers=headers)
     assert resent.json() == {"status": "duplicate"}
-    assert await key_balance(api, account.key) == before + pack["credited_usd_micros"]
+    assert await key_balance(api, account.key) == before + await credited(api, top)
 
     refund = polar_order(
         order_id, account_id, product, cents, refunded_cents=cents, site=config.base_url, currency=currency
@@ -668,7 +675,7 @@ async def test_a_forged_or_stale_card_webhook_is_refused(
 ) -> None:
     skip_without_fiat(config)
     secret = config.need("fiat_webhook_secret")
-    product = config.polar_products.get(PACK, "unknown")
+    product = config.polar_product or "unknown"
     order = polar_order(f"e2e-{secrets.token_hex(12)}", f"key:{account.key_id}", product, 600, site=config.base_url)
     forger = "whsec_" + base64.b64encode(secrets.token_bytes(32)).decode()
     before = await key_balance(api, account.key)

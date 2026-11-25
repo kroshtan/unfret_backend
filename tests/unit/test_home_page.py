@@ -395,28 +395,27 @@ async def test_the_scope_is_the_same_wherever_it_is_listed(client: httpx.AsyncCl
 
 
 @pytest.mark.usefixtures("node")
-def test_euro_card_prices_are_shown_as_they_are_and_dollar_prices_get_the_vat(tmp_path: Path) -> None:
+def test_a_top_up_shows_its_checks_and_the_vat_on_top(tmp_path: Path) -> None:
     module = tmp_path / "prices.mjs"
     module.write_text((STATIC_DIR / "prices.js").read_text())
     pricing = {
-        "card_tax_inclusive": {"usd": False, "eur": True},
-        "vat": {"card_rates_pct": {"NL": "21", "DE": "19", "FI": "25.5", "SE": "25"}},
+        "topup": {
+            "price_per_check": {"usd": "0.10", "eur": "0.10"},
+            "bonus": [{"from_amount": "50", "pct": 10}, {"from_amount": "100", "pct": 15}],
+        },
+        "card_tax_inclusive": {"usd": False, "eur": False},
+        "vat": {"card_rates_pct": {"NL": "21", "SE": "25"}, "eu_rates_pct": {"NL": "21", "SE": "21"}},
     }
-    packs = [
-        {"checks": 25, "price_usd_micros": 6_000_000, "price_eur_cents": 600},
-        {"checks": 100, "price_usd_micros": 20_000_000, "price_eur_cents": 2000},
-    ]
-    before = {**pricing, "card_tax_inclusive": {"usd": False, "eur": False}}
     script = (
-        f"import {{ cardPrice, taxNote }} from {json.dumps(module.as_uri())};"
-        f"const pricing = {json.dumps(pricing)}; const before = {json.dumps(before)};"
-        f"const packs = {json.dumps(packs)};"
-        "const show = (doc, currency, country) => packs.map((p) => cardPrice(doc, p, currency, country).text);"
+        f"import {{ taxNote, topupFor, topupLine }} from {json.dumps(module.as_uri())};"
+        f"const pricing = {json.dumps(pricing)};"
+        "const line = (amount, currency, country, crypto) =>"
+        " topupLine(pricing, topupFor(pricing, amount, currency), currency, country, { crypto });"
         "process.stdout.write(JSON.stringify(["
-        "show(pricing, 'eur', 'NL'), show(pricing, 'eur', 'DE'), show(pricing, 'eur', 'FI'), show(pricing, 'eur', ''),"
-        "show(pricing, 'usd', 'SE'), show(pricing, 'usd', 'US'), show(before, 'eur', 'NL'),"
-        "taxNote(pricing, 'NL', 'eur'), taxNote(pricing, '', 'eur'), taxNote(pricing, 'SE', 'usd'),"
-        "taxNote(pricing, 'US', 'usd'), taxNote(before, 'NL', 'eur')]));"
+        "[10, 49.99, 50, 99.99, 100, '0.3', 0].map((a) => topupFor(pricing, a, 'usd')?.checks ?? null),"
+        "line(100, 'eur', 'NL'), line(10, 'usd', 'SE'), line(10, 'usd', 'US'), line(10, 'usd', ''),"
+        "line(10, 'usd', 'SE', true), line(10, 'usd', 'US', true),"
+        "taxNote(pricing, 'NL', 'eur'), taxNote(pricing, '', 'eur'), taxNote(pricing, 'US', 'usd')]));"
     )
     out = json.loads(
         subprocess.run(
@@ -424,18 +423,15 @@ def test_euro_card_prices_are_shown_as_they_are_and_dollar_prices_get_the_vat(tm
         ).stdout
     )
     assert out == [
-        ["€6.00", "€20.00"],  # VAT included: the same price in every euro country, whatever its rate
-        ["€6.00", "€20.00"],
-        ["€6.00", "€20.00"],
-        ["€6.00", "€20.00"],  # no country needed to see the final price
-        ["$7.50", "$25.00"],  # a dollar price gets the EU country's VAT (Sweden, 25%)
-        ["$6.00", "$20.00"],  # sales tax is added at checkout
-        ["€7.26", "€24.20"],  # euro prices before VAT (the setting off): the Dutch VAT on top
-        "Card prices include VAT.",
-        "Card prices include VAT.",
-        "Card prices include 25% VAT for Sweden.",
-        "Sales tax or VAT is added at checkout where it applies.",
+        [100, 499, 550, 1098, 1150, 3, None],  # floor(amount / price), +10% from 50, +15% from 100
+        "€100.00 → 1,150 checks (incl. 150 bonus) · €121.00 incl. 21% VAT (NL)",
+        "$10.00 → 100 checks · $12.50 incl. 25% VAT (SE)",  # by card: the buyer's country's rate
+        "$10.00 → 100 checks · sales tax or VAT added at checkout where it applies",
+        "$10.00 → 100 checks · plus VAT",  # no country yet
+        "$10.00 → 100 checks · $12.10 incl. 21% VAT (SE)",  # crypto: Unfret's own rate (Dutch, under the threshold)
+        "$10.00 → 100 checks · no VAT outside the EU",
         "Card prices include 21% VAT for the Netherlands.",
+        "Choose your country to see the price with VAT.",
+        "Sales tax or VAT is added at checkout where it applies.",
     ]
-    # Checkout says what the price includes for the currency it shows it in.
     assert "taxNote(pricing, payCountry, cardCurrency())" in (STATIC_DIR / "checkout.js").read_text()

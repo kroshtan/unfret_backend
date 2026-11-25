@@ -315,46 +315,20 @@ def test_the_menu_is_for_shoppers_and_the_developer_pass_is_in_the_footer() -> N
     assert "/connect" not in header and "/connect" not in footer and "Sign in" not in header
 
 
-@pytest.mark.usefixtures("node")
-def test_an_old_link_to_the_50_pack_lands_on_the_nearest_pack(tmp_path: Path) -> None:
-    module = tmp_path / "prices.mjs"
-    module.write_text((STATIC_DIR / "prices.js").read_text())
-    packs = [{"checks": 25}, {"checks": 100}]
-    script = (
-        f"import {{ packFor }} from {json.dumps(module.as_uri())};"
-        f"const packs = {json.dumps(packs)};"
-        "process.stdout.write(JSON.stringify([50, 25, 100, 60, 62.5, 70, 500, 1, 0, 'x']"
-        ".map((n) => packFor(packs, n)).map((f) => f && [f.pack.checks, f.replaced])));"
-    )
-    out = json.loads(
-        subprocess.run(
-            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
-        ).stdout
-    )
-    assert out == [
-        [25, True],  # the 50-pack: 25 is nearer than 100
-        [25, False],
-        [100, False],
-        [25, True],
-        [25, True],  # a tie: the smaller pack
-        [100, True],
-        [100, True],
-        [25, True],
-        None,  # no size asked: the page's default
-        None,
-    ]
+def test_an_old_link_with_checks_fills_in_their_amount() -> None:
     checkout = (STATIC_DIR / "checkout.js").read_text()
-    assert "packFor(pricing.packs" in checkout and "isn't sold any more" in checkout
-    assert 'id="pack-note"' in (STATIC_DIR / "checkout.html").read_text()
+    assert 'params.get("amount")' in checkout and 'params.get("checks")' in checkout
+    assert 'id="topup-amount"' in (STATIC_DIR / "checkout.html").read_text()
+    assert "pricing.packs" not in checkout
 
 
-def test_the_pages_say_shoppers_check_free_and_developers_buy_packs() -> None:
+def test_the_pages_say_shoppers_check_free_and_developers_top_up() -> None:
     home = (STATIC_DIR / "index.html").read_text()
     assert 'id="prices"' not in home and "gift code" not in home and "$6.50" not in home
     checkout = (STATIC_DIR / "checkout.html").read_text()
-    assert checkout.index('id="free-first"') < checkout.index('id="packs"')
+    assert 'id="topup-amount"' in checkout and 'id="topup-line"' in checkout and 'id="packs"' not in checkout
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
-    assert "gift code" not in money and "$6.50" not in money  # prices are on /developers, from the settings
+    assert "gift code" not in money and "$6.50" not in money and "top-ups of any amount from $10" in money
     assert money.index("Donations") < money.index("Checks for developers")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
     assert "gift code" not in my_checks
@@ -468,8 +442,8 @@ def test_small_words_match_across_checkout() -> None:
     assert "countryPhrase(payCountry)" in script
     assert 'import { copyButton } from "./pass.js";' in (STATIC_DIR / "wallet.js").read_text()
     checkout = (STATIC_DIR / "checkout.html").read_text()
-    assert checkout.count("SOL (a little cheaper for the small pack)") == 2 and "a little less" not in checkout
-    assert "small discount" not in checkout  # crypto is cheaper only for the 25-pack (B5)
+    assert checkout.count("SOL (a little cheaper for the small pack)") == 0 and "a little less" not in checkout
+    assert "small discount" not in checkout  # crypto costs the same as a card: the amount plus VAT
 
 
 def test_the_home_page_leads_with_protection_and_keeps_ads_and_trades_lower() -> None:

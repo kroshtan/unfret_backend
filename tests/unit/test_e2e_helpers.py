@@ -67,23 +67,18 @@ def test_settings_are_read_and_secrets_kept_out_of_repr() -> None:
             "UNFRET_E2E_URL": "http://localhost:8080/ ",
             "UNFRET_E2E_KEY": "ufk_secret",
             "UNFRET_E2E_ADMIN_TOKEN": "operator",
-            "UNFRET_E2E_POLAR_PRODUCTS": f"25={PRODUCT}, 50=other",
+            "UNFRET_E2E_POLAR_TOPUP_PRODUCT": PRODUCT,
             "UNFRET_E2E_NO_SKIP": "1",
             "UNFRET_E2E_COMMIT": "abc1234",
         }
     )
     assert config.base_url == "http://localhost:8080"
-    assert config.polar_products == {25: PRODUCT, 50: "other"}
+    assert config.polar_product == PRODUCT
     assert config.no_skip and config.expected_commit == "abc1234"
     assert "ufk_secret" not in repr(config) and "operator" not in repr(config)
     assert config.need("api_key") == "ufk_secret"
     with pytest.raises(E2EConfigError, match="UNFRET_E2E_PAYER_KEY"):
         config.need("payer_key")
-
-
-def test_malformed_polar_products_are_refused() -> None:
-    with pytest.raises(E2EConfigError, match="POLAR_PRODUCTS"):
-        E2EConfig.from_env({"UNFRET_E2E_POLAR_PRODUCTS": "25"})
 
 
 # ── Never mainnet ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -128,7 +123,7 @@ def test_an_unfunded_payer_is_told_where_to_send_what() -> None:
     message = funding_problem("Payer111", MIN_SOL_LAMPORTS - 1, 1_000_000)
     assert message is not None
     assert message.startswith("fund Payer111 on devnet")
-    assert "1.5 SOL" in message and "5.01 devnet USDC (has 1)" in message
+    assert "1.5 SOL" in message and "10.01 devnet USDC (has 1)" in message
 
 
 # ── Fixture URLs and the run's marker ─────────────────────────────────────────────────────────────────────────
@@ -263,7 +258,7 @@ def provider() -> polar.PolarProvider:
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         polar_access_token=SecretStr("polar_oat_test"),
-        polar_products=f"25={PRODUCT},50=b,100=c",
+        polar_topup_product=PRODUCT,
         fiat_webhook_secret=SecretStr(SECRET),
     )
     built = polar.from_settings(settings)

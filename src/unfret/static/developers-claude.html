@@ -92,7 +92,7 @@
             it.</li>
           <li><code>get_checks_left</code>, <b>Checks left on the pass</b>: how many deep checks your pass has
             left, and whether free deep checks are paused for today.</li>
-          <li><code>get_pricing</code>, <b>Unfret prices</b>: what checks cost and the packs a pass can buy.</li>
+          <li><code>get_pricing</code>, <b>Unfret prices</b>: what checks cost and how a pass is topped up.</li>
         </ul>
         <p>The connector can't spend money: it has no payment tool, and it only ever uses checks already on the
           pass.</p>
@@ -104,7 +104,7 @@
         <h2 id="cost-heading">What it costs</h2>
         <p>Quick checks are free. A deep check uses one prepaid check from the pass: its free checks first, then
           bought ones. Checks are bought for a pass on <a href="/checkout">the checkout page</a>, by card or
-          other methods, in packs; they don't expire. When the pass has none left, the deep check says so,
+          other methods, for any amount from the least top-up; they don't expire. When the pass has none left, the deep check says so,
           charges nothing, and the quick check still works.</p>
       </div>
     </section>

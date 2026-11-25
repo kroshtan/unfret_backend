@@ -28,8 +28,8 @@ def test_urls_and_ips_never_reach_the_log() -> None:
 @pytest.mark.parametrize(
     ("overrides", "problem"),
     [
-        ({"packs": [50, 25]}, "packs"),
-        ({"packs": [25, 25]}, "packs"),
+        ({"topup_bonus": "50=ten"}, "topup_bonus"),
+        ({"topup_min_amount": 0}, "topup_min_amount"),
         ({"quote_tolerance_bps": 5_000}, "quote_tolerance_bps"),
         ({"x402_price_quick_usd_micros": 0}, "positive"),
         ({"sweep_reserve_lamports": 200_000_000}, "sweep_reserve_lamports"),

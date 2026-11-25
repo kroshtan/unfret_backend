@@ -1904,3 +1904,35 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   /v1/admin/free-pool` (operator) shows the euros and the ledger.
 - Settings removed: `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_SPEND_DAILY_PACING`. Migration 45: `free_pool`,
   `llm_spend_days` (free and paid spend and free deep checks a day), `free_pool_donations`; `llm_spend` is dropped.
+
+## Changes (top-ups by amount replace the packs; a check is $0.10; VAT added at checkout)
+
+- **Any amount, before VAT.** A pass is topped up by an amount from `topup.min_amount` (10, dollars or euros):
+  `checks = floor(amount ÷ price per check)` plus a bonus of the checks for larger amounts (+10% from 50, +15% from
+  100). A check costs $0.10 (€0.10 by card from the euro area): `price_per_check_usd_micros`, `analysis_usd_micros`
+  and `x402.deep_usd_micros` are now 100000; the x402 quick tier stays $0.01. VAT is **added on top** at checkout (by
+  Polar for cards, by the quote for crypto); before, prices included it. A balance keeps its micro-dollars: at $0.10 a
+  check it now counts twice as many checks.
+- `GET /v1/pricing` adds `topup`: `{"min_amount": "10", "price_per_check": {"usd": "0.10", "eur": "0.10"}, "formula",
+  "bonus": [{"from_amount": "50", "pct": 10}, {"from_amount": "100", "pct": 15}], "vat", "quote_url":
+  "/v1/pricing/topup", "examples": [{"currency", "amount", "checks", "bonus_checks", "label"}]}`. `packs` and
+  `suggested_packs` are empty lists (deprecated); `card_tax_inclusive` is `{"usd": false, "eur": false}`;
+  `fiat.min_usd_micros` / `fiat.min_eur_cents` are the least top-up (10000000 / 1000).
+- New `GET /v1/pricing/topup?amount=<n>&currency=usd|eur&country=<CC>&method=card|crypto` (public): what an amount
+  buys, `{"currency", "amount", "checks", "base_checks", "bonus_checks", "bonus_pct", "vat_pct", "vat", "total",
+  "label", "min_amount"}`. `vat_pct`, `vat` and `total` are null until the country is known, and outside the EU (tax
+  is then added at checkout where it applies). `label` is the line to show, e.g. `"€100.00 → 1,150 checks (incl. 150
+  bonus) · €121.00 incl. 21% VAT (NL)"`. Card VAT uses `vat.card_rates_pct` (the buyer's country), crypto
+  `vat.eu_rates_pct`. Below the minimum it still answers; `min_amount` says what can be bought.
+- `POST /v1/credits/fiat-checkout`, `POST /v1/credits/purchase-tx` and `GET /v1/credits/solana-pay.svg` take
+  `amount` (a decimal string or number, before VAT, in the checkout's currency; crypto: dollars) instead of `checks`.
+  A request with only `checks` (older clients) is priced as `checks × price per check`. Below the minimum: `400
+  AMOUNT_TOO_SMALL` ("A top-up is at least $10.00 before VAT."); neither: `400 AMOUNT_REQUIRED`. "Not a pack size." is
+  gone. The crypto quote's `price.net_usd_micros` is the amount, `vat_usd_micros` is added on top and
+  `total_usd_micros` (what the wallet pays) is their sum; the response's `checks` is what the top-up buys.
+- `/checkout` takes `?amount=<n>`; an old `?checks=<n>` link fills in `n × price per check` (at least the minimum).
+- Card payments use one Polar product with a custom price (`UNFRET_POLAR_TOPUP_PRODUCT`, replacing
+  `UNFRET_POLAR_PRODUCTS`); an order is credited the checks its `net_amount` buys. Settings removed: `UNFRET_PACKS`,
+  `UNFRET_CARD_PRICES_USD`, `UNFRET_CARD_PRICES_EUR`, `UNFRET_CARD_PRICES_*_TAX_INCLUSIVE`, `UNFRET_CARD_FEE_PCT`,
+  `UNFRET_CARD_FEE_FLAT_USD`, `UNFRET_CARD_PRICE_STEP_USD`. New: `UNFRET_PRICE_PER_CHECK_EUR`,
+  `UNFRET_TOPUP_MIN_AMOUNT`, `UNFRET_TOPUP_BONUS`, `UNFRET_CARD_EUR_ENABLED`.

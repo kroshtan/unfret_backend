@@ -4,11 +4,10 @@ VAT on crypto credit purchases: which rate applies, the binding price quote, and
 Card purchases are sold by the Merchant of Record, which charges and remits their VAT/sales tax; nothing here applies
 to them. Crypto purchases are sold by us, so we charge VAT and keep a record of each sale.
 
-**Prices include VAT.** A pack's crypto price (its value, ``n × price_per_check``: $5 and $20) is what every buyer
-pays, VAT included: the VAT is worked out of the price (``net = price / (1 + rate)``), never added on top, and the
-account is credited the whole price, so a pack buys the same checks everywhere. Outside the EU the rate is zero and
-the whole price is net. With the euro card prices VAT-inclusive too (€6 / €20), crypto stays at or below the card
-price in every country (while a euro is worth at least a dollar).
+**VAT is added on top.** The buyer names an amount before VAT (:mod:`unfret.credits.topup`); the quote adds the VAT
+for their country, and pays the checks the amount before VAT buys. Outside the EU the rate is zero. Whatever arrives,
+its VAT is worked out of it at the quote's rate (``net = received / (1 + rate)``) and the net buys the checks, so a
+payment short of the quote buys what its net covers.
 
 **Which rate.** The buyer states their country at checkout. It is prefilled from Cloudflare's ``CF-IPCountry``
 header, but only for a request that reached our edge from Cloudflare (Caddy passes the peer it saw on as
@@ -19,11 +18,11 @@ the €10,000 threshold) every EU country pays the Dutch rate and every other co
 each EU country pays its own standard rate, from ``vat_rates.json`` (vendored from the EU's TEDB by
 ``scripts/update_vat_rates.py``; no network calls at request time).
 
-**The quote.** ``/v1/credits/purchase-tx`` and the Solana Pay link price a pack for a country and store that as a
-quote (a random id; the pack, country, rate, the price's net and VAT, and who to credit), valid
+**The quote.** ``/v1/credits/purchase-tx`` and the Solana Pay link price a top-up for a country and store that as a
+quote (a random id; the checks, country, rate, the net and VAT, and who to credit), valid
 ``vat_quote_ttl_s``. The transaction's memo is ``unfret:quote:<id>``, so the scanner credits the right account and
-records the right VAT for whatever actually arrives: everything that arrived is credited, and its VAT is worked out of
-it at the quote's rate. A transfer without a (known) quote, a manual one, is treated the same way, conservatively:
+records the right VAT for whatever actually arrives: its VAT is worked out of it at the quote's rate, and its net buys
+the checks. A transfer without a (known) quote, a manual one, is treated the same way, conservatively:
 country ``unknown`` at the Dutch rate, ``net = received / (1 + rate)``.
 
 **The record.** Each crypto credit purchase leaves one ``crypto_sales`` row: day, country, mismatch flag, net, rate,
@@ -48,7 +47,6 @@ import asyncpg
 from solders.keypair import Keypair
 
 from unfret.config import Settings
-from unfret.credits import packs
 
 HOME_COUNTRY = "NL"
 UNKNOWN = "unknown"
@@ -190,25 +188,27 @@ class Quote:
 def price_quote(
     settings: Settings,
     checks: int,
-    price_usd_micros: int,
+    net_usd_micros: int,
     country: str,
     *,
     edge: str | None,
     beneficiary: str | None,
 ) -> Quote:
     """
-    Price a pack for a buyer in ``country`` (not stored yet: see :func:`save_quote`).
+    Price a top-up for a buyer in ``country``: its amount before VAT, and the VAT added on top (not stored yet).
 
     :param settings: The service settings.
-    :param checks: The pack size.
-    :param price_usd_micros: The pack's crypto price, VAT included (what the buyer pays and is credited).
+    :param checks: The checks the amount buys (with its bonus).
+    :param net_usd_micros: The amount before VAT.
     :param country: The buyer's stated country (normalised).
     :param edge: Cloudflare's country for the request, if known.
     :param beneficiary: Who to credit (``None``: whoever pays).
-    :return: The quote.
+    :return: The quote (see :func:`save_quote`).
     """
     bps = rate_bps(settings, country)
-    net, tax = split_gross(price_usd_micros, bps)
+    net = net_usd_micros
+    # Rounded up, so that the VAT worked back out of the total leaves at least the net (split_gross rounds net down).
+    tax = -(-net * bps // 10_000)
     return Quote(
         id="".join(secrets.choice(_QUOTE_ID_CHARS) for _ in range(20)),
         checks=checks,
@@ -303,18 +303,13 @@ async def quote_status(db: asyncpg.Pool, quote_id: str) -> tuple[bool, int] | No
 
 @dataclass(frozen=True)
 class Sale:
-    """How a crypto payment splits into net and VAT (all of it credited), and the record it leaves."""
+    """How a crypto payment splits into net and VAT (the net buys checks), and the record it leaves."""
 
     country: str
     country_mismatch: bool
     vat_rate_bps: int
     net_usd_micros: int
     vat_usd_micros: int
-
-    @property
-    def credited_usd_micros(self) -> int:
-        """What the account is credited: everything that arrived (prices include VAT)."""
-        return self.net_usd_micros + self.vat_usd_micros
 
 
 def sale_for(settings: Settings, received_usd_micros: int, quote: Quote | None) -> Sale:
@@ -450,29 +445,13 @@ def applies_to(settings: Settings) -> str:
     """
     Which purchases include tax, in words, for ``/v1/pricing``'s ``vat.applies_to``.
 
-    Crypto prices always include VAT (this service charges it); card prices include sales tax/VAT while
-    ``card_prices_usd_tax_inclusive`` / ``card_prices_eur_tax_inclusive`` are on (the payment provider collects it).
-    The euro setting counts only while euro prices are offered (:func:`unfret.credits.packs.euros_on`).
-
     :param settings: The service settings.
-    :return: E.g. "all purchases: card prices include sales tax/VAT (collected by the payment provider); crypto prices
-        include VAT".
+    :return: That VAT is added at checkout to every purchase.
     """
-    usd = settings.card_prices_usd_tax_inclusive
-    eur = settings.card_prices_eur_tax_inclusive if packs.euros_on(settings) else usd
-    if usd and eur:
-        return (
-            "all purchases: card prices include sales tax/VAT (collected by the payment provider); "
-            "crypto prices include VAT"
-        )
-    if usd or eur:
-        inclusive, exclusive = ("dollars", "euros") if usd else ("euros", "dollars")
-        return (
-            f"crypto purchases and card purchases in {inclusive} (card prices in {inclusive} include sales tax/VAT, "
-            f"collected by the payment provider; card purchases in {exclusive}: the payment provider adds its own "
-            "sales tax/VAT)"
-        )
-    return "crypto purchases (card purchases: the payment provider adds its own sales tax/VAT)"
+    return (
+        "all purchases: VAT or sales tax is added to the amount at checkout (by the payment provider for cards; at "
+        "the buyer's country's rate for crypto)"
+    )
 
 
 def describe(settings: Settings) -> dict[str, Any]:

@@ -534,7 +534,7 @@ async function failed(error, link) {
     checks = 0;
     renderAccount();
     $("no-checks-heading").textContent = "You have no checks left";
-    $("no-checks-body").textContent = "Add a pack and check on. Nothing was used for this link.";
+    $("no-checks-body").textContent = "Top up and check on. Nothing was used for this link.";
     $("buy-card").hidden = false;
     showOnly("no-checks");
     return;
@@ -558,7 +558,7 @@ async function failed(error, link) {
 const QUICK_BECAUSE = {
   used: {
     heading: "You have no checks left",
-    body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks come in packs, with no subscription.",
+    body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks are topped up by the amount, with no subscription.",
     short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {

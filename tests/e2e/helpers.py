@@ -53,23 +53,13 @@ USDC_UNITS = 1_000_000
 # What the payer must hold before anything is spent: a 25-pack in USDC, an x402 quick check in USDC, a 25-pack and an
 # x402 deep check in SOL, the wSOL wrap and the fees, with room to spare.
 MIN_SOL_LAMPORTS = 1_500_000_000
-MIN_USDC_UNITS = 5_010_000  # the 25-pack ($5.00) and the quick check ($0.01)
+MIN_USDC_UNITS = 10_010_000  # the least top-up ($10.00) and the quick check ($0.01)
 # An admin grant or debit moves at most this much (unfret.routes.admin.MAX_GRANT_USD_MICROS).
 MAX_ADJUST_USD_MICROS = 10_000_000
 
 
 class E2EConfigError(RuntimeError):
     """A setting the sweep needs is missing or malformed."""
-
-
-def _products(value: str) -> dict[int, str]:
-    products: dict[int, str] = {}
-    for item in filter(None, (part.strip() for part in value.split(","))):
-        size, sep, product = (piece.strip() for piece in item.partition("="))
-        if not sep or not size.isdigit() or not product:
-            raise E2EConfigError("UNFRET_E2E_POLAR_PRODUCTS must read like 25=<product id>,50=<product id>")
-        products[int(size)] = product
-    return products
 
 
 @dataclass(frozen=True)
@@ -84,7 +74,7 @@ class E2EConfig:
     api_key: str = field(default="", repr=False)
     admin_token: str = field(default="", repr=False)
     fiat_webhook_secret: str = field(default="", repr=False)
-    polar_products: dict[int, str] = field(default_factory=dict)
+    polar_product: str = ""  # the top-up product (custom amount)
     expect_fiat: str = "polar:production"
     ssh_target: str = ""
     no_skip: bool = False
@@ -111,7 +101,7 @@ class E2EConfig:
             api_key=get("KEY"),
             admin_token=get("ADMIN_TOKEN"),
             fiat_webhook_secret=get("FIAT_WEBHOOK_SECRET"),
-            polar_products=_products(get("POLAR_PRODUCTS")),
+            polar_product=get("POLAR_TOPUP_PRODUCT"),
             expect_fiat=get("EXPECT_FIAT", "polar:production"),
             ssh_target=get("SSH"),
             no_skip=get("NO_SKIP") in {"1", "true", "yes"},
@@ -375,11 +365,11 @@ def polar_order(
 
     :param order_id: The made-up order id.
     :param account: The ledger account (``key:<id>``), as the checkout's metadata carries it.
-    :param product_id: The pack's Polar product.
-    :param net_cents: The order's amount before tax (the pack's card price).
+    :param product_id: The top-up's Polar product.
+    :param net_cents: The order's amount before tax (the amount the buyer named).
     :param refunded_cents: The amount refunded so far.
     :param site: The site whose checkout it was, as the checkout's metadata carries it (only that site credits it).
-    :param currency: The order's currency (``usd``, or ``eur`` at the pack's euro price).
+    :param currency: The order's currency (``usd`` or ``eur``).
     :return: The order.
     """
     return {

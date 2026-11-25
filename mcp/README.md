@@ -7,7 +7,7 @@ An [MCP](https://modelcontextprotocol.io) server that lets AI shopping agents as
 sellers, dropshipping of generic goods, fake reviews or dark patterns, before they buy. MIT licensed.
 
 Each check is paid per call over [x402](https://www.x402.org) from the **agent's own wallet**: on Solana in USDC or
-wSOL, or on **Base** in USDC (see "Paying on Base" below). Prices are in US dollars (quick $0.01, deep $0.20; `get_pricing` has the live prices): USDC pays them exactly,
+wSOL, or on **Base** in USDC (see "Paying on Base" below). Prices are in US dollars (quick $0.01, deep $0.10; `get_pricing` has the live prices): USDC pays them exactly,
 wSOL at Unfret's SOL/USD quote. By default the server pays in USDC when Unfret offers it and the wallet holds enough,
 otherwise in wSOL (`UNFRET_MCP_PAY_WITH=SOL` to always use SOL); if the wallet holds plain SOL, it wraps what it needs
 first. The spend
@@ -49,7 +49,7 @@ pays the gas, so the wallet needs only USDC, no ETH. The key is never logged, pr
 
 | Tool | Input | Output |
 | --- | --- | --- |
-| `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.20), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
+| `check_store` | `url`, `tier` (`quick` $0.01 \| `deep` $0.10), `policy` (`strict` \| `balanced` \| `lenient`), `page_content` (optional HTML) | `{action, risk_score, confidence, flags, …}` plus the payment transaction |
 | `explain_flag` | `flag_type` | A one-paragraph explanation for the end user |
 | `get_pricing` | — | The current prices (free): tiers in dollars, live USDC and SOL amounts |
 

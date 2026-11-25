@@ -9,7 +9,7 @@ free deep checks, kept as a count in ``api_keys.free_checks`` (nothing else: not
 building an agent against ``/v1/check`` (which takes a pass like ``/v1/analyze`` does), the MCP server or the clients;
 at most ``developer_passes_per_ip_per_day`` per visitor network, under a proof of work ``developer_pow_extra_bits``
 harder (:class:`unfret.credits.keys.KeyGuard`). They count **only on** ``/v1/check`` (``api=True`` below). After them,
-the pass pays from bought checks (packs), as before.
+the pass pays from bought checks (top-ups), as before.
 
 **The budget.** Every developer free deep check counts towards a global counter a UTC day (``usage_counters``
 ``developer_free_checks``: a number per day, nothing about anyone), capped at

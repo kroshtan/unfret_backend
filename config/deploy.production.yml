@@ -42,7 +42,7 @@ env:
     - UNFRET_ADMIN_TOKEN  # optional: operator endpoints (clear x402 alerts, readiness details)
     # Card top-ups through Polar: all three or none (the deploy refuses a partial set); off while empty.
     - UNFRET_POLAR_ACCESS_TOKEN
-    - UNFRET_POLAR_PRODUCTS
+    - UNFRET_POLAR_TOPUP_PRODUCT
     - UNFRET_FIAT_WEBHOOK_SECRET
     # x402 on Base mainnet (off while UNFRET_X402_BASE_ENABLED is "false" above): the hot key (payTo's key, holding a
     # little ETH on Base for the sweeps' gas), the optional payTo check, the cold address (Floris's own wallet; the

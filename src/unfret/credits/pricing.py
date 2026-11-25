@@ -13,10 +13,9 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import VersionedTransaction
 
 from unfret.config import Settings
+from unfret.credits import topup as topups
 from unfret.credits import vat
-from unfret.credits.packs import Pack, format_eur, packs
 from unfret.prices import LAMPORTS_PER_SOL, PriceBook, PriceUnavailableError, format_usd, usd_to_lamports
-from unfret.shopper import LANGUAGE, catalogue
 from unfret.x402.solana import MEMO_PROGRAM, associated_token_address, decimals, transfer_checked
 from unfret.x402.wallet import create_ata_idempotent
 
@@ -121,33 +120,43 @@ def purchase_transaction(
     return bytes(VersionedTransaction.populate(message, [Signature.default()]))
 
 
-def pack_labels(pack: Pack) -> dict[str, str]:
+def topup_document(settings: Settings) -> dict[str, Any]:
     """
-    How a pack is offered: the card price as *the* price, and the crypto price.
+    How top-ups are priced, for ``/v1/pricing``'s ``topup``: the formula, the bonus tiers and a few examples.
 
-    Never "a surcharge for cards" or "fees on top": EU rules forbid surcharging consumer card payments, while a
-    discount for paying another way is fine.
-
-    :param pack: The pack.
-    :return: ``{"en": …}`` (keyed by language for the clients that read it that way), e.g. ``"25 checks — $6.00 ·
-        pay with crypto: $5.00, VAT included"``.
+    :param settings: The service settings.
+    :return: ``min_amount``, ``price_per_check`` per currency, ``bonus`` tiers, ``vat`` and ``examples``.
     """
-    text = catalogue()["pricing"]
-    price, crypto = format_usd(pack.card_usd_micros), format_usd(pack.value_usd_micros)
+    examples = []
+    for currency in topups.CARD_CURRENCIES:
+        for amount in (settings.topup_min_amount, Decimal(50), Decimal(100)):
+            top = topups.topup(settings, amount, currency)
+            examples.append(
+                {
+                    "currency": currency,
+                    "amount": format(top.amount, "f"),
+                    "checks": top.checks,
+                    "bonus_checks": top.bonus_checks,
+                    "label": topups.label(top),
+                }
+            )
     return {
-        LANGUAGE: f"{text['pack'].format(checks=pack.checks, price=price)} · {text['crypto'].format(crypto=crypto)}"
+        "min_amount": format(settings.topup_min_amount, "f"),
+        "price_per_check": {c: format(topups.price_per_check(settings, c), "f") for c in topups.CARD_CURRENCIES},
+        "formula": "checks = floor(amount before VAT / price per check), plus the bonus of the highest tier reached",
+        "bonus": [{"from_amount": format(start, "f"), "pct": pct} for start, pct in topups.bonus_tiers(settings)],
+        "vat": "added at checkout: by the payment provider for cards, at the buyer's country's rate for crypto",
+        "quote_url": "/v1/pricing/topup",
+        "examples": examples,
     }
 
 
 async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc: Pubkey) -> dict[str, Any]:
     """
-    The public price list (``GET /v1/pricing``): the price of a check, the packs on both routes, and live amounts.
+    The public price list (``GET /v1/pricing``): the price of a check, how top-ups are priced, and live amounts.
 
-    Every dollar figure derives from ``price_per_check_usd`` (:mod:`unfret.credits.packs`). Per pack, ``price_usd`` is
-    the price (by card; including sales tax/VAT while ``card_tax_inclusive.usd`` is true, the default), ``price_eur``
-    the card price in euros for visitors from the euro area (``None`` while euro prices are off; VAT included while
-    ``card_tax_inclusive.eur`` is true: the final price, the same for every buyer), and ``crypto_usd`` the lower price
-    when paying with SOL or USDC (VAT included; ``vat`` says how much of it is VAT for each country).
+    Every dollar figure derives from ``price_per_check_usd``; a top-up's checks from the amount the buyer names
+    (:mod:`unfret.credits.topup`), VAT added at checkout. ``packs`` is gone (an empty list, for older clients).
 
     :param settings: The service settings.
     :param hot: The hot wallet, or ``None`` while purchases are off.
@@ -157,7 +166,6 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
     """
     check = book.usd("analysis")
     quick, deep = book.usd("x402_quick"), book.usd("x402_deep")
-    on_sale = packs(settings)
     document: dict[str, Any] = {
         "currency": "USD",
         "price_per_check_usd_micros": check,
@@ -165,27 +173,11 @@ async def pricing(settings: Settings, hot: Pubkey | None, book: PriceBook, usdc:
         "analysis_usd_micros": check,
         "analysis_usd": format_usd(check),
         "x402": {"quick_usd_micros": quick, "deep_usd_micros": deep},
-        "packs": [
-            {
-                "checks": p.checks,
-                "price_usd_micros": p.card_usd_micros,
-                "price_usd": format_usd(p.card_usd_micros),
-                "price_eur_cents": p.card_eur_cents,
-                "price_eur": format_eur(p.card_eur_cents) if p.card_eur_cents else None,
-                "crypto_usd_micros": p.value_usd_micros,
-                "crypto_usd": format_usd(p.value_usd_micros),
-                "credited_usd_micros": p.value_usd_micros,
-                "label": pack_labels(p),
-            }
-            for p in on_sale
-        ],
-        # Whether the card prices in each currency include sales tax/VAT (the final price) or get it at checkout.
-        "card_tax_inclusive": {
-            "usd": settings.card_prices_usd_tax_inclusive,
-            "eur": settings.card_prices_eur_tax_inclusive,
-        },
-        # Deprecated: the packs' crypto prices under their old name.
-        "suggested_packs": [{"checks": p.checks, "usd_micros": p.value_usd_micros} for p in on_sale],
+        "topup": topup_document(settings),
+        # Deprecated: fixed packs are gone (a top-up of any amount from topup.min_amount replaces them).
+        "packs": [],
+        "suggested_packs": [],
+        "card_tax_inclusive": {"usd": False, "eur": False},
         "vat": vat.describe(settings),
         "hot_wallet": str(hot) if hot else None,
         "network": settings.solana_network,

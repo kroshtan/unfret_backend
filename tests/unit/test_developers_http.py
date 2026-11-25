@@ -426,20 +426,13 @@ async def test_typescript_is_a_reference_to_copy_not_an_npm_package(client: http
     )
 
 
-async def test_the_pack_prices_say_what_tax_they_are_before(client: httpx.AsyncClient) -> None:
-    from unfret.credits import packs  # noqa: PLC0415 - only here
-    from unfret.prices import format_usd  # noqa: PLC0415 - only here
-
+async def test_the_top_up_terms_say_vat_is_added(client: httpx.AsyncClient) -> None:
     for path in ("/developers", "/developers/http"):
         text = _text((await client.get(path)).text)
-        for pack in packs.packs(settings):
-            assert f"{pack.checks} for {format_usd(pack.card_usd_micros)}" in text, path
-            assert f"{pack.checks} for {format_usd(pack.value_usd_micros)}" in text, path
-        assert "25 for $6.50 and 100 for $21.00 by card, tax included" in text, path
-        euros = " and ".join(packs.format_eur(p.card_eur_cents or 0) for p in packs.packs(settings))
-        assert f"in the euro area {euros} by card, VAT included" in text, path
-        assert euros == "€6.50 and €21.00"
-        assert "with crypto 25 for $5.00 and 100 for $20.00, VAT included" in text, path
+        assert (
+            "$0.10 a check (€0.10 in the euro area), any amount from 10 before VAT, +10% checks from 50 and +15% "
+            "checks from 100; VAT is added at checkout"
+        ) in text, path
 
 
 async def test_developers_says_passes_do_not_expire_as_the_code_does(client: httpx.AsyncClient) -> None:

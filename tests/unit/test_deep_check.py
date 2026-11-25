@@ -3,6 +3,7 @@
 import json
 import re
 import subprocess
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ import pytest
 from tests.unit.test_card import COPY, state, verdict
 from unfret import card, public_result, scoring
 from unfret.config import settings
-from unfret.credits import packs
 from unfret.facts import PageFacts
 from unfret.facts.schema import Review
 from unfret.graph import SKILLS, build_graph
@@ -155,16 +155,13 @@ def test_the_cost_is_the_callers_and_the_price_comes_from_the_settings(monkeypat
     assert card.deep_check_cost(free_left=3) == ("Uses 1 of your 3 free deep checks.", "run_deep")
     assert card.deep_check_cost(free_left=1) == ("Uses your last free deep check.", "run_deep")
     assert card.deep_check_cost(free_left=2, paused=True, bought=12) == ("Uses 1 check (you have 12).", "run_deep")
-    smallest = packs.packs(settings)[0]
-    price = format_usd(smallest.card_usd_micros).removesuffix(".00")
-    assert card.deep_check_cost() == (f"Deep checks come in packs, from {price} for {smallest.checks}.", "get_checks")
+    assert card.deep_check_cost() == ("Checks cost $0.10 each, from a $10 top-up.", "get_checks")
     assert card.deep_check_cost(free_left=2, paused=True)[0].startswith("Free deep checks are back at 00:00 UTC.")
-    assert card.deep_check_cost(x402_usd_micros=200_000) == ("A deep check of this page costs $0.20.", "run_deep")
+    assert card.deep_check_cost(x402_usd_micros=100_000) == ("A deep check of this page costs $0.10.", "run_deep")
 
-    monkeypatch.setattr(settings, "card_prices_usd", "25=6.00,100=20.00")
-    assert card.deep_check_cost()[0] == "Deep checks come in packs, from $6 for 25."
-    monkeypatch.setattr(settings, "card_prices_usd", "25=6.50,100=20.00")
-    assert card.deep_check_cost()[0] == "Deep checks come in packs, from $6.50 for 25."
+    monkeypatch.setattr(settings, "price_per_check_usd", Decimal("0.25"))
+    monkeypatch.setattr(settings, "topup_min_amount", Decimal("12.50"))
+    assert card.deep_check_cost()[0] == "Checks cost $0.25 each, from a $12.50 top-up."
 
     offer = card.DeepCheck.model_validate(quick("careful", reasons=("big_discount",))["deep_check"])
     priced = card.with_cost(offer, card.deep_check_cost())

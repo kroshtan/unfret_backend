@@ -294,6 +294,9 @@ async def _level_judged(state: AnalysisState, verdict: dict[str, Any]) -> dict[s
     except Exception:
         logger.warning("level_judge_failed", exc_info=True)
         return verdict
+    sources = {b["type"]: b.get("source") for b in (verdict.get("risk") or {}).get("because", [])}
+    for because in risk.because:
+        because.source = sources.get(because.type)  # the card's, worked out for the band's level
     return {**verdict, "risk": risk.model_dump()}
 
 

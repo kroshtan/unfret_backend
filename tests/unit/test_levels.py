@@ -72,3 +72,20 @@ async def test_the_findings_catalogue_lists_what_a_shopper_can_mark_missing() ->
     assert countdown == {"type": "timer_resets", "title": "Fake countdown", "level": 1, "key": "manipulation"}
     assert findings[0]["level"] == 4 and findings[-1]["level"] is None  # worst first, payment modifiers last
     assert all(f["title"] and "scam" not in f["title"].lower() for f in findings)
+
+
+def test_every_finding_behind_the_level_says_where_its_evidence_comes_from() -> None:
+    from unfret import card  # noqa: PLC0415
+    from unfret.shopper import Reason, Verdict  # noqa: PLC0415
+
+    verdict = Verdict(
+        band="careful",
+        label="Think twice",
+        headline="x",
+        reasons=[Reason(type="timer_resets", title="Fake countdown", detail="d", severity="high", source="The page")],
+        risk=levels.from_band("careful", ["timer_resets", "new_domain"]),
+    )
+    card._because_sources(verdict, {})
+    assert verdict.risk is not None
+    sources = {b.type: b.source for b in verdict.risk.because}
+    assert sources["timer_resets"] == "The page" and sources["new_domain"]

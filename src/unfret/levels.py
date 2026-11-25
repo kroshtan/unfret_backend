@@ -154,6 +154,11 @@ class LevelReason(BaseModel):
         description="The level this finding is evidence for (1–4, higher is worse), or null for a modifier."
     )
     title: str = Field(description='The finding in words: "Fake countdown".')
+    source: str | None = Field(
+        default=None,
+        description='Where the evidence comes from, in words, as on the card\'s reasons: "The page", '
+        '"Domain registry (RDAP)", …',
+    )
 
 
 class LevelModifier(BaseModel):

@@ -1063,6 +1063,15 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         DELETE FROM usage_counters WHERE name = 'free_checks';
         """,
     ),
+    (
+        44,
+        "a report's comment",
+        """
+        -- The shopper's own words with a "Wrong result?" report, scrubbed of personal details like page text
+        -- (unfret.reports.scrub), for the reviewer. Nothing about who wrote it.
+        ALTER TABLE report_labels ADD COLUMN comment TEXT CHECK (length(comment) <= 600);
+        """,
+    ),
 ]
 
 

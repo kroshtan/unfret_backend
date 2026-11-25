@@ -1004,6 +1004,19 @@ def _photos_once(verdict: Verdict) -> None:
                 reason.thumbnails = []
 
 
+def _because_sources(verdict: Verdict, features: dict[str, float]) -> None:
+    """Every finding behind the level says where its evidence comes from, as the card's reasons do."""
+    if verdict.risk is None:
+        return
+    sources = {r.type: r.source for r in verdict.reasons}
+    for because in verdict.risk.because:
+        because.source = (
+            because.source
+            or sources.get(because.type)
+            or source_label(_archive_source(REASON_SOURCES.get(because.type, "page"), [], features))
+        )
+
+
 def complete(
     verdict: dict[str, Any], state: AnalysisState, *, available: Iterable[Skill], applicable: Iterable[Skill]
 ) -> dict[str, Any]:
@@ -1048,6 +1061,7 @@ def complete(
             positive_types=[p.type for p in parsed.positives],
             titles=titles,
         )
+    _because_sources(parsed, features)
     concerns: dict[str, str] = {}
     for key, title in titles.items():
         if (area := area_of(key, kind)) is not None:

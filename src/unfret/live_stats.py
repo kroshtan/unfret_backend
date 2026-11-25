@@ -133,9 +133,8 @@ async def compute(pool: asyncpg.Pool, config: Settings, now: datetime | None = N
     now = (now or datetime.now(UTC)).astimezone(UTC)
     today, month, total = await _checks(pool, now)
     cost = float(config.public_cost_per_check_eur)
-    per_check = int(config.public_cost_per_check_eur * 1_000_000)
     left = await free_budget_left_micro_eur(pool)
-    free_left = None if left is None else max(left, 0) // per_check  # as spend.checks_left_today counts it
+    free_left = None if left is None else spend.public_checks(left, config)  # the count /v1/pricing shows
     raised, supporters = await donations_this_month(pool, now)
     db = await _database(pool)
     return {
@@ -146,7 +145,7 @@ async def compute(pool: asyncpg.Pool, config: Settings, now: datetime | None = N
             "goal_eur": round(config.live_funding_goal_eur, 2),
             "raised_eur": round(raised, 2),
             "check_cost_eur": round(cost, 2),
-            "free_checks": count(int(round(raised * 1_000_000)) // per_check),
+            "free_checks": count(spend.public_checks(round(raised * 1_000_000), config)),
             "supporters": count(supporters),
         },
         "database": {

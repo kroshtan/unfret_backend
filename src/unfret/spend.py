@@ -404,8 +404,21 @@ async def checks_left_today(db: Executor | None, config: Settings | None = None)
     if db is None:
         return 0
     config = config or settings
-    standing_now = await standing(db, config)
-    return max(standing_now.left_micro_eur, 0) // int(config.public_cost_per_check_eur * MICRO)
+    return public_checks((await standing(db, config)).left_micro_eur, config)
+
+
+def public_checks(micro_eur: int, config: Settings | None = None) -> int:
+    """
+    Euros as a number of free deep checks, in public: ``micro_eur`` ÷ ``public_cost_per_check_eur``, rounded down.
+
+    The one count /v1/pricing and /live both show (€0.05 a check: €3 is 60).
+
+    :param micro_eur: Micro-euros (negative counts as none).
+    :param config: The settings (the service's by default).
+    :return: The checks.
+    """
+    config = config or settings
+    return max(micro_eur, 0) // int(config.public_cost_per_check_eur * MICRO)
 
 
 async def add_donations(

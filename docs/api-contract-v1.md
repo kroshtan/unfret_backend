@@ -1863,3 +1863,13 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
 `UNFRET_FREE_DAILY_BUDGET_EUR`). **New settings:** `UNFRET_DEEP_POW_BITS`, `UNFRET_DEEP_POW_TTL_S`,
 `UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_PRICES_EUR_PER_MTOK`,
 `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`, `UNFRET_DONATE_URL`. Migration 43: `llm_spend` (one number a month).
+
+## Changes (the findings catalogue; backwards-compatible)
+
+- New `GET /v1/catalogue/findings` (public, no sign-in, `Cache-Control: public, max-age=86400`): every finding type a
+  shopper can mark as missing in "Wrong result?" (`POST /v1/labels`' `missing`), ordered by level, worst first:
+  `{"findings": [{"type": str, "title": str, "level": 1-4|null, "key": "manipulation"|"overpaying"|"doesnt_work"|
+  "wont_arrive"|null}]}`. `title` is short US English; `level` is the type's default level (higher is worse; null for
+  a payment modifier such as `irreversible_payment_only`), data rather than a rule. Clients should read this list
+  instead of hard-coding it; new types may be added with a server release. `missing` accepts exactly these types
+  (minus the ones the result showed); `overall` (the scorer's small signs) is not one.

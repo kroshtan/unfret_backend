@@ -28,6 +28,8 @@
 
 ### One "Wrong result?" flow
 
+* **`GET /v1/catalogue/findings`**: the finding types a shopper can mark as missing, each with a short title and its
+  default level (public, cached a day), so the apps stop hard-coding them.
 * **Reports and labels are one flow** (`POST /v1/labels`): the level the shopper thinks is right (0-4) and which
   findings are wrong (`wrong`, `disagree` accepted) or missing (`missing`), with the result's `label_token` and the
   analysed request. A report always keeps the page it is about, scrubbed as reports were (a URL-only check's page is

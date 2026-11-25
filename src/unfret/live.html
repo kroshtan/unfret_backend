@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en" class="{{mode}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unfret live</title>
+  <meta name="description" content="Unfret's live numbers: checks run, free checks left today, funding, the database and verified reports.">
+  <style>
+    :root {
+      --bg: #f7f7f4; --card: #ffffff; --text: #1d1f1c; --muted: #5d625a; --line: #e2e3dd;
+      --accent: #1f7a4d; --track: #e4ece6;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #121412; --card: #1b1e1b; --text: #eef0ec; --muted: #a3a99f; --line: #2c312c;
+              --accent: #4cc38a; --track: #26332b; }
+    }
+    html.stream { --bg: #0b0d0b; --card: #151815; --text: #f2f4f0; --muted: #a6ada3; --line: #262b26;
+                  --accent: #4cc38a; --track: #213027; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text);
+           font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    a { color: var(--accent); }
+    .top { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+           max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .top .brand { font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none; }
+    .top nav a { margin-left: 16px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 0 16px 32px; }
+    h1 { font-size: 28px; margin: 8px 0 4px; }
+    .status { color: var(--muted); margin: 0 0 20px; }
+    .status .stale { color: #c9822b; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+    .card h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+               color: var(--muted); margin: 0 0 10px; }
+    .wide { grid-column: 1 / -1; }
+    .rows { display: grid; gap: 6px; }
+    .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+    .row span:first-child { color: var(--muted); }
+    .num { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .big { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .big.words { font-size: 26px; padding: 8px 0 7px; }
+    .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+    .bar { height: 14px; background: var(--track); border-radius: 7px; overflow: hidden; margin: 10px 0 8px; }
+    .bar div { height: 100%; width: 0; background: var(--accent); transition: width .6s ease; }
+    ol.board { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+    ol.board li { display: flex; justify-content: space-between; gap: 12px; }
+    ol.board .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .soon { color: var(--muted); font-size: 18px; }
+    footer { max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; color: var(--muted); font-size: 14px; }
+
+    /* Stream mode: 1920×1080, no navigation, large type. */
+    html.stream body { width: 1920px; height: 1080px; overflow: hidden; font-size: 28px; }
+    html.stream main { max-width: none; height: 100%; padding: 48px 64px; display: flex; flex-direction: column; }
+    html.stream .head { display: flex; justify-content: space-between; align-items: baseline; }
+    html.stream h1 { font-size: 64px; margin: 0; }
+    html.stream .status { font-size: 28px; margin: 0 0 32px; }
+    html.stream .grid { flex: 1; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 28px; }
+    html.stream .wide { grid-column: span 2; }
+    html.stream .card { padding: 28px 34px; border-radius: 20px; }
+    html.stream .card h2 { font-size: 24px; margin-bottom: 18px; }
+    html.stream .big { font-size: 96px; }
+    html.stream .big.words { font-size: 56px; padding: 18px 0 17px; }
+    html.stream .note { font-size: 24px; }
+    html.stream .bar { height: 28px; border-radius: 14px; margin: 20px 0 16px; }
+    html.stream .rows { gap: 12px; }
+    html.stream .soon { font-size: 36px; }
+    html.stream ol.board { grid-template-columns: 1fr 1fr; column-gap: 48px; row-gap: 8px; }
+    html.stream footer { display: none; }
+    .url { display: none; }
+    html.stream .url { display: block; color: var(--muted); font-size: 32px; }
+  </style>
+</head>
+<body>
+  <!-- nav -->
+  <header class="top">
+    <a class="brand" href="/">Unfret</a>
+    <nav><a href="/">Home</a><a href="/support">Support Unfret</a><a href="/privacy">Privacy</a></nav>
+  </header>
+  <!-- /nav -->
+  <main>
+    <div class="head">
+      <h1>Unfret live</h1>
+      <span class="url">unfret.net/live</span>
+    </div>
+    <p class="status" id="status">Loading…</p>
+    <div class="grid">
+      <section class="card">
+        <h2>Checks run</h2>
+        <div class="big" id="checks-today">—</div>
+        <p class="note">today</p>
+        <div class="rows">
+          <div class="row"><span>This month</span><span class="num" id="checks-month">—</span></div>
+          <div class="row"><span>All time</span><span class="num" id="checks-all">—</span></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Free checks left today</h2>
+        <div class="big" id="free-left">—</div>
+        <p class="note">Free checks run on donations.</p>
+      </section>
+      <section class="card">
+        <h2>Funding this month</h2>
+        <div class="bar" role="progressbar" aria-label="Funding this month" id="bar"><div id="bar-fill"></div></div>
+        <p id="funding">—</p>
+      </section>
+      <section class="card">
+        <h2>The database</h2>
+        <div class="rows">
+          <div class="row"><span>Product photos indexed</span><span class="num" id="db-photos">—</span></div>
+          <div class="row"><span>Prices recorded</span><span class="num" id="db-prices">—</span></div>
+          <div class="row"><span>Shops known</span><span class="num" id="db-shops">—</span></div>
+          <div class="row"><span>Pages checked</span><span class="num" id="db-pages">—</span></div>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Verified reports</h2>
+        <div class="big" id="verified">—</div>
+        <p class="note">"Wrong result?" reports confirmed by other reports or by a reviewer.</p>
+      </section>
+      <section class="card">
+        <h2>Top reporters</h2>
+        <ol class="board" id="board"></ol>
+        <p class="soon" id="board-soon" hidden>Opens soon</p>
+      </section>
+    </div>
+  </main>
+  <footer>Counts only: nothing here is about any person. Counts under 5 show as "fewer than 5".</footer>
+  <script type="application/json" id="live-data">{{data}}</script>
+  <script>
+    (function () {
+      "use strict";
+      var STREAM = document.documentElement.classList.contains("stream");
+      var POLL_MS = 60000;
+      var DAY_MS = 24 * 60 * 60 * 1000;
+      var lastOk = null;
+      var nf = new Intl.NumberFormat("en-US");
+
+      function $(id) { return document.getElementById(id); }
+      function set(id, text) { $(id).textContent = text; }
+      function setBig(id, text) {
+        var el = $(id);
+        el.textContent = text;
+        el.classList.toggle("words", !/^(about )?[0-9,]+$/.test(text));
+      }
+      function n(c) {
+        if (!c) return "—";
+        if (c.fewer_than_5) return "fewer than 5";
+        return c.value === null ? "—" : nf.format(c.value);
+      }
+      function euros(x) { return "€" + (Math.round(x) === x ? nf.format(x) : x.toFixed(2)); }
+      function clock(d) {
+        return d.toISOString().slice(11, 19) + " UTC";
+      }
+
+      function render(s) {
+        setBig("checks-today", n(s.checks.today));
+        set("checks-month", n(s.checks.this_month));
+        set("checks-all", n(s.checks.all_time));
+        var free = s.free_checks_left_today;
+        setBig("free-left", !free.available ? "Unavailable"
+          : free.fewer_than_5 ? "fewer than 5" : "about " + nf.format(free.value));
+        var f = s.funding;
+        var pct = Math.max(0, Math.min(100, f.goal_eur ? 100 * f.raised_eur / f.goal_eur : 0));
+        $("bar-fill").style.width = pct.toFixed(1) + "%";
+        $("bar").setAttribute("aria-valuenow", pct.toFixed(0));
+        set("funding", euros(f.raised_eur) + " of " + euros(f.goal_eur) + " this month ≈ " + n(f.free_checks) +
+          " free checks (" + euros(f.check_cost_eur) + " each) · by " + n(f.supporters) + " supporters");
+        set("db-photos", n(s.database.product_photos));
+        set("db-prices", n(s.database.prices));
+        set("db-shops", n(s.database.shops));
+        set("db-pages", n(s.database.pages_checked));
+        setBig("verified", n(s.verified_reports));
+        var board = $("board");
+        board.textContent = "";
+        s.leaderboard.forEach(function (e) {
+          var li = document.createElement("li");
+          var who = document.createElement("span");
+          who.className = "who";
+          who.textContent = e.rank + ". " + e.nickname;
+          var c = document.createElement("span");
+          c.className = "num";
+          c.textContent = n(e.verified_reports);
+          li.appendChild(who);
+          li.appendChild(c);
+          board.appendChild(li);
+        });
+        $("board-soon").hidden = s.leaderboard.length > 0;
+      }
+
+      function status(failed) {
+        var el = $("status");
+        el.textContent = lastOk ? "Last updated " + clock(lastOk) : "Waiting for the numbers…";
+        if (failed) {
+          var stale = document.createElement("span");
+          stale.className = "stale";
+          stale.textContent = " · couldn't refresh, showing the last numbers";
+          el.appendChild(stale);
+        }
+      }
+
+      function refresh() {
+        fetch("/v1/stats/live", { credentials: "omit" })
+          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function (s) { render(s); lastOk = new Date(); status(false); })
+          .catch(function () { status(true); });
+      }
+
+      try {
+        var first = JSON.parse($("live-data").textContent);
+        if (first) { render(first); lastOk = new Date(first.generated_at); }
+      } catch (e) { /* the first poll fills it in */ }
+      status(false);
+      setInterval(refresh, POLL_MS);
+      if (STREAM) setTimeout(function () { location.reload(); }, DAY_MS);
+    })();
+  </script>
+</body>
+</html>

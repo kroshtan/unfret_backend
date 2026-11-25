@@ -1946,3 +1946,33 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   word a public result never uses left out. No `source` or `confidence`. Results shared before stay as they were.
 - `/r/{id}` and the link checker show the level, its words, the explanation and the reasons worst first, instead of
   the band, when the result has one.
+
+## Changes (live stats, `/live`; nicknames reviewed; backwards-compatible; migration 46)
+
+- **`GET /v1/stats/live`** (public, no auth, `Cache-Control: public, max-age=60`, computed at most once a minute):
+  counts only, exactly these fields. A count is `{"value": <int>, "fewer_than_5": false}`, or `{"value": null,
+  "fewer_than_5": true}` under 5 (`{"value": null, "fewer_than_5": false}`: unknown).
+
+  ```json
+  {
+    "generated_at": "2026-11-25T21:04:00Z",
+    "checks": {"today": <count>, "this_month": <count>, "all_time": <count>},
+    "free_checks_left_today": {"value": 62, "fewer_than_5": false, "available": true},
+    "funding": {"goal_eur": 90.0, "raised_eur": 34.5, "check_cost_eur": 0.05, "free_checks": <count>,
+                "supporters": <count>},
+    "database": {"product_photos": <count>, "prices": <count>, "shops": <count>, "pages_checked": <count>},
+    "verified_reports": <count>,
+    "leaderboard": [{"rank": 1, "nickname": "lamp_fan", "verified_reports": <count>}]
+  }
+  ```
+
+  `checks`: checks that answered (quick and deep, every entry point), UTC days. `free_checks_left_today`: today's
+  free pool (within the day's limit) at `check_cost_eur` a check, never euros (`available: false` if it can't be read).
+  `funding`: this month's donations in the free pool's ledger and how many (never who). `supporters` counts donations. `database.pages_checked`: listings in the
+  photo and ad indexes. `verified_reports`: "Wrong result?" reports that agreed with their page's settled answer
+  (by agreement or by a reviewer). `leaderboard`: at most 10, nicknames the operator approved with at least 5 verified
+  reports; empty until there are any ("Opens soon").
+- **`/live`** and **`/live?stream=1`** (1920×1080, no navigation): pages reading that endpoint every minute.
+- **`POST /v1/contributors`**: a `handle` with an offensive word is refused (`400 BAD_HANDLE`, as for other bad
+  handles). A new or changed handle waits for the operator's review before `/live` shows it.
+  **`GET /v1/contributors/leaderboard`** leaves out handles the operator rejected; otherwise unchanged.

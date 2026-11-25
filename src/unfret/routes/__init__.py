@@ -9,6 +9,8 @@ from unfret.routes.extension import router as extension_router
 from unfret.routes.images import router as images_router
 from unfret.routes.keys import router as keys_router
 from unfret.routes.labels import router as labels_router
+from unfret.routes.live import admin as live_admin_router
+from unfret.routes.live import router as live_router
 from unfret.routes.oauth import router as oauth_router
 from unfret.routes.objections import router as objections_router
 from unfret.routes.pages import router as pages_router
@@ -38,5 +40,7 @@ router.include_router(extension_router)
 router.include_router(android_router)
 router.include_router(images_router)
 router.include_router(admin_router)
+router.include_router(live_router)
+router.include_router(live_admin_router)
 
 __all__ = ["router"]

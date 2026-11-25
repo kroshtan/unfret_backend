@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Live stats
+
+* **`/live` and `/live?stream=1`** (1920×1080, dark, no navigation, for a 24/7 stream), fed by **`GET /v1/stats/live`**
+  (cached a minute): checks run today, this month and all time, free checks left today, funding this month, the
+  database's size, verified reports and the top ten nicknames. Counts only, an allow-list of fields; counts under 5
+  say "fewer than 5". No cookies, no third-party requests, inline CSS and JS allowed by hash.
+* **Checks that answered are counted a UTC day and tier** in `usage_counters`, kept for good (migration 46 fills them
+  from the usage events).
+* **Leaderboard nicknames**: an offensive one is refused; a new one waits for the operator's review before `/live`
+  shows it (`make nicknames`); rejected ones leave the apps' leaderboard too (migration 46).
+
 ### The Android page: Google Play first, the beta below, Unfret Dev on dev
 
 * **/android leads with "Get it on Google Play"** (the stable app). The signed APK follows as "Beta: for testers and
@@ -12,6 +23,7 @@
   its APK with version, CI run, commit, SHA-256 and the dev key's certificate. A build that isn't
   `net.unfret.android.dev` or is signed with any key but the dev key's (`DEV_CERT_SHA256`), the release key's
   included, is not shown. Production never fetches or shows it (tested).
+
 ### Several donations at once
 
 * `make free-pool ARGS="add 25 10 5"` and `POST /v1/admin/free-pool/donations` `{"amounts_eur": [...]}` add several

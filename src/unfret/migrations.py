@@ -1100,6 +1100,24 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         DROP TABLE llm_spend;
         """,
     ),
+    (
+        46,
+        "live stats: checks a day, nicknames reviewed",
+        """
+        -- Checks that answered, a number a UTC day and tier in usage_counters ('checks_quick' / 'checks_deep', period
+        -- 'YYYY-MM-DD'; unfret.usage), for the public /live page: nothing else, kept for good. Filled from the usage
+        -- events already recorded.
+        INSERT INTO usage_counters (name, period, count)
+        SELECT 'checks_' || (attrs->>'tier'), to_char((at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD'), COUNT(*)
+        FROM usage_events
+        WHERE kind = 'check' AND attrs->>'outcome' = 'ok' AND attrs->>'tier' IN ('quick', 'deep')
+        GROUP BY 1, 2
+        ON CONFLICT (name, period) DO UPDATE SET count = usage_counters.count + EXCLUDED.count;
+        -- A leaderboard nickname shows on /live only once the operator approved it; a new or changed one is pending.
+        ALTER TABLE contributors ADD COLUMN handle_review TEXT NOT NULL DEFAULT 'pending'
+            CHECK (handle_review IN ('pending', 'approved', 'rejected'));
+        """,
+    ),
 ]
 
 

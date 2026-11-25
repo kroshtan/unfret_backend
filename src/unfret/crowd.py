@@ -49,6 +49,7 @@ from typing import Any, Literal
 import asyncpg
 import structlog
 
+from unfret import nicknames
 from unfret.config import Settings
 
 logger = structlog.get_logger("unfret")
@@ -309,11 +310,13 @@ def valid_handle(handle: str) -> str:
     """
     A leaderboard handle: 3–24 letters, digits, ``-`` or ``_``, not posing as Unfret or naming anyone a scam.
 
+    Nor offensive (:func:`unfret.nicknames.offensive`).
+
     :param handle: The handle asked for.
     :return: The handle.
     :raises LabelError: ``BAD_HANDLE``.
     """
-    if not HANDLE_RE.fullmatch(handle) or RESERVED_HANDLES.search(handle):
+    if not HANDLE_RE.fullmatch(handle) or RESERVED_HANDLES.search(handle) or nicknames.offensive(handle):
         raise LabelError("BAD_HANDLE", "A handle is 3-24 letters, digits, - or _ (and can't contain some words).")
     return handle
 
@@ -346,7 +349,9 @@ async def profile(
             raise LabelError("BAD_HANDLE", "Pick a handle to show on the leaderboard.")
         try:
             row = await conn.fetchrow(
-                "UPDATE contributors SET handle = $2, public = $3 WHERE id = $1 RETURNING *",
+                # A new or changed nickname waits for the operator's review before /live shows it.
+                "UPDATE contributors SET handle = $2, public = $3, handle_review = CASE WHEN handle IS NOT DISTINCT "
+                "FROM $2 THEN handle_review ELSE 'pending' END WHERE id = $1 RETURNING *",
                 row["id"],
                 new_handle,
                 new_public,
@@ -395,7 +400,7 @@ async def forget(pool: asyncpg.Pool, settings: Settings, key: str) -> bool:
 
 async def leaderboard(pool: asyncpg.Pool, settings: Settings, limit: int = 50) -> list[dict[str, Any]]:
     """
-    The public leaderboard: contributors who opted in and are past probation, by agreed labels.
+    The public leaderboard: contributors who opted in and are past probation, by agreed labels; no rejected nickname.
 
     :param pool: The database pool.
     :param settings: The settings.
@@ -404,6 +409,7 @@ async def leaderboard(pool: asyncpg.Pool, settings: Settings, limit: int = 50) -
     """
     rows = await pool.fetch(
         "SELECT handle, agreed, settled FROM contributors WHERE public AND handle IS NOT NULL AND settled >= $1 "
+        "AND handle_review <> 'rejected' "
         "ORDER BY agreed DESC, settled ASC, handle LIMIT $2",
         settings.crowd_probation_settled,
         min(max(limit, 1), 100),

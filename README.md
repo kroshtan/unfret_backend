@@ -709,6 +709,30 @@ printf "CREATE ROLE unfret_stats LOGIN PASSWORD '%s' IN ROLE unfret_stats_read;\
 # Rotating it: ALTER ROLE unfret_stats PASSWORD '...'; the same way. The probe's: unfret_probe IN ROLE unfret_probe_write.
 ```
 
+### Live stats (`/live`)
+
+`/live` shows Unfret's numbers to anyone, `/live?stream=1` the same at 1920×1080 with no navigation and large type
+for a 24/7 stream (it reloads itself once a day and keeps the last numbers when a refresh fails). Both read one
+endpoint, `GET /v1/stats/live` (`unfret.live_stats`), computed at most once a minute and served with
+`Cache-Control: public, max-age=60`: checks that answered today, this month and all time (`usage_counters`
+`checks_quick` / `checks_deep`, a number a UTC day, written with the usage events and kept for good; migration 46
+filled them from the events already recorded), free checks left today (the free pool's remainder at
+`UNFRET_LIVE_CHECK_COST_EUR`, €0.05, a check; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
+(€90; this month's rows in the free pool's ledger of donations, `free_pool_donations`: a donation added with
+`make free-pool` shows within a minute), the stores' row counts, verified "Wrong result?" reports and the top ten nicknames.
+
+The answer is an allow-list of counts (`tests/integration/test_live.py` fails on any other field): no IP address,
+pass, page, shop, report text or anything else about a person. A count under 5 is `{"value": null, "fewer_than_5":
+true}`. The page has its CSS and JS inline (allowed by hash in its CSP), sets no cookie and loads nothing from another
+origin.
+
+**Nicknames** show on `/live` only once the operator approved them, with at least 5 verified reports (reports that
+agreed with their page's settled answer). A nickname with an offensive word is refused when it is chosen
+(`unfret.nicknames`); a new or changed one is pending. Review them with `make nicknames ARGS="list"`, then
+`ARGS="approve NAME"` or `ARGS="reject NAME"` (`UNFRET_URL`, `UNFRET_ADMIN_TOKEN[_FILE]`; admin API
+`GET /v1/admin/nicknames?review=pending|approved|rejected|all`, `POST /v1/admin/nicknames/{name}/approve|reject`).
+The apps' leaderboard (`GET /v1/contributors/leaderboard`) still lists pending nicknames, never rejected ones.
+
 ### Pay-per-check for agents (x402)
 
 `POST /v1/check` takes `{url, page_content?, tier: quick|deep, policy: strict|balanced|lenient}` and is paid per call

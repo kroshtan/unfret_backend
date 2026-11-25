@@ -611,7 +611,7 @@
      },
      "free_checks_paused": {
       "default": false,
-      "description": "Free deep checks are paused: this month's LLM spend ceiling (back next month), or for a developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC). Bought checks and quick checks work.",
+      "description": "Free deep checks are paused: the free LLM budget, paced a day at a time, is used up for today, or for a developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC either way). Bought checks and quick checks work.",
       "title": "Free Checks Paused",
       "type": "boolean"
      },
@@ -974,18 +974,24 @@
       "type": "boolean"
      },
      "reason": {
-      "description": "spend_ceiling: this month's LLM spend reached its ceiling.",
+      "description": "spend_ceiling: the free LLM budget (the monthly ceiling, paced daily) is used up.",
       "title": "Reason",
       "type": "string"
      },
      "retry_after_s": {
-      "description": "Seconds until the 1st of next month, 00:00 UTC.",
+      "description": "Seconds until they are back: 00:00 UTC (day), or the 1st (month).",
       "title": "Retry After S",
       "type": "integer"
+     },
+     "scope": {
+      "description": "day: the free LLM budget, paced a day at a time, is used up for today (back at 00:00 UTC). month: only on a server without pacing (back the 1st of next month).",
+      "title": "Scope",
+      "type": "string"
      }
     },
     "required": [
      "reason",
+     "scope",
      "retry_after_s",
      "quick_checks",
      "message_key"
@@ -4018,7 +4024,7 @@
      },
      "paused": {
       "default": false,
-      "description": "Free deep checks are paused (the month's LLM spend ceiling): don't solve this, show pause.",
+      "description": "Free deep checks are paused (the free LLM budget, for today): don't solve this, show pause.",
       "title": "Paused",
       "type": "boolean"
      }
@@ -4342,7 +4348,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page: free for shoppers, or paid from a pass's bought checks.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English).\n\n**Free (shoppers: the extension, the app, the link checker).** Send no ``Authorization``. ``\"tier\": \"quick\"``\n(rules only) needs nothing else, a few a minute. A deep check (the default tier) needs a solved challenge from\n``GET /v1/analyze/challenge`` as ``proof_of_work`` (428 ``PROOF_OF_WORK_REQUIRED`` without one, 400\n``BAD_CHALLENGE`` for a bad one), at most ``free_deep_checks_per_ip_per_hour`` per network (429\n``TOO_MANY_REQUESTS``). Once this month's LLM spend reaches its ceiling, free deep checks are refused with 429\n``FREE_CHECKS_PAUSED`` (``metadata``: ``reason`` ``spend_ceiling``, ``retry_after_s``, ``quick_checks``,\n``message_key`` ``free_checks_run_on_donations``, ``donate_url``) until the 1st of next month. Nothing ties a free\ncheck to anyone: it carries no ``report_token``.\n\n**Paid (a pass or wallet with bought checks).** ``Authorization: Bearer ufk_\u2026`` (or a wallet's session): a deep\ncheck uses one bought check, taken up front and given back when the page can't be analysed (score -1) or the\nanalysis fails. A pass without bought checks is not used: its deep check is a free one (needs ``proof_of_work``).\nThe same input analysed again within the hour costs a paying account a check like a fresh analysis, except for\nthe account that already paid for that page within the hour.\n\nNothing about the page or the result is stored; the ``report_token`` (a paying account's or a quick check's with\nan account) lets the caller report a wrong result later (``POST /v1/reports``); the ``share_token`` lets anyone\nwho has the result make it public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick\n    check may do without one).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page: free for shoppers, or paid from a pass's bought checks.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English).\n\n**Free (shoppers: the extension, the app, the link checker).** Send no ``Authorization``. ``\"tier\": \"quick\"``\n(rules only) needs nothing else, a few a minute. A deep check (the default tier) needs a solved challenge from\n``GET /v1/analyze/challenge`` as ``proof_of_work`` (428 ``PROOF_OF_WORK_REQUIRED`` without one, 400\n``BAD_CHALLENGE`` for a bad one), at most ``free_deep_checks_per_ip_per_hour`` per network (429\n``TOO_MANY_REQUESTS``). Once the free LLM budget (paced a day at a time) is used up, free deep checks are refused\nwith 429 ``FREE_CHECKS_PAUSED`` (``metadata``: ``reason`` ``spend_ceiling``, ``scope`` ``day``, ``retry_after_s``,\n``quick_checks``, ``message_key`` ``free_checks_run_on_donations``, ``donate_url``) until 00:00 UTC. Nothing ties a\nfree check to anyone: it carries no ``report_token``.\n\n**Paid (a pass or wallet with bought checks).** ``Authorization: Bearer ufk_\u2026`` (or a wallet's session): a deep\ncheck uses one bought check, taken up front and given back when the page can't be analysed (score -1) or the\nanalysis fails. A pass without bought checks is not used: its deep check is a free one (needs ``proof_of_work``).\nThe same input analysed again within the hour costs a paying account a check like a fresh analysis, except for\nthe account that already paid for that page within the hour.\n\nNothing about the page or the result is stored; the ``report_token`` (a paying account's or a quick check's with\nan account) lets the caller report a wrong result later (``POST /v1/reports``); the ``share_token`` lets anyone\nwho has the result make it public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick\n    check may do without one).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {

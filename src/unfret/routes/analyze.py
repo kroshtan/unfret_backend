@@ -115,16 +115,23 @@ def _graph_input(body: AnalyzeRequest, request: Request) -> tuple[Any, dict[str,
 
 _NOT_ENOUGH = "Not enough credits for an analysis."
 # A developer pass with only free checks once they are paused (unfret.credits.free): a 402, as for an empty pass, with
-# this detail (the day's budget) or DEVELOPER_PAUSED_MONTH (the month's LLM spend ceiling).
+# this detail (the day's budget, or the free LLM budget paced a day at a time) or DEVELOPER_PAUSED_MONTH (the month's
+# ceiling, without pacing).
 DEVELOPER_PAUSED = "Today's free developer checks are used up; they're back at 00:00 UTC. Bought checks still work."
 DEVELOPER_PAUSED_MONTH = "Free developer checks are paused until next month. Bought checks still work."
-# A shopper's free deep check at the month's LLM spend ceiling (unfret.spend): 429 FREE_CHECKS_PAUSED.
-FREE_PAUSED = (
-    "Free deep checks are paused until the 1st of next month: they run on donations, and this month's are used up. "
-    "Quick checks still work."
-)
+# A shopper's free deep check at the month's LLM spend ceiling, or past today's paced share of it (unfret.spend): 429
+# FREE_CHECKS_PAUSED, with these details by scope.
+FREE_PAUSED = {
+    "month": "Free deep checks are paused until the 1st of next month: they run on donations, and this month's are "
+    "used up. Quick checks still work.",
+    "day": "Free deep checks are paused until 00:00 UTC: they run on donations, and today's are used up. Quick checks "
+    "still work.",
+}
 # Without a donate link (a client that may not show one: X-Unfret-Donate: off).
-FREE_PAUSED_PLAIN = "Free deep checks are paused until the 1st of next month. Quick checks still work."
+FREE_PAUSED_PLAIN = {
+    "month": "Free deep checks are paused until the 1st of next month. Quick checks still work.",
+    "day": "Free deep checks are paused until 00:00 UTC. Quick checks still work.",
+}
 # The stable keys clients show their own words for: with the donate link, and without one.
 FREE_PAUSED_MESSAGE_KEY = "free_checks_run_on_donations"
 FREE_PAUSED_PLAIN_MESSAGE_KEY = "free_checks_paused"
@@ -174,39 +181,44 @@ async def _developer_paused(request: Request, balance: int) -> NoReturn:
     :raises InsufficientCreditsError: Always, with the shortfall and when the free checks are back.
     """
     pool = request.app.db_pool
-    month = (await spend.ceiling(pool, settings)).reached
+    month = (await spend.ceiling(pool, settings)).scope == "month"  # without pacing: until the 1st
     raise InsufficientCreditsError(
         DEVELOPER_PAUSED_MONTH if month else DEVELOPER_PAUSED,
         metadata={**_shortfall(balance), "retry_after_s": await free.back_in_s(pool, settings)},
     )
 
 
-def paused_metadata(*, donate: bool = True) -> dict[str, Any]:
+def paused_metadata(standing: spend.Ceiling, *, donate: bool = True) -> dict[str, Any]:
     """
     What a 429 ``FREE_CHECKS_PAUSED`` carries besides its detail (and ``/v1/pricing``'s ``free`` while paused).
 
+    :param standing: Where the month's spend stands (:func:`unfret.spend.ceiling`), while shoppers' checks are paused.
     :param donate: Whether the client may show a donate link (:func:`donate_allowed`).
-    :return: ``reason`` (``spend_ceiling``), ``retry_after_s`` (to the 1st of next month, UTC), ``quick_checks``
-        (``true``: they still work), ``message_key`` and, when allowed, ``donate_url``.
+    :return: ``reason`` (``spend_ceiling``), ``scope`` (``day``: the paced free budget; ``month`` without pacing),
+        ``retry_after_s`` (to 00:00 UTC, or the 1st of next month), ``quick_checks`` (``true``: they still work),
+        ``message_key`` and, when allowed, ``donate_url``.
     """
     return {
         "reason": "spend_ceiling",
-        "retry_after_s": spend.seconds_to_next_month(),
+        "scope": standing.scope or "month",
+        "retry_after_s": standing.retry_after_s(),
         "quick_checks": True,
         "message_key": FREE_PAUSED_MESSAGE_KEY if donate else FREE_PAUSED_PLAIN_MESSAGE_KEY,
         **({"donate_url": donate_link()} if donate else {}),
     }
 
 
-def paused_detail(request: Request) -> tuple[str, dict[str, Any]]:
+def paused_detail(request: Request, standing: spend.Ceiling) -> tuple[str, dict[str, Any]]:
     """
     The detail and metadata of a 429 ``FREE_CHECKS_PAUSED``, for this client.
 
     :param request: The incoming request (whether it may show a donate link).
+    :param standing: Where the month's spend stands, while shoppers' checks are paused.
     :return: The detail and the metadata.
     """
     donate = donate_allowed(request)
-    return (FREE_PAUSED if donate else FREE_PAUSED_PLAIN), paused_metadata(donate=donate)
+    details = FREE_PAUSED if donate else FREE_PAUSED_PLAIN
+    return details[standing.scope or "month"], paused_metadata(standing, donate=donate)
 
 
 def _ip(request: Request) -> str:
@@ -379,8 +391,9 @@ async def _free_gate(request: Request, body: AnalyzeRequest) -> None:
     """
     if not get_credits(request).secret or request.app.db_pool is None:
         raise ServiceUnavailableError("Free deep checks are not available right now. Quick checks still work.")
-    if (await spend.ceiling(request.app.db_pool, settings)).reached:
-        detail, metadata = paused_detail(request)
+    standing = await spend.ceiling(request.app.db_pool, settings)
+    if standing.scope is not None:
+        detail, metadata = paused_detail(request, standing)
         raise TooManyRequestsError(detail, error_code="FREE_CHECKS_PAUSED", metadata=metadata)
     pow_ = body.proof_of_work
     legacy = getattr(request.state, "legacy_pass", None)
@@ -590,7 +603,7 @@ async def deep_cost(
         return card.deep_check_cost(free_left=free_left, paused=paused, bought=bought)
     if bought > 0:
         return card.deep_check_cost(bought=bought)
-    paused = pool is None or (await spend.ceiling(pool, settings)).reached
+    paused = pool is None or (await spend.ceiling(pool, settings)).scope is not None
     return card.shopper_deep_check_cost(paused=paused, donate=donate_allowed(request))
 
 
@@ -759,13 +772,14 @@ async def challenge(request: Request) -> ChallengeResponse:
     if not get_credits(request).secret or request.app.db_pool is None:
         raise ServiceUnavailableError("Free deep checks are not available right now. Quick checks still work.")
     text, bits, expires = _deep_challenges(request).issue()
-    paused = (await spend.ceiling(request.app.db_pool, settings)).reached
+    standing = await spend.ceiling(request.app.db_pool, settings)
+    paused = standing.scope is not None
     return ChallengeResponse(
         challenge=text,
         bits=bits,
         expires_at=expires,
         paused=paused,
-        pause=FreePause(**paused_metadata(donate=donate_allowed(request))) if paused else None,
+        pause=FreePause(**paused_metadata(standing, donate=donate_allowed(request))) if paused else None,
     )
 
 
@@ -786,10 +800,10 @@ async def analyze_page(
     (rules only) needs nothing else, a few a minute. A deep check (the default tier) needs a solved challenge from
     ``GET /v1/analyze/challenge`` as ``proof_of_work`` (428 ``PROOF_OF_WORK_REQUIRED`` without one, 400
     ``BAD_CHALLENGE`` for a bad one), at most ``free_deep_checks_per_ip_per_hour`` per network (429
-    ``TOO_MANY_REQUESTS``). Once this month's LLM spend reaches its ceiling, free deep checks are refused with 429
-    ``FREE_CHECKS_PAUSED`` (``metadata``: ``reason`` ``spend_ceiling``, ``retry_after_s``, ``quick_checks``,
-    ``message_key`` ``free_checks_run_on_donations``, ``donate_url``) until the 1st of next month. Nothing ties a free
-    check to anyone: it carries no ``report_token``.
+    ``TOO_MANY_REQUESTS``). Once the free LLM budget (paced a day at a time) is used up, free deep checks are refused
+    with 429 ``FREE_CHECKS_PAUSED`` (``metadata``: ``reason`` ``spend_ceiling``, ``scope`` ``day``, ``retry_after_s``,
+    ``quick_checks``, ``message_key`` ``free_checks_run_on_donations``, ``donate_url``) until 00:00 UTC. Nothing ties a
+    free check to anyone: it carries no ``report_token``.
 
     **Paid (a pass or wallet with bought checks).** ``Authorization: Bearer ufk_…`` (or a wallet's session): a deep
     check uses one bought check, taken up front and given back when the page can't be analysed (score -1) or the
@@ -828,6 +842,7 @@ async def analyze_page(
         if (hit := await _cached(request, body, account, key, sent=sent)) is not None:
             return hit
     charge = await _charge(request, body, account)
+    spend.paying(charge.paid)  # a bought check's LLM spend is paid for, never the free budget's
     usage = UsageMetadataCallbackHandler()
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
@@ -961,6 +976,7 @@ async def _live_events(
     :param sent: The request as sent, when that was a link to elsewhere (for the report token).
     :yield: Server-sent events.
     """
+    spend.paying(charge.paid)  # this generator runs in the response's own task
     usage = UsageMetadataCallbackHandler()
     final: dict[str, Any] = {}
     refund = True  # until the analysis has finished (its result is then cached and handed over)

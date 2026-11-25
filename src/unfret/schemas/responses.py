@@ -43,8 +43,14 @@ class Healthy(BaseModel):
 class FreePause(BaseModel):
     """Why free deep checks are paused, and what a client shows (the 429 ``FREE_CHECKS_PAUSED``'s ``metadata``)."""
 
-    reason: str = Field(description="spend_ceiling: this month's LLM spend reached its ceiling.")
-    retry_after_s: int = Field(description="Seconds until the 1st of next month, 00:00 UTC.")
+    reason: str = Field(
+        description="spend_ceiling: the free LLM budget (the monthly ceiling, paced daily) is used up."
+    )
+    scope: str = Field(
+        description="day: the free LLM budget, paced a day at a time, is used up for today (back at 00:00 UTC). "
+        "month: only on a server without pacing (back the 1st of next month)."
+    )
+    retry_after_s: int = Field(description="Seconds until they are back: 00:00 UTC (day), or the 1st (month).")
     quick_checks: bool = Field(description="Always true: quick checks still work.")
     message_key: str = Field(
         description="free_checks_run_on_donations: show that free checks run on donations, with donate_url; "
@@ -67,7 +73,7 @@ class ChallengeResponse(BaseModel):
     expires_at: float = Field(description="Unix seconds; the challenge works once, until then.")
     paused: bool = Field(
         default=False,
-        description="Free deep checks are paused (the month's LLM spend ceiling): don't solve this, show pause.",
+        description="Free deep checks are paused (the free LLM budget, for today): don't solve this, show pause.",
     )
     pause: FreePause | None = Field(default=None, description="While paused: why, until when, and what to show.")
 

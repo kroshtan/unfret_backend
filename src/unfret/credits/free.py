@@ -94,15 +94,14 @@ async def paused(db: Executor, settings: Settings) -> bool:
 
 async def back_in_s(db: Executor, settings: Settings) -> int:
     """
-    When paused developer free checks are back: next month at the spend ceiling, tomorrow otherwise.
+    When paused developer free checks are back: when the free LLM budget is (spend), or 00:00 UTC.
 
     :param db: A pool or connection.
     :param settings: The service settings.
     :return: Seconds.
     """
-    if (await spend.ceiling(db, settings)).reached:
-        return spend.seconds_to_next_month()
-    return seconds_to_tomorrow()
+    standing = await spend.ceiling(db, settings)
+    return standing.retry_after_s() if standing.reached else seconds_to_tomorrow()
 
 
 async def take_for_key(

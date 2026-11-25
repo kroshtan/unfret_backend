@@ -1063,6 +1063,15 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         DELETE FROM usage_counters WHERE name = 'free_checks';
         """,
     ),
+    (
+        44,
+        "paid LLM spend apart from the free budget",
+        """
+        -- llm_spend.micro_eur is the free LLM spend (the paced budget's); what runs for a bought check or x402 is
+        -- counted apart and never pauses anything.
+        ALTER TABLE llm_spend ADD COLUMN paid_micro_eur BIGINT NOT NULL DEFAULT 0 CHECK (paid_micro_eur >= 0);
+        """,
+    ),
 ]
 
 

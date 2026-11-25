@@ -1815,15 +1815,16 @@ Errors (all JSON `{"detail", "error_code", "metadata"?}`):
 | --- | --- | --- | --- |
 | `PROOF_OF_WORK_REQUIRED` | 428 | no `proof_of_work` (also: a pass without bought checks, whose check is a free one) | get a challenge, solve, resend |
 | `BAD_CHALLENGE` | 400 | forged, expired, already used, too easy or unsolved | get a new challenge |
-| `FREE_CHECKS_PAUSED` | 429 | this month's LLM spend ceiling is reached | show the pause; offer a quick check |
+| `FREE_CHECKS_PAUSED` | 429 | today's share of the free LLM budget is used up | show the pause; offer a quick check |
 | `TOO_MANY_REQUESTS` | 429 | too many free deep checks from this network this hour (`metadata.retry_after_s`) | wait |
 | `SERVICE_UNAVAILABLE` | 503 | free deep checks can't be offered right now | quick check, retry later |
 
-**The pause (spend ceiling).** `FREE_CHECKS_PAUSED`'s `metadata` (also `pause` on the challenge and
-`/v1/pricing`'s `free.pause`): `{"reason": "spend_ceiling", "retry_after_s": int (to the 1st of next month, 00:00
-UTC), "quick_checks": true, "message_key": "free_checks_run_on_donations", "donate_url":
-"https://unfret.net/donate"}`. Clients show their own words for `message_key` (e.g. "Free deep checks are paused until
-next month: they run on donations.") with a "Support Unfret" link to `donate_url`. A quick result's suggestion of a
+**The pause (the free LLM budget, paced daily).** `FREE_CHECKS_PAUSED`'s `metadata` (also `pause` on the challenge
+and `/v1/pricing`'s `free.pause`): `{"reason": "spend_ceiling", "scope": "day", "retry_after_s": int (to 00:00 UTC),
+"quick_checks": true, "message_key": "free_checks_run_on_donations", "donate_url": "https://unfret.net/donate"}`.
+Clients show their own words for `message_key` (e.g. "Free deep checks are paused until tomorrow: they run on
+donations.") with a "Support Unfret" link to `donate_url`. `scope` is always `day` (a server with pacing turned off
+says `month`, with `retry_after_s` to the 1st of next month). A quick result's suggestion of a
 deep check carries `action: "donate"` (label "Support Unfret") while paused, `action: "run_deep"` ("Deep checks are
 free.") otherwise. Bought checks, developer passes' bought checks and x402 are never paused.
 
@@ -1855,11 +1856,27 @@ without bought checks is not charged and not tied to the check (see "Older store
 `"free": true` (a shopper's pass has no free checks any more; migration 43 sets them to 0). `POST /v1/keys/move-free-checks` always answers `{"moved": 0}` (deprecated).
 
 **Developer passes** (API, MCP): 20 free deep checks each on `POST /v1/check` only, then bought packs, as before; their
-free checks pause with the day's developer budget or the month's spend ceiling (402 `INSUFFICIENT_CREDITS`, detail
-"Free developer checks are paused until next month. ..." at the ceiling). The MCP server's OAuth sign-in page now
+free checks pause with the day's developer budget or the free LLM budget (402 `INSUFFICIENT_CREDITS`, "...back at
+00:00 UTC...", `metadata.retry_after_s`). The MCP server's OAuth sign-in page now
 makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`). x402 is unchanged.
 
 **Removed:** the shoppers' daily free-check budget (`UNFRET_FREE_CHECKS_PER_PASS`, `UNFRET_FREE_PASSES_PER_IP_PER_DAY`,
 `UNFRET_FREE_DAILY_BUDGET_EUR`). **New settings:** `UNFRET_DEEP_POW_BITS`, `UNFRET_DEEP_POW_TTL_S`,
 `UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_PRICES_EUR_PER_MTOK`,
 `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`, `UNFRET_DONATE_URL`. Migration 43: `llm_spend` (one number a month).
+
+## Changes (the free LLM budget is paced a day at a time; paid spend apart; migration 44)
+
+- **One free budget, paced daily.** All free LLM spend (shoppers' free deep checks, developer passes' 20 free deep
+  checks, background work that runs for no one in particular) shares one budget: `UNFRET_LLM_SPEND_CEILING_EUR` (€100)
+  a calendar month (UTC), paced a day at a time (`UNFRET_LLM_SPEND_DAILY_PACING`, on): by the end of each day the
+  month's free spend may reach the ceiling ÷ the month's days × the days so far. Unspent shares carry over to the
+  following days, never into the next month.
+- **Paid spend never counts and never pauses:** LLM calls for a bought check or an x402 check are metered apart
+  (`llm_spend.paid_micro_eur`, migration 44).
+- **The pause is always until 00:00 UTC.** `FREE_CHECKS_PAUSED`'s `metadata` (and the challenge's and `/v1/pricing`'s
+  `pause`) adds `scope: "day"`; `retry_after_s` counts to 00:00 UTC; `message_key`, `donate_url` and
+  `X-Unfret-Donate: off` work as before. `/v1/pricing` → `free.back_at` is `"00:00 UTC"`. With pacing turned off,
+  `scope: "month"` and the 1st of next month, as before.
+- A developer pass with only free checks gets the same 402 as on its own day's budget ("back at 00:00 UTC").
+  The deep-check suggestion's paused cost reads "Free deep checks are paused until 00:00 UTC: they run on donations."

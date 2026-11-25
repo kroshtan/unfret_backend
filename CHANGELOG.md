@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### The free LLM budget, paced a day at a time
+
+* All free LLM spend (shoppers' free deep checks, developer passes' free checks, background work) shares one budget:
+  the monthly ceiling (`UNFRET_LLM_SPEND_CEILING_EUR`, €100) paced a day at a time (`UNFRET_LLM_SPEND_DAILY_PACING`):
+  ceiling ÷ days in the month, unspent days carrying over within the month. Past today's share free deep checks pause
+  until 00:00 UTC (`FREE_CHECKS_PAUSED` adds `scope: "day"`). LLM calls for bought checks and x402 are metered apart
+  (`llm_spend.paid_micro_eur`, migration 44) and never pause.
+
 ### Free checks for shoppers
 
 * **Quick and deep checks are free, with no pass and no identity** (the extension, the Android app, `/check`). A free

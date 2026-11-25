@@ -1,6 +1,7 @@
 """Free checks for shoppers: quick and deep with no pass, the proof of work, and the month's LLM spend ceiling."""
 
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -345,3 +346,73 @@ async def test_donate_redirects_to_the_configured_link_and_counts_only(
     page = (await client.get("/support")).text
     assert 'href="/donate"' in page and "pay.example" not in page  # the page links to /donate, never the link
     assert "Nothing in return" in page
+
+
+# ── The free LLM budget, paced a day at a time ───────────────────────────────────────────────────────────────────
+
+
+async def test_the_free_budget_is_paced_a_day_at_a_time_and_carries_over(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_spend_ceiling_eur", Decimal(30))  # €1 a day in a 30-day month
+    day3 = datetime(2026, 11, 3, 15, 0, tzinfo=UTC)
+    await pool.execute("INSERT INTO llm_spend (month, micro_eur) VALUES ('2026-11', 2_500_000)")  # €2.50 by day 3
+
+    standing = await spend.ceiling(pool, now=day3)
+    assert standing.allowed_micro_eur == 3_000_000 and not standing.reached  # days 1-2 unspent carry over
+
+    await pool.execute("UPDATE llm_spend SET micro_eur = 3_000_000")
+    paused = await spend.ceiling(pool, now=day3)
+    assert paused.reached and paused.scope == "day"
+    assert paused.retry_after_s(day3) == 9 * 3600  # until 00:00 UTC
+    assert not (await spend.ceiling(pool, now=datetime(2026, 11, 4, 0, 1, tzinfo=UTC))).reached  # a new day's share
+    # Nothing carries into the next month: December starts at zero, with one day's share.
+    december = await spend.ceiling(pool, now=datetime(2026, 12, 1, 0, 1, tzinfo=UTC))
+    assert december.spent_micro_eur == 0 and december.allowed_micro_eur == 30_000_000 // 31
+
+
+async def test_without_pacing_the_budget_is_the_months_ceiling(
+    pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_spend_daily_pacing", False)
+    await pool.execute("INSERT INTO llm_spend (month, micro_eur) VALUES ($1, $2)", spend.month(), 50_000_000)
+    assert not (await spend.ceiling(pool)).reached
+    await pool.execute("UPDATE llm_spend SET micro_eur = $1", int(settings.llm_spend_ceiling_eur * 1_000_000))
+    standing = await spend.ceiling(pool)
+    assert standing.scope == "month" and standing.retry_after_s() == spend.seconds_to_next_month()
+
+
+async def test_paid_spend_never_counts_towards_the_free_budget(pool: asyncpg.Pool) -> None:
+    spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 0, paid=True)  # €0.15, a bought check's
+    spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 0)  # €0.15, free
+    assert await spend.spent_micro_eur(pool) == 150_000
+    await spend.flush(pool)
+    row = await pool.fetchrow("SELECT micro_eur, paid_micro_eur FROM llm_spend WHERE month = $1", spend.month())
+    assert (row["micro_eur"], row["paid_micro_eur"]) == (150_000, 150_000)
+
+
+async def test_a_bought_checks_llm_calls_count_as_paid(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    import contextvars  # noqa: PLC0415
+
+    def in_task(paid: bool) -> None:
+        spend.paying(paid)
+        spend.record("m", 1_000_000, 0)
+
+    contextvars.copy_context().run(in_task, True)
+    contextvars.copy_context().run(in_task, False)
+    await spend.flush(pool)
+    row = await pool.fetchrow("SELECT micro_eur, paid_micro_eur FROM llm_spend WHERE month = $1", spend.month())
+    assert row["micro_eur"] == row["paid_micro_eur"] == 2_000_000  # the unlisted price, €2 a million
+
+
+async def test_the_pause_says_until_midnight(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    await at_ceiling(pool)
+    paused = await free_deep(client)
+    meta = paused.json()["metadata"]
+    assert meta["scope"] == "day" and 0 < meta["retry_after_s"] <= 24 * 3600
+    assert "until 00:00 UTC" in paused.json()["detail"]
+    off = await client.post(
+        "/v1/analyze", json={**PAGE, "proof_of_work": await solved(client)}, headers={"X-Unfret-Donate": "off"}
+    )
+    assert off.json()["metadata"]["scope"] == "day" and "donate_url" not in off.json()["metadata"]
+    assert (await client.get("/v1/pricing")).json()["free"]["back_at"] == "00:00 UTC"

@@ -1029,8 +1029,8 @@
       "packs": "Deep checks come in packs, from {price} for {checks}.",
       "x402": "A deep check of this page costs {price}.",
     "shopper_free": "Deep checks are free.",
-    "shopper_paused": "Free deep checks are paused until next month: they run on donations.",
-    "shopper_paused_plain": "Free deep checks are paused until next month. Quick checks still work."
+    "shopper_paused": "Free deep checks are paused until 00:00 UTC: they run on donations.",
+    "shopper_paused_plain": "Free deep checks are paused until 00:00 UTC. Quick checks still work."
     },
     "actions": {
       "run_deep": "Run a deep check",

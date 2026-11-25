@@ -262,7 +262,7 @@ async def test_a_short_link_is_checked_under_the_pages_own_address(
     assert await free.left(pool, issued["key_id"], api=True) == 19  # the repeat within the hour is free
 
 
-async def test_the_spend_ceiling_pauses_a_developer_pass_free_checks(
+async def test_the_free_budget_pauses_a_developer_pass_free_checks(
     client: httpx.AsyncClient, pool: asyncpg.Pool
 ) -> None:
     developer = await new_pass(client, developer=True)
@@ -275,7 +275,9 @@ async def test_the_spend_ceiling_pauses_a_developer_pass_free_checks(
     paused = await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))
 
     assert paused.status_code == 402 and paused.json()["error_code"] == "INSUFFICIENT_CREDITS"
-    assert paused.json()["detail"] == "Free developer checks are paused until next month. Bought checks still work."
+    # The free LLM budget is paced a day at a time: back at 00:00 UTC, like the developers' own day's budget.
+    assert paused.json()["detail"].startswith("Today's free developer checks are used up; they're back at 00:00 UTC.")
+    assert 0 < paused.json()["metadata"]["retry_after_s"] <= 24 * 3600
     assert await free.left(pool, developer["key_id"], api=True) == 20
     await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", developer["account"], PRICE)
     assert (await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))).status_code == 200

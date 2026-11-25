@@ -389,13 +389,16 @@ deep, with **no pass and nothing that names them or their device** (the client A
   zero bits of SHA-256, valid for `UNFRET_DEEP_POW_TTL_S`, used once. Without one: `428 PROOF_OF_WORK_REQUIRED`.
 - **A per-network limit** in memory (`UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, salted hashes, never stored), behind
   Cloudflare's edge rate limits, which come first (configured in Cloudflare, not here).
-- **A global LLM spend ceiling** (`src/unfret/spend.py`): every chat model call is priced from the provider's token
-  counts (`UNFRET_LLM_PRICES_EUR_PER_MTOK`, euros per million input/output tokens; a model not listed costs
-  `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`) and added up per calendar month (UTC) in `llm_spend` (one number a month).
-  Once it reaches `UNFRET_LLM_SPEND_CEILING_EUR` (€100), free deep checks answer `429 FREE_CHECKS_PAUSED` with
-  `reason: "spend_ceiling"`, `message_key: "free_checks_run_on_donations"` and `donate_url` until the 1st of next
-  month; quick checks, bought checks, developer passes' bought checks and x402 go on (a developer pass's free checks
-  pause too). Embedding calls are not metered.
+- **A free LLM budget, paced a day at a time** (`src/unfret/spend.py`): every chat model call is priced from the
+  provider's token counts (`UNFRET_LLM_PRICES_EUR_PER_MTOK`, euros per million input/output tokens; a model not
+  listed costs `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`) and added up per calendar month (UTC) in `llm_spend`: free
+  spend, and apart from it what runs for a bought check or x402 (which never counts and never pauses). All free
+  spend (shoppers' deep checks, developer passes' free checks, background work) shares `UNFRET_LLM_SPEND_CEILING_EUR`
+  (€100) a month, paced daily (`UNFRET_LLM_SPEND_DAILY_PACING`): by the end of each day it may reach the ceiling ÷
+  the month's days × the days so far, so unspent days carry over (never into the next month). Past that, free deep
+  checks answer `429 FREE_CHECKS_PAUSED` with `reason: "spend_ceiling"`, `scope: "day"`,
+  `message_key: "free_checks_run_on_donations"` and `donate_url` until 00:00 UTC; quick checks, bought checks and
+  x402 go on. Embedding calls are not metered.
 - **No report tokens**: a free check carries no `report_token` (reports are per account); its `label_token` and
   `share_token` work as for any result.
 
@@ -1163,7 +1166,8 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_DEEP_POW_BITS` / `UNFRET_DEEP_POW_TTL_S` | `20` / `300` | A free deep check's proof of work: leading zero bits of SHA-256 (each bit doubles the work), and how long a challenge stays valid |
 | `UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR` | `30` | Free deep checks per visitor network an hour (in memory, salted hashes) |
 | `UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` | `10` | Free deep checks an hour per pass from older store clients, which send a pass instead of a proof of work |
-| `UNFRET_LLM_SPEND_CEILING_EUR` | `100` | The LLM spend a calendar month (UTC) at which free deep checks pause until the 1st of next month |
+| `UNFRET_LLM_SPEND_CEILING_EUR` | `100` | The free LLM budget a calendar month (UTC); paid checks' spend never counts |
+| `UNFRET_LLM_SPEND_DAILY_PACING` | `true` | Pace the free budget a day at a time (ceiling ÷ days in the month, unspent days carry over); free checks pause until 00:00 UTC. Off: only at the month's ceiling, until the 1st |
 | `UNFRET_LLM_PRICES_EUR_PER_MTOK` / `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK` | Mistral Small 3.2 and GLM-5.3 / `2.00/6.00` | List prices per model, `model=input/output` in euros per million tokens, comma-separated; the second for any model not listed |
 | `UNFRET_DONATE_URL` | — | Where `/donate` redirects (an `https://` payment link); empty: donations aren't open |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): developer passes' day's budget over this is their day's number of free deep checks |

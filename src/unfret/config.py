@@ -273,6 +273,10 @@ class Settings(BaseSettings):
     # limit above; GET /v1/credits shows what is left of that hour as free checks, so those clients offer deep checks.
     legacy_pass_free_deep_per_hour: int = Field(default=10, ge=0)
     llm_spend_ceiling_eur: Decimal = Field(default=Decimal(100), ge=0, decimal_places=2)
+    # Pacing (unfret.spend): shoppers' free deep checks also pause, until 00:00 UTC, once the month's spend reaches the
+    # ceiling's share for the days so far (the ceiling over the month's days, times today's day of the month), so a
+    # day's unspent share carries over to the following days. Developer passes and x402 stop at the ceiling only.
+    llm_spend_daily_pacing: bool = True
     llm_prices_eur_per_mtok: str = "mistral-small-3.2-24b-instruct-2506=0.15/0.35,glm-5.3=1.80/5.50"
     llm_price_unlisted_eur_per_mtok: str = "2.00/6.00"
     # Where "Support Unfret" goes: /donate redirects here (a payment link that may be replaced, so clients only ever

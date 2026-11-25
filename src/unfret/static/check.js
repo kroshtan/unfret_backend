@@ -562,9 +562,9 @@ const QUICK_BECAUSE = {
     short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
-    heading: "Free deep checks are paused until next month",
-    body: "Free checks run on donations, and this month's are used up. Here's a quick check instead: it reads only this page, by its rules.",
-    short: "Free deep checks run on donations, and this month's are used up, so here's a quick check.",
+    heading: "Free deep checks are paused until tomorrow",
+    body: "Free checks run on donations, and today's share is used up. Here's a quick check instead: it reads only this page, by its rules.",
+    short: "Free deep checks run on donations, and today's share is used up, so here's a quick check.",
     donate: true,
   },
   none: {

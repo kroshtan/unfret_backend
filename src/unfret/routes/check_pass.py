@@ -25,7 +25,7 @@ import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from unfret import card, observations, result_cache, usage, verdict_store
+from unfret import card, observations, result_cache, spend, usage, verdict_store
 from unfret.auth import get_credits
 from unfret.config import settings
 from unfret.credits import free, keys
@@ -211,6 +211,7 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
     charge = await analyze._debit(request, account, api=True) if body.tier == "deep" else analyze.Charge(account)
+    spend.paying(charge.paid)  # bought: paid for; a developer pass's free check: the free budget
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
             with observations.observed_as(_provenance(request, body, account)):

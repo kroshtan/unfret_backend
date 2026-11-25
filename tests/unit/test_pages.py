@@ -231,9 +231,9 @@ def test_no_page_carries_its_own_header_or_footer() -> None:
         assert "<header" not in text and "<footer" not in text, page.name
 
 
-async def test_the_welcome_page_offers_checks_rather_than_the_extension(client: httpx.AsyncClient) -> None:
+async def test_the_welcome_page_offers_a_check_rather_than_the_extension(client: httpx.AsyncClient) -> None:
     nav = (await client.get("/welcome")).text.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
-    assert '<a class="cta" href="/checkout">Buy checks</a>' in nav
+    assert '<a class="cta" href="/check">Check a link</a>' in nav  # checks are free: nothing to buy
 
 
 async def test_the_typeface_is_served_from_here(client: httpx.AsyncClient) -> None:
@@ -405,7 +405,7 @@ async def test_the_claude_page_exists_only_while_oauth_is_on(
 
 async def test_developer_page_marks_balance_and_pauses_as_the_code_answers(client: httpx.AsyncClient) -> None:
     text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text)).split())
-    assert "402 INSUFFICIENT_CREDITS on a developer pass and 429 FREE_CHECKS_PAUSED on other passes" in text
+    assert "402 INSUFFICIENT_CREDITS until it resets" in text and "x402 go on" in text
 
 
 async def test_the_developer_page_has_calls_a_real_response_speed_and_limits(client: httpx.AsyncClient) -> None:
@@ -670,3 +670,22 @@ def test_the_checklist_heading_adds_up_and_the_charge_line_is_a_sentence(tmp_pat
         "You checked this page recently, so no new check was used.",
         "This page couldn't be assessed, so no check was used.",
     ]
+
+
+async def test_the_developer_page_says_the_terms_and_who_may_get_in_touch(client: httpx.AsyncClient) -> None:
+    text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text)).split())
+    assert f"Developer pass: {settings.developer_free_checks} free deep checks, then packs of checks." in text
+    assert "x402:" in text and "Solana" in text
+    assert "Organizations that protect consumers (consumer groups, regulators, researchers) are welcome" in text
+    assert "risk is the overall risk level, higher is worse" in text
+
+
+async def test_the_old_pass_pages_speak_to_developers(client: httpx.AsyncClient) -> None:
+    for path, line in (
+        ("/checkout", "Buy checks for a developer pass"),
+        ("/my-checks", "Your developer pass"),
+        ("/connect", "shoppers don't need one, checks are free"),
+    ):
+        text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get(path)).text)).split())
+        assert line in text, path
+        assert "gift code" not in text.lower() and "invite" not in text.lower(), path

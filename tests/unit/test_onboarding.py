@@ -35,8 +35,9 @@ async def test_welcome_page_offers_two_ways_in(client: httpx.AsyncClient) -> Non
     csp = response.headers["content-security-policy"]
     assert "default-src 'none'" in csp and "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
     page = response.text
-    assert "<h1>Check before you pay</h1>" in page
-    assert 'href="/checkout"' in page and 'href="#have-key"' in page
+    assert "<h1>Checks are free</h1>" in page and "risk level" in page
+    assert 'href="/checkout' not in page and 'id="have-key"' in page  # nothing to buy; a developer's pass works
+    assert 'href="/support">Support Unfret</a>' in page
     assert f'"/static/{asset_tag()}/site.css"' in page and '"/static/site.css"' not in page
     # Nothing loaded from elsewhere: only our own script, and the only outside addresses are the footer's links.
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
@@ -300,11 +301,11 @@ def test_connect_page_hands_the_session_over_again_on_a_click() -> None:
 async def test_the_welcome_page_after_a_free_pass_leads_straight_to_a_check(client: httpx.AsyncClient) -> None:
     page = (await client.get("/welcome?free=5")).text
 
-    assert "You have 5 free checks" in page and "{{" not in page
+    assert "You're ready: checks are free" in page and "{{" not in page
     assert "No code, no account, nothing to buy." in page
     assert 'href="/test-shop"' in page and "Check this page" in page
     main = page.split("<main", 1)[1].split("</main>", 1)[0]
-    assert main.count('href="/checkout') == 1  # buying stays one quiet link away
+    assert 'href="/checkout' not in main and "packs" not in main  # shoppers buy nothing
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
         f"/static/{asset_tag()}/welcome.js",
     ]
@@ -350,7 +351,7 @@ def test_the_link_checker_runs_free_deep_checks_without_a_pass() -> None:
 async def test_the_welcome_page_waits_while_the_extension_makes_its_pass(client: httpx.AsyncClient) -> None:
     page = (await client.get("/welcome?setup=1")).text
 
-    assert "Getting your free checks ready" in page and "{{" not in page
+    assert "Getting Unfret ready" in page and "{{" not in page
     assert re.findall(r'<script[^>]*src="([^"]+)"', page) == [
         f"/static/{asset_tag()}/welcome.js",
     ]
@@ -359,9 +360,11 @@ async def test_the_welcome_page_waits_while_the_extension_makes_its_pass(client:
 
 async def test_the_welcome_page_says_why_a_pass_came_without_free_checks(client: httpx.AsyncClient) -> None:
     had = (await client.get("/welcome?note=had-free")).text
-    assert "This browser has had its free checks already" in had and "<h1>Check before you pay</h1>" in had
+    # Older extensions still say why their pass has no free checks: checks are free now, so nothing is missing.
+    assert "Checks are free for every shopper now" in had and "<h1>Checks are free</h1>" in had
+    assert "gift code" not in had and "buy a pack" not in had
     none = (await client.get("/welcome?note=none-today")).text
-    assert "There were no free checks to give just now" in none
+    assert "Checks are free for every shopper now" in none
     for path in ("/welcome", "/welcome?note=other", "/welcome?note=%3Cb%3E"):
         page = (await client.get(path)).text
         assert "{{" not in page and 'class="note"' not in page and 'role="status"' not in page
@@ -487,7 +490,7 @@ async def test_the_welcome_page_says_once_that_an_old_pass_ended(client: httpx.A
     for path in ("/welcome?setup=1&renewed=1", "/welcome?free=5&renewed=1", "/welcome?note=had-free&renewed=1"):
         page = (await client.get(path)).text
         assert page.count(line) == 1 and "{{" not in page, path
-    assert "You have 5 free checks" in (await client.get("/welcome?free=5&renewed=1")).text
+    assert "checks are free" in (await client.get("/welcome?free=5&renewed=1")).text
     for path in ("/welcome?setup=1", "/welcome?free=5", "/welcome", "/welcome?renewed=2"):
         page = (await client.get(path)).text
         assert "new free start" not in page and "{{" not in page, path

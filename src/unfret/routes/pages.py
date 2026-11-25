@@ -761,7 +761,7 @@ def objection(app: str | None = None) -> HTMLResponse:
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout() -> HTMLResponse:
     """
-    Get checks: by card, with a gift code, as a top-up of a key, or with SOL or USDC.
+    Buy checks for a developer pass (or an older store client's pass): by card, as a top-up, or with SOL or USDC.
 
     A new key shown there is handed to the Unfret extension in this browser, if it answers (``handoff.js``).
 
@@ -772,10 +772,8 @@ def checkout() -> HTMLResponse:
 
 # What the welcome page says above its three ways in when the extension's new pass came without free checks.
 WELCOME_NOTES = {
-    "had-free": "This browser has had its free checks already, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, top up or use a gift code from a friend.",
-    "none-today": "There were no free checks to give just now, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, top up or use a gift code from a friend.",
+    "had-free": "Checks are free for every shopper now: your extension needs nothing more to check pages.",
+    "none-today": "Checks are free for every shopper now: your extension needs nothing more to check pages.",
 }
 # Above it all when the extension's old pass was retired (``?renewed=1``, the 0.13.0 fresh start): calm, one line.
 RENEWED_NOTE = '<p class="note" role="status">Unfret has a new free start: your old pass has ended.</p>'
@@ -810,7 +808,7 @@ def welcome(free: int = 0, setup: int = 0, note: str = "", renewed: int = 0) -> 
         return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
     text = WELCOME_NOTES.get(note)
     shown = ended + (f'<p class="note" role="status">{html.escape(text)}</p>' if text else "")
-    page = with_store_links(template("welcome.html", cta=("/checkout", "Buy checks")))
+    page = with_store_links(template("welcome.html", cta=("/check", "Check a link")))
     return HTMLResponse(versioned(page.replace("{{free_note}}", shown)), headers=PAGE_HEADERS)
 
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#1f8a70">
-  <title>My checks · Unfret</title>
+  <title>Developer pass · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/my-checks.js"></script>
@@ -13,7 +13,9 @@
 <body class="app">
   {{header}}
   <main class="mine">
-    <h1>My checks</h1>
+    <h1>Your developer pass</h1>
+    <p class="muted small">For the API, the MCP server and passes from older versions of the extension and the app.
+      Shoppers don't need a pass: <a href="/check">checks are free</a>.</p>
 
     <!-- A backup code made on /checkout that its owner hasn't confirmed saving yet. -->
     <section id="save-backup" class="panel save-backup" aria-labelledby="save-backup-heading" hidden>
@@ -75,13 +77,13 @@
 
     <!-- Nothing on this device yet. -->
     <section id="mine-none" aria-label="Get started" hidden>
-      <p class="lead">Your checks live on an Unfret pass, which you get with your first checks. There's none on this
-        device yet.</p>
+      <p class="lead">There's no Unfret pass on this device yet. A pass holds a developer's checks for the API and
+        the MCP server.</p>
       <ul class="paths two">
         <li class="main">
-          <h2>Get checks</h2>
-          <p>Pay once, no subscription, and checks never expire. Your pass is made for you.</p>
-          <p class="buttons"><a class="button primary" href="/checkout">Buy checks</a></p>
+          <h2>Get a developer pass</h2>
+          <p>It comes with free deep checks for the API; after them, top up by the amount, with no subscription.</p>
+          <p class="buttons"><a class="button primary" href="/developers#developer-pass">Make a developer pass</a></p>
         </li>
         <li>
           <h2>I have a pass</h2>

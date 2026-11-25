@@ -29,6 +29,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from unfret import __version__, accuracy, clients_info, levels, shopper
 from unfret.config import settings
 from unfret.credits import topup as topups
+from unfret.credits import vat
 from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
@@ -672,18 +673,25 @@ def money() -> HTMLResponse:
 DONATE_CLICKS = "donate_clicks"
 
 
+# What a small donation keeps free, in the visitor's currency: dollars for the US (Cloudflare's country), else euros.
+DONATION_EXAMPLE = {"usd": ("$5", "dollar"), "eur": ("€5", "euro")}
+
+
 @router.get("/support", response_class=HTMLResponse)
-def support() -> HTMLResponse:
+def support(request: Request) -> HTMLResponse:
     """
     Support Unfret: what a donation pays for (the free deep checks), and that it buys nothing.
 
+    :param request: The incoming request (Cloudflare's country hint picks dollars or euros).
     :return: The page.
     """
     if settings.donate_url:
         button = '<p><a class="button primary large" href="/donate">Donate</a></p>'
     else:
         button = '<p class="notice">Donations aren\'t open yet.</p>'
+    amount, unit = DONATION_EXAMPLE["usd" if vat.edge_country(request.headers) == "US" else "eur"]
     page = template("support.html", "/support").replace("{{donate}}", button)
+    page = page.replace("{{donation_amount}}", amount).replace("{{donation_unit}}", unit)
     return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
 
 
@@ -761,7 +769,7 @@ def objection(app: str | None = None) -> HTMLResponse:
 @router.get("/checkout", response_class=HTMLResponse)
 def checkout() -> HTMLResponse:
     """
-    Get checks: by card, with a gift code, as a top-up of a key, or with SOL or USDC.
+    Buy checks for a developer pass (or an older store client's pass): by card, as a top-up, or with SOL or USDC.
 
     A new key shown there is handed to the Unfret extension in this browser, if it answers (``handoff.js``).
 
@@ -772,10 +780,8 @@ def checkout() -> HTMLResponse:
 
 # What the welcome page says above its three ways in when the extension's new pass came without free checks.
 WELCOME_NOTES = {
-    "had-free": "This browser has had its free checks already, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, top up or use a gift code from a friend.",
-    "none-today": "There were no free checks to give just now, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, top up or use a gift code from a friend.",
+    "had-free": "Checks are free for every shopper now: your extension needs nothing more to check pages.",
+    "none-today": "Checks are free for every shopper now: your extension needs nothing more to check pages.",
 }
 # Above it all when the extension's old pass was retired (``?renewed=1``, the 0.13.0 fresh start): calm, one line.
 RENEWED_NOTE = '<p class="note" role="status">Unfret has a new free start: your old pass has ended.</p>'
@@ -810,7 +816,7 @@ def welcome(free: int = 0, setup: int = 0, note: str = "", renewed: int = 0) -> 
         return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
     text = WELCOME_NOTES.get(note)
     shown = ended + (f'<p class="note" role="status">{html.escape(text)}</p>' if text else "")
-    page = with_store_links(template("welcome.html", cta=("/checkout", "Buy checks")))
+    page = with_store_links(template("welcome.html", cta=("/check", "Check a link")))
     return HTMLResponse(versioned(page.replace("{{free_note}}", shown)), headers=PAGE_HEADERS)
 
 

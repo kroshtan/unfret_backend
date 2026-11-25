@@ -1233,8 +1233,12 @@ async def llms_txt(request: Request) -> str:
     return f"""# Unfret
 
 > Risk signals for AI shopping agents: is this store, marketplace listing, second-hand ad or service provider's
-> page showing signs of scams, dropshipping of generic goods, fake reviews or dark patterns? Returns evidence and an
-> action (allow, warn or block), never a "scam" label.
+> page showing signs of scams, dropshipping of generic goods, fake reviews or dark patterns? Returns evidence, a risk
+> level (0-4) and an action (allow, warn or block), never a "scam" label.
+
+Unfret is a consumer protection tool: free for shoppers in the browser extension, the Android app and at
+{url}/check. This file is for agents and developers, who pay for checks (a developer pass's free checks, then
+top-ups by the amount; or x402 per call). Organizations that protect consumers can get in touch: hello@unfret.net.
 
 ## Three ways to use Unfret
 
@@ -1316,8 +1320,11 @@ pass at {url}/checkout; bought checks work everywhere. GET {url}/v1/credits with
 ## Response
 
 {{"action": "allow|warn|block", "risk_score": 0..1, "confidence": 0..1, "flags": [{{"type", "evidence", "weight"}}],
-"policy_applied", "tier", "cached", "checked_at", "model_version", "band"}}. "warn" means: ask your human before
-buying.
+"policy_applied", "tier", "cached", "checked_at", "model_version", "band", "risk"}}. "warn" means: ask your human
+before buying. `risk` is the overall risk level a shopper sees, higher is worse: {{"level": 0-4, "key", "label",
+"because": [{{"type", "level", "title"}}], "explanation"}} (0 none, 1 pressure and tricks, 2 may cost more than it's
+worth, 3 may not work as described, 4 may not arrive or may not be safe); `because` lists the findings behind it,
+worst first. `band` is deprecated in favour of `risk`.
 Under the balanced and lenient policies you are never told to warn about a page a shopper would be shown as
 "reliable" or "concerns" (the band); choose strict to be warned about those too. A shopper reads the four bands
 reliable, concerns, careful and junk_or_scam as "Looks fine", "Worth a look", "Think twice" and "Serious concerns".

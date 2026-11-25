@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Unfret for developers and AI agents, three ways in: the MCP server (remote or local), the HTTP API with an Unfret pass (a developer pass comes with free checks), or x402 pay-per-call with no account. Returns allow, warn or block with the evidence.">
-  <title>For developers and AI agents · Unfret</title>
+  <meta name="description" content="Unfret for developers and shopping agents: the paid API and MCP server. A developer pass comes with free deep checks, then top-ups by the amount; or pay per call over x402 in USDC on Solana or Base, with no account. Returns allow, warn or block, the risk level and the evidence.">
+  <title>For developers and shopping agents · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
   <script type="module" src="/static/developers.js"></script>
@@ -17,13 +17,19 @@
     <section class="hero dev-hero">
       <div class="wrap">
         <div>
-          <p class="eyebrow">For developers and AI agents</p>
+          <p class="eyebrow">For developers and shopping agents</p>
           <h1>Ask Unfret before your agent pays</h1>
           <p class="lead">One call per check: does this product on a marketplace or web shop, second-hand ad, or
             tradesperson's or local service's website show signs of a scam, dropshipped generic goods, fake reviews
             or pressure tricks? The answer is an action, <code>allow</code>, <code>warn</code> or
-            <code>block</code>, with the evidence behind it. Use it from an MCP client, from the API with an Unfret
-            pass, or pay per call over x402 with no account.</p>
+            <code>block</code>, with the same risk level (0 to 4) a shopper sees and the evidence behind it. Use it
+            from an MCP client, from the API with an Unfret pass, or pay per call over x402 with no account.</p>
+          <ul class="dev-terms">
+            <li><b>Developer pass:</b> {{developer_checks}} free deep checks, then top up by the amount. Quick checks are
+              free.</li>
+            <li><b>x402:</b> {{quick_price}} quick, {{deep_price}} deep, paid per call in {{payment_options}}.</li>
+            <li><b>Shoppers</b> check for free in the extension, the app and on this site; this page is for code.</li>
+          </ul>
           <div class="buttons">
             <a class="button primary large" href="#ways">Three ways to integrate</a>
             <a class="button large" href="#developer-pass">Get a developer pass</a>
@@ -46,7 +52,7 @@
       <div class="wrap">
         <div class="section-head">
           <h2 id="ways-heading">Three ways to integrate</h2>
-          <p>All three run the same check a shopper gets in the browser extension, at the same prices. The examples
+          <p>All three run the same check shoppers get for free in the browser extension. The examples
             check the test shop, a made-up store with every trick Unfret catches.</p>
         </div>
         <ol class="ways">
@@ -108,9 +114,9 @@
           <p>{{developer_checks}} free deep checks, for trying Unfret out as you build and test your agent: a few
             seconds of work in this browser, no account. One per browser, and one a day per network. Quick checks
             are always free.</p>
-          <p class="small">The free checks are for the API and the MCP server (<code>POST /v1/check</code>): they
-            don't count in the Unfret extension, the phone app or the link checker on this site. Checks you buy
-            for the pass work everywhere.</p>
+          <p class="small">The free checks are for the API and the MCP server (<code>POST /v1/check</code>). After
+            them, <a href="/checkout">top up the pass</a>: {{packs_line}}. No subscription, and
+            checks don't expire.</p>
           <p class="buttons"><button type="button" id="dev-pass-make" class="primary">Make a developer pass</button></p>
           <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>
           <div id="dev-pass-result" hidden></div>
@@ -136,7 +142,10 @@
         <p class="small muted"><code>action</code> follows the request's <code>policy</code> (<code>strict</code>,
           <code>balanced</code> or <code>lenient</code>); <code>band</code> is what a shopper would see:
           <code>reliable</code> "Looks fine", <code>concerns</code> "Worth a look", <code>careful</code> "Think twice",
-          <code>junk_or_scam</code> "Serious concerns". Flags are evidence, never a verdict that a shop is a scam.</p>
+          <code>junk_or_scam</code> "Serious concerns". <code>risk</code> is the overall risk level, higher is worse
+          (0 none, 1 pressure and tricks, 2 may cost more than it's worth, 3 may not work as described, 4 may not arrive
+          or may not be safe), with <code>because</code>, the findings behind it, worst first. Flags are evidence,
+          never a verdict that a shop is a scam.</p>
       </div>
     </section>
 
@@ -180,10 +189,9 @@
               pass, or is free</td></tr>
             <tr><td>Developer pass</td><td>{{developer_checks}} free deep checks, for the API and the MCP server
               (<code>POST /v1/check</code>); one a day per network</td></tr>
-            <tr><td>Free deep checks, everyone together</td><td>a daily budget, the developer passes' apart from the
-              shoppers'. Once it's used, until 00:00 UTC, a deep check that only free checks could pay for answers
-              <code>402 INSUFFICIENT_CREDITS</code> on a developer pass and <code>429 FREE_CHECKS_PAUSED</code> on
-              other passes. Bought and quick checks go on</td></tr>
+            <tr><td>Developer passes' free checks, everyone together</td><td>a daily budget and a monthly ceiling.
+              Once either is reached, a deep check that only free checks could pay for answers
+              <code>402 INSUFFICIENT_CREDITS</code> until it resets. Bought checks, quick checks and x402 go on</td></tr>
           </tbody>
         </table>
       </div>
@@ -289,8 +297,8 @@
           examples in curl, JavaScript, Go and PHP.</p>
         <p>For the card a shopper sees (a band, a headline, reasons and what looks good), <code>POST
           /v1/analyze</code> takes the same pass and streams progress at <code>/v1/analyze/stream</code>; a developer
-          pass's free checks don't count there, only bought ones. <a href="/my-checks">My checks</a> shows what's
-          left.</p>
+          pass's free checks don't count there, only bought ones. <a href="/my-checks">Your developer pass</a> shows
+          what's left.</p>
         <p id="expiry"><b>Passes don't expire.</b> Neither do the checks on them, and Unfret doesn't delete a pass for
           not being used. A pass stops working when it is replaced with its backup code or deleted on request. Unfret
           can also retire old passes in a one-off clean-up, as at the fresh start when free checks began; by
@@ -394,6 +402,8 @@ decision = Unfret(pass_="ufk_…").check("https://shop.example/p/42")
             </ul>
             <p class="small muted">Unfret is run by one person: there's no SLA, and a verdict is a signal, not a
               certainty. <a href="/accuracy">How often it's right</a>, measured.</p>
+            <p class="small" id="organizations">Organizations that protect consumers (consumer groups, regulators,
+              researchers) are welcome to get in touch: <a href="mailto:hello@unfret.net">hello@unfret.net</a>.</p>
           </div>
         </div>
       </div>

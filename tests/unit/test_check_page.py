@@ -122,8 +122,9 @@ def test_the_page_keeps_only_the_sign_in() -> None:
     # Three localStorage keys, every access wrapped in try/catch (private modes throw): the account (get, set,
     # remove), that this browser had its free pass (get, set; no link to the pass or anything checked), and a pass
     # made here with its backup code, as /checkout keeps one (get, set; get and remove once that pass has ended).
-    assert script.count("localStorage.") == 3 + 2 + 2 + 2
-    assert script.count('"unfret-account"') == 1
+    # And, only for someone who asks to be on the leaderboard, a contributor key (get, set, remove).
+    assert script.count("localStorage.") == 3 + 2 + 2 + 2 + 3
+    assert script.count('"unfret-account"') == 1 and script.count('"unfret-contributor-key"') == 1
     assert script.count('"unfret-free-pass"') == 1 and script.count('"unfret-new-key"') == 1
     assert "sessionStorage" not in script and "indexedDB" not in script
     # The clipboard is read only from the "Paste link" button's handler.
@@ -457,3 +458,102 @@ async def test_a_fetched_page_comes_with_its_own_address(
     page = await page_fetch.fetch_page(asked)
 
     assert page.url == address and "brass desk lamp" in page.html
+
+
+# ── The result card: the risk level first; "Wrong result?" in one flow ──────────────────────────────────────────
+
+
+def _render(tmp_path: Path, expression: str) -> Any:
+    for name in ("check-render.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    (tmp_path / "package.json").write_text('{"type": "module"}')
+    script = (
+        f"import * as r from {json.dumps((tmp_path / 'check-render.js').as_uri())};"
+        f"process.stdout.write(JSON.stringify({expression}));"
+    )
+    run = subprocess.run(["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True)
+    return json.loads(run.stdout)
+
+
+@pytest.mark.usefixtures("node")
+def test_the_level_its_words_and_its_reasons_worst_first(tmp_path: Path) -> None:
+    risk = {
+        "level": 3,
+        "key": "doesnt_work",
+        "label": "May not work as described",
+        "because": [
+            {"type": "timer_resets", "level": 1, "title": "Fake countdown"},
+            {"type": "claim_contradicted", "level": 3, "title": "Claims that contradict"},
+            {"type": "generic_brand", "level": 2, "title": "Unknown brand"},
+            {"type": "bad", "level": 2},
+        ],
+        "modifier": {"direction": "lowered", "type": "protected_payment", "text": "Lowered: card payment."},
+        "explanation": "Level 3 because: Claims that contradict.",
+    }
+    out = _render(
+        tmp_path,
+        f"[r.riskOf({{ verdict: {{ band: 'careful', risk: {json.dumps(risk)} }} }}),"
+        " r.riskOf({ verdict: { band: 'careful' } }), r.riskOf({ verdict: { risk: { level: 7 } } }),"
+        " r.riskOf({ verdict: { risk: { level: 0, because: [] } } })]",
+    )
+    assert out[0] == {
+        "level": 3,
+        "label": "May not work as described",
+        "explanation": "Level 3 because: Claims that contradict.",
+        "because": [
+            {"type": "claim_contradicted", "level": 3, "title": "Claims that contradict"},
+            {"type": "generic_brand", "level": 2, "title": "Unknown brand"},
+            {"type": "timer_resets", "level": 1, "title": "Fake countdown"},
+        ],
+        "modifier": "Lowered: card payment.",
+    }
+    assert out[1] is None and out[2] is None  # an older result keeps its band
+    assert out[3]["label"] == "No concerns found" and out[3]["because"] == []
+    # The words match the catalogue's, for a result that doesn't carry its own.
+    words = _render(tmp_path, "r.LEVEL_WORD")
+    labels = json.loads((STATIC_DIR.parent / "copy" / "en.json").read_text())["levels"]["labels"]
+    keys = {"4": "wont_arrive", "3": "doesnt_work", "2": "overpaying", "1": "manipulation", "0": "none"}
+    assert words == {n: labels[k] for n, k in keys.items()}
+
+
+@pytest.mark.usefixtures("node")
+def test_a_report_names_only_findings_the_result_showed_and_a_key_is_43_characters(tmp_path: Path) -> None:
+    verdict = {
+        "reasons": [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "overall", "title": "Small signs"}],
+        "risk": {
+            "because": [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "new_domain", "title": "New"}]
+        },
+    }
+    out = _render(
+        tmp_path,
+        f"[r.reportableFindings({{ verdict: {json.dumps(verdict)} }}), r.reportableFindings(null),"
+        " r.newContributorKey(new Uint8Array(32).fill(255)), r.newContributorKey().length]",
+    )
+    assert out[0] == [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "new_domain", "title": "New"}]
+    assert out[1] == []
+    assert out[2] == "_" * 42 + "8" and out[3] == 43
+
+
+def test_wrong_result_is_one_flow_without_the_pass() -> None:
+    script = (STATIC_DIR / "check.js").read_text()
+    assert '"/v1/labels"' in script and '"/v1/reports"' not in script and "report_token" not in script
+    report = script.split("async function sendReport()", 1)[1].split("\n}\n", 1)[0]
+    assert "headers(" not in report and "Authorization" not in report  # never the pass with a report
+    assert "request: last.body" in report and "label_token" in report
+    page = (STATIC_DIR / "check.html").read_text()
+    assert 'name="level" value="4"' in page and 'name="level" value="0"' in page and 'id="report-wrong"' in page
+    assert 'name="reason"' not in page  # the old scam/junk choice is gone
+    # A visitor isn't asked for a pass or sent to buy checks.
+    assert "Buy checks" not in page and "/checkout?mode=code" not in page and "showSignIn(false);" in script
+
+
+@pytest.mark.usefixtures("node")
+def test_a_paused_suggestion_links_to_donations(tmp_path: Path) -> None:
+    offer = {"suggested": True, "text": "A deep check would look the shop up.", "cost": "Paused."}
+    out = _render(
+        tmp_path,
+        f"[r.deepHintOf({{ tier: 'quick', verdict: {{ deep_check: {json.dumps(offer | {'action': 'donate'})} }} }}),"
+        f" r.deepHintOf({{ tier: 'quick', verdict: {{ deep_check: {json.dumps(offer)} }} }})]",
+    )
+    assert out[0]["action"] == "donate" and out[0]["label"] == "Support Unfret"
+    assert out[1]["action"] == "none" and out[1]["label"] == ""  # a Play build's pause: no button

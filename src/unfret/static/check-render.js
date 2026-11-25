@@ -1,5 +1,6 @@
-// How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the result card. The verdict
-// band as a word and a sign and the headline; when part of the check didn't finish, one line that says so; the same
+// How a result looks, shared by the link checker (/check) and shared results (/r/{id}): the result card. The risk
+// level (0 none … 4 worst) as a number and words, its one-line explanation and the reasons behind it, worst first (an
+// older result without a level keeps its verdict band as a word and a sign, and its headline); when part of the check didn't finish, one line that says so; the same
 // product sold elsewhere, first, with both photos; the findings
 // as cards, each with where its evidence comes from; one suggested next step; and what was checked. The extension
 // and the Android app show the same card.
@@ -219,19 +220,95 @@ function checklistNode(items) {
   return ul;
 }
 
+// A level's words when a result doesn't carry its own (the copy catalogue's, en.json "levels").
+export const LEVEL_WORD = {
+  4: "May not arrive, or may not be safe",
+  3: "May not work as described",
+  2: "May cost more than it's worth",
+  1: "Pressure and tricks",
+  0: "No concerns found",
+};
+// How many reasons behind a level show before "Show N more".
+export const BECAUSE_SHOWN = 5;
+
 /**
- * The verdict and its card as nodes: `band` is the CSS band (null: not assessed), `label` and `symbol` the band in
+ * The result's risk level as plain data, or null for a result without one (older, shared before levels, not assessed):
+ * `{ level, label, explanation, because: [{ type, level, title }], modifier }`, the reasons worst first.
+ */
+export function riskOf(result) {
+  const risk = result?.verdict?.risk ?? result?.risk;
+  const level = Number(risk?.level);
+  if (!risk || !Number.isInteger(level) || level < 0 || level > 4) return null;
+  const because = (Array.isArray(risk.because) ? risk.because : [])
+    .filter((b) => b && typeof b.title === "string" && b.title)
+    .map((b) => ({ type: String(b.type ?? ""), level: Number.isInteger(b.level) ? b.level : null, title: b.title }))
+    .sort((a, b) => (b.level ?? -1) - (a.level ?? -1));
+  return {
+    level,
+    label: typeof risk.label === "string" && risk.label ? risk.label : LEVEL_WORD[level],
+    explanation: typeof risk.explanation === "string" ? risk.explanation : "",
+    because,
+    modifier: typeof risk.modifier?.text === "string" && risk.modifier.text ? risk.modifier.text : null,
+  };
+}
+
+function becauseList(items) {
+  const ul = el("ul", "because");
+  for (const item of items) {
+    const li = el("li");
+    const num = el("span", "level-num", item.level === null ? "–" : String(item.level));
+    if (item.level !== null) li.className = `level-${item.level}`;
+    num.setAttribute("aria-hidden", "true");
+    li.append(num, el("span", undefined, item.title));
+    if (item.level !== null) li.append(el("span", "visually-hidden", ` (level ${item.level})`));
+    ul.append(li);
+  }
+  return ul;
+}
+
+/** The level's head, explanation and reasons as nodes. */
+export function riskNodes(risk) {
+  const head = el("div", `verdict level-${risk.level}`);
+  const num = el("span", "level-num", String(risk.level));
+  num.setAttribute("aria-hidden", "true");
+  const words = el("div");
+  words.append(el("p", "scale", `Risk level ${risk.level} of 4`), el("p", "label", risk.label));
+  if (risk.modifier) words.append(el("p", "modifier", risk.modifier));
+  head.append(num, words);
+  const nodes = [head];
+  if (risk.explanation) nodes.push(el("p", "headline", risk.explanation));
+  if (risk.because.length) {
+    nodes.push(el("h2", undefined, "Why, worst first"), becauseList(risk.because.slice(0, BECAUSE_SHOWN)));
+    const rest = risk.because.slice(BECAUSE_SHOWN);
+    if (rest.length) {
+      const more = el("details", "because-more");
+      more.append(el("summary", undefined, `Show ${rest.length} more`), becauseList(rest));
+      nodes.push(more);
+    }
+  }
+  return nodes;
+}
+
+/**
+ * The verdict and its card as nodes: the risk level when the result has one, else (an older result) `band` is the CSS band (null: not assessed), `label` and `symbol` the band in
  * words and as a sign (drawn by the stylesheet). The scorer's details (signals, model, confidence) stay in the API for
  * those who want them; a shopper gets the findings, each with what it means and where it comes from.
  */
 export function resultNodes(result, { band, label, symbol }) {
   const verdict = result.verdict;
-  const head = el("div", `verdict ${band ?? "none"}`);
-  const sign = el("span", "symbol", symbol);
-  sign.setAttribute("aria-hidden", "true");
-  head.append(sign, el("p", "label", label));
-  const nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
-  const view = cardOf(result, band, location.origin);
+  const risk = riskOf(result);
+  let nodes;
+  if (risk) {
+    nodes = riskNodes(risk);
+  } else {
+    const head = el("div", `verdict ${band ?? "none"}`);
+    const sign = el("span", "symbol", symbol);
+    sign.setAttribute("aria-hidden", "true");
+    head.append(sign, el("p", "label", label));
+    nodes = [head, el("p", "headline", headlineOf(verdict?.headline ?? result.explanation, label))];
+  }
+  // With a level, "nothing to note" is level 0: its good points come first.
+  const view = cardOf(result, risk ? (risk.level === 0 ? "reliable" : "risk") : band, location.origin);
 
   // Right under the headline: why the verdict may be milder than it should be.
   if (view.incomplete) nodes.push(el("p", "incomplete", view.incomplete));
@@ -280,14 +357,14 @@ export function chargeNoteOf(result) {
 export function deepHintOf(result) {
   const offer = result?.verdict?.deep_check;
   if (result?.tier !== "quick" || !offer?.suggested || !offer.text) return null;
-  const action = offer.action === "run_deep" ? "run_deep" : "get_checks";
+  const action = ["run_deep", "donate"].includes(offer.action) ? offer.action : offer.action ? "get_checks" : "none";
   return {
     text: offer.text,
     cost: offer.cost ?? "",
     action,
     label:
       offer.action_label ||
-      (action === "run_deep" ? "Run a deep check" : action === "donate" ? "Support Unfret" : "Get checks"),
+      (action === "run_deep" ? "Run a deep check" : action === "donate" ? "Support Unfret" : action === "none" ? "" : "Get checks"),
     quiet: offer.quiet === true,
   };
 }
@@ -300,6 +377,7 @@ export function deepHintNode(hint, { run, checkoutHref }) {
   box.setAttribute("aria-labelledby", text.id);
   box.append(text);
   if (hint.cost) box.append(el("p", "cost", hint.cost));
+  if (hint.action === "none") return box;
   const row = el("p", "buttons");
   if (hint.action === "run_deep") {
     const button = el("button", undefined, hint.label);
@@ -313,4 +391,20 @@ export function deepHintNode(hint, { run, checkoutHref }) {
   }
   box.append(row);
   return box;
+}
+
+// ── "Wrong result?" (check.js): what a report may name, and the contributor key ─────────────────────────────
+
+/** The findings a report can call wrong: those the result showed (its cards and the reasons behind its level). */
+export function reportableFindings(result) {
+  const seen = new Map();
+  for (const item of [...(result?.verdict?.reasons ?? []), ...(result?.verdict?.risk?.because ?? [])]) {
+    if (item?.type && item.title && item.type !== "overall" && !seen.has(item.type)) seen.set(item.type, item.title);
+  }
+  return [...seen].map(([type, title]) => ({ type, title }));
+}
+
+/** 32 random bytes in base64url without padding (43 characters), as /v1/labels expects. */
+export function newContributorKey(bytes = crypto.getRandomValues(new Uint8Array(32))) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }

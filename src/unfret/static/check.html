@@ -63,20 +63,18 @@
         {{examples}}
       </ul>
     </section>
-    <p id="have-pass-row" class="small" hidden><a id="have-pass" href="#sign-in">I already have a pass</a></p>
+    <p id="have-pass-row" class="small muted" hidden>Checks are free, no pass needed.
+      <a id="have-pass" href="#sign-in">Use a developer pass with bought checks</a></p>
 
     <section id="sign-in" class="panel get-started" aria-labelledby="sign-in-heading" hidden>
-      <h2 id="sign-in-heading">Get checks to start</h2>
-      <p id="sign-in-note">Quick checks are free. Deep checks are topped up by the amount, with no subscription and no account.</p>
-      <p class="buttons">
-        <a class="button primary" href="/checkout">Buy checks</a>
-        <a class="button" href="/checkout?mode=code">I have a code</a>
-      </p>
+      <h2 id="sign-in-heading">Use a pass with bought checks</h2>
+      <p id="sign-in-note">Checks are free for shoppers, with no pass. A developer pass with bought checks can pay for
+        checks here instead.</p>
 
       <details class="choice" id="choice-key">
-        <summary>I already have a pass</summary>
-        <p class="small">Your Unfret pass came with your checks. Paste it here, or open Unfret's
-          <a href="/my-checks">My checks</a> in the browser where you bought them and choose “Use on your phone”.</p>
+        <summary>Paste your pass</summary>
+        <p class="small">Paste your Unfret pass here, or open <a href="/my-checks">your developer pass</a> in the
+          browser where you made it and choose “Use on your phone”.</p>
         <label for="key">Your pass</label>
         <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your pass">
         <button id="key-use" type="button" class="secondary">Use this pass</button>
@@ -92,11 +90,11 @@
     </section>
 
     <section id="no-checks" class="panel notice" aria-labelledby="no-checks-heading" hidden>
-      <h2 id="no-checks-heading">You have no checks left</h2>
-      <p id="no-checks-body">Top up and check on. Nothing was used for this link.</p>
+      <h2 id="no-checks-heading">Your pass has no checks left</h2>
+      <p id="no-checks-body">Nothing was used for this link. Checks are free without a pass, too.</p>
       <p class="buttons">
         <a id="buy-card" class="button primary" href="/checkout">Add checks</a>
-        <a id="no-checks-pass" class="button" href="#sign-in" hidden>I already have a pass</a>
+        <a id="no-checks-pass" class="button" href="#sign-in" hidden>Use another pass</a>
       </p>
     </section>
 
@@ -106,15 +104,29 @@
         <p id="report-open-row"><button id="report-open" type="button" class="link">Wrong result?</button></p>
         <form id="report" hidden>
           <fieldset class="choices">
-            <legend>What is this page really?</legend>
-            <label><input type="radio" name="reason" value="real_brand"> A real brand or shop</label>
-            <label><input type="radio" name="reason" value="scam"> A scam</label>
-            <label><input type="radio" name="reason" value="junk"> Junk or dropshipping</label>
-            <label><input type="radio" name="reason" value="other"> Something else</label>
+            <legend>What level would you give this page?</legend>
+            <label><input type="radio" name="level" value="4"> 4 · May not arrive, or may not be safe</label>
+            <label><input type="radio" name="level" value="3"> 3 · May not work as described</label>
+            <label><input type="radio" name="level" value="2"> 2 · May cost more than it's worth</label>
+            <label><input type="radio" name="level" value="1"> 1 · Pressure and tricks</label>
+            <label><input type="radio" name="level" value="0"> 0 · No concerns</label>
+            <label><input type="radio" name="level" value=""> Not sure</label>
           </fieldset>
-          <p id="report-consent" class="muted small">Sending this shares this check's link, the page as Unfret sees it
-            and the result with Unfret for review. Personal details are removed first; an AI model may suggest a
-            label, a person decides; once reviewed, it is kept without any link to you.</p>
+          <fieldset class="checks-wrong" id="report-wrong-set" hidden>
+            <legend>Which findings are wrong?</legend>
+            <div id="report-wrong"></div>
+          </fieldset>
+          <details class="choice" id="report-name">
+            <summary>Put my reports on the leaderboard</summary>
+            <p class="small">Pick a name. This browser keeps a random key that is sent only with your reports, never
+              with a check, so your reports that hold up count toward your name.</p>
+            <label for="report-handle">Name on the leaderboard (3–24 letters, digits, - or _)</label>
+            <input id="report-handle" type="text" maxlength="24" autocomplete="off" spellcheck="false">
+            <p class="small" id="report-forget-row" hidden><button id="report-forget" type="button" class="link">Stop
+              and delete my contributor profile</button></p>
+          </details>
+          <p id="report-consent" class="muted small">Sending this keeps this page and its result for review, with
+            personal details removed. It never keeps who sent it. An AI model may suggest a label; a person decides.</p>
           <p class="buttons"><button id="report-send" type="submit" class="primary" disabled>Send report</button>
             <button id="report-cancel" type="button" class="secondary">Cancel</button></p>
         </form>

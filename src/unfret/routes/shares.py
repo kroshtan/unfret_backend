@@ -8,6 +8,7 @@ delete code takes it down, and ``POST /v1/shares/{id}/object`` (a shop owner) hi
 review.
 """
 
+import html
 from datetime import date, datetime
 from typing import Any, Literal
 
@@ -73,8 +74,9 @@ class SharePreview(BaseModel):
     symbol: str
     headline: str
     result: dict[str, Any] = Field(
-        description="verdict (band, label, symbol, headline, reasons, positives) and, with flags, assessment "
-        "(flags with labels only, confidence, model_version). No score, no quotes from the page."
+        description="verdict (band, label, symbol, headline, reasons, positives, and risk when the result has a "
+        "level: level, key, label, because, explanation, modifier) and, with flags, assessment (flags with labels "
+        "only, confidence, model_version). No score, no quotes from the page."
     )
     notice: str = Field(default=NOTICE, description="What to tell the sharer before they confirm.")
 
@@ -259,22 +261,39 @@ def render_share_page(view: dict[str, Any]) -> str:
     """
     A shared result's page, in the link checker's presentation (the same renderer).
 
+    The server writes the result's head into the page, so it reads without JavaScript: the risk level, its words and
+    its explanation, or, for a result shared before levels, the verdict band and its headline.
+
     :param view: The share's :func:`~unfret.shares.public_view`.
     :return: The page.
     """
+    risk = (view["result"].get("verdict") or {}).get("risk")
+    headline = without_label(view["headline"], view["label"])
+    if risk:
+        level = int(risk["level"])
+        label, headline = str(risk["label"]), str(risk.get("explanation") or headline)
+        head = (
+            f'<div class="verdict level-{level}"><span class="level-num" aria-hidden="true">{level}</span>\n'
+            f'            <div><p class="scale">Risk level {level} of 4</p><p class="label">{html.escape(label)}</p>'
+            "</div></div>"
+        )
+    else:
+        label = view["label"]
+        head = (
+            f'<div class="verdict {html.escape(view["band"])}"><span class="symbol" aria-hidden="true">'
+            f"{html.escape(view['symbol'])}</span>\n"
+            f'            <p class="label">{html.escape(label)}</p></div>'
+        )
     fields = {
         "title": view["title"],
-        "description": f"{view['label']}: {without_label(view['headline'], view['label'])}",
+        "description": f"{label}: {headline}",
         "host": view["host"],
         "product_url": view["product_url"],
         "checked_on": view["checked_on_text"],
-        "band": view["band"],
-        "symbol": view["symbol"],
-        "label": view["label"],
-        "headline": without_label(view["headline"], view["label"]),
+        "headline": headline,
         "robots": ROBOTS,
     }
-    return fill_page("shared.html", fields, view["result"])
+    return fill_page("shared.html", fields, view["result"], {"verdict_head": head})
 
 
 @pages.get("/r/{share_id}", response_class=HTMLResponse)

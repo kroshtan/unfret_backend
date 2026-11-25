@@ -33,7 +33,15 @@ import {
   shopOf,
   unreadableKind,
 } from "./check-core.js";
-import { chargeNoteOf, deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
+import {
+  chargeNoteOf,
+  deepHintNode,
+  deepHintOf,
+  el,
+  newContributorKey,
+  reportableFindings,
+  resultNodes,
+} from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
 import { solve } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
@@ -205,6 +213,11 @@ function freeAvailable() {
   return false;
 }
 
+// A pass is only for developers' bought checks: offered quietly, never in the way of a free check.
+function passOffered() {
+  return !account;
+}
+
 // Signed in with a key: its top-up, the key's ID filled in (the ID only: never the key itself in an address).
 function buyPath() {
   if (account?.kind !== "key") return "/checkout";
@@ -227,14 +240,14 @@ function renderAccount() {
   }
   $("sign-in-note").textContent = expired
     ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."
-    : "Quick and deep checks are free, with no account.";
+    : "Checks are free for shoppers, with no pass. A developer pass with bought checks can pay for checks here instead.";
   // Out of checks: add checks to this pass (or to this wallet, in crypto).
   $("buy-card").href = account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
-  $("buy-card").textContent = account?.kind === "key" ? "Add checks to my pass" : "Buy checks";
+  $("buy-card").textContent = "Add checks to my pass";
   $("no-checks-pass").hidden = Boolean(account);
   // A first visit: the first check is on the house, no account and nothing to buy; a pass you have is one step away.
   const fresh = freeAvailable();
-  $("have-pass-row").hidden = !fresh;
+  $("have-pass-row").hidden = !passOffered();
   if (!running) {
     $("hint").textContent = ended
       ? passEndedHint(fresh ? freePerPass() : 0)
@@ -474,13 +487,8 @@ function renderResult(result, because = null) {
 
   $("result-body").replaceChildren(...nodes);
 
-  const reportable = Boolean(result.report_token && account);
-  $("report-area").hidden = !reportable;
-  $("report-open-row").hidden = false;
-  $("report").hidden = true;
-  $("report-status").hidden = true;
+  resetReport(result);
   resetShare(result);
-  $("report-consent").textContent = reportConsent();
 }
 
 function showError(message, refunded) {
@@ -533,8 +541,8 @@ async function failed(error, link) {
   if (error.status === 402 || error.code === "INSUFFICIENT_CREDITS") {
     checks = 0;
     renderAccount();
-    $("no-checks-heading").textContent = "You have no checks left";
-    $("no-checks-body").textContent = "Top up and check on. Nothing was used for this link.";
+    $("no-checks-heading").textContent = "Your pass has no checks left";
+    $("no-checks-body").textContent = "Nothing was used for this link. Checks are free without a pass, too.";
     $("buy-card").hidden = false;
     showOnly("no-checks");
     return;
@@ -557,8 +565,8 @@ async function failed(error, link) {
 // Why a quick check ran instead of a deep one, in the words shown above its result.
 const QUICK_BECAUSE = {
   used: {
-    heading: "You have no checks left",
-    body: "Here's a quick check instead: free, it reads only this page, by its rules. A deep check also looks the shop up elsewhere; checks are topped up by the amount, with no subscription.",
+    heading: "Your pass has no checks left",
+    body: "Here's a quick check instead: it reads only this page, by its rules. Check again without the pass for a free deep check.",
     short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
@@ -737,14 +745,28 @@ async function readStream(stream, onStep) {
 }
 
 // ── "Wrong result?" ─────────────────────────────────────────────────────────────────────────────────────
+// One flow (POST /v1/labels): the level the shopper thinks is right and the findings that are wrong, with the result's
+// label_token and the request exactly as it was sent ({url, tier}: the server fetches that page again). No sign-in, and
+// never the pass: a report keeps the page, never who sent it. Only someone who asks for it gets a contributor key: 32
+// random bytes made here and kept in this browser (CONTRIBUTOR_KEY), sent only with reports and profile calls.
 
-/** The consent line. */
-function reportConsent() {
-  return (
-    "Sending this shares this check's link, the page as Unfret sees it and the result with Unfret for review. " +
-    "Personal details are removed first; an AI model may suggest a label, a person decides; once reviewed, it is " +
-    "kept without any link to you."
-  );
+const CONTRIBUTOR_KEY = "unfret-contributor-key";
+
+function contributorKey() {
+  try {
+    return localStorage.getItem(CONTRIBUTOR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function keepContributorKey(key) {
+  try {
+    if (key) localStorage.setItem(CONTRIBUTOR_KEY, key);
+    else localStorage.removeItem(CONTRIBUTOR_KEY);
+  } catch {
+    // not remembered: this report still counts, anonymously next time
+  }
 }
 
 const REPORT_OUTCOME = {
@@ -753,10 +775,14 @@ const REPORT_OUTCOME = {
   already_known: "Thanks! We reviewed this page recently.",
 };
 const REPORT_ERROR = {
-  REPORT_LIMIT: "You've used this month's reports. Thank you!",
-  ALREADY_REPORTED_BY_YOU: "You've already reported this page.",
+  ALREADY_LABELLED: "You've already reported this page.",
+  LABEL_LIMIT: "That's today's reports from this browser. Thank you!",
   QUEUE_FULL: "Our review queue is full right now; please try again in a few days.",
-  BAD_REPORT_TOKEN: "This check can't be reported any more; check the page again first.",
+  BAD_LABEL_TOKEN: "This check can't be reported any more; check the page again first.",
+  LABELS_PAUSED: "Reports are paused for today; please try again tomorrow.",
+  LABELS_OFF: "Reports are off right now.",
+  BAD_HANDLE: "A name is 3–24 letters, digits, - or _.",
+  HANDLE_TAKEN: "That name is taken; pick another.",
 };
 
 function reportStatus(text) {
@@ -764,39 +790,91 @@ function reportStatus(text) {
   $("report-status").hidden = false;
 }
 
-async function sendReport(reason) {
-  if (!last || !account) return;
+function resetReport(result) {
+  const findings = reportableFindings(result);
+  $("report-area").hidden = !result.label_token;
+  $("report-open-row").hidden = false;
+  $("report").hidden = true;
+  $("report").reset();
+  $("report-status").hidden = true;
+  $("report-send").disabled = true;
+  $("report-wrong").replaceChildren(
+    ...findings.map(({ type, title }) => {
+      const label = el("label");
+      const box = el("input");
+      box.type = "checkbox";
+      box.name = "wrong";
+      box.value = type;
+      label.append(box, ` ${title}`);
+      return label;
+    }),
+  );
+  $("report-wrong-set").hidden = findings.length === 0;
+  $("report-forget-row").hidden = !contributorKey();
+}
+
+function reportChoice() {
+  const level = document.querySelector('#report input[name="level"]:checked')?.value;
+  const wrong = [...document.querySelectorAll('#report input[name="wrong"]:checked')].map((box) => box.value);
+  return { level: level ? Number(level) : null, wrong };
+}
+
+async function postJson(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) throw await failure(response);
+  return response.json();
+}
+
+// A name asked for: a contributor key (made now if this browser has none) and a public profile with that name.
+async function contributorFor(handle) {
+  if (!handle) return contributorKey();
+  const key = contributorKey() ?? newContributorKey();
+  await postJson("/v1/contributors", { contributor_key: key, handle, public: true });
+  keepContributorKey(key);
+  return key;
+}
+
+async function sendReport() {
+  if (!last?.result?.label_token) return;
+  const { level, wrong } = reportChoice();
+  if (level === null && !wrong.length) return;
   $("report-send").disabled = true;
   reportStatus("Sending…");
   try {
-    const response = await fetch("/v1/reports", {
-      method: "POST",
-      headers: headers(true),
-      body: JSON.stringify({
-        report_token: last.result.report_token,
-        reason,
-        consent: true,
-        request: last.body,
-        explanation: last.result.explanation,
-        ...(last.result.verdict ? { verdict: last.result.verdict } : {}),
-      }),
+    const key = await contributorFor($("report-handle").value.trim());
+    const outcome = await postJson("/v1/labels", {
+      label_token: last.result.label_token,
+      request: last.body,
+      ...(level === null ? {} : { level }),
+      ...(wrong.length ? { wrong } : {}),
+      explanation: last.result.explanation ?? "",
+      ...(last.result.verdict ? { verdict: last.result.verdict } : {}),
+      ...(key ? { contributor_key: key } : {}),
     });
-    if (!response.ok) {
-      const error = await failure(response);
-      reportStatus(REPORT_ERROR[error.code] ?? "The report didn't go through. Please try again later.");
-      if (!(error.code in REPORT_ERROR)) $("report-send").disabled = false;
-      return;
-    }
     $("report").hidden = true;
-    reportStatus(REPORT_OUTCOME[(await response.json()).status] ?? REPORT_OUTCOME.queued);
-  } catch {
-    reportStatus("The report didn't go through. Please try again later.");
+    reportStatus(REPORT_OUTCOME[outcome.status] ?? REPORT_OUTCOME.queued);
+  } catch (error) {
+    reportStatus(REPORT_ERROR[error?.code] ?? "The report didn't go through. Please try again later.");
     $("report-send").disabled = false;
   }
 }
 
-function reportReason() {
-  return document.querySelector('#report input[name="reason"]:checked')?.value;
+async function forgetContributor() {
+  const key = contributorKey();
+  if (!key) return;
+  try {
+    await postJson("/v1/contributors/forget", { contributor_key: key });
+    keepContributorKey(null);
+    $("report-forget-row").hidden = true;
+    reportStatus("Your contributor profile is deleted. Reports you sent stay, without any link to you.");
+  } catch {
+    reportStatus("Couldn't delete it right now. Please try again later.");
+  }
 }
 
 // ── "Share this result" ──────────────────────────────────────────────────────────────────────────────────
@@ -986,8 +1064,10 @@ $("report-cancel").addEventListener("click", () => {
   $("report-open-row").hidden = false;
 });
 $("report").addEventListener("change", () => {
-  $("report-send").disabled = reportReason() === undefined;
+  const { level, wrong } = reportChoice();
+  $("report-send").disabled = level === null && !wrong.length;
 });
+$("report-forget").addEventListener("click", () => void forgetContributor());
 $("share-open").addEventListener("click", () => void openShare());
 $("share-cancel").addEventListener("click", () => {
   $("share-preview").hidden = true;
@@ -998,15 +1078,14 @@ $("share-again").addEventListener("click", () => void passOn($("share-link").hre
 $("share-copy").addEventListener("click", () => void copyLink($("share-link").href));
 $("report").addEventListener("submit", (event) => {
   event.preventDefault();
-  const reason = reportReason();
-  if (reason) void sendReport(reason);
+  void sendReport();
 });
 
 account = loadAccount();
 const shared = takeSharedLink();
 renderAccount();
 renderPaste();
-showSignIn(!account && !freeAvailable());
+showSignIn(false);
 if (account) void refreshChecks();
 if (shared.link && account) checkButton.focus();
 if (shared.pass) void receivePass(shared.pass);

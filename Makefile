@@ -1,4 +1,4 @@
-.PHONY: help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
+.PHONY: levels help install lint audit android-release affiliates bonus-codes retire-passes test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -95,7 +95,7 @@ deep-check:  ## Deep-check the candidates, recording LLM answers in the corpus, 
 deep-queue:  ## Order the checked candidates for labelling: new finding + unsure scorer, then disagreements, then a random slice
 	uv run python -m evals.candidates queue $(DEEP_ARGS)
 
-deep-label:  ## Label the next batch: page and new findings, one keypress each; 1 in 5 pages blind (BATCH=50)
+deep-label:  ## Label the next batch: the page's overall risk level (1-4, 0) and each new finding, one keypress each; 1 in 5 blind (BATCH=50)
 	uv run python -m evals.candidates label --batch $(or $(BATCH),50)
 
 deep-review:  ## Check the LLM labeller's labels: its unsure pages, then a random audit sample (blind) (BATCH=50)
@@ -106,6 +106,9 @@ deep-label-test:  ## Label the human-only test set the LLM labeller never labels
 
 llm-label:  ## LLM-label the deep-label queue after validating on the human labels (LLM_LABEL_ARGS="label --model glm-5.3 --pages 600")
 	uv run python -m evals.llm_label $(or $(LLM_LABEL_ARGS),validate --model glm-5.3)
+
+levels:  ## Risk levels: the ordinal level classifier (LEVELS_ARGS="train --dry-run") or the level judge vs the labels ("compare --budget-eur 5")
+	uv run python -m evals.levels $(or $(LEVELS_ARGS),train --dry-run)
 
 markets:  ## Per-market metrics (EU, US, other) of the shipped scorers; no LLM calls (MARKETS_ARGS="--train")
 	uv run python -m evals.markets $(MARKETS_ARGS)

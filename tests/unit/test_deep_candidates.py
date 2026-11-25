@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration
 
 from evals import candidates as cand
-from evals.corpus import Corpus, Label, LabelRecord
+from evals.corpus import Corpus, Label, LabelRecord, legacy_label, rank_bounds
 from evals.sources.deep_candidates import DATASET, category_of, rank
 
 
@@ -167,3 +167,38 @@ def test_miss_cost_reads_the_model_and_tokens_the_cache_stores() -> None:
     key = json.dumps({"kwargs": {"model_name": cand.settings.claim_audit_model}})
     assert cand.miss_cost(key, [ChatGeneration(message=message)]) == cand.settings.claim_audit_input_eur_per_mtok
     assert cand.miss_cost(key, []) == Decimal(0)
+
+
+def test_a_batch_labels_the_overall_level_and_each_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    corpus = Corpus(tmp_path)
+    corpus.add_many([(_record(0), "<html><title>Power bank</title></html>")])
+    finding = {"skill": "claim_audit", "type": "claim_contradicted", "evidence": "Says 30,000 mAh"}
+    row = {"id": "dfc-000", "score": 40, "confidence": 0.3, "features": {"claim_audit.contradicted": 1.0}}
+    cand.write_results(corpus, {"dfc-000": row | {"findings": [finding], "new_findings": [finding]}})
+    (tmp_path / cand.QUEUE).write_text(json.dumps({"id": "dfc-000", "reason": "fired", "priority": 3}) + "\n")
+    keys = iter(["2", "c"])
+    monkeypatch.setattr(cand, "read_key", lambda: next(keys))
+    cand.label(corpus, batch=5)
+    record = corpus.labels()["dfc-000"]
+    assert (record.level, record.level_source, record.label, record.label_source) == (2, "human", "junk", "human")
+    decision = json.loads((tmp_path / cand.DECISIONS).read_text())
+    assert (decision["level"], decision["label"], decision["level_before"]) == (2, "junk", None)
+    assert json.loads((tmp_path / cand.FINDING_LABELS).read_text())["verdict"] == "correct"
+
+
+def test_old_labels_only_bound_the_level() -> None:
+    def record(label: Label, level: int | None = None) -> LabelRecord:
+        return LabelRecord(id="x", source="live", origin_dataset="d", label=label, level=level)
+
+    assert rank_bounds(record("scam")) == (4, 4)  # level 1
+    assert rank_bounds(record("junk")) == (2, 3)  # doesn't work or overpaying
+    assert rank_bounds(record("legit")) == (0, 2)  # none, pressure or overpaying
+    assert rank_bounds(record("junk", 4)) == (1, 1)  # a level label is exact
+    assert [legacy_label(lv) for lv in range(5)] == ["legit", "scam", "junk", "junk", "junk"]
+
+
+def test_records_without_a_level_are_written_as_before(tmp_path: Path) -> None:
+    corpus = Corpus(tmp_path)
+    corpus.add_many([(_record(0, "legit"), "<html></html>")])
+    corpus.update([corpus.labels()["dfc-000"]])
+    assert '"level"' not in (tmp_path / "labels.jsonl").read_text()

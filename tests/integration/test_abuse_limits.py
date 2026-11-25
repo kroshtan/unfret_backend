@@ -1,24 +1,9 @@
 """Limits per visitor network on the cheap, unauthenticated or new-account routes that cost us something."""
 
-import asyncpg
 import httpx
 from solders.keypair import Keypair
 
-from tests.integration.conftest import bearer
 from unfret.config import settings
-
-
-async def test_code_redemptions_are_limited_per_visitor_network(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    # Fresh wallets are free to make: without a limit one visitor could guess gift codes at will.
-    async def attempt() -> httpx.Response:
-        wallet = bearer(str(Keypair().pubkey()))
-        return await client.post("/v1/invites/redeem", json={"code": "ufi_" + "a" * 32}, headers=wallet)
-
-    for _ in range(settings.redeem_per_ip_per_10min):
-        assert (await attempt()).status_code == 404  # unknown code
-    refused = await attempt()
-    assert (refused.status_code, refused.json()["error_code"]) == (429, "TOO_MANY_REQUESTS")
-    assert refused.json()["metadata"]["retry_after_s"] > 0
 
 
 async def test_price_quotes_are_limited_per_visitor_network(client: httpx.AsyncClient) -> None:

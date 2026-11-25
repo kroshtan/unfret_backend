@@ -233,8 +233,7 @@ class Settings(BaseSettings):
     price_per_check_usd: Decimal = Field(default=Decimal("0.20"), gt=0, decimal_places=6)
     # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (VAT included); by card
     # (the Merchant of Record) it costs its card_prices_usd price, or (a pack not named there) that plus the card
-    # costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps its checks and
-    # the gift codes it got.
+    # costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps its checks.
     packs: list[int] = [25, 100]
     card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
     card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
@@ -256,26 +255,6 @@ class Settings(BaseSettings):
     # Whether Polar's organisation-wide tax default is "inclusive": a price whose tax_behavior is null (the
     # organisation's default) then counts as inclusive (Polar sets tax behaviour for the whole account).
     polar_org_tax_inclusive: bool = True
-    # Invites ("gift codes", unfret.credits.invites): every credited pack comes with one invite per invite_per_checks
-    # checks bought (25 → 1, 100 → 4), each worth invite_checks checks to any account but the buyer's. An account
-    # redeems at most one a calendar month (UTC). 0 turns issuing off; invites already issued stay redeemable.
-    invite_per_checks: int = Field(default=25, ge=0)
-    invite_checks: int = Field(default=5, gt=0)
-    # Affiliates and discount codes (unfret.credits.affiliates). A pass that came through an affiliate gets
-    # affiliate_bonus_pct more checks on its first pack; the affiliate earns affiliate_commission_pct of the net
-    # revenue (after VAT and payment fees) of every purchase on it for affiliate_months months after it was attributed.
-    # code_checks_per_ip_per_day limits code look-ups per visitor network (in memory, salted hashes). Earnings and
-    # payouts are kept affiliate_records_retention_days (bookkeeping); attributions affiliate_pass_retention_days.
-    affiliate_bonus_pct: int = Field(default=20, ge=0, le=200)
-    affiliate_commission_pct: int = Field(default=25, ge=0, le=100)
-    affiliate_months: int = Field(default=12, ge=1)
-    # Commission counts as payable this many days after the purchase (Polar's refund window), and a payout needs at
-    # least this much per currency (cents: $25 or €25, never converted), except for an affiliate who was switched off.
-    affiliate_hold_days: int = Field(default=30, ge=0)
-    affiliate_min_payout_cents: int = Field(default=2500, ge=0)
-    code_checks_per_ip_per_day: int = Field(default=30, ge=1)
-    affiliate_records_retention_days: int = 2557  # seven years
-    affiliate_pass_retention_days: int = 548  # eighteen months: the twelve, plus the refund and chargeback window
     # Free checks (unfret.credits.free). A new pass made with "free": true (the browser extension on install, the
     # link checker on a first visit) comes with free_checks_per_pass deep checks, for at most
     # free_passes_per_ip_per_day new passes per visitor network (in memory, salted hashes); past that the pass is
@@ -331,9 +310,6 @@ class Settings(BaseSettings):
     key_create_per_ip_per_day: int = 5
     key_create_daily_cap: int = 500
     key_recover_per_ip_per_day: int = 10
-    # Gift code redemptions per visitor network per 10 minutes (a person redeems one; this stops anyone from trying
-    # codes in bulk from one place).
-    redeem_per_ip_per_10min: int = Field(default=10, ge=1)
     # Price quotes (POST /v1/credits/purchase-tx, the Solana Pay QR) per visitor network per minute: each is stored
     # for a day and asks the RPC for a blockhash.
     quotes_per_ip_per_minute: int = Field(default=20, ge=1)
@@ -352,17 +328,13 @@ class Settings(BaseSettings):
     fiat_retention_days: int = 180
 
     # Reports of wrong results ("this is wrong", POST /v1/reports). A report can be made within report_window_s of
-    # the check, reports_per_month per pass, wallet or API key. Rewards go to the first reporter only, and only after
-    # a person has labelled the page: report_reward_checks when the score was at least report_reward_gap points on
-    # the wrong side of the label's zone (legit >= 70, junk/scam <= 40), report_small_reward_checks when it was at
-    # least report_training_gap points off (but less than report_reward_gap). Nothing for a correct result.
+    # the check, reports_per_month per pass, wallet or API key. Reports pay nothing. A labelled page counts as a
+    # training sample when its score was at least report_training_gap points on the wrong side of the label's zone
+    # (legit >= 70, junk/scam <= 40).
     reports_per_month: int = Field(default=15, ge=1)
     report_window_s: int = 7 * 24 * 3600
     report_expiry_days: int = 30
     report_known_days: int = 90
-    report_reward_checks: int = Field(default=5, ge=0)
-    report_reward_gap: int = 30
-    report_small_reward_checks: int = Field(default=1, ge=0)
     report_training_gap: int = 10
     # Open items in the review queue. When it is full, a new report takes the place of the open item worth least
     # (unfret.reports.value: how far the reporter says the score is off, pages and shops not labelled yet,
@@ -685,10 +657,8 @@ class Settings(BaseSettings):
         problems = []
         if not 0 < self.key_pow_bits <= 32:
             problems.append("key_pow_bits must be 1-32")
-        if not 0 < self.report_training_gap <= self.report_reward_gap:
-            problems.append("need 0 < report_training_gap <= report_reward_gap")
-        if self.report_small_reward_checks > self.report_reward_checks:
-            problems.append("report_small_reward_checks can't be more than report_reward_checks")
+        if self.report_training_gap <= 0:
+            problems.append("need 0 < report_training_gap")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self

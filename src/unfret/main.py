@@ -40,7 +40,7 @@ from unfret import (
 )
 from unfret.api import UnfretAPI
 from unfret.config import settings
-from unfret.credits import CreditsDoor, affiliates, fiat, polar, vat
+from unfret.credits import CreditsDoor, fiat, polar, vat
 from unfret.db import PostgresFactStore, create_pool, init_db
 from unfret.graph import SKILLS, build_graph
 from unfret.graph.skills import reverse_image
@@ -72,7 +72,6 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("second_opinions", second_opinion.catch_up(pool, settings)),
             ("fiat", fiat.purge(pool, settings.fiat_retention_days)),
             ("vat", vat.purge(pool, settings)),
-            ("affiliates", affiliates.purge(pool, settings)),
             ("shares", shares.purge(pool)),
             ("objections", objections.purge(pool, settings.objection_days)),
             ("oauth", oauth.purge(pool)),
@@ -193,8 +192,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["GET", "POST", "DELETE"],
-    # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result; X-Unfret-Claim: collecting a
-    # purchase's invites (unfret.credits.invites); Mcp-*: the remote MCP server (/mcp) for browser-based MCP clients
+    # Authorization: sessions and API keys; X-Delete-Code: deleting a shared result; X-Unfret-Claim: a card
+    # checkout's claim token (unfret.credits.claims); Mcp-*: the remote MCP server (/mcp) for browser-based MCP clients
     allow_headers=[
         "Content-Type",
         "Authorization",

@@ -1728,3 +1728,24 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   "public", "labels", "settled", "agreed", "trusted", "rank"}` (400 `BAD_HANDLE`, 409 `HANDLE_TAKEN`);
   `POST /v1/contributors/forget` `{"contributor_key"}` → `{"deleted": bool}`; `GET /v1/contributors/leaderboard
   ?limit=50` → `{"entries": [{"rank", "handle", "agreed", "settled"}]}`.
+
+## Changes (no affiliates, bonus codes, gift codes or report rewards; breaking for those endpoints; migration 40)
+
+- Removed: `POST /v1/invites/redeem`, `POST /v1/credits/codes/check`, `POST /v1/affiliates/attribute`,
+  `GET /v1/affiliates/stats`, every `/v1/admin/affiliates…` and `/v1/admin/bonus-codes…` endpoint,
+  `GET /v1/admin/invites`, and the `/affiliates` and `/affiliates/stats` pages (404 now).
+- `POST /v1/keys`: `ref` is gone (an extra field is ignored). `POST /v1/credits/purchase-tx`,
+  `GET /v1/credits/solana-pay.svg` and `POST /v1/credits/fiat-checkout`: `code` is gone (ignored if sent).
+- `POST /v1/credits/purchase-tx`: no `claim`; the QR code no longer sends `X-Unfret-Claim`.
+  `GET /v1/credits/quotes/{id}` ignores `X-Unfret-Claim` and answers `{"paid", "checks"}` (no `invites`).
+- Card checkouts keep their `claim`: `GET /v1/credits/fiat-checkouts/{id}` with it answers `{"paid", "checks",
+  "reissued"}` (no `invites`); `POST /v1/credits/fiat-checkouts/{id}/pass` no longer returns `invites`.
+- `GET /v1/credits`: no `invite_eligible`. `GET /v1/pricing`: no top-level `invites`, no per-pack `invites`, pack
+  labels without the gift-code clause, and `reports` is just `{"per_month"}` (no reward fields).
+- Reports pay nothing: labelling a report credits no checks. `POST /v1/admin/reports/{id}/label` and
+  `/v1/admin/reports/confirm` no longer return `reward_checks` / `reward_usd_micros`; the queue's
+  `second_opinion` has no `reward_checks`.
+- Settings removed: `UNFRET_INVITE_*`, `UNFRET_AFFILIATE_*`, `UNFRET_CODE_CHECKS_PER_IP_PER_DAY`,
+  `UNFRET_REDEEM_PER_IP_PER_10MIN`, `UNFRET_REPORT_REWARD_CHECKS`, `UNFRET_REPORT_REWARD_GAP`,
+  `UNFRET_REPORT_SMALL_REWARD_CHECKS`. Migration 40 drops the affiliate, bonus-code and gift-code tables and columns
+  (the affiliates' earnings and payouts tables stay if they ever held a row).

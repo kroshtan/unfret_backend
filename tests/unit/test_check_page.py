@@ -404,10 +404,10 @@ def test_a_pass_the_server_no_longer_knows_is_a_new_free_start(tmp_path: Path) -
 
 def test_the_page_drops_an_ended_pass_before_treating_a_401_as_an_expired_sign_in() -> None:
     script = (STATIC_DIR / "check.js").read_text()
-    # Wherever a 401 is handled (the balance, a check, a code), an ended pass is caught first: dropped (with the pass
+    # Wherever a 401 is handled (the balance, a check), an ended pass is caught first: dropped (with the pass
     # made here, if it is that one), no "sign in again", and the next Check gets the free pass.
-    assert script.count("if (passEnded(error, account))") == 3
-    for handler in ("async function refreshChecks()", "async function failed(error, link)", "invite-redeem"):
+    assert script.count("if (passEnded(error, account))") == 2
+    for handler in ("async function refreshChecks()", "async function failed(error, link)"):
         start = script.index(handler)
         assert script.index("passEnded(error, account)", start) < script.index("error.status === 401", start)
     retired = script[script.index("function passRetired()") :]

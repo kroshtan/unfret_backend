@@ -10,9 +10,7 @@
 // "needs-click" (it takes a first sign-in only right after a click here, or in a tab it opened itself: a button hands
 // the session over again), "confirm" (it uses another pass or wallet and asks in its own window; the received message
 // follows on a yes) or "kept" (the user said no there). Older extensions never send it.
-// After a same-browser sign-in the page offers "Have an invite?": a code someone gave the user, redeemed for this
-// (new) wallet with the session it just got.
-import { INVITE_RE, NOT_A_CODE, api, discoverWallets, redeemInvite, setStatus, signIn, walletButton } from "./wallet.js";
+import { api, discoverWallets, setStatus, signIn, walletButton } from "./wallet.js";
 
 const list = document.getElementById("wallets");
 const empty = document.getElementById("no-wallets");
@@ -23,9 +21,7 @@ const pairing = document.getElementById("pairing");
 const pairCode = document.getElementById("pair-code");
 const pairError = document.getElementById("pair-error");
 const pairDone = document.getElementById("pair-done");
-const invite = document.getElementById("invite");
 const handoff = document.getElementById("handoff");
-let signedIn = null; // this tab's sign-in, for redeeming an invite
 
 const HANDOFF_WAIT_MS = 3000;
 const pairId = new URLSearchParams(window.location.search).get("pair");
@@ -139,8 +135,6 @@ async function connect(wallet) {
       return;
     }
     setStatus(status, `Connected ${session.address.slice(0, 4)}…${session.address.slice(-4)}.`, "ok");
-    signedIn = session;
-    invite.hidden = false;
     postSession(session);
     setTimeout(() => {
       if (!handedOver) noExtension.hidden = false;
@@ -151,25 +145,6 @@ async function connect(wallet) {
     setButtons(pairReady);
   }
 }
-
-document.getElementById("invite-redeem").addEventListener("click", async (event) => {
-  const inviteStatus = document.getElementById("invite-status");
-  const input = document.getElementById("invite-input");
-  const code = input.value.trim().toLowerCase();
-  if (!INVITE_RE.test(code)) return setStatus(inviteStatus, NOT_A_CODE, "error");
-  if (!signedIn) return setStatus(inviteStatus, "Connect a wallet first.", "error");
-  const button = event.currentTarget;
-  button.disabled = true;
-  try {
-    const added = await redeemInvite(code, signedIn.token);
-    input.value = "";
-    setStatus(inviteStatus, `✓ ${added.checks_added} checks added to this wallet.`, "ok");
-  } catch (error) {
-    setStatus(inviteStatus, error.message || "That code didn't work.", "error");
-  } finally {
-    button.disabled = false;
-  }
-});
 
 render([]);
 discoverWallets(render);

@@ -267,7 +267,7 @@ async def test_polar_checkout_then_paid_order_credits_the_key(
     issued = await keys.create(pool)
     started = await checkout(client, issued.key_id, 25)
     reply = started.json()
-    claim = reply.pop("claim")  # collects the order's invites; never sent to Polar
+    claim = reply.pop("claim")  # confirms the order on the way back; never sent to Polar
     assert reply == {
         "checkout_url": "https://buy.polar.sh/c",
         "provider": "polar",
@@ -279,7 +279,6 @@ async def test_polar_checkout_then_paid_order_credits_the_key(
     assert (await client.get(status, headers={"X-Unfret-Claim": claim})).json() == {
         "paid": False,
         "checks": 25,
-        "invites": [],
         "reissued": False,
     }
     # Polar's order without our metadata: the checkout mapping names the key.
@@ -290,10 +289,7 @@ async def test_polar_checkout_then_paid_order_credits_the_key(
     assert await balance(pool, issued.account) == 5_000_000
     assert (await client.get(status)).status_code == 404  # the checkout id alone (Polar knows it) shows nothing
     shown = (await client.get(status, headers={"X-Unfret-Claim": claim})).json()
-    assert shown["paid"] and len(shown["invites"]) == 1  # the 25-pack: one invite
-    again = (await client.get(status, headers={"X-Unfret-Claim": claim})).json()
-    assert again == {"paid": True, "checks": 25, "invites": [], "reissued": False}  # shown once
-    assert await pool.fetchval("SELECT COUNT(*) FROM invites") == 1  # the duplicate webhook issued none
+    assert shown == {"paid": True, "checks": 25, "reissued": False}
     assert "Kerkstraat" not in str([dict(r) for r in await pool.fetch("SELECT * FROM fiat_payments")])
 
     refunded = test_polar.order(status="partially_refunded", refunded_amount=300, refunded_tax_amount=63)
@@ -581,7 +577,7 @@ async def test_polar_wero_checkout_sends_the_billing_country_and_credits_as_usua
     assert await balance(pool, issued.account) == 5_000_000
 
 
-async def test_a_euro_order_credits_the_packs_value_and_its_invites(
+async def test_a_euro_order_credits_the_packs_value(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider
 ) -> None:
     issued = await keys.create(pool)
@@ -600,7 +596,7 @@ async def test_a_euro_order_credits_the_packs_value_and_its_invites(
     assert dict(row) == {"amount_cents": 600, "currency": "eur", "credited_usd_micros": 5_000_000}
     status = f"/v1/credits/fiat-checkouts/{checkout_id}"
     shown = (await client.get(status, headers={"X-Unfret-Claim": started["claim"]})).json()
-    assert shown["paid"] and shown["checks"] == 25 and len(shown["invites"]) == 1
+    assert shown["paid"] and shown["checks"] == 25
 
 
 @pytest.mark.parametrize(
@@ -769,15 +765,15 @@ async def test_a_purchase_picked_up_in_another_browser_gets_a_fresh_pass(
     body = picked.json()
     assert body["key_id"] == issued.key_id and body["key"] != issued.key
     assert body["recovery_code"] != issued.recovery_code and body["account"] == issued.account
-    assert (body["checks"], body["checks_remaining"], len(body["invites"])) == (25, 25, 1)
+    assert (body["checks"], body["checks_remaining"]) == (25, 25)
     assert await checks_left(client, body["key"]) == 25
     assert await checks_left(client, issued.key) is None  # the buying browser's pass stopped working
     again = await client.post(f"/v1/credits/fiat-checkouts/{checkout_id}/pass")
     assert (again.status_code, again.json()["error_code"]) == (409, "CHECKOUT_COLLECTED")  # once only
-    # The buying browser, opened later, learns that its pass was replaced (and its invites are gone).
+    # The buying browser, opened later, learns that its pass was replaced.
     status = f"/v1/credits/fiat-checkouts/{checkout_id}"
     seen = (await client.get(status, headers={"X-Unfret-Claim": started["claim"]})).json()
-    assert seen == {"paid": True, "checks": 25, "invites": [], "reissued": True}
+    assert seen == {"paid": True, "checks": 25, "reissued": True}
 
 
 async def test_a_purchase_the_buying_browser_picked_up_cant_be_taken_over(
@@ -809,18 +805,15 @@ async def test_a_top_up_of_a_pass_in_use_is_never_reissued(
     assert await checks_left(client, issued.key) == 50  # untouched
 
 
-@pytest.mark.parametrize("since", ["code", "order"])
+@pytest.mark.parametrize("since", ["grant", "order"])
 async def test_a_new_pass_that_got_checks_another_way_before_payment_is_not_reissued(
     client: httpx.AsyncClient, pool: asyncpg.Pool, provider: FakeFiatProvider, since: str
 ) -> None:
-    # A pass made for a checkout that was left open, then used with a gift code or paid by another checkout: by
+    # A pass made for a checkout that was left open, then given checks or paid by another checkout: by
     # the time this one is paid, the pass is in use.
     issued, _, checkout_id = await paid_checkout(client, provider, pool, pay=False)
-    if since == "code":
-        await pool.execute(
-            "INSERT INTO wallets (pubkey, balance_usd_micros, invite_redeemed) VALUES ($1, 600000, TRUE)",
-            issued.account,
-        )
+    if since == "grant":
+        await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, 600000)", issued.account)
     else:
         other = (await checkout(client, issued.key_id)).json()["checkout_id"]
         first = order("order.paid", "ord_other", checkout_id=other, total_amount=600)

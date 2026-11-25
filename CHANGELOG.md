@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Removed
+
+* **Affiliates, bonus codes, gift codes and report rewards.** The affiliate program (`/affiliates`, its stats page,
+  `make affiliates` / `make bonus-codes`), bonus codes at checkout, the gift codes that came with a pack (and
+  `POST /v1/invites/redeem`), and the checks a "Wrong result?" report earned once labelled. Reports still feed the
+  corpus; they just pay nothing. Migration 40 drops the tables and columns (affiliate earnings and payouts stay if
+  any were ever written). `docs/api-contract-v1.md` lists every field that went.
+
 ### Labels from the product
 
 * **`POST /v1/labels`**: a shopper disagrees with a result's findings and/or gives the page's overall risk level,

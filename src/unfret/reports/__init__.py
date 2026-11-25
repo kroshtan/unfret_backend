@@ -10,7 +10,7 @@ proves they are what that account was shown, so a report can't claim a score the
 **Before the queue.** A report is about a page (:func:`~unfret.reports.scrub.page_identity`). If that page is
 already in the queue, the report is closed as ``already_reported`` and counts as corroboration (raising the item's
 value); if it was labelled within ``report_known_days``, it is closed as ``already_known``. Only a new page enters
-the queue, so every queued item is a different page and the first reporter is the only one who can be rewarded.
+the queue, so every queued item is a different page.
 Limits: ``reports_per_month`` per account and one per page per account.
 
 **A full queue.** Every item has a :func:`value`: how far the reporter says the score is off, whether the page and
@@ -20,16 +20,15 @@ refused (``QUEUE_FULL``) otherwise. So grinding fills the queue with the reports
 burst of low-value ones can't push out the good ones.
 
 **A second opinion.** A queued item gets one model's proposed label (:mod:`unfret.reports.second_opinion`), shown to
-the operator to confirm or overrule; it never becomes a label, a training sample or a reward by itself.
+the operator to confirm or overrule; it never becomes a label or a training sample by itself.
 
 **Handling.** A human labels the item legit, junk or scam (or rejects it), one by one or by confirming confident
 proposals in bulk (:func:`confirm_proposals`). The label's zone is legit ≥ 70, junk and scam ≤ 40; a score at least
-``report_reward_gap`` points outside it pays the first reporter ``report_reward_checks`` checks, one at least
-``report_training_gap`` points outside it ``report_small_reward_checks``. The labelled page (scrubbed facts, text,
-score, label) is kept as training data, and the report itself, the only link to the account, is deleted. Items
-nobody handled are deleted after ``report_expiry_days``. The item
-records the tier that gave the score (``payload["tier"]``); the labelled page is the same training data either way
-(``make reports`` writes it to the corpus, whose pages both the deep and the quick scorer are trained on).
+``report_training_gap`` points outside it makes the page a training sample. Reports pay nothing. The labelled page
+(scrubbed facts, text, score, label) is kept as training data, and the report itself, the only link to the account, is
+deleted. Items nobody handled are deleted after ``report_expiry_days``. The item records the tier that gave the score
+(``payload["tier"]``); the labelled page is the same training data either way (``make reports`` writes it to the
+corpus, whose pages both the deep and the quick scorer are trained on).
 """
 
 import base64
@@ -46,7 +45,6 @@ import structlog
 
 from unfret import result_cache
 from unfret.config import Settings
-from unfret.credits import ledger
 from unfret.reports.scrub import page_identity, page_of
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.test_shop import is_test_shop
@@ -428,21 +426,6 @@ def agreement(score: int, reason: Reason, opinion: Label | Literal["unsure"] | N
     return "reporter" if same_side else "neither"
 
 
-def reward_checks(settings: Settings, off: int) -> int:
-    """
-    The checks a label pays the first reporter, by how far the score was off.
-
-    :param settings: The service settings.
-    :param off: The :func:`gap` between the score and the label.
-    :return: ``report_reward_checks``, ``report_small_reward_checks`` or 0.
-    """
-    if off >= settings.report_reward_gap:
-        return settings.report_reward_checks
-    if off >= settings.report_training_gap:
-        return settings.report_small_reward_checks
-    return 0
-
-
 async def queue(
     pool: asyncpg.Pool,
     settings: Settings,
@@ -462,7 +445,7 @@ async def queue(
     :param agreement_is: Only items whose second opinion sides like this (:func:`agreement`).
     :param min_confidence: Only items with a proposed label (not unsure) at least this confident.
     :return: The items, each with ``second_opinion`` (``state``, ``label``, ``confidence``, ``reason``, ``model``,
-        ``agreement``, and the ``gap`` and ``reward_checks`` that confirming the proposal would mean).
+        ``agreement``, and the ``gap`` that confirming the proposal would mean).
     """
     rows = await pool.fetch(
         "SELECT id, page_key, domain, reason, score, corroborations, value, created_at, opinion_state, llm_label, "
@@ -483,7 +466,6 @@ async def queue(
             "model": item.pop("llm_model"),
             "agreement": sides,
             "gap": off,
-            "reward_checks": None if off is None else reward_checks(settings, off),
         }
         if agreement_is is not None and sides != agreement_is:
             continue
@@ -508,16 +490,14 @@ class Handled:
 
     label: Label | None
     gap: int
-    reward_usd_micros: int
     training: bool
-    reward_checks: int = 0
 
 
 async def _label(
     conn: asyncpg.Connection, settings: Settings, row: asyncpg.Record, label: Label | None, *, bulk: bool
 ) -> Handled:
     """
-    Apply a person's label to a locked item: keep the page as training data, pay the first reporter, unlink.
+    Apply a person's label to a locked item: keep the page as training data, unlink.
 
     :param conn: The connection, in a transaction holding the row.
     :param settings: The service settings.
@@ -529,7 +509,7 @@ async def _label(
     await conn.execute("DELETE FROM reports WHERE id = $1", row["id"])  # the account goes with it
     if label is None:
         logger.info("report_rejected")
-        return Handled(None, 0, 0, training=False)
+        return Handled(None, 0, training=False)
     off = gap(row["score"], label)
     await conn.execute(
         "INSERT INTO labelled_pages (page_key, domain, label, score, reason, payload, llm_label, llm_confidence, "
@@ -544,17 +524,13 @@ async def _label(
         row["llm_confidence"],
         bulk,
     )
-    checks = reward_checks(settings, off)
-    reward = checks * settings.analysis_price_usd_micros
-    if reward:
-        await ledger.credit(conn, row["account"], reward)
-    logger.info("report_labelled", label=label, gap=off, reward_checks=checks, bulk=bulk)
-    return Handled(label, off, reward, training=off >= settings.report_training_gap, reward_checks=checks)
+    logger.info("report_labelled", label=label, gap=off, bulk=bulk)
+    return Handled(label, off, training=off >= settings.report_training_gap)
 
 
 async def handle(pool: asyncpg.Pool, settings: Settings, report_id: int, label: Label | None) -> Handled | None:
     """
-    Label an item (or reject it with ``None``): pay the reward if earned, keep the page as training data, unlink.
+    Label an item (or reject it with ``None``): keep the page as training data, unlink.
 
     :param pool: The database pool.
     :param settings: The service settings.

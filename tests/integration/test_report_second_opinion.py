@@ -75,7 +75,6 @@ async def test_a_queued_report_gets_one_second_opinion_shown_in_the_queue(
         "model": "test",
         "agreement": "reporter",  # the score (80) was 40 off the scam zone, as the reporter said
         "gap": 40,
-        "reward_checks": 5,
     }
     # Asked once: the housekeeping doesn't ask again.
     assert await second_opinion.catch_up(pool, settings) == 0
@@ -127,7 +126,7 @@ async def test_without_a_model_the_item_just_waits_for_a_person(
     assert item["second_opinion"]["agreement"] == "none"
     assert await second_opinion.catch_up(pool, settings) == 0  # failed once: not asked again
     labelled = await client.post(f"/v1/admin/reports/{item['id']}/label", json={"label": "scam"}, headers=ADMIN)
-    assert labelled.json()["reward_checks"] == 5
+    assert labelled.json()["label"] == "scam"
 
 
 async def test_the_daily_cap_holds_items_back_until_the_next_day(
@@ -167,7 +166,7 @@ async def test_filters_and_orders_for_the_review(
     assert keys(await queue(client, agreement="unsure")) == ["C"]
     assert keys(await queue(client, min_confidence=0.9)) == ["A"]
     assert keys(await queue(client, order="confidence")) == ["A", "B", "C"]
-    assert (await queue(client, agreement="score"))["items"][0]["second_opinion"]["reward_checks"] == 0
+    assert (await queue(client, agreement="score"))["items"][0]["second_opinion"]["agreement"] == "score"
 
 
 async def test_confirming_proposals_in_bulk_labels_only_what_was_previewed(
@@ -191,7 +190,7 @@ async def test_confirming_proposals_in_bulk_labels_only_what_was_previewed(
 
     assert response.status_code == 200, response.text
     done = response.json()
-    assert (done["labelled"], done["left"], done["reward_checks"]) == (2, 2, 5)
+    assert (done["labelled"], done["left"]) == (2, 2)
     assert [i["outcome"] for i in done["items"]] == ["labelled", "labelled", "changed", "gone"]
     rows = await pool.fetch(
         "SELECT label, llm_label, llm_confidence, confirmed_in_bulk FROM labelled_pages ORDER BY id"
@@ -201,8 +200,7 @@ async def test_confirming_proposals_in_bulk_labels_only_what_was_previewed(
         ("legit", "legit", True),
     ]
     assert await pool.fetchval("SELECT COUNT(*) FROM reports") == 1  # C waits for one-by-one review
-    rewarded = await pool.fetchval("SELECT MAX(balance_usd_micros) FROM wallets")
-    assert rewarded == 5 * PRICE
+    assert await pool.fetchval("SELECT MAX(balance_usd_micros) FROM wallets") == 0  # reports pay nothing
 
 
 async def test_a_wrong_label_in_bulk_is_left_for_review(

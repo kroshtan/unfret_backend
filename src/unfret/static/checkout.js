@@ -1,10 +1,9 @@
-// /checkout: get checks, in three tabs so each visitor sees one short path, and crypto behind a quiet link.
+// /checkout: get checks, in two tabs so each visitor sees one short path, and crypto behind a quiet link.
 //
 //   Buy checks      pick a pack, pay by card (or iDEAL | Wero in the Netherlands), the price with the VAT the card
 //                   provider adds (prices.js). The checks go to the pass this browser already uses, if any; otherwise
 //                   a pass (an API key) is made in this browser just before the card checkout and shown after paying,
 //                   so nobody has to understand passes before they've paid.
-//   Gift code       one field and one button: a new pass is made and a friend's gift code is redeemed onto it.
 //   Add to my pass  paste the pass you have (or type its ID), pick a pack, pay by card. A link from the extension,
 //                   /check or /my-checks names the pass's ID (?mode=topup&key_id=<id>): it is filled in.
 //   Crypto          "Prefer crypto?" under the card buttons (or ?mode=crypto): SOL or USDC to a wallet or a pass,
@@ -13,36 +12,24 @@
 // A pass made here waits in localStorage ("unfret-new-key") until its owner says the backup code is saved, so a card
 // checkout's round trip or a closed tab can't lose it (/my-checks shows that backup code too); it is also signed in on
 // /check (if nothing else is) so a link can be checked at once. Every new pass shown here is also offered to the
-// Unfret extension in this browser (handoff.js), which signs in with it, so nobody has to paste it there. Invites:
-// every pack comes with invite codes to give away. The purchase comes with a claim token (never on chain, never sent
-// to the card provider); the first status poll after payment that carries it (X-Unfret-Claim) returns the codes,
-// once. Pending claims are kept in localStorage for a few days and dropped once paid. Crypto payments have a quote,
+// Unfret extension in this browser (handoff.js), which signs in with it, so nobody has to paste it there. A card
+// purchase comes with a claim token (never sent to the card provider), sent with its status polls (X-Unfret-Claim).
+// Pending claims are kept in localStorage for a few days and dropped once paid. Crypto payments have a quote,
 // polled at /v1/credits/quotes/<id> until the transfer is final. Back from the card provider in a browser that has
 // neither the pass nor the claim (a bank app can do that), the return link's checkout id collects the purchase once.
-//
-// Bonus codes: one field under the packs, for card and crypto alike, filled in from an affiliate's link (ref.js).
-// A code adds checks, never lowers the price. It is checked before anyone is sent to pay (POST /v1/credits/codes/check:
-// "+20% checks") and goes with
-// the purchase as `code`; one code per purchase. A `?code=` that isn't a gift code (an old shared link) is dropped:
-// the page opens as if the link had none.
 import {
-  INVITE_RE,
-  NOT_A_CODE,
   api,
   chainOf,
   discoverWallets,
   formatSol,
   fromBase64,
-  inviteNodes,
   recall,
   recallAny,
-  redeemInvite,
   setStatus,
   walletButton,
 } from "./wallet.js";
 import { awaitConfirmation, handOffKey, topupKeyId } from "./handoff.js";
 import { makePass } from "./new-pass.js";
-import { storedRef } from "./ref.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
 import { cardPrice as cardPriceFor, countryPhrase, packFor, taxNote } from "./prices.js";
 
@@ -75,7 +62,7 @@ const newLocal = $("new-local");
 const topupLocal = $("topup-local");
 const topupKey = $("topup-key");
 
-const MODES = ["new", "code", "topup", "crypto"];
+const MODES = ["new", "topup", "crypto"];
 let mode = "new";
 let pricing = null;
 let pack = null; // the chosen pack from /v1/pricing
@@ -425,9 +412,9 @@ async function startCardCheckout(keyId, method = null) {
     : { currency: cardCurrency() };
   const started = await api("/v1/credits/fiat-checkout", {
     method: "POST",
-    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice, ...(await codeField()) }),
+    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice }),
   });
-  // Kept across the provider's checkout: back on /checkout?paid=1 it collects the pack's invites.
+  // Kept across the provider's checkout: back on /checkout?paid=1 it confirms the payment.
   rememberClaim("fiat", started.checkout_id, started.claim, pack.checks, keyId);
   window.location.assign(started.checkout_url);
 }
@@ -500,83 +487,10 @@ $("topup-other").addEventListener("click", () => {
   topupKey.focus();
 });
 
-// ── Bonus code ──────────────────────────────────────────────────────────────────────────────────────────────────
-
-const codeInput = $("code-input");
-const codeStatus = $("code-status");
-let bonus = null; // { code, label, … } once the code in the field has been checked
-
-async function checkCode() {
-  const typed = codeInput.value.trim().toUpperCase();
-  bonus = null;
-  if (!typed) {
-    setStatus(codeStatus, "");
-    return null;
-  }
-  setStatus(codeStatus, "Checking the code…");
-  try {
-    bonus = await api("/v1/credits/codes/check", { method: "POST", body: JSON.stringify({ code: typed }) });
-    setStatus(codeStatus, `${bonus.code}: ${bonus.label}.`, "ok");
-  } catch (error) {
-    setStatus(codeStatus, error.message || "This code isn't valid, or has ended.", "error");
-  }
-  return bonus;
-}
-
-// What a purchase sends: { code } when the field holds a working code; throws (with the reason shown) when it holds
-// one that doesn't work, so nobody pays without the checks they expected.
-async function codeField() {
-  const typed = codeInput.value.trim().toUpperCase();
-  if (!typed) return {};
-  if (bonus?.code !== typed && !(await checkCode())) {
-    throw new Error("That code doesn't work: remove it, or check it and try again.");
-  }
-  return { code: bonus.code };
-}
-
-$("code-apply").addEventListener("click", () => void checkCode());
-codeInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") void checkCode();
-});
-codeInput.addEventListener("input", () => {
-  bonus = null;
-  setStatus(codeStatus, "");
-});
-
-// ── Gift code ───────────────────────────────────────────────────────────────────────────────────────────────────
-
-function normaliseCode(value) {
-  const typed = value.trim().toLowerCase();
-  return INVITE_RE.test(typed) ? typed : null;
-}
-
-$("invite-redeem").addEventListener("click", async (event) => {
-  const redeemButton = event.currentTarget;
-  const status = $("invite-status");
-  const code = normaliseCode($("invite-input").value);
-  if (!code) return setStatus(status, NOT_A_CODE, "error");
-  redeemButton.disabled = true;
-  try {
-    setStatus(status, "Setting up your pass…");
-    const issued = await unfundedKey();
-    const added = await redeemInvite(code, issued.key);
-    const funded = { ...issued, funded: true };
-    saveNewKey(funded);
-    signInCheckPage(funded);
-    $("invite-input").value = "";
-    setStatus(status, "");
-    showResult(`${checksWord(added.checks_added)} added. Welcome to Unfret!`, funded, []);
-  } catch (error) {
-    setStatus(status, error.message || "That code didn't work.", "error");
-  } finally {
-    redeemButton.disabled = false;
-  }
-});
-
-// ── Results: a new key (after a code, a card payment or a recovery) ─────────────────────────────────────────────
+// ── Results: a new key (after a card payment or a recovery) ─────────────────────────────────────────────────────
 
 // The result view, in place of the choices: a headline, the key card and how to use it, then "I've saved my key".
-function showResult(headline, issued, extra = [], { saveFirst = false, invites = [] } = {}) {
+function showResult(headline, issued, extra = [], { saveFirst = false } = {}) {
   stopWatching();
   const nodes = [element("p", headline, "headline")];
   if (issued) {
@@ -584,11 +498,9 @@ function showResult(headline, issued, extra = [], { saveFirst = false, invites =
     nodes.push(handoffBox(issued, steps), keyCard(issued), element("h3", "Where to use your checks"), steps);
   }
   nodes.push(...extra);
-  if (invites.length) nodes.push(...inviteNodes(invites));
   const done = button(
     issued ? "I've saved my backup code" : "Done",
     () => {
-      if (invites.length && !window.confirm("Copied your gift codes? They can't be shown again.")) return;
       if (issued && loadNewKey()?.key === issued.key) saveNewKey(null);
       clearPanel();
       showChoices(true);
@@ -728,13 +640,6 @@ function describe() {
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
 
-// "+ 1 gift code for a friend (5 checks)".
-function inviteOffer(invites) {
-  return invites.count === 1
-    ? `+ 1 gift code for a friend (${invites.checks_each} checks)`
-    : `+ ${invites.count} gift codes for friends (${invites.checks_each} checks each)`;
-}
-
 // ?checks=<n> preselects a pack. A size that isn't sold any more (an old link to the 50-pack) gets the nearest pack
 // (prices.js packFor) and a note saying so; the visitor can pick another.
 function presetPack() {
@@ -774,7 +679,6 @@ function renderPacks() {
       const crypto = element("span", "VAT included", "muted crypto crypto-only");
       // Spaces between the parts (a grid ignores them), so read as text the words don't run together.
       label.append(input, name, " ", price, " ", cryptoPrice, " ", crypto);
-      if (option.invites?.count) label.append(" ", element("span", inviteOffer(option.invites), "muted gift"));
       return label;
     }),
   );
@@ -841,7 +745,7 @@ function purchaseTarget() {
   return signedIn ? { beneficiary: signedIn.address } : {};
 }
 
-// ── Pending invite claims (localStorage; try/catch: private modes must still work, just without remembering) ──
+// ── Pending purchase claims (localStorage; try/catch: private modes must still work, just without remembering) ──
 
 function loadClaims() {
   const list = storageGet(CLAIMS_KEY);
@@ -861,7 +765,7 @@ function forgetClaim(id) {
   saveClaims(loadClaims().filter((c) => c.id !== id));
 }
 
-// A purchase's status with its claim: { paid, checks, invites } (the invites only the first time), or null if the
+// A purchase's status with its claim: { paid, checks, reissued }, or null if the
 // purchase is unknown (gone, or not this claim). Once paid, the claim has done its job and is forgotten.
 async function collectClaim(entry) {
   const path =
@@ -924,12 +828,6 @@ function reset() {
   refreshTarget();
 }
 
-// Leaving a confirmation that shows invites removes them from the page for good: ask first.
-function leaveInvites(invites) {
-  if (invites.length && !window.confirm("Copied your gift codes? They can't be shown again.")) return;
-  reset();
-}
-
 // Where the checks went, in words, for the success message.
 function destination(purchase) {
   if (purchase.keyId) return ` to pass ${showPassId(purchase.keyId)}`;
@@ -960,18 +858,17 @@ function showTimeout(purchase) {
   );
 }
 
-async function showPaid(purchase, invites = []) {
+async function showPaid(purchase) {
   qr.hidden = true;
   const headline = `Payment received: ${checksWord(purchase.checks)} added${destination(purchase)}.`;
   const nodes = [element("p", headline, "headline")];
-  if (invites.length) nodes.push(...inviteNodes(invites));
   if (purchase.keyId) {
     nodes.push(element("p", "Your pass shows them in the extension and on My checks."));
   } else {
     nodes.push(element("p", "The extension shows your checks once you've connected this wallet."));
   }
   const balance = element("p", "", "muted");
-  nodes.push(balance, button("Buy more", () => leaveInvites(invites)));
+  nodes.push(balance, button("Buy more", reset));
   showPanel("ok", ...nodes);
   bringIntoView();
   if (!purchase.token) return;
@@ -993,16 +890,11 @@ async function poll(purchase) {
   if (watch !== purchase) return;
   purchase.rounds += 1;
   try {
-    const headers = purchase.claim ? { "X-Unfret-Claim": purchase.claim } : {};
-    const quote = await api(`/v1/credits/quotes/${encodeURIComponent(purchase.quoteId)}`, {
-      cache: "no-store",
-      headers,
-    });
+    const quote = await api(`/v1/credits/quotes/${encodeURIComponent(purchase.quoteId)}`, { cache: "no-store" });
     if (watch !== purchase) return;
     if (quote.paid) {
-      forgetClaim(purchase.quoteId);
       stopWatching();
-      showPaid(purchase, quote.invites ?? []);
+      showPaid(purchase);
       return;
     }
   } catch {
@@ -1146,7 +1038,7 @@ function dropReplaced(entry) {
 }
 
 // Back from the card provider (/checkout?paid=1&checkout=<id>): wait for the webhook to credit the key, then show the
-// key (if it was made here) and the pack's invites. Back in a browser that didn't start the payment (a bank app or a
+// key (if it was made here). Back in a browser that didn't start the payment (a bank app or a
 // phone can do that), which has neither the key nor the claim, the purchase is picked up by its checkout id.
 async function watchCard(returned) {
   const fiatClaims = loadClaims().filter((c) => c.kind === "fiat");
@@ -1174,14 +1066,13 @@ async function watchCard(returned) {
     }
     if (status.paid) {
       const checks = status.checks ?? entry.checks;
-      const invites = status.invites ?? [];
       if (made) {
         const funded = { ...made, funded: true };
         saveNewKey(funded);
         signInCheckPage(funded);
-        showResult(`Payment received: ${checksWord(checks)} are ready.`, funded, [], { invites });
+        showResult(`Payment received: ${checksWord(checks)} are ready.`, funded);
       } else {
-        showResult(`Payment received: ${checksWord(checks)} added to your pass.`, null, [], { invites });
+        showResult(`Payment received: ${checksWord(checks)} added to your pass.`, null);
       }
       return;
     }
@@ -1211,7 +1102,7 @@ async function pickUpElsewhere(checkoutId) {
         "You paid in another browser, so this one has a new pass for your checks. The pass made there no longer works.",
         "muted",
       );
-      showResult(`Payment received: ${checksWord(checks)} are ready.`, funded, [note], { invites: picked.invites ?? [] });
+      showResult(`Payment received: ${checksWord(checks)} are ready.`, funded, [note]);
       return;
     } catch (error) {
       if (error.code !== "CHECKOUT_NOT_PAID") return pickUpFailed(error);
@@ -1236,23 +1127,16 @@ function pickUpFailed(error) {
   showPanel("info", element("p", text ?? (error.message || "Couldn't collect your checks here; try reloading the page."), "headline"));
 }
 
-// Invites from an earlier purchase on this browser whose page was closed before they were shown, and a key made
-// here that its owner hasn't confirmed saving.
+// A key made here that its owner hasn't confirmed saving (and earlier purchases' claims, tidied up).
 async function collectEarlier() {
-  const codes = [];
   for (const entry of loadClaims()) {
     const status = await collectClaim(entry);
     if (status?.reissued) dropReplaced(entry);
-    if (status?.paid && status.invites?.length) codes.push(...status.invites);
   }
   if (watch) return;
   const made = loadNewKey();
   if (made?.funded) {
-    showResult("Your Unfret pass", made, [element("p", "You haven't confirmed saving your backup code yet.", "muted")], {
-      invites: codes,
-    });
-  } else if (codes.length) {
-    showResult("Your earlier purchase came with gift codes", null, [], { invites: codes });
+    showResult("Your Unfret pass", made, [element("p", "You haven't confirmed saving your backup code yet.", "muted")]);
   }
 }
 
@@ -1273,8 +1157,7 @@ function sendPass() {
   return true;
 }
 
-// A `?code=` that isn't a gift code (an old shared link): it leaves the address bar and the page goes on as if the
-// link had none. Nothing is redeemed.
+// A `?code=` (an old shared gift-code link): it leaves the address bar and the page goes on as if the link had none.
 function dropCode(params) {
   params.delete("code");
   history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
@@ -1284,7 +1167,6 @@ function initialMode(params) {
   const asked = params.get("mode");
   if (MODES.includes(asked) && (asked !== "crypto" || cryptoAvailable())) return asked;
   if (topupKeyId(params)) return "topup";
-  if (params.get("code")) return "code";
   if (cryptoAvailable() && (params.get("for") === "wallet" || (!params.get("for") && signedIn))) return "crypto";
   return cardAvailable() || !cryptoAvailable() ? "new" : "crypto";
 }
@@ -1308,15 +1190,7 @@ async function start() {
     $("network").textContent = "Test network (devnet): no real money.";
   }
   const params = new URLSearchParams(window.location.search);
-  const shared = params.get("code");
-  if (shared && normaliseCode(shared)) $("invite-input").value = normaliseCode(shared);
-  else if (shared) dropCode(params);
-  // An affiliate's link brought this visitor: their code waits in the code field.
-  const ref = storedRef();
-  if (ref && !codeInput.value) {
-    codeInput.value = ref;
-    void checkCode();
-  }
+  if (params.get("code")) dropCode(params);
   setTopupFor(topupKeyId(params));
   const solRadio = currencyField.querySelector('input[value="SOL"]');
   const usdcRadio = currencyField.querySelector('input[value="USDC"]');

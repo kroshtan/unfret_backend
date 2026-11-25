@@ -56,7 +56,6 @@ async def test_a_free_pass_checks_five_pages_without_a_balance(
     credits = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
     assert credits["checks_remaining"] == 5 and credits["free_checks_remaining"] == 5
     assert credits["free_checks_paused"] is False
-    assert credits["invite_eligible"] is True  # free checks are no credit: a gift code still works on this pass
 
     for n in range(5):
         page = {**PAGE, "url": f"https://shop.test/item-{n}"}

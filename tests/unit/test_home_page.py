@@ -67,7 +67,6 @@ async def test_the_page_names_its_assets_under_the_build(client: httpx.AsyncClie
     page = (await client.get(path)).text
     tag = asset_tag()
     assert f'<script type="module" src="/static/{tag}/{script}"></script>' in page
-    assert f'<script type="module" src="/static/{tag}/ref.js"></script>' in page  # an affiliate's ?ref= is kept
     assert f'href="/static/{tag}/site.css"' in page
     assert '"/static/site.css"' not in page and f'"/static/{script}"' not in page
     for name in (script, "start-check.js", "check-core.js", "prices.js"):

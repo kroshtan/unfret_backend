@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, Response
 from unfret import card, observations, result_cache, usage, verdict_store
 from unfret.auth import get_credits
 from unfret.config import settings
-from unfret.credits import affiliates, free, keys
+from unfret.credits import free, keys
 from unfret.routes import analyze
 from unfret.routes.check import CheckRequest, _failure_site, _provenance, _rate, _readable_page, rate_limited
 from unfret.schemas.errors import ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
@@ -122,7 +122,6 @@ async def _pay_for_hit(request: Request, body: CheckRequest, account: str, hit: 
             await analyze._can_pay(request, account, api=True)  # never charged, but only for a pass that could pay
         else:
             charge = await analyze._debit(request, account, api=True)
-            await affiliates.first_check(request.app.db_pool, account)
             result_cache.mark_paid(account, body.url)
     logger.info("check_pass_cache_hit", tier=body.tier, charged=charge.charged)
     return await _answer(request, hit, charge, account=account, charged=charge.charged)
@@ -212,7 +211,6 @@ async def _checked(body: CheckRequest, request: Request, account: str) -> Respon
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
 
     charge = await analyze._debit(request, account, api=True) if body.tier == "deep" else analyze.Charge(account)
-    await affiliates.first_check(request.app.db_pool, account)
     try:
         async with asyncio.timeout(settings.analysis_timeout_s):
             with observations.observed_as(_provenance(request, body, account)):

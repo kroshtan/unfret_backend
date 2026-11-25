@@ -3,7 +3,6 @@
 // pass, whose challenge is harder). The browser extension makes its free pass on install the same way (its
 // src/shared/new-pass.ts follows this file).
 
-import { clearRef, storedRef } from "./ref.js";
 
 // SHA-256 in plain JavaScript, for the proof of work only: Web Crypto's digest is asynchronous, and one await per hash
 // made a developer pass's harder challenge take half a minute. The challenge's whole 64-byte blocks are hashed once;
@@ -105,16 +104,12 @@ export async function makePass(api, { free = false, developer = false } = {}) {
   // A developer pass needs a developer challenge: a harder proof of work (a few seconds more).
   const challenge = await api(developer ? "/v1/keys/challenge?developer=true" : "/v1/keys/challenge");
   const solution = await solve(challenge.challenge, challenge.bits);
-  // An affiliate's link brought this visitor (ref.js): the new pass counts for them, then the code is forgotten.
-  const ref = storedRef();
   const body = {
     challenge: challenge.challenge,
     solution,
     source: "website", // for Unfret's anonymous usage counts only, never kept with the pass
     ...(developer ? { developer: true } : free ? { free: true } : {}),
-    ...(ref ? { ref } : {}),
   };
   const made = await api("/v1/keys", { method: "POST", body: JSON.stringify(body) });
-  if (ref) clearRef();
   return made;
 }

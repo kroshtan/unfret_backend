@@ -2,12 +2,11 @@
 Operator endpoints, behind ``UNFRET_ADMIN_TOKEN``.
 
 Listing the transactions behind the sticky x402 alerts and clearing them after investigating them, removing shops or
-contact details from the fingerprint store on request, the queue of shop owners' requests (``/objection``), the
-review queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits
-for a store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the count
-of invites outstanding (a gift, not revenue), the review of shared results a shop owner objected to, how the photo,
-price and review stores are fed (counts only), and retiring every pass made before a moment
-(``python -m unfret.admin_cli retire-passes``).
+contact details from the fingerprint store on request, the queue of shop owners' requests (``/objection``), the review
+queue of reported results (``make reports``), a small grant of credit to an API key (support, and test credits for a
+store reviewer) and taking it back, the quarterly export of crypto sales records for the bookkeeping, the review of
+shared results a shop owner objected to, how the photo, price and review stores are fed (counts only), and retiring
+every pass made before a moment (``python -m unfret.admin_cli retire-passes``).
 """
 
 import json
@@ -22,7 +21,7 @@ from pydantic import BaseModel, Field
 from unfret import ad_store, crowd, objections, observations, recording, reports, shares, shop_store
 from unfret.auth import require_admin
 from unfret.config import settings
-from unfret.credits import invites, keys, ledger, retire, vat
+from unfret.credits import keys, ledger, retire, vat
 from unfret.fingerprint import contact_hash, normalise_address, normalise_email, normalise_phone
 from unfret.price_store import registrable_domain
 from unfret.routes.check import get_x402, get_x402_base
@@ -296,8 +295,6 @@ def _handled(done: reports.Handled) -> dict[str, Any]:
     return {
         "label": done.label,
         "gap": done.gap,
-        "reward_checks": done.reward_checks,
-        "reward_usd_micros": done.reward_usd_micros,
         "training": done.training,
     }
 
@@ -305,12 +302,12 @@ def _handled(done: reports.Handled) -> dict[str, Any]:
 @router.post("/reports/{report_id}/label")
 async def label_report(report_id: int, body: LabelRequest, request: Request) -> dict[str, Any]:
     """
-    Label a reported page: pay the first reporter if the score was off, keep the page as training data, unlink it.
+    Label a reported page: keep the page as training data, unlink it.
 
     :param report_id: The item.
-    :param body: The label, or ``reject`` (not a product page, unusable, can't tell): no sample, no reward.
+    :param body: The label, or ``reject`` (not a product page, unusable, can't tell): no sample.
     :param request: The incoming request.
-    :return: The gap, the reward and whether the page counts as training data.
+    :return: The gap and whether the page counts as training data.
     :raises HTTPException: 404 if the item is gone (handled or expired).
     """
     label = None if body.label == "reject" else body.label
@@ -355,7 +352,6 @@ async def confirm_reports(body: ConfirmRequest, request: Request) -> dict[str, A
     return {
         "labelled": len(labelled),
         "left": len(out) - len(labelled),
-        "reward_checks": sum(r["reward_checks"] for r in labelled),
         "items": out,
     }
 
@@ -437,22 +433,6 @@ async def sales_export(quarter: str, request: Request) -> PlainTextResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
-
-
-@router.get("/invites")
-async def invites_summary(request: Request) -> dict[str, int]:
-    """
-    Invites issued, redeemed and outstanding, and buyers by how they came.
-
-    Also what the outstanding ones would credit (gifts: not in the sales), and buyers through a code or not.
-
-    :param request: The incoming request.
-    :return: The counts.
-    :raises HTTPException: Without a database (503).
-    """
-    if request.app.db_pool is None:
-        raise HTTPException(503, "Database not ready.")
-    return await invites.summary(request.app.db_pool, settings)
 
 
 class RetireRequest(BaseModel):

@@ -14,11 +14,7 @@ mapping wins when both are present.
 What a payment buys: the value of the pack whose card price it paid (:func:`unfret.credits.packs.card_credits`; the
 price as the price list shows it, in the order's currency: before sales tax for dollars, VAT included for euros while
 the euro prices include it). The order's amount before tax is what is stored, and what refunds are counted against. The
-provider is the seller of record and handles the tax, so no VAT record is kept here. A paid pack also issues its
-invites (:mod:`unfret.credits.invites`) in the crediting transaction, for the buyer's page to collect once with its
-claim token. The same transaction applies the checkout's code and the pass's affiliate
-(:mod:`unfret.credits.affiliates`): bonus checks (part of the order's credits, so a refund takes their share back), and
-the affiliate's commission on the order's net amount less the provider's fee.
+provider is the seller of record and handles the tax, so no VAT record is kept here.
 
 ``fiat_payments`` keeps one row per order: the account, the amount and its currency, the credits granted and how much
 was taken back. It makes crediting idempotent (providers retry webhooks), lets a refund or chargeback debit the right
@@ -51,8 +47,8 @@ from urllib.parse import urlencode
 import asyncpg
 
 from unfret.config import Settings
-from unfret.credits import affiliates, invites, keys, ledger
-from unfret.credits.packs import CARD_CURRENCIES, CardCurrency, Pack, card_credits, pack_for_card
+from unfret.credits import claims, keys, ledger
+from unfret.credits.packs import CARD_CURRENCIES, CardCurrency, Pack, card_credits
 
 USD_MICROS_PER_CENT = 10_000
 
@@ -309,7 +305,6 @@ async def remember_checkout(
     *,
     checks: int | None = None,
     claim_hash: bytes | None = None,
-    code: str | None = None,
 ) -> None:
     """
     Keep which account a checkout is for, in case the order's webhook doesn't echo the metadata.
@@ -322,20 +317,17 @@ async def remember_checkout(
     :param checkout: The checkout.
     :param account: The account (``key:<id>``).
     :param checks: The pack size, for the buyer's status page.
-    :param claim_hash: The hash of the buyer's claim token, which collects the order's invites
-        (:mod:`unfret.credits.invites`).
-    :param code: The bonus or affiliate code the checkout was started with (:mod:`unfret.credits.affiliates`).
+    :param claim_hash: The hash of the buyer's claim token (:mod:`unfret.credits.claims`).
     """
     await db.execute(
-        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass, code) "
-        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3), $6) "
+        "INSERT INTO fiat_checkouts (provider, checkout_id, account, checks, claim_hash, new_pass) "
+        "VALUES ($1, $2, $3, $4, $5, NOT EXISTS (SELECT 1 FROM wallets WHERE pubkey = $3)) "
         "ON CONFLICT DO NOTHING",
         provider,
         checkout.checkout_id,
         account,
         checks,
         claim_hash,
-        code,
     )
 
 
@@ -357,11 +349,10 @@ class ReissueError(Exception):
 
 @dataclass(frozen=True)
 class Reissued:
-    """A card purchase picked up in another browser: a fresh pass for its key, and the pack's invites."""
+    """A card purchase picked up in another browser: a fresh pass for its key."""
 
     key: keys.IssuedKey
     checks: int | None
-    invites: list[str]
 
 
 async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now: datetime | None = None) -> Reissued:
@@ -369,27 +360,26 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
     Give a card buyer who came back in another browser a working pass for what they paid for.
 
     The pass (an API key) for a card purchase is made in the buying browser and kept only there, with the claim token
-    that collects the pack's invites. A bank app or a phone can send the buyer back to another browser, which has
-    neither: the provider's return link then names the checkout (``?checkout=<id>``), and this rotates the key the
-    checkout paid for (a new key and recovery code, the same id and balance; the old ones stop working) and hands
-    over the invites. Only once, only within :data:`REISSUE_WINDOW` of the payment, and only while the buying
-    browser hasn't picked the purchase up itself (:func:`unfret.credits.invites.checkout_status`): an old link in a
-    browser's history can't take over a pass that is in use. Never for a top-up: only a checkout whose key had no
-    credit when it was made (``new_pass``), and whose balance is still exactly this purchase (no code redeemed on
-    it, no other card order, no crypto top-up, grant or refund, nothing spent), so a pass already in use elsewhere is
-    never rotated.
+    that marks it picked up. A bank app or a phone can send the buyer back to another browser, which has neither: the
+    provider's return link then names the checkout (``?checkout=<id>``), and this rotates the key the checkout paid for
+    (a new key and recovery code, the same id and balance; the old ones stop working). Only once, only within
+    :data:`REISSUE_WINDOW` of the payment, and only while the buying browser hasn't picked the purchase up itself
+    (:func:`unfret.credits.claims.checkout_status`): an old link in a browser's history can't take over a pass that is
+    in use. Never for a top-up: only a checkout whose key had no credit when it was made (``new_pass``), and whose
+    balance is still exactly this purchase (no other card order, no crypto top-up, grant or refund, nothing spent), so
+    a pass already in use elsewhere is never rotated.
 
     :param db: The database pool.
     :param provider: The provider's name.
     :param checkout_id: The checkout, from the provider's return link.
     :param now: The current time (tests).
-    :return: The new pass, the pack size and its invites.
+    :return: The new pass and the pack size.
     :raises ReissueError: When it can't be (yet, or any longer) reissued.
     """
     async with db.acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
-            "SELECT c.account, c.checks, c.paid_at, c.collected_at, c.reissued_at, c.invite_codes, c.new_pass, "
-            "COALESCE(w.invite_redeemed, FALSE) AS invite_redeemed, w.balance_usd_micros AS balance, "
+            "SELECT c.account, c.checks, c.paid_at, c.collected_at, c.reissued_at, c.new_pass, "
+            "w.balance_usd_micros AS balance, "
             "(SELECT COUNT(*) FROM fiat_payments p WHERE p.account = c.account) AS orders, "
             "(SELECT SUM(p.credited_usd_micros - p.debited_usd_micros) FROM fiat_payments p "
             "WHERE p.account = c.account) AS bought "
@@ -404,7 +394,7 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
             raise ReissueError("not_paid")
         # The pass must hold exactly this purchase: anything else on it (crypto, a grant, a refund) or already spent
         # from it means it is in use somewhere, and rotating it would sign that device out (or hand its checks over).
-        if not row["new_pass"] or row["invite_redeemed"] or row["orders"] > 1 or row["balance"] != row["bought"]:
+        if not row["new_pass"] or row["orders"] > 1 or row["balance"] != row["bought"]:
             raise ReissueError("topped_up")
         if row["collected_at"] is not None or row["reissued_at"] is not None:
             raise ReissueError("collected")
@@ -415,12 +405,11 @@ async def reissue_pass(db: asyncpg.Pool, provider: str, checkout_id: str, *, now
         except keys.ApiKeyError as exc:
             raise ReissueError("unknown") from exc
         await conn.execute(
-            "UPDATE fiat_checkouts SET reissued_at = NOW(), invite_codes = NULL "
-            "WHERE provider = $1 AND checkout_id = $2",
+            "UPDATE fiat_checkouts SET reissued_at = NOW() WHERE provider = $1 AND checkout_id = $2",
             provider,
             checkout_id,
         )
-    return Reissued(issued, row["checks"], list(row["invite_codes"] or []))
+    return Reissued(issued, row["checks"])
 
 
 async def _account_for(conn: asyncpg.Connection, event: FiatEvent, site: str) -> str | Literal["other_site"] | None:
@@ -449,27 +438,9 @@ async def _account_for(conn: asyncpg.Connection, event: FiatEvent, site: str) ->
     return event.account if event.site == site else "other_site"
 
 
-async def _checkout_code(conn: asyncpg.Connection, event: FiatEvent) -> str | None:
-    if not event.checkout_id:
-        return None
-    code = await conn.fetchval(
-        "SELECT code FROM fiat_checkouts WHERE provider = $1 AND checkout_id = $2", event.provider, event.checkout_id
-    )
-    return None if code is None else str(code)
-
-
-async def _credit_order(
-    conn: asyncpg.Connection,
-    event: FiatEvent,
-    settings: Settings,
-    account: str,
-    *,
-    code: str | None,
-    credits: int,
-) -> Outcome:
-    """Credit a paid order once: its pack, a code's or affiliate's bonus, the affiliate's commission, its invites."""
+async def _credit_order(conn: asyncpg.Connection, event: FiatEvent, account: str, *, credits: int) -> Outcome:
+    """Credit a paid order once, and mark its checkout paid."""
     await conn.execute("SELECT 1 FROM wallets WHERE pubkey = $1 FOR UPDATE", account)
-    first_purchase = await affiliates.never_bought(conn, account)
     fresh = await conn.fetchval(
         "INSERT INTO fiat_payments (provider, order_id, account, amount_cents, credited_usd_micros, currency) "
         "VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING RETURNING TRUE",
@@ -482,41 +453,9 @@ async def _credit_order(
     )
     if not fresh:
         return "duplicate"
-    matched = pack_for_card(settings, event.paid_price_cents, event.currency)
-    bonus = await affiliates.on_purchase(
-        conn,
-        settings,
-        account,
-        code=code,
-        checks=matched.checks if matched else None,
-        first_purchase=first_purchase,
-    )
     await ledger.credit(conn, account, credits, purchase=True)
-    if bonus:
-        # Part of the order's credits: a refund takes the bonus's share back too.
-        await conn.execute(
-            "UPDATE fiat_payments SET credited_usd_micros = credited_usd_micros + $3, bonus_usd_micros = $3 "
-            "WHERE provider = $1 AND order_id = $2",
-            event.provider,
-            event.order_id,
-            bonus,
-        )
-        await ledger.credit(conn, account, bonus)
-    fee = event.fee_cents
-    await affiliates.earn(
-        conn,
-        settings,
-        account,
-        source="card",
-        ref=f"{event.provider}:{event.order_id}",
-        currency=event.currency,
-        net_minor=event.amount_cents
-        - (fee if fee is not None else affiliates.card_fee_estimate(settings, event.amount_cents)),
-        fee_estimated=fee is None,
-    )
-    if event.checkout_id:  # marks the checkout paid; invites only for exactly a pack's card price
-        checks = matched.checks if matched else 0
-        await invites.issue_for_checkout(conn, settings, event.provider, event.checkout_id, checks, buyer=account)
+    if event.checkout_id:
+        await claims.mark_checkout_paid(conn, event.provider, event.checkout_id)
     return "credited"
 
 
@@ -528,11 +467,10 @@ async def _paid(conn: asyncpg.Connection, event: FiatEvent, settings: Settings) 
         return "unknown_account"
     if event.currency not in CARD_CURRENCIES:
         return "unknown_currency"
-    code = await _checkout_code(conn, event)
     credits = card_credits(settings, event.paid_price_cents, event.currency)
     if credits <= 0:
         return "too_small"
-    return await _credit_order(conn, event, settings, account, code=code, credits=credits)
+    return await _credit_order(conn, event, account, credits=credits)
 
 
 async def _taken_back(conn: asyncpg.Connection, event: FiatEvent) -> Outcome:
@@ -556,9 +494,6 @@ async def _taken_back(conn: asyncpg.Connection, event: FiatEvent) -> Outcome:
         refunded,
         disputed,
         delta,
-    )
-    await affiliates.reverse(
-        conn, "card", f"{event.provider}:{event.order_id}", share=None if disputed else (refunded, amount)
     )
     if not delta:
         return "unchanged"
@@ -590,8 +525,6 @@ async def purge(db: asyncpg.Pool, retention_days: int, now: datetime | None = No
     """
     Delete payment rows past their retention, checkout mappings after a month (orders follow within minutes).
 
-    Invite codes a buyer never collected are wiped after ``invites.UNCLAIMED_DAYS``.
-
     :param db: The database pool.
     :param retention_days: Days to keep payment rows.
     :param now: Current time (injectable for tests).
@@ -599,7 +532,3 @@ async def purge(db: asyncpg.Pool, retention_days: int, now: datetime | None = No
     today = (now or datetime.now(UTC)).date()
     await db.execute("DELETE FROM fiat_payments WHERE created_on < $1", today - timedelta(days=retention_days))
     await db.execute("DELETE FROM fiat_checkouts WHERE created_on < $1", today - timedelta(days=30))
-    await db.execute(
-        "UPDATE fiat_checkouts SET invite_codes = NULL WHERE invite_codes IS NOT NULL AND created_on < $1",
-        today - timedelta(days=invites.UNCLAIMED_DAYS),
-    )

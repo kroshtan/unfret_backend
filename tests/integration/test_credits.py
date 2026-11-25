@@ -143,7 +143,6 @@ async def test_sign_in_issues_a_working_session(client: httpx.AsyncClient) -> No
         "balance_usd_micros": 0,
         "checks_remaining": 0,
         "balance_lamports": 0,
-        "invite_eligible": True,  # a wallet that never had credit
         "free_checks_remaining": 0,  # only a pass has free checks
         "free_checks_paused": False,
         "api_free_checks_remaining": 0,
@@ -636,12 +635,12 @@ async def test_a_quote_shows_whether_it_is_paid_and_nothing_else(
     await vat.save_quote(pool, quote)
     response = await client.get(f"/v1/credits/quotes/{quote.id}")
     assert response.status_code == 200
-    assert response.json() == {"paid": False, "checks": 50, "invites": []}  # no beneficiary, country or price
+    assert response.json() == {"paid": False, "checks": 50}  # no beneficiary, country or price
     assert response.headers["cache-control"] == "no-store"
 
     async with pool.acquire() as conn:
         await vat.mark_paid(conn, quote.id)
-    assert (await client.get(f"/v1/credits/quotes/{quote.id}")).json() == {"paid": True, "checks": 50, "invites": []}
+    assert (await client.get(f"/v1/credits/quotes/{quote.id}")).json() == {"paid": True, "checks": 50}
 
     for unknown in ("a" * 20, "A" * 20, "short", "1" * 20, "a" * 41):
         reply = await client.get(f"/v1/credits/quotes/{unknown}")

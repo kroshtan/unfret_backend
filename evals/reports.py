@@ -76,10 +76,9 @@ def opinion_line(item: dict[str, Any]) -> str:
     opinion = item.get("second_opinion") or {}
     if opinion.get("state") != "done":
         return f"second opinion: none ({opinion.get('state', 'waiting')})"
-    pays = f", pays {opinion['reward_checks']}" if opinion.get("reward_checks") else ""
     return (
         f"second opinion: {opinion['label']} ({opinion['confidence']:.2f}) · sides with {opinion['agreement']}"
-        f"{pays} · {opinion['reason']}"
+        f" · {opinion['reason']}"
     )
 
 
@@ -201,10 +200,9 @@ def preview(items: list[dict[str, Any]]) -> str:
     lines = []
     for n, item in enumerate(items, start=1):
         opinion, title = item["second_opinion"], item["payload"]["facts"].get("title", "")
-        pays = f" pays {opinion['reward_checks']}" if opinion.get("reward_checks") else ""
         lines.append(
             f"{n:>3}. {item['domain'][:24]:<24} {title[:40]:<40} score {item['score']:>3} → {opinion['label']:<5} "
-            f"{opinion['confidence']:.2f} {opinion['agreement']:<8}{pays}"
+            f"{opinion['confidence']:.2f} {opinion['agreement']}"
         )
         lines.append(f"     {textwrap.shorten(opinion['reason'], 110, placeholder=' …')}")
     return "\n".join(lines)
@@ -250,8 +248,7 @@ def confirm_in_bulk(api: httpx.Client, corpus: Corpus, items: list[dict[str, Any
     response.raise_for_status()
     outcome = response.json()
     print(  # noqa: T201 - interactive tool
-        f"→ {outcome['labelled']} confirmed, {outcome['reward_checks']} checks paid to reporters; "
-        f"{outcome['left']} left (handled meanwhile, or not carrying that proposal)"
+        f"→ {outcome['labelled']} confirmed; {outcome['left']} left (handled meanwhile, or not carrying that proposal)"
     )
     return int(outcome["labelled"])
 
@@ -263,8 +260,7 @@ def _send(api: httpx.Client, item: dict[str, Any], label: Label | None) -> bool:
         return False
     response.raise_for_status()
     outcome = response.json()
-    reward = f", reporter gets {outcome['reward_checks']} checks" if outcome.get("reward_checks") else ""
-    print(f"→ {label or 'rejected'} (off by {outcome['gap']}{reward})")  # noqa: T201 - interactive tool
+    print(f"→ {label or 'rejected'} (off by {outcome['gap']})")  # noqa: T201 - interactive tool
     return True
 
 

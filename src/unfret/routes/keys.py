@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from unfret import android_app_links, usage
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
-from unfret.credits import CreditsDoor, affiliates, free, keys
+from unfret.credits import CreditsDoor, free, keys
 from unfret.schemas.errors import BadRequestError, ServiceUnavailableError, TooManyRequestsError, UnauthorizedError
 
 logger = structlog.get_logger("unfret")
@@ -66,12 +66,6 @@ class CreateKeyRequest(BaseModel):
         "only, never on /v1/analyze (the website, the extension, the phone app); bought checks on it work everywhere. "
         "It needs a challenge from GET /v1/keys/challenge?developer=true (a harder proof of work). For trying "
         "Unfret out: one a day per network; past that the pass is made empty. Takes the place of free.",
-    )
-    ref: str | None = Field(
-        default=None,
-        max_length=40,
-        description="The affiliate code of the link that brought this visitor (unfret.net/?ref=CODE), kept by the "
-        "page: the new pass counts for that affiliate. An unknown or ended code is ignored.",
     )
     source: PassSource | None = Field(
         default=None,
@@ -154,7 +148,6 @@ async def issue_pass(
     *,
     free: bool,
     developer: bool = False,
-    ref: str | None = None,
     source: str = "api",
 ) -> tuple[keys.IssuedKey, int]:
     """
@@ -165,7 +158,6 @@ async def issue_pass(
     :param solution: The caller's answer.
     :param free: Ask for the free checks a new pass comes with.
     :param developer: A developer pass (its harder challenge, its own free checks).
-    :param ref: An affiliate's code, if a link brought the visitor.
     :param source: Which client makes it, for the anonymous ``pass_created`` event (:mod:`unfret.usage`).
     :return: The pass and how many free checks it came with.
     :raises BadRequestError: If the challenge is invalid, expired, used or unsolved.
@@ -189,9 +181,7 @@ async def issue_pass(
     elif free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
         given = settings.free_checks_per_pass
     issued = await keys.create(request.app.db_pool, free_checks=given, developer=developer)
-    # A new pass has never bought anything: it counts for the affiliate whose link brought its visitor.
-    referred = bool(ref) and await affiliates.attribute_new(request.app.db_pool, issued.account, ref)
-    logger.info("api_key_created", free_checks=given, developer=developer, referred=referred)
+    logger.info("api_key_created", free_checks=given, developer=developer)
     usage.record("pass_created", source=source, developer=developer, free_checks=given > 0)
     return issued, given
 
@@ -210,7 +200,7 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     """
     source = body.source or _SOURCE_OF_CLIENT.get(usage.client_of(request.headers), "api")
     issued, given = await issue_pass(
-        request, body.challenge, body.solution, free=body.free, developer=body.developer, ref=body.ref, source=source
+        request, body.challenge, body.solution, free=body.free, developer=body.developer, source=source
     )
     return KeyResponse(
         key_id=issued.key_id,

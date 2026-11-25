@@ -294,7 +294,7 @@ def test_order_paid_is_the_pre_tax_amount_and_nothing_about_the_buyer() -> None:
         price_cents=600,  # before tax: a dollar price is matched on the amount before sales tax/VAT
         checkout_id=CHECKOUT_ID,
         account=ACCOUNT,
-        fee_cents=69,  # Polar's fee, for the affiliate commission's net revenue
+        fee_cents=69,  # Polar's fee
     )
     assert "jan" not in repr(event).lower()
 
@@ -481,7 +481,7 @@ def test_a_euro_order_matches_its_packs_euro_price_with_vat_included(
         kind="paid",
         provider="polar",
         order_id=ORDER["id"],
-        amount_cents=net,  # before VAT: what refunds and the affiliate's commission count from
+        amount_cents=net,  # before VAT: what refunds count from
         price_cents=cents,  # what the buyer paid, VAT included: the pack's euro price
         currency="eur",
         checkout_id=CHECKOUT_ID,

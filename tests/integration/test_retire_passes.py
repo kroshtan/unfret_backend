@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from solders.keypair import Keypair
 
 from unfret.config import settings
-from unfret.credits import invites, keys, ledger, retire
+from unfret.credits import keys, ledger, retire
 from unfret.reports import account_tag
 
 ADMIN = {"Authorization": "Bearer operator-token"}
@@ -43,7 +43,6 @@ async def snapshot(pool: asyncpg.Pool) -> dict[str, int]:
     tables = (
         "api_keys",
         "wallets",
-        "affiliate_passes",
         "fiat_checkouts",
         "fiat_payments",
         "vat_quotes",
@@ -55,9 +54,7 @@ async def snapshot(pool: asyncpg.Pool) -> dict[str, int]:
 
 
 async def attach_everything(pool: asyncpg.Pool, account: str) -> None:
-    """Every kind of row that can name a pass: attribution, checkout, quote, report, report limits."""
-    affiliate = await pool.fetchval("INSERT INTO affiliates (name) VALUES ('A') RETURNING id")
-    await pool.execute("INSERT INTO affiliate_passes (account, affiliate_id) VALUES ($1, $2)", account, affiliate)
+    """Every kind of row that can name a pass: checkout, quote, report, report limits."""
     await pool.execute(
         "INSERT INTO fiat_checkouts (provider, checkout_id, account) VALUES ('polar', $1, $2)",
         "co-" + account,
@@ -82,7 +79,6 @@ async def attach_everything(pool: asyncpg.Pool, account: str) -> None:
 
 async def test_a_dry_run_counts_and_changes_nothing(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     old = await make_pass(pool, EARLIER, balance=5 * CHECK)
-    await pool.execute("UPDATE wallets SET invite_redeemed = TRUE WHERE pubkey = $1", old.account)
     await attach_everything(pool, old.account)
     await make_pass(pool, EARLIER)
     await make_pass(pool, TODAY)  # today, no free checks: made before the moment
@@ -101,8 +97,8 @@ async def test_a_dry_run_counts_and_changes_nothing(client: httpx.AsyncClient, p
         "passes_same_day": 1,
         "kept_same_day_free": 1,
     }
-    assert (result["with_balance"], result["balance_checks"], result["redeemed_code"]) == (1, 5, 1)
-    assert (result["affiliate_links"], result["card_checkouts"], result["crypto_quotes"]) == (1, 1, 1)
+    assert (result["with_balance"], result["balance_checks"]) == (1, 5)
+    assert (result["card_checkouts"], result["crypto_quotes"]) == (1, 1)
     assert (result["open_reports"], result["report_limits"]) == (1, 2)
     assert (result["wallets"], result["wallets_with_balance"]) == (1, 0)
     text = str(result)
@@ -132,7 +128,6 @@ async def test_confirm_retires_exactly_the_old_passes_and_what_names_them(
     assert left == {reviewer.key_id, new.key_id, later.key_id}
     for table, column in (
         ("wallets", "pubkey"),
-        ("affiliate_passes", "account"),
         ("fiat_checkouts", "account"),
         ("vat_quotes", "beneficiary"),
         ("reports", "account"),
@@ -227,26 +222,6 @@ async def test_an_account_that_bought_is_retired_only_when_asked(
 
     assert done["retired"] is True
     assert await pool.fetchval("SELECT count(*) FROM fiat_payments") == 0
-
-
-async def test_gift_codes_a_retired_pass_bought_lose_its_hash(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    buyer = await make_pass(pool, EARLIER)
-    other = await make_pass(pool, TODAY, free=5)
-    await pool.execute(
-        "INSERT INTO invites (code_hash, issued_on, buyer_hash) VALUES ($1, $2, $3), ($4, $2, $5)",
-        b"a" * 32,
-        EARLIER,
-        invites.buyer_digest(settings, buyer.account),
-        b"b" * 32,
-        invites.buyer_digest(settings, other.account),
-    )
-
-    result = await retire_call(client, confirm=True)
-
-    assert result["gift_codes_bought"] == 1
-    hashes = {r[0] for r in await pool.fetch("SELECT buyer_hash FROM invites")}
-    assert hashes == {None, invites.buyer_digest(settings, other.account)}
-    assert await pool.fetchval("SELECT count(*) FROM invites") == 2  # the codes still work, for anyone
 
 
 async def test_the_moment_may_not_be_in_the_future_and_needs_the_operator(

@@ -11,6 +11,11 @@
   (`explanation`). Each card reason carries the level it is evidence for (`level`, the table in `unfret.levels`), and
   the card orders reasons by level. Until a level model sets it, the level is the scorer's band translated
   (`source: "band"`). `verdict.band` stays, deprecated, until the clients read the level.
+* **The level judge** (`unfret.level_judge`, off: `UNFRET_LEVEL_JUDGE=false`): the claim audit's model (GLM-5.3)
+  sets a deep check's level from the page, every finding with its level, the scorer's risk and a few labelled
+  examples (`UNFRET_LEVEL_JUDGE_EXAMPLES_PATH`, a private file). It answers in parts (the level, the reasons it used,
+  which ones combined, the protection step); the card's texts are built from those, never the model's words. Any
+  failure keeps the band's level. To be compared with a level classifier on level labels before it is turned on.
 
 ### Usage statistics
 

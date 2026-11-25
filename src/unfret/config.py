@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # costs nothing. A problem the model is less sure of (0-1) than claim_audit_min_confidence is dropped. One attempt
     # may take claim_audit_attempt_timeout_s and is tried once more (llm_max_retries) within skill_timeout_s. The
     # prices (euros per million tokens, the provider's list prices for the model) are only for the cost it logs.
+    # The level judge (unfret.level_judge): the claim audit's model sets the overall risk level of a deep check from
+    # the page, the findings, the scorer's risk and a few labelled examples (a private JSON-lines file, mounted like
+    # the scorer). Off: the level is the band translated (unfret.levels.from_band). Any failure keeps that.
+    level_judge: bool = False
+    level_judge_examples_path: str | None = None
     claim_audit: bool = True
     claim_audit_model: str = "glm-5.3"
     claim_audit_min_confidence: float = Field(default=0.85, ge=0, le=1)

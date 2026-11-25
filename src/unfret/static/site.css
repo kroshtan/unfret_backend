@@ -1562,3 +1562,5 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .leaderboard li { padding: 0.2rem 0; }
 .leaderboard .who { font-weight: 650; overflow-wrap: anywhere; }
 .leaderboard .count { margin-left: 0.5rem; color: var(--muted); font-size: 0.9rem; }
+.missing-list { max-height: 16rem; overflow-y: auto; }
+.checks-wrong label { display: block; margin: 0.3rem 0; }

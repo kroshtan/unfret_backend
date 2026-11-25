@@ -1936,3 +1936,12 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   `UNFRET_CARD_PRICES_USD`, `UNFRET_CARD_PRICES_EUR`, `UNFRET_CARD_PRICES_*_TAX_INCLUSIVE`, `UNFRET_CARD_FEE_PCT`,
   `UNFRET_CARD_FEE_FLAT_USD`, `UNFRET_CARD_PRICE_STEP_USD`. New: `UNFRET_PRICE_PER_CHECK_EUR`,
   `UNFRET_TOPUP_MIN_AMOUNT`, `UNFRET_TOPUP_BONUS`, `UNFRET_CARD_EUR_ENABLED`.
+
+## Changes (shared results carry the risk level; backwards-compatible)
+
+- `POST /v1/shares/preview`, `POST /v1/shares` and `GET /v1/shares/{id}`: `result.verdict.risk` (new, only when the
+  shared result has a level) is `{"level", "key", "label", "because": [{"type", "level", "title"}], "explanation",
+  "modifier"?: {"direction", "text"}}` in public wording: the label from the copy catalogue, a reason or text with a
+  word a public result never uses left out. No `source` or `confidence`. Results shared before stay as they were.
+- `/r/{id}` and the link checker show the level, its words, the explanation and the reasons worst first, instead of
+  the band, when the result has one.

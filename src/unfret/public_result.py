@@ -90,6 +90,37 @@ _SAME_PRODUCT_TEXT = ("title", "detail", "where", "domain", "price_text")
 _SAME_PRODUCT_KEPT = ("others", "price", "currency", "price_seen_on", "image", "own_image")
 
 
+def _risk(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+    """
+    The risk level of a verdict, in public wording: ``{"risk": …}``, or nothing for a result without one.
+
+    The level's words come from the catalogue; a reason behind it whose title has a word a public result never uses is
+    left out, and so is an explanation or a protection note with one.
+    """
+    risk = verdict.get("risk") or {}
+    key = risk.get("key")
+    labels = shopper.catalogue()["levels"]["labels"]
+    if not isinstance(risk.get("level"), int) or key not in labels:
+        return {}
+    because = []
+    for item in risk.get("because") or []:
+        if title := _clean(item.get("title")):
+            because.append({"type": str(item.get("type", "")), "level": item.get("level"), "title": title})
+        else:
+            notes.append(f"level reason {item.get('type', '')}".strip())
+    shown: dict[str, Any] = {
+        "level": risk["level"],
+        "key": key,
+        "label": str(labels[key]),
+        "because": because,
+        "explanation": _clean(risk.get("explanation")) or "",
+    }
+    modifier = risk.get("modifier") or {}
+    if (text := _clean(modifier.get("text"))) and modifier.get("direction") in {"raised", "lowered"}:
+        shown["modifier"] = {"direction": modifier["direction"], "text": text}
+    return {"risk": shown}
+
+
 def _card(verdict: dict[str, Any], notes: list[str]) -> dict[str, Any]:
     """
     The result card's fields of a verdict, in public wording; only those the verdict has (older results have none).
@@ -180,6 +211,7 @@ def public_result(response: dict[str, Any], left_out: list[str] | None = None) -
             "reasons": _items("reason", verdict.get("reasons") or [], notes),
             "positives": _items("positive", verdict.get("positives") or [], notes),
             **_card(verdict, notes),
+            **_risk(verdict, notes),
         },
     }
     if flags:

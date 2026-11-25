@@ -301,3 +301,43 @@ def test_the_page_template_and_script_never_say_scam() -> None:
 def test_delete_codes_are_kept_only_as_hashes() -> None:
     assert shares.code_hash(" ABC ") == shares.code_hash("abc")
     assert len(shares.code_hash("abc")) == 32
+
+
+RISK = {
+    "level": 4,
+    "key": "wont_arrive",
+    "label": "May not arrive, or may not be safe",
+    "because": [
+        {"type": "new_domain", "level": 4, "title": "New web address"},
+        {"type": "x", "level": 3, "title": "Looks like a scam"},
+        {"type": "was_never_charged", "level": 1, "title": "'Was' price not charged recently"},
+    ],
+    "combined": None,
+    "modifier": {"direction": "raised", "type": "irreversible_payment_only", "text": "Raised: bank transfer only."},
+    "explanation": "Level 4 because: New web address.",
+    "source": "band",
+    "confidence": None,
+}
+
+
+def test_a_share_keeps_the_risk_level_in_public_words() -> None:
+    result = shares.public_share_result(response(verdict=response()["verdict"] | {"risk": RISK}))
+    risk = result["verdict"]["risk"]
+    assert risk["level"] == 4 and risk["label"] == shopper.catalogue()["levels"]["labels"]["wont_arrive"]
+    assert [b["title"] for b in risk["because"]] == ["New web address", "'Was' price not charged recently"]
+    assert risk["explanation"] == "Level 4 because: New web address."
+    assert risk["modifier"] == {"direction": "raised", "text": "Raised: bank transfer only."}
+    assert "source" not in risk and "confidence" not in risk  # how the level was set stays in the API
+    assert "scam" not in json.dumps(result).lower()
+    # A result without a level shares as before.
+    assert "risk" not in shares.public_share_result(response())["verdict"]
+
+
+def test_the_page_shows_the_risk_level_its_words_and_explanation() -> None:
+    result = shares.public_share_result(response(verdict=response()["verdict"] | {"risk": RISK}))
+    page = render_share_page(view(result=result))
+    assert '<div class="verdict level-4"><span class="level-num" aria-hidden="true">4</span>' in page
+    assert "Risk level 4 of 4" in page and '<p class="label">May not arrive, or may not be safe</p>' in page
+    assert '<p class="headline">Level 4 because: New web address.</p>' in page
+    assert '<meta name="description" content="May not arrive, or may not be safe: Level 4 because' in page
+    assert 'class="symbol"' not in page.split('id="result-body"', 1)[1].split("</section>", 1)[0]

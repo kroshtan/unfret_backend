@@ -479,7 +479,7 @@ async def test_privacy_statement_covers_storage_logs_bases_and_rights(client: ht
     text = " ".join((await client.get("/privacy")).text.split())
     assert "sets <strong>no cookies</strong>" in text
     # unfret-account, unfret-new-key, unfret-invite-claims, unfret-free-pass, unfret-developer-pass
-    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "A date"):
+    for key in ("Your sign-in", "A new pass", "Claim tokens", "A note", "A date", "A contributor key"):
         assert f"<strong>{key}</strong>" in text
     assert "no request log" in text and "proxy log" not in text  # kamal-proxy runs with Docker's `none` log driver
     assert "salted one-way hash, in memory only" in text
@@ -505,6 +505,7 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
         "unfret-free-pass",
         "unfret-start-check",
         "unfret-developer-pass",
+        "unfret-contributor-key",
     }
 
 

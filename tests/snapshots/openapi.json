@@ -3444,7 +3444,7 @@
      },
      "result": {
       "additionalProperties": true,
-      "description": "verdict (band, label, symbol, headline, reasons, positives) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
+      "description": "verdict (band, label, symbol, headline, reasons, positives, and risk when the result has a level: level, key, label, because, explanation, modifier) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
       "title": "Result",
       "type": "object"
      },
@@ -3612,7 +3612,7 @@
      },
      "result": {
       "additionalProperties": true,
-      "description": "verdict (band, label, symbol, headline, reasons, positives) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
+      "description": "verdict (band, label, symbol, headline, reasons, positives, and risk when the result has a level: level, key, label, because, explanation, modifier) and, with flags, assessment (flags with labels only, confidence, model_version). No score, no quotes from the page.",
       "title": "Result",
       "type": "object"
      },

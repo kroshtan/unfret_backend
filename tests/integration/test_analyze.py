@@ -150,7 +150,11 @@ async def test_concurrent_analyses_never_overspend(
     bodies = [{**PAGE, "url": f"https://shop.test/{i}"} for i in range(10)]  # distinct, so no cache hits
     responses = await asyncio.gather(*(client.post("/v1/analyze", json=b, headers=headers) for b in bodies))
 
-    assert sorted(r.status_code for r in responses) == [200] * 3 + [402] * 7
+    # Exactly three are paid. The rest: refused (402) when they raced past the balance check, or, once the balance was
+    # seen empty, free checks (the wallet isn't charged then).
+    paid = [r for r in responses if r.status_code == 200 and r.json()["charged"]]
+    assert len(paid) == 3
+    assert all(r.status_code == 402 or r.json()["free_check"] for r in responses if r not in paid)
     assert await balance(pool, address) == 0
 
 

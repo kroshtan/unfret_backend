@@ -111,7 +111,7 @@ async def test_the_link_field_checks_on_the_link_checker_with_free_checks(client
     assert re.search(r'<input id="start-link" type="text" inputmode="url"', form)
     assert '<label class="visually-hidden" for="start-link">' in page
     assert 'type="submit">Check</button>' in form and "data-error" in form
-    assert "deep checks are free, then quick checks stay free" in _flat(form) and "No key, no account" in form
+    assert "Quick and deep checks are free." in _flat(form) and "No key, no account" in form
     assert 'data-example="/test-shop"' in form
     home = (STATIC_DIR / "home.js").read_text()
     assert "wireStartForm(" in home
@@ -192,7 +192,7 @@ async def test_the_questions_are_answered_honestly(client: httpx.AsyncClient) ->
     assert len(questions) >= 5
     assert "never calls a shop a scam" in faq and 'href="/accuracy"' in faq
     assert 'href="/privacy"' in faq and 'href="/money"' in faq
-    assert "asks for your email for the receipt" in faq  # card payments need an e-mail; crypto doesn't
+    assert "nothing ties a check to you" in faq  # free checks need no account, pass or email
     # The AI assistant question: fair to assistants, and the comparison on /why.
     assert "Why not just ask an AI assistant?" in questions and 'href="/why"' in faq
     assert "good second opinion" in faq
@@ -283,20 +283,16 @@ async def test_the_hero_offers_the_link_checker_without_install_next_to_the_inst
     assert "nothing to install." not in hero
 
 
-async def test_the_questions_say_what_a_pass_is_and_that_it_does_not_expire(client: httpx.AsyncClient) -> None:
+async def test_the_questions_say_checks_need_no_pass_and_passes_dont_expire(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
     faq = _flat(page.split('class="faq"', 1)[1].split("</section>", 1)[0])
-    # Where "pass" first shows up on the page, so "My checks" in the menu doesn't read like an account.
-    main = _flat(re.sub(r"<[^>]+>", " ", page[page.index("<main>") :]))
-    first = re.search(r"\bpass\b", main)
-    assert first and "Your pass is a code saved in your browser." in main[first.start() : first.start() + 200]
-    assert "Your pass is a code saved in your browser. It holds your checks. No name, no email." in faq
+    assert "Checks are free and need no account, no pass, no name and no email" in faq
     assert "Do passes or checks expire?" in faq
     assert "don't expire" in faq and "doesn't delete a pass for not being used" in faq
     assert "refuses to touch passes that bought checks" in faq  # what retire-passes does by default
 
 
-@pytest.mark.parametrize("path", ["/", "/nl"])
+@pytest.mark.parametrize("path", ["/nl"])
 async def test_the_prices_read_as_separate_words(client: httpx.AsyncClient, path: str) -> None:
     page = (await client.get(path)).text
     prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
@@ -305,16 +301,12 @@ async def test_the_prices_read_as_separate_words(client: httpx.AsyncClient, path
     assert ("Free 5 deep checks" in text and "$0 Start" in text) or ("Gratis 5 uitgebreide" in text)
 
 
-async def test_the_prices_say_what_they_include(client: httpx.AsyncClient) -> None:
+async def test_the_home_page_says_checks_are_free_and_run_on_donations(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
-    pricing = _flat(page.split('class="pricing"', 1)[1].split('class="code-box"', 1)[0])
-    note = pricing.split('id="price-note">', 1)[1].split("</p>", 1)[0]
-    # Card prices include tax in both currencies (home.js puts in the euros in the euro area).
-    assert "Card prices include tax: $6.50 and $21.00, or in the euro area €6.50 and €21.00 with VAT included" in note
-    assert "before tax" not in note
-    assert "work too, at a lower price with VAT included" in pricing
-    prices = (STATIC_DIR / "prices.js").read_text()
-    assert "`Card prices include ${pct}% VAT for ${countryPhrase(country)}.`" in prices
+    section = _flat(page.split('aria-labelledby="price-heading"', 1)[1].split("</section>", 1)[0])
+    assert "Free for shoppers" in section and "Deep checks run on donations" in section
+    assert 'href="/support"' in section and 'href="/developers"' in section
+    assert "checkout?checks=" not in page  # no packs offered to shoppers
 
 
 async def test_the_test_shops_discount_is_the_same_everywhere(client: httpx.AsyncClient) -> None:

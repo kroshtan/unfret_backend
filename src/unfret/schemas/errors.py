@@ -82,6 +82,13 @@ class ForbiddenError(CustomAPIError):
     error_code = "FORBIDDEN"
 
 
+class ProofOfWorkRequiredError(CustomAPIError):
+    """A free deep check without a solved challenge (``GET /v1/analyze/challenge``)."""
+
+    status_code = status.HTTP_428_PRECONDITION_REQUIRED
+    error_code = "PROOF_OF_WORK_REQUIRED"
+
+
 class NotFoundError(CustomAPIError):
     """Resource not found."""
 

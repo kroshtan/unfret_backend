@@ -3,14 +3,13 @@
 // (the shop blocks automatic visitors, a bot check, a page that needs a browser) comes back as a free 422, shown as
 // such and never as a verdict.
 //
-// On a phone, this page in the browser is Unfret (it doesn't install as an app). Its checks come from an Unfret pass
-// (an API key) or, for those who bought with a crypto wallet, a wallet's sign-in from /my-checks. A first visit gets
-// a free pass at the first tap of Check (new-pass.js: a few free deep checks, asked for once per browser); after that,
-// or without a pass, quick checks (rules only) are free and the page offers to get checks (/checkout) or to paste a
-// pass; a pass also arrives by QR code from /my-checks in another browser (/pass#pass=ufk_…, which pass-link.js
-// forwards here as /check#pass=ufk_…, the address older codes hold; read here and cleared from the address bar at
-// once). A deep check that only free checks could pay for, once they're used (402) or today's
-// are all used (429 FREE_CHECKS_PAUSED), is answered with a quick check instead, saying so.
+// On a phone, this page in the browser is Unfret (it doesn't install as an app). Checks are free: a deep check is
+// sent with no Authorization and a solved proof of work (GET /v1/analyze/challenge, solved here with new-pass.js's
+// solver), so it is tied to no one. A pass with bought checks (an API key, or a wallet's sign-in from /my-checks)
+// pays instead, if one is kept here; a pass also arrives by QR code from /my-checks in another browser
+// (/pass#pass=ufk_…, which pass-link.js forwards here as /check#pass=ufk_…; read here and cleared from the address
+// bar at once). When the month's free deep checks are paused (429 FREE_CHECKS_PAUSED, the spend ceiling), a quick
+// check runs instead, saying that free checks run on donations, with a link to /donate.
 //
 // A pass the server no longer knows (401 INVALID_API_KEY: retired at Unfret's free start, or replaced elsewhere) is
 // dropped and this browser starts over with the free pass, the page saying so once (passRetired).
@@ -36,7 +35,7 @@ import {
 } from "./check-core.js";
 import { chargeNoteOf, deepHintNode, deepHintOf, el, resultNodes } from "./check-render.js";
 import { PASS_RE, passIdOf, showPassId } from "./pass.js";
-import { makePass } from "./new-pass.js";
+import { solve } from "./new-pass.js";
 import { takeHandedLink } from "./start-check.js";
 import { api } from "./wallet.js";
 
@@ -201,9 +200,9 @@ function freePerPass() {
   return pricing?.free?.checks_per_pass ?? FREE_PER_PASS;
 }
 
-// No pass yet and no free pass asked for in this browser: the first Check gets one.
+// Checks are free with no pass at all: there is no free pass to hand out any more.
 function freeAvailable() {
-  return !account && !freeGiven() && freePerPass() > 0;
+  return false;
 }
 
 // Signed in with a key: its top-up, the key's ID filled in (the ID only: never the key itself in an address).
@@ -228,7 +227,7 @@ function renderAccount() {
   }
   $("sign-in-note").textContent = expired
     ? "Your wallet's sign-in expired; your checks are still there. Sign in again on My checks."
-    : "Quick checks are free. Deep checks come in packs, with no subscription and no account.";
+    : "Quick and deep checks are free, with no account.";
   // Out of checks: add checks to this pass (or to this wallet, in crypto).
   $("buy-card").href = account?.kind === "wallet" ? "/checkout?mode=crypto" : buyPath();
   $("buy-card").textContent = account?.kind === "key" ? "Add checks to my pass" : "Buy checks";
@@ -239,15 +238,9 @@ function renderAccount() {
   if (!running) {
     $("hint").textContent = ended
       ? passEndedHint(fresh ? freePerPass() : 0)
-      : fresh
-      ? `Your first ${freePerPass()} checks are free: no account, nothing to buy. Nothing is sent until you tap Check.`
-      : account && checks === 0
-        ? "Quick checks are free. Nothing is sent until you tap Check."
-        : account && freePaused && freeLeft === checks
-          ? "Free deep checks are back tomorrow; quick checks still work. Nothing is sent until you tap Check."
-          : !account
-            ? "Quick checks are free. Nothing is sent until you tap Check."
-            : "One check per link. Nothing is sent until you tap Check.";
+      : account && checks > 0
+        ? "One of your checks per link. Nothing is sent until you tap Check."
+        : "Checks are free: no account, nothing to buy. Nothing is sent until you tap Check.";
   }
 }
 
@@ -288,26 +281,6 @@ function signedOut(wasExpired) {
 function showSignIn(visible) {
   $("sign-in").hidden = !visible;
   if (visible) renderAccount();
-}
-
-// ── The free pass (a first visit) ─────────────────────────────────────────────────────────────────────────────
-
-// Asked for once per browser: whatever the server gives (5 free checks, or none once this network had its share
-// today), this browser has had its turn. On a failure (offline, too many new passes from here) nothing is kept.
-async function getFreePass() {
-  $("progress-status").textContent = "Getting your free checks… this takes a few seconds.";
-  try {
-    const issued = await makePass(api, { free: true });
-    markFreeGiven();
-    keepNewPass(issued);
-    freeLeft = issued.free_checks ?? 0;
-    checks = freeLeft;
-    saveAccount({ kind: "key", token: issued.key, address: issued.account });
-    renderAccount();
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function signedIn(value) {
@@ -492,7 +465,12 @@ function renderResult(result, because = null) {
     // With the suggestion under the result, this says only why the check was quick: the offer is made once.
     $("no-checks-body").textContent = hint ? reason.short : reason.body;
   }
-  $("buy-card").hidden = Boolean(hint);
+  // Paused free checks: one way to help, to /donate (which goes to the current way to donate).
+  $("buy-card").hidden = Boolean(hint) || (reason !== null && !reason.donate);
+  if (reason?.donate) {
+    $("buy-card").href = "/donate";
+    $("buy-card").textContent = "Support Unfret";
+  }
 
   $("result-body").replaceChildren(...nodes);
 
@@ -584,14 +562,15 @@ const QUICK_BECAUSE = {
     short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
-    heading: "Free deep checks are back tomorrow",
-    body: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules. Bought checks work as always.",
-    short: "Today's free deep checks are all used, so here's a quick check: free, it reads only this page, by its rules.",
+    heading: "Free deep checks are paused until next month",
+    body: "Free checks run on donations, and this month's are used up. Here's a quick check instead: it reads only this page, by its rules.",
+    short: "Free deep checks run on donations, and this month's are used up, so here's a quick check.",
+    donate: true,
   },
   none: {
     heading: "A quick check",
-    body: "Without a pass, Unfret reads only this page, by its rules. A deep check also looks the shop up elsewhere: get checks, or use your pass.",
-    short: "Without a pass, Unfret reads only this page, by its rules.",
+    body: "Unfret couldn't start a deep check just now, so it read only this page, by its rules. Try again in a moment.",
+    short: "Unfret couldn't start a deep check just now, so it read only this page, by its rules.",
   },
 };
 
@@ -608,6 +587,19 @@ function runDeep() {
   void check(link);
 }
 
+// A free deep check's proof of work: a challenge from the server, solved here (a few seconds on a phone). Null when
+// free deep checks are paused this month (the spend ceiling), or the challenge couldn't be had.
+async function proofOfWork() {
+  try {
+    const challenge = await getJson("/v1/analyze/challenge");
+    if (challenge.paused) return { paused: true };
+    $("progress-status").textContent = "Getting your free deep check ready… a few seconds.";
+    return { challenge: challenge.challenge, solution: await solve(challenge.challenge, challenge.bits) };
+  } catch {
+    return null;
+  }
+}
+
 async function check(link) {
   const abort = new AbortController();
   running = abort;
@@ -617,12 +609,16 @@ async function check(link) {
   buildSteps();
   updateSteps(checklistDone([], false));
   try {
-    // A first check makes a free pass first (seconds of proof of work on a phone); for a shop known to turn the
-    // server away, ask the server first, so its "no" comes at once and the free pass waits for a page it can read.
-    if (freeAvailable() && shopOf(link, BROWSER_ONLY_SHOPS) && (await unreadableFirst(link, abort))) return;
-    if (freeAvailable()) await getFreePass();
-    if (!account) return await run(link, "quick", abort, "none");
-    const outcome = await run(link, "deep", abort);
+    // A pass with bought checks pays; otherwise the deep check is free and anonymous. For a shop known to turn the
+    // server away, ask the server first, so its "no" comes at once, before any work.
+    const paying = account && checks > 0;
+    if (!paying && shopOf(link, BROWSER_ONLY_SHOPS) && (await unreadableFirst(link, abort))) return;
+    let work = null;
+    if (!paying) {
+      work = await proofOfWork();
+      if (!work || work.paused) return await run(link, "quick", abort, work ? "paused" : "none");
+    }
+    const outcome = await run(link, "deep", abort, null, work);
     if (outcome === "used" || outcome === "paused") await run(link, "quick", abort, outcome);
   } finally {
     running = null;
@@ -659,14 +655,17 @@ async function unreadableFirst(link, abort) {
 
 // One check of `link`; resolves "used" or "paused" when a deep check needs checks the account doesn't have (a quick
 // check follows), else when the outcome is on screen.
-async function run(link, tier, abort, because = null) {
+async function run(link, tier, abort, because = null, work = null) {
   const body = tier === "quick" ? { url: link, tier } : { url: link };
+  if (work) body.proof_of_work = { challenge: work.challenge, solution: work.solution };
   $("progress-status").textContent = "Opening the shop's page…";
   const steps = [];
   try {
+    // A free check is sent without the pass: it is tied to no one.
+    const sent = work ? { "Content-Type": "application/json" } : headers(true);
     const response = await fetch("/v1/analyze/stream", {
       method: "POST",
-      headers: { ...headers(true), Accept: "text/event-stream" },
+      headers: { ...sent, Accept: "text/event-stream" },
       body: JSON.stringify(body),
       signal: abort.signal,
       cache: "no-store",
@@ -691,7 +690,7 @@ async function run(link, tier, abort, because = null) {
     });
     if (outcome.kind === "result") {
       updateSteps(checklistDone(steps, true, stepsKind));
-      last = { body, result: outcome.result };
+      last = { body: { url: body.url, ...(body.tier ? { tier: body.tier } : {}) }, result: outcome.result };
       renderResult(outcome.result, because);
       showOnly("result", ...(because ? ["no-checks"] : []), "again-row");
       if (account) void refreshChecks();

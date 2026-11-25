@@ -280,7 +280,7 @@ async def test_a_new_free_pass_from_the_sign_in_page(serving: httpx.AsyncClient,
     client_id = await register(serving)
     verifier, challenge = pkce()
     params = authorization(client_id, challenge)
-    pow_challenge = (await serving.get("/v1/keys/challenge")).json()
+    pow_challenge = (await serving.get("/v1/keys/challenge", params={"developer": "true"})).json()
     solution = solve(pow_challenge["challenge"], pow_challenge["bits"])
 
     page = await serving.post(
@@ -299,7 +299,7 @@ async def test_a_new_free_pass_from_the_sign_in_page(serving: httpx.AsyncClient,
     tokens = (await exchange(serving, client_id, code, verifier)).json()
     async with mcp_client(tokens["access_token"]) as session:
         left = structured(await session.call_tool("get_checks_left", {}))
-    assert left["free_checks_remaining"] == settings.free_checks_per_pass
+    assert left["free_checks_remaining"] == settings.developer_free_checks  # a developer pass
 
     # The same solved challenge doesn't make a second pass.
     again = await serving.post(
@@ -704,13 +704,12 @@ async def test_the_page_names_free_checks_only_for_a_networks_first_pass(
 ) -> None:
     from tests.integration.test_check_pass import new_pass  # noqa: PLC0415
 
-    monkeypatch.setattr(settings, "free_passes_per_ip_per_day", 1)
     client_id = await register(client)
     params = authorization(client_id, pkce()[1])
     first = (await client.get("/oauth/authorize", params=params)).text
-    assert f"includes {settings.free_checks_per_pass} free deep checks" in first
+    assert f"includes {settings.developer_free_checks} free deep checks" in first
     assert "disabled>Continue</button>" in first
 
-    await new_pass(client, free=True)  # this network's free pass(es) for today
+    await new_pass(client, developer=True)  # this network's developer pass for today
     later = (await client.get("/oauth/authorize", params=params)).text
     assert "free deep checks" not in later.split("<main")[1].split("</main>")[0]

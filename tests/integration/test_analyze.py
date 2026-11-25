@@ -77,6 +77,7 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "ad_contacts",
         "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
         "x402_audit_flags",
+        "llm_spend",  # the LLM spend a month: one number, nothing about a page or a caller
         "objections",  # what a shop owner sends from /objection, never a check
         "oauth_clients",  # the MCP server's OAuth (unfret.oauth): clients, and hashes of codes and tokens for a pass
         "oauth_codes",
@@ -110,31 +111,25 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
 
 
-async def test_insufficient_credits(client: httpx.AsyncClient, graph: FakeGraph, wallet: Any) -> None:
+async def test_an_account_short_of_a_check_gets_a_free_check_instead(
+    client: httpx.AsyncClient, graph: FakeGraph, wallet: Any
+) -> None:
     _, headers = await wallet(PRICE - 1)
 
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
 
-    assert response.status_code == 402
-    body = response.json()
-    assert body["error_code"] == "INSUFFICIENT_CREDITS"
-    assert body["metadata"] == {
-        "balance_usd_micros": PRICE - 1,
-        "analysis_usd_micros": PRICE,
-        "balance_lamports": PRICE - 1,  # deprecated aliases, for extensions up to 0.5.0
-        "analysis_lamports": PRICE,
-    }
+    # Not charged and not refused for money: a shopper's free deep check, which needs its proof of work.
+    assert (response.status_code, response.json()["error_code"]) == (428, "PROOF_OF_WORK_REQUIRED")
     assert graph.calls == []
 
 
 async def test_unknown_wallet_has_no_credits(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
-    assert response.status_code == 402
-    assert response.json()["metadata"]["balance_lamports"] == 0
+    assert response.status_code == 428  # a free check, not paid by the wallet
 
 
-@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer nonsense"}, {"Authorization": "Basic YTpi"}])
+@pytest.mark.parametrize("headers", [{"Authorization": "Bearer nonsense"}, {"Authorization": "Basic YTpi"}])
 async def test_sign_in_required(client: httpx.AsyncClient, headers: dict[str, str]) -> None:
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
     assert response.status_code == 401
@@ -322,7 +317,7 @@ async def test_an_account_without_checks_cant_tell_a_page_was_checked(
     cached = await client.post(path, json=PAGE, headers=empty)
     unchecked = await client.post(path, json={**PAGE, "url": "https://shop.test/never-checked"}, headers=empty)
 
-    assert cached.status_code == unchecked.status_code == 402
+    assert cached.status_code == unchecked.status_code == 428  # both a free check's gate, cached or not
     assert cached.json() == unchecked.json()
     assert len(graph.calls) == 1
 
@@ -341,7 +336,7 @@ async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
 
     assert (cached.json()["score"], cached.json()["charged"]) == (-1, False)
     assert await balance(pool, address) == PRICE
-    assert refused.status_code == 402
+    assert refused.status_code == 428
     assert len(graph.calls) == 1
 
 
@@ -465,10 +460,10 @@ async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
     assert await balance(pool, address) == PRICE
 
 
-async def test_stream_needs_credits(client: httpx.AsyncClient, wallet: Any) -> None:
+async def test_stream_needs_credits_or_a_proof_of_work(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)
-    assert response.status_code == 402
+    assert response.status_code == 428
 
 
 async def test_stream_failure_is_refunded_without_details(

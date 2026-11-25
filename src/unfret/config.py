@@ -255,27 +255,34 @@ class Settings(BaseSettings):
     # Whether Polar's organisation-wide tax default is "inclusive": a price whose tax_behavior is null (the
     # organisation's default) then counts as inclusive (Polar sets tax behaviour for the whole account).
     polar_org_tax_inclusive: bool = True
-    # Free checks (unfret.credits.free). A new pass made with "free": true (the browser extension on install, the
-    # link checker on a first visit) comes with free_checks_per_pass deep checks, for at most
-    # free_passes_per_ip_per_day new passes per visitor network (in memory, salted hashes); past that the pass is
-    # made empty. Every free deep check counts towards one global budget a UTC day: free_daily_budget_eur of
-    # estimated cost, free_check_cost_eur per deep check (LLM and embedding tokens, retries included); then "back
-    # tomorrow" until 00:00 UTC. A budget of 0 turns free deep checks off. Quick checks (rules only, no LLM: the x402
-    # quick tier) cost nothing and are free for everyone, within quick_checks_per_minute per account or network.
-    free_checks_per_pass: int = Field(default=5, ge=0)
-    free_passes_per_ip_per_day: int = Field(default=2, ge=0)
+    # Free checks for shoppers (unfret.routes.analyze, unfret.deep_pow, unfret.spend). Quick checks (rules only, no
+    # LLM) and deep checks are free for everyone, with no pass and nothing that names the caller. A free deep check
+    # costs the client a proof of work: deep_pow_bits leading zero bits of SHA-256 (each bit doubles the work), a
+    # challenge valid for deep_pow_ttl_s and used once. At most free_deep_checks_per_ip_per_hour per visitor network
+    # (in memory, salted hashes; Cloudflare's edge rules come first) and quick_checks_per_minute quick checks.
+    # The global kill switch: once the LLM spend this calendar month (UTC) reaches llm_spend_ceiling_eur, free deep
+    # checks pause until the first of next month (bought checks, developer passes' bought checks and x402 go on).
+    # The spend is metered from the provider's token counts at llm_prices_eur_per_mtok ("model=input/output" in
+    # euros per million tokens, comma-separated); a model not listed costs llm_price_unlisted_eur_per_mtok.
+    deep_pow_bits: int = Field(default=20, ge=1, le=32)
+    deep_pow_ttl_s: int = Field(default=300, ge=30)
+    free_deep_checks_per_ip_per_hour: int = Field(default=30, ge=1)
+    llm_spend_ceiling_eur: Decimal = Field(default=Decimal(100), ge=0, decimal_places=2)
+    llm_prices_eur_per_mtok: str = "mistral-small-3.2-24b-instruct-2506=0.15/0.35,glm-5.3=1.80/5.50"
+    llm_price_unlisted_eur_per_mtok: str = "2.00/6.00"
+    # Where "Support Unfret" goes: /donate redirects here (a payment link that may be replaced, so clients only ever
+    # link to /donate). Empty: /donate says donations aren't open. Donations buy nothing: no checks, no perks.
+    donate_url: str = ""
     # Developer passes ("developer": true on POST /v1/keys, for building against /v1/check, the MCP server or the
     # clients): developer_free_checks free deep checks instead (they count on /v1/check only), for at most
-    # developer_passes_per_ip_per_day per visitor network (in memory, salted hashes, like the free passes). Their free
-    # checks come out of their own budget a UTC day, developer_free_daily_budget_eur over free_check_cost_eur (200
-    # checks by default: ten full developer passes), never the shoppers' free_daily_budget_eur, so a script that
-    # keeps making developer passes can't use up the shoppers' free checks. Their proof of work is
+    # developer_passes_per_ip_per_day per visitor network (in memory, salted hashes). Their free checks come out of
+    # their own budget a UTC day, developer_free_daily_budget_eur over free_check_cost_eur (200 checks by default: ten
+    # full developer passes), and pause with the shoppers' at the spend ceiling. Their proof of work is
     # developer_pow_extra_bits harder than an ordinary pass's (16 times the work at 4).
     developer_free_checks: int = Field(default=20, ge=0)
     developer_passes_per_ip_per_day: int = Field(default=1, ge=0)
     developer_free_daily_budget_eur: Decimal = Field(default=Decimal("1.00"), ge=0, decimal_places=2)
     developer_pow_extra_bits: int = Field(default=4, ge=0, le=8)
-    free_daily_budget_eur: Decimal = Field(default=Decimal("5.00"), ge=0, decimal_places=2)
     free_check_cost_eur: Decimal = Field(default=Decimal("0.005"), gt=0, decimal_places=6)
     quick_checks_per_minute: int = Field(default=10, ge=1)
     # VAT on crypto purchases (unfret.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
@@ -659,6 +666,21 @@ class Settings(BaseSettings):
             problems.append("key_pow_bits must be 1-32")
         if self.report_training_gap <= 0:
             problems.append("need 0 < report_training_gap")
+        for name in ("llm_prices_eur_per_mtok", "llm_price_unlisted_eur_per_mtok"):
+            value = getattr(self, name)
+            pairs = value if name == "llm_prices_eur_per_mtok" else f"x={value}"
+            for part in filter(None, (p.strip() for p in pairs.split(","))):
+                model, _, price = part.partition("=")
+                given, slash, taken = price.partition("/")
+                try:
+                    ok = bool(model.strip()) and bool(slash) and Decimal(given) >= 0 and Decimal(taken) >= 0
+                except ArithmeticError:
+                    ok = False
+                if not ok:
+                    problems.append(f"{name} must read like model=0.15/0.35 (euros per million tokens)")
+                    break
+        if self.donate_url and not self.donate_url.startswith("https://"):
+            problems.append("donate_url must be an https:// address")
         if problems:
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
@@ -808,15 +830,6 @@ class Settings(BaseSettings):
         :return: Micro-dollars.
         """
         return self.analysis_price_usd_micros
-
-    @property
-    def free_daily_checks_cap(self) -> int:
-        """
-        How many free deep checks fit in a UTC day's budget (from :attr:`free_daily_budget_eur`).
-
-        :return: The budget over the estimated cost of one deep check, rounded down.
-        """
-        return int(self.free_daily_budget_eur // self.free_check_cost_eur)
 
     @property
     def developer_free_daily_checks_cap(self) -> int:

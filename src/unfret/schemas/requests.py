@@ -6,6 +6,18 @@ from unfret.config import settings
 from unfret.facts import PageFacts
 
 
+class ProofOfWork(BaseModel):
+    """A solved challenge from ``GET /v1/analyze/challenge``: what a free deep check costs the client."""
+
+    challenge: str = Field(max_length=200, description="The challenge, exactly as issued.")
+    solution: str = Field(
+        min_length=1,
+        max_length=32,
+        description="A string (e.g. a decimal counter) with SHA-256(challenge + ':' + solution) starting with the "
+        "challenge's bits zero bits.",
+    )
+
+
 class AnalyzeRequest(BaseModel):
     """
     Request body for the analyze endpoint.
@@ -42,6 +54,12 @@ class AnalyzeRequest(BaseModel):
         default="deep",
         description="deep (the default): the full analysis, which uses a check. quick: rule-based checks of the page "
         "itself only (no LLM, no lookups elsewhere; product pages), free for everyone and never charged.",
+    )
+
+    proof_of_work: ProofOfWork | None = Field(
+        default=None,
+        description="A free deep check (no pass, or a pass without bought checks): a solved challenge from GET "
+        "/v1/analyze/challenge, used once. Not needed for a quick check or a deep check a pass pays for.",
     )
 
     @model_validator(mode="after")

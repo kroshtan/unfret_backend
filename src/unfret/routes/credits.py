@@ -19,7 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from solders.pubkey import Pubkey
 
-from unfret import usage
+from unfret import spend, usage
 from unfret.auth import get_credits, require_account
 from unfret.config import settings
 from unfret.credits import claims, fiat, free, keys, ledger, local_methods, vat
@@ -28,6 +28,7 @@ from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, e
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
+from unfret.routes.analyze import donate_link, paused_metadata
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -59,22 +60,21 @@ class CreditsResponse(BaseModel):
     address: str = Field(description="The account: the wallet's address, or key:<id> for an API key.")
     balance_usd_micros: int = Field(description="The balance in micro-dollars (1 USD = 1,000,000).")
     checks_remaining: int = Field(
-        description="Checks left: the balance in checks, plus free_checks_remaining (never a developer pass's free "
-        "checks: those are api_free_checks_remaining)."
+        description="Bought checks left: the balance in checks (a developer pass's free checks are "
+        "api_free_checks_remaining)."
     )
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
     free_checks_remaining: int = Field(
         default=0,
-        description="Free deep checks left on this pass that work everywhere (included in checks_remaining); 0 for "
-        "a wallet and for a developer pass.",
+        description="Deprecated, always 0: a shopper's deep checks are free without a pass (GET /v1/pricing → free).",
     )
     free_checks_paused: bool = Field(
         default=False,
-        description="Today's budget for this pass's free deep checks is all used (by everyone): free checks wait "
-        "until 00:00 UTC, while bought checks and quick checks work. A developer pass's free checks "
-        "(api_free_checks_remaining) have a budget of their own, apart from free_checks_remaining's.",
+        description="A developer pass's free deep checks (api_free_checks_remaining) are paused: today's budget is "
+        "used up (back at 00:00 UTC) or this month's LLM spend ceiling is reached (back next month). Bought checks "
+        "and quick checks work.",
     )
     api_free_checks_remaining: int = Field(
         default=0,
@@ -193,13 +193,19 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     method = local_methods.local_method(settings, country)
     document["local_payment_method"] = _method_document(method) if method else None
     document["api_keys"] = door.sign_in_enabled
-    # The free tier: what a new pass comes with, and whether today's free deep checks are all used (quick checks are
-    # free either way).
+    # The free tier: quick and deep checks are free for shoppers, with no pass (a deep one with a proof of work),
+    # until this month's LLM spend reaches its ceiling; a developer pass comes with its own free deep checks.
+    paused = (await spend.ceiling(request.app.db_pool, settings)).reached
     document["free"] = {
-        "checks_per_pass": settings.free_checks_per_pass,
         "quick_checks": True,
-        "paused": request.app.db_pool is None or await free.paused(request.app.db_pool, settings),
-        "back_at": "00:00 UTC",
+        "deep_checks": True,
+        "paused": paused,
+        "back_at": "the 1st of next month, 00:00 UTC",
+        **({"pause": paused_metadata()} if paused else {}),
+        "proof_of_work": {"challenge_url": "/v1/analyze/challenge", "bits": settings.deep_pow_bits},
+        "donate_url": donate_link(),
+        "developer_checks_per_pass": settings.developer_free_checks,
+        "checks_per_pass": 0,  # deprecated: a shopper's pass came with free checks; no pass is needed now
     }
     smallest = packs(settings)[0]
     document["fiat"] = {
@@ -226,17 +232,15 @@ async def get_balance(request: Request, address: str = Depends(require_account))
     pool = request.app.db_pool
     row = await ledger.balance(pool, address)
     balance = row or 0
-    held = await free.held(pool, address.removeprefix(keys.ACCOUNT_PREFIX)) if keys.is_key_account(address) else None
-    free_left = held.usable(api=False) if held else 0
-    api_free = held.checks if held and held.developer else 0
+    key_id = address.removeprefix(keys.ACCOUNT_PREFIX) if keys.is_key_account(address) else None
+    api_free = await free.left(pool, key_id, api=True) if key_id is not None else 0
     return CreditsResponse(
         address=address,
         balance_usd_micros=balance,
-        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros + free_left,
+        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
         balance_lamports=balance,
-        free_checks_remaining=free_left,
-        free_checks_paused=(bool(free_left) and await free.paused(pool, settings))
-        or (bool(api_free) and await free.paused(pool, settings, developer=True)),
+        free_checks_remaining=0,
+        free_checks_paused=bool(api_free) and await free.paused(pool, settings),
         api_free_checks_remaining=api_free,
     )
 

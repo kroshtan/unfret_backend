@@ -988,6 +988,7 @@
   },
   "charge": {
     "quick": "Quick checks are free.",
+    "shopper": "Deep checks are free.",
     "not_assessed": "This page couldn't be assessed, so no check was used.",
     "repeat": "You checked this page recently, so no new check was used.",
     "free": "This check used one of your free checks.",
@@ -1026,11 +1027,14 @@
       "bought": "Uses 1 check (you have {count}).",
       "paused": "Free deep checks are back at 00:00 UTC. Deep checks also come in packs, from {price} for {checks}.",
       "packs": "Deep checks come in packs, from {price} for {checks}.",
-      "x402": "A deep check of this page costs {price}."
+      "x402": "A deep check of this page costs {price}.",
+    "shopper_free": "Deep checks are free.",
+    "shopper_paused": "Free deep checks are paused until next month: they run on donations."
     },
     "actions": {
       "run_deep": "Run a deep check",
-      "get_checks": "Get checks"
+      "get_checks": "Get checks",
+    "donate": "Support Unfret"
     }
   },
   "levels": {

@@ -56,7 +56,7 @@ async def test_a_new_key_is_empty_and_works_like_a_session(
     credits = await client.get("/v1/credits", headers=bearer(issued["key"]))
     assert credits.json()["address"] == issued["account"]
     assert credits.json()["balance_usd_micros"] == 0
-    assert (await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))).status_code == 402
+    assert (await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))).status_code == 428
 
     await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", issued["account"], PRICE)
     paid = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))

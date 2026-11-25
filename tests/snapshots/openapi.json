@@ -50,6 +50,17 @@
       ],
       "description": "Facts extracted from the rendered page (e.g. by the browser extension). When absent, the server extracts them from page_content."
      },
+     "proof_of_work": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ProofOfWork"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A free deep check (no pass, or a pass without bought checks): a solved challenge from GET /v1/analyze/challenge, used once. Not needed for a quick check or a deep check a pass pays for."
+     },
      "tier": {
       "default": "deep",
       "description": "deep (the default): the full analysis, which uses a check. quick: rule-based checks of the page itself only (no LLM, no lookups elsewhere; product pages), free for everyone and never charged.",
@@ -149,7 +160,7 @@
         "type": "null"
        }
       ],
-      "description": "True when this check was one of the free ones (a pass's, or a day's without one).",
+      "description": "True when this check was free: a shopper's deep check without bought checks, or one of a developer pass's free checks.",
       "title": "Free Check"
      },
      "label_token": {
@@ -236,37 +247,6 @@
      "explanation"
     ],
     "title": "AnalyzeResponse",
-    "type": "object"
-   },
-   "ChallengeResponse": {
-    "description": "A proof-of-work challenge for creating a key.",
-    "properties": {
-     "bits": {
-      "description": "Find a solution with SHA-256(challenge + ':' + solution) starting with this many zero bits (solution: at most 32 characters, e.g. a decimal counter).",
-      "title": "Bits",
-      "type": "integer"
-     },
-     "challenge": {
-      "title": "Challenge",
-      "type": "string"
-     },
-     "developer": {
-      "default": false,
-      "description": "A challenge for a developer pass (asked with ?developer=true): harder, and the only kind POST /v1/keys with \"developer\": true accepts.",
-      "title": "Developer",
-      "type": "boolean"
-     },
-     "expires_at": {
-      "title": "Expires At",
-      "type": "number"
-     }
-    },
-    "required": [
-     "challenge",
-     "bits",
-     "expires_at"
-    ],
-    "title": "ChallengeResponse",
     "type": "object"
    },
    "CheckItem": {
@@ -532,7 +512,7 @@
      },
      "free": {
       "default": false,
-      "description": "Ask for the free checks a new pass comes with (the browser extension does on install). Given only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
+      "description": "Deprecated and ignored: a shopper needs no pass (quick and deep checks are free without one), so only a developer pass comes with free checks.",
       "title": "Free",
       "type": "boolean"
      },
@@ -625,19 +605,19 @@
       "type": "integer"
      },
      "checks_remaining": {
-      "description": "Checks left: the balance in checks, plus free_checks_remaining (never a developer pass's free checks: those are api_free_checks_remaining).",
+      "description": "Bought checks left: the balance in checks (a developer pass's free checks are api_free_checks_remaining).",
       "title": "Checks Remaining",
       "type": "integer"
      },
      "free_checks_paused": {
       "default": false,
-      "description": "Today's budget for this pass's free deep checks is all used (by everyone): free checks wait until 00:00 UTC, while bought checks and quick checks work. A developer pass's free checks (api_free_checks_remaining) have a budget of their own, apart from free_checks_remaining's.",
+      "description": "A developer pass's free deep checks (api_free_checks_remaining) are paused: today's budget is used up (back at 00:00 UTC) or this month's LLM spend ceiling is reached (back next month). Bought checks and quick checks work.",
       "title": "Free Checks Paused",
       "type": "boolean"
      },
      "free_checks_remaining": {
       "default": 0,
-      "description": "Free deep checks left on this pass that work everywhere (included in checks_remaining); 0 for a wallet and for a developer pass.",
+      "description": "Deprecated, always 0: a shopper's deep checks are free without a pass (GET /v1/pricing \u2192 free).",
       "title": "Free Checks Remaining",
       "type": "integer"
      }
@@ -659,7 +639,8 @@
        {
         "enum": [
          "run_deep",
-         "get_checks"
+         "get_checks",
+         "donate"
         ],
         "type": "string"
        },
@@ -667,7 +648,7 @@
         "type": "null"
        }
       ],
-      "description": "run_deep: the caller can run it now (tier deep); get_checks: it needs checks first.",
+      "description": "run_deep: the caller can run it now (tier deep; free for a shopper); get_checks: it needs checks first (a pass on /v1/check); donate: free deep checks are paused this month (link to /donate).",
       "title": "Action"
      },
      "action_label": {
@@ -679,7 +660,7 @@
         "type": "null"
        }
       ],
-      "description": "\"Run a deep check\" or \"Get checks\".",
+      "description": "\"Run a deep check\", \"Get checks\" or \"Support Unfret\".",
       "title": "Action Label"
      },
      "adds": {
@@ -965,6 +946,45 @@
      "weight"
     ],
     "title": "Flag",
+    "type": "object"
+   },
+   "FreePause": {
+    "description": "Why free deep checks are paused, and what a client shows (the 429 ``FREE_CHECKS_PAUSED``'s ``metadata``).",
+    "properties": {
+     "donate_url": {
+      "description": "This site's /donate, which goes to the current way to donate.",
+      "title": "Donate Url",
+      "type": "string"
+     },
+     "message_key": {
+      "description": "free_checks_run_on_donations: show that free checks run on donations, with donate_url.",
+      "title": "Message Key",
+      "type": "string"
+     },
+     "quick_checks": {
+      "description": "Always true: quick checks still work.",
+      "title": "Quick Checks",
+      "type": "boolean"
+     },
+     "reason": {
+      "description": "spend_ceiling: this month's LLM spend reached its ceiling.",
+      "title": "Reason",
+      "type": "string"
+     },
+     "retry_after_s": {
+      "description": "Seconds until the 1st of next month, 00:00 UTC.",
+      "title": "Retry After S",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "reason",
+     "retry_after_s",
+     "quick_checks",
+     "message_key",
+     "donate_url"
+    ],
+    "title": "FreePause",
     "type": "object"
    },
    "HTTPValidationError": {
@@ -2372,6 +2392,30 @@
      "detail"
     ],
     "title": "Positive",
+    "type": "object"
+   },
+   "ProofOfWork": {
+    "description": "A solved challenge from ``GET /v1/analyze/challenge``: what a free deep check costs the client.",
+    "properties": {
+     "challenge": {
+      "description": "The challenge, exactly as issued.",
+      "maxLength": 200,
+      "title": "Challenge",
+      "type": "string"
+     },
+     "solution": {
+      "description": "A string (e.g. a decimal counter) with SHA-256(challenge + ':' + solution) starting with the challenge's bits zero bits.",
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Solution",
+      "type": "string"
+     }
+    },
+    "required": [
+     "challenge",
+     "solution"
+    ],
+    "title": "ProofOfWork",
     "type": "object"
    },
    "PurchaseRequest": {
@@ -3907,6 +3951,80 @@
     "title": "VerifyRequest",
     "type": "object"
    },
+   "unfret__routes__keys__ChallengeResponse": {
+    "description": "A proof-of-work challenge for creating a key.",
+    "properties": {
+     "bits": {
+      "description": "Find a solution with SHA-256(challenge + ':' + solution) starting with this many zero bits (solution: at most 32 characters, e.g. a decimal counter).",
+      "title": "Bits",
+      "type": "integer"
+     },
+     "challenge": {
+      "title": "Challenge",
+      "type": "string"
+     },
+     "developer": {
+      "default": false,
+      "description": "A challenge for a developer pass (asked with ?developer=true): harder, and the only kind POST /v1/keys with \"developer\": true accepts.",
+      "title": "Developer",
+      "type": "boolean"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "number"
+     }
+    },
+    "required": [
+     "challenge",
+     "bits",
+     "expires_at"
+    ],
+    "title": "ChallengeResponse",
+    "type": "object"
+   },
+   "unfret__schemas__responses__ChallengeResponse": {
+    "description": "A proof-of-work challenge for a free deep check (``GET /v1/analyze/challenge``).",
+    "properties": {
+     "bits": {
+      "description": "Find a solution with SHA-256(challenge + ':' + solution) starting with this many zero bits (solution: at most 32 characters, e.g. a decimal counter).",
+      "title": "Bits",
+      "type": "integer"
+     },
+     "challenge": {
+      "title": "Challenge",
+      "type": "string"
+     },
+     "expires_at": {
+      "description": "Unix seconds; the challenge works once, until then.",
+      "title": "Expires At",
+      "type": "number"
+     },
+     "pause": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/FreePause"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "While paused: why, until when, and what to show."
+     },
+     "paused": {
+      "default": false,
+      "description": "Free deep checks are paused (the month's LLM spend ceiling): don't solve this, show pause.",
+      "title": "Paused",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "challenge",
+     "bits",
+     "expires_at"
+    ],
+    "title": "ChallengeResponse",
+    "type": "object"
+   },
    "unfret__shopper__Verdict": {
     "description": "The shopper-facing result of an analysis.",
     "properties": {
@@ -4218,7 +4336,7 @@
  "paths": {
   "/v1/analyze": {
    "post": {
-    "description": "Analyse a product web page for legitimacy using the LangGraph analysis pipeline, paid from the account's credits.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English). The analysis\nprice is taken from the balance up front and refunded when the page can't be analysed (score -1) or the\nanalysis fails. The same input analysed again within the hour is served from an in-memory cache and costs a\ncheck like a fresh analysis (without one, the usual 402 or 429), except for the account that already paid for\nthat page within the hour, which gets it again free of charge. Nothing about the page or the result is stored;\nthe ``report_token`` lets the caller report a wrong result later (``POST /v1/reports``), sharing the page only\nthen and only with their consent; the ``share_token`` lets them make the verdict public as a link\n(``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\nThe caller is a wallet's session (``Authorization: Bearer <session token>``) or an API key (``Bearer ufk_\u2026``).\nA pass's free checks are used before its balance. Once today's free deep checks are all used (by everyone), a\ncheck that only free checks could pay for is refused with 429 ``FREE_CHECKS_PAUSED`` (until 00:00 UTC).\n``\"tier\": \"quick\"`` runs the rules-only quick check instead: free for everyone, with or without\n``Authorization``, never charged, a few a minute.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick\n    check may do without one).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
+    "description": "Analyse a product web page: free for shoppers, or paid from a pass's bought checks.\n\nPasses the page (client-supplied facts and/or HTML or cleaned text) through the graph, which extracts the\nfacts, runs the cheap skills in parallel, lets the triage decide on expensive ones, then synthesises a\nreliability score, an explanation and the shopper verdict (in English).\n\n**Free (shoppers: the extension, the app, the link checker).** Send no ``Authorization``. ``\"tier\": \"quick\"``\n(rules only) needs nothing else, a few a minute. A deep check (the default tier) needs a solved challenge from\n``GET /v1/analyze/challenge`` as ``proof_of_work`` (428 ``PROOF_OF_WORK_REQUIRED`` without one, 400\n``BAD_CHALLENGE`` for a bad one), at most ``free_deep_checks_per_ip_per_hour`` per network (429\n``TOO_MANY_REQUESTS``). Once this month's LLM spend reaches its ceiling, free deep checks are refused with 429\n``FREE_CHECKS_PAUSED`` (``metadata``: ``reason`` ``spend_ceiling``, ``retry_after_s``, ``quick_checks``,\n``message_key`` ``free_checks_run_on_donations``, ``donate_url``) until the 1st of next month. Nothing ties a free\ncheck to anyone: it carries no ``report_token``.\n\n**Paid (a pass or wallet with bought checks).** ``Authorization: Bearer ufk_\u2026`` (or a wallet's session): a deep\ncheck uses one bought check, taken up front and given back when the page can't be analysed (score -1) or the\nanalysis fails. A pass without bought checks is not used: its deep check is a free one (needs ``proof_of_work``).\nThe same input analysed again within the hour costs a paying account a check like a fresh analysis, except for\nthe account that already paid for that page within the hour.\n\nNothing about the page or the result is stored; the ``report_token`` (a paying account's or a quick check's with\nan account) lets the caller report a wrong result later (``POST /v1/reports``); the ``share_token`` lets anyone\nwho has the result make it public as a link (``POST /v1/shares``, without any account).\n\nA request with only a ``url`` has the server fetch the page first (the web link checker). A page it can't check\nthat way is answered with a free 422: ``PAGE_UNAVAILABLE`` (couldn't be fetched), ``PAGE_BLOCKED`` (the shop\nrefuses automatic visitors, or answered with a bot check), ``PAGE_TOO_THIN`` (an empty shell that needs a\nbrowser) or ``INVALID_URL``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization`` (only a quick\n    check may do without one).\n:return: Reliability score (0\u2013100), explanation, verdict, the scorer's assessment, the balance left, a report\n    token and a share token.\n:raises InternalServerError: If the graph fails.\n:raises GatewayTimeoutError: If the analysis takes longer than ``analysis_timeout_s``.\n:raises asyncio.CancelledError: If the client hung up (after the refund).",
     "operationId": "analyze_page_v1_analyze_post",
     "requestBody": {
      "content": {
@@ -4258,9 +4376,31 @@
     ]
    }
   },
+  "/v1/analyze/challenge": {
+   "get": {
+    "description": "A proof-of-work challenge for a free deep check: solve it, then send it with the check as ``proof_of_work``.\n\nFind a ``solution`` (at most 32 characters, e.g. a decimal counter) with ``SHA-256(challenge + \":\" + solution)``\nstarting with ``bits`` zero bits. Each challenge works once, until ``expires_at``. It names nothing: no client,\nnetwork or page. While the month's free deep checks are paused (``paused``: the LLM spend ceiling), don't solve\nit: the check would be refused with 429 ``FREE_CHECKS_PAUSED``; ``paused_until`` and the rest say why and what to\nshow (``message_key``, ``donate_url``). Quick checks need no challenge.\n\n:param request: The incoming request.\n:return: The challenge, its difficulty and expiry, and whether free deep checks are paused.\n:raises ServiceUnavailableError: While free deep checks can't be offered.",
+    "operationId": "challenge_v1_analyze_challenge_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/unfret__schemas__responses__ChallengeResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Challenge",
+    "tags": [
+     "Analyze"
+    ]
+   }
+  },
   "/v1/analyze/stream": {
    "post": {
-    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\", \"check\"}`` with the finding types and whether the\nstep is one of the checks the result's ``checks_run`` counts, plus ``page_type`` once classified), then a final\n``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze`` (a cache hit's result comes at once, charged as there), refunded on ``error``,\na score of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a\nclient that lost the connection gets it again for free by repeating the request with the same account. A\nURL-only request fetches the page before the stream starts; a page that can't be checked is a free 422 (no\nstream), as for ``POST /v1/analyze``.\nThe free tier and ``\"tier\": \"quick\"`` work as for ``POST /v1/analyze``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization``.\n:return: A ``text/event-stream`` response.",
+    "description": "Analyse a page like ``POST /v1/analyze``, streaming progress as server-sent events while skills finish.\n\nEvents: one ``step`` per finished node (``{\"skill\", \"findings\", \"check\"}`` with the finding types and whether the\nstep is one of the checks the result's ``checks_run`` counts, plus ``page_type`` once classified), then a final\n``result`` (the ``POST /v1/analyze`` body, with all the evidence) or ``error``.\nCharged like ``POST /v1/analyze`` (a cache hit's result comes at once, charged as there), refunded on ``error``,\na score of -1, or when the client hangs up before the analysis finished. A finished result is cached first, so a\nclient that lost the connection gets it again for free by repeating the request with the same account. A\nURL-only request fetches the page before the stream starts; a page that can't be checked is a free 422 (no\nstream), as for ``POST /v1/analyze``.\nFree checks (``proof_of_work``, the spend ceiling) and ``\"tier\": \"quick\"`` work as for ``POST /v1/analyze``.\n\n:param body: The request body containing the page content and flags.\n:param request: The FastAPI request (used to access the compiled graph).\n:param account: The account (injected by optional_account), or ``None`` without ``Authorization``.\n:return: A ``text/event-stream`` response.",
     "operationId": "analyze_page_stream_v1_analyze_stream_post",
     "requestBody": {
      "content": {
@@ -4532,7 +4672,7 @@
       "description": "An invalid body, or a page Unfret couldn't fetch (PAGE_UNAVAILABLE, PAGE_BLOCKED)"
      },
      "429": {
-      "description": "Over a rate limit (RATE_LIMITED, TOO_MANY_REQUESTS) or FREE_CHECKS_PAUSED"
+      "description": "Over a rate limit (RATE_LIMITED, TOO_MANY_REQUESTS)"
      },
      "503": {
       "description": "Payments or the analysis are off for a moment: retry after Retry-After"
@@ -5191,7 +5331,7 @@
       "content": {
        "application/json": {
         "schema": {
-         "$ref": "#/components/schemas/ChallengeResponse"
+         "$ref": "#/components/schemas/unfret__routes__keys__ChallengeResponse"
         }
        }
       },
@@ -5216,7 +5356,7 @@
   },
   "/v1/keys/move-free-checks": {
    "post": {
-    "description": "Move this pass's free checks to another pass: the extension does it when it switches to a pass its user bought.\n\nOnly free checks move (a balance never does), and only from the pass that authenticates the request\n(``Authorization: Bearer ufk_\u2026``).\n\n:param body: The other pass.\n:param request: The incoming request.\n:param account: The account (injected by require_account).\n:return: How many moved.\n:raises BadRequestError: For a wallet's session, or a malformed pass id.",
+    "description": "Deprecated: always moves nothing.\n\nA shopper's pass no longer has free checks (deep checks are free without a pass), and a developer pass's never\nmoved. Kept so older extensions get an answer.\n\n:param body: The other pass.\n:param request: The incoming request.\n:param account: The account (injected by require_account).\n:return: How many moved.\n:raises BadRequestError: For a wallet's session, or a malformed pass id.",
     "operationId": "move_free_checks_v1_keys_move_free_checks_post",
     "requestBody": {
      "content": {

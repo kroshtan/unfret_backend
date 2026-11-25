@@ -1,8 +1,8 @@
 """
 API keys: create, recover, and put one on a phone.
 
-``GET /v1/keys/challenge``, ``POST /v1/keys`` (create, with free checks on request, or a developer pass's:
-:mod:`unfret.credits.free`), ``POST /v1/keys/recover`` (rotate), ``POST /v1/keys/move-free-checks`` and
+``GET /v1/keys/challenge``, ``POST /v1/keys`` (create; a developer pass with its free checks:
+:mod:`unfret.credits.free`), ``POST /v1/keys/recover`` (rotate), ``POST /v1/keys/move-free-checks`` (deprecated) and
 ``GET /v1/keys/phone-qr`` (a QR code that puts the key on a phone).
 
 Shoppers know a key as their **Unfret pass** and its recovery code as their **backup code**; the API keeps the
@@ -56,8 +56,8 @@ class CreateKeyRequest(BaseModel):
     solution: str = Field(min_length=1, max_length=32)
     free: bool = Field(
         default=False,
-        description="Ask for the free checks a new pass comes with (the browser extension does on install). Given "
-        "only while this network hasn't had its share of free passes today; the response's free_checks says how many.",
+        description="Deprecated and ignored: a shopper needs no pass (quick and deep checks are free without one), so "
+        "only a developer pass comes with free checks.",
     )
     developer: bool = Field(
         default=False,
@@ -146,7 +146,6 @@ async def issue_pass(
     challenge: str,
     solution: str,
     *,
-    free: bool,
     developer: bool = False,
     source: str = "api",
 ) -> tuple[keys.IssuedKey, int]:
@@ -156,7 +155,6 @@ async def issue_pass(
     :param request: The incoming request.
     :param challenge: The challenge, as issued.
     :param solution: The caller's answer.
-    :param free: Ask for the free checks a new pass comes with.
     :param developer: A developer pass (its harder challenge, its own free checks).
     :param source: Which client makes it, for the anonymous ``pass_created`` event (:mod:`unfret.usage`).
     :return: The pass and how many free checks it came with.
@@ -172,14 +170,11 @@ async def issue_pass(
         raise BadRequestError(detail, error_code="BAD_CHALLENGE")
     if not door.key_guard.creations.allow(_ip(request), daily_cap=False):
         raise TooManyRequestsError("Too many new keys from here today; try again tomorrow.")
-    # Free checks only within this network's share of free (or developer) passes today; past it, the pass is simply
-    # made empty. Either way they come out of the one daily budget for free deep checks (unfret.credits.free).
+    # A developer pass's free checks only within this network's share of developer passes today; past it, the pass
+    # is simply made empty. A shopper's pass never has free checks (their deep checks are free without a pass).
     given = 0
-    if developer:
-        if settings.developer_free_checks > 0 and door.developer_passes.allow(_ip(request)):
-            given = settings.developer_free_checks
-    elif free and settings.free_checks_per_pass > 0 and door.free_passes.allow(_ip(request)):
-        given = settings.free_checks_per_pass
+    if developer and settings.developer_free_checks > 0 and door.developer_passes.allow(_ip(request)):
+        given = settings.developer_free_checks
     issued = await keys.create(request.app.db_pool, free_checks=given, developer=developer)
     logger.info("api_key_created", free_checks=given, developer=developer)
     usage.record("pass_created", source=source, developer=developer, free_checks=given > 0)
@@ -199,9 +194,7 @@ async def create_key(body: CreateKeyRequest, request: Request) -> KeyResponse:
     :return: The key and recovery code, shown this once.
     """
     source = body.source or _SOURCE_OF_CLIENT.get(usage.client_of(request.headers), "api")
-    issued, given = await issue_pass(
-        request, body.challenge, body.solution, free=body.free, developer=body.developer, source=source
-    )
+    issued, given = await issue_pass(request, body.challenge, body.solution, developer=body.developer, source=source)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,
@@ -232,15 +225,17 @@ async def recover_key(body: RecoverRequest, request: Request) -> KeyResponse:
     except keys.ApiKeyError as exc:
         raise UnauthorizedError(str(exc), error_code="INVALID_RECOVERY_CODE") from exc
     logger.info("api_key_recovered")
-    left = await free.held(request.app.db_pool, issued.key_id)
+    left = await free.left(request.app.db_pool, issued.key_id, api=True)
     return KeyResponse(
         key_id=issued.key_id,
         key=issued.key,
         recovery_code=issued.recovery_code,
         account=issued.account,
         balance_usd_micros=await keys.balance(request.app.db_pool, issued.key_id),
-        free_checks=left.checks,
-        developer=left.developer,
+        free_checks=left,
+        developer=bool(
+            await request.app.db_pool.fetchval("SELECT developer FROM api_keys WHERE id = $1", issued.key_id)
+        ),
     )
 
 
@@ -249,10 +244,10 @@ async def move_free_checks(
     body: MoveFreeChecksRequest, request: Request, account: str = Depends(require_account)
 ) -> MoveFreeChecksResponse:
     """
-    Move this pass's free checks to another pass: the extension does it when it switches to a pass its user bought.
+    Deprecated: always moves nothing.
 
-    Only free checks move (a balance never does), and only from the pass that authenticates the request
-    (``Authorization: Bearer ufk_…``).
+    A shopper's pass no longer has free checks (deep checks are free without a pass), and a developer pass's never
+    moved. Kept so older extensions get an answer.
 
     :param body: The other pass.
     :param request: The incoming request.
@@ -267,9 +262,8 @@ async def move_free_checks(
     except keys.ApiKeyError as exc:
         raise BadRequestError("Not a pass id.") from exc
     _door(request)
-    moved = await free.move(request.app.db_pool, account.removeprefix(keys.ACCOUNT_PREFIX), to_id)
-    logger.info("free_checks_moved", checks=moved)
-    return MoveFreeChecksResponse(moved=moved)
+    del to_id
+    return MoveFreeChecksResponse(moved=0)
 
 
 @router.get(

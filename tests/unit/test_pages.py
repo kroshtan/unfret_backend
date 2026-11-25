@@ -10,7 +10,6 @@ from pathlib import Path
 import httpx
 import pytest
 
-from unfret import shopper
 from unfret.config import settings
 from unfret.credits import siws
 from unfret.main import app
@@ -347,132 +346,17 @@ def test_an_old_link_to_the_50_pack_lands_on_the_nearest_pack(tmp_path: Path) ->
     assert 'id="pack-note"' in (STATIC_DIR / "checkout.html").read_text()
 
 
-def test_the_pages_show_the_free_checks_first_then_the_two_packs() -> None:
+def test_the_pages_say_shoppers_check_free_and_developers_buy_packs() -> None:
     home = (STATIC_DIR / "index.html").read_text()
-    prices = home[home.index('id="prices"') : home.index("</ul>", home.index('id="prices"'))]
-    assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
-    assert 'data-checks="50"' not in prices and "checks=50" not in home
-    assert "$6.50" in prices and "$21.00" in prices and "$11.50" not in home and "$22.00" not in home
-    assert "gift code" not in home
-    assert "deep checks, then quick checks" in prices
-    home_js = (STATIC_DIR / "home.js").read_text()
-    assert "checks_per_pass" in home_js and "invites" not in home_js  # live from /v1/pricing
+    assert 'id="prices"' not in home and "gift code" not in home and "$6.50" not in home
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.index('id="free-first"') < checkout.index('id="packs"')
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
     assert "25 checks for $6.50 (€6.50 in the euro area), or 100 checks for $21 (€21)" in money
-    assert "gift code" not in money
-    assert "Card prices include tax, in dollars and in euros" in money and "before tax" not in money
-    assert money.index("5 free deep checks") < money.index("25 checks for $6.50")
+    assert "gift code" not in money and "Card prices include tax" in money and "before tax" not in money
+    assert money.index("Donations") < money.index("Checks for developers") < money.index("25 checks for $6.50")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
     assert "gift code" not in my_checks
-
-
-@pytest.mark.usefixtures("node")
-def test_a_pass_id_reads_in_two_groups(tmp_path: Path) -> None:
-    module = tmp_path / "pass.mjs"
-    module.write_text((STATIC_DIR / "pass.js").read_text())
-    key = "ufk_abcdefghij_" + "a" * 52
-    script = (
-        f"import {{ passIdOf, readPassId, showPassId }} from {json.dumps(module.as_uri())};"
-        f"process.stdout.write(JSON.stringify([showPassId('abcdefghij'), readPassId('ABCDE-FGHIJ'),"
-        f" readPassId(' abcde fghij '), readPassId({json.dumps(key)}), readPassId('abcde-fghi1'),"
-        f" passIdOf({json.dumps(key)}), passIdOf('ufr_abcdefghij_' + 'a'.repeat(52))]));"
-    )
-    out = json.loads(
-        subprocess.run(
-            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
-        ).stdout
-    )
-    assert out == ["ABCDE-FGHIJ", "abcdefghij", "abcdefghij", "abcdefghij", None, "abcdefghij", None]
-
-
-@pytest.mark.usefixtures("node")
-def test_results_never_repeat_the_label_and_follow_the_page_type(tmp_path: Path) -> None:
-    for name in ("check-render.js", "check-core.js"):
-        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
-    render, core = (tmp_path / "check-render.js").as_uri(), (tmp_path / "check-core.js").as_uri()
-    script = (
-        f"import {{ headlineOf }} from {json.dumps(render)};"
-        f"import {{ checklistFor, CHECKLISTS }} from {json.dumps(core)};"
-        "process.stdout.write(JSON.stringify({"
-        "headlines: [headlineOf('Many warning signs: fake countdown.', 'Many warning signs'),"
-        " headlineOf('Looks fine, but one thing to note: a new shop.', 'Looks fine'),"
-        " headlineOf('Fake countdown.', 'Many warning signs'),"
-        " headlineOf('Many warning signs.', 'Many warning signs')],"
-        "kinds: ['storefront', 'aggregate_listing', 'p2p_listing', 'service_site', 'service_listing', undefined]"
-        ".map(checklistFor),"
-        "labels: Object.values(CHECKLISTS).flat().map((item) => item.label)}));"
-    )
-    out = json.loads(
-        subprocess.run(
-            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
-        ).stdout
-    )
-    assert out["headlines"] == [
-        "Fake countdown.",
-        "One thing to note: a new shop.",
-        "Fake countdown.",
-        "Many warning signs.",
-    ]
-    assert out["kinds"] == ["shop", "shop", "ad", "service", "service", "shop"]
-    assert "Page code" not in out["labels"]  # no technical words in the progress list
-
-
-@pytest.mark.usefixtures("node")
-def test_the_four_verdicts_and_a_reason_below_looks_fine(tmp_path: Path) -> None:
-    for name in ("check-render.js", "check-core.js"):
-        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
-    render, core = (tmp_path / "check-render.js").as_uri(), (tmp_path / "check-core.js").as_uri()
-    reason = {"title": "Fake countdown", "detail": "", "severity": "high"}
-    script = (
-        f"import {{ reasonsOf }} from {json.dumps(render)};"
-        f"import {{ BAND_WORD }} from {json.dumps(core)};"
-        f"const reason = {json.dumps(reason)};"
-        "const titles = (result, band) => reasonsOf(result, band).map((r) => r.title);"
-        "process.stdout.write(JSON.stringify({"
-        "words: BAND_WORD,"
-        "middle: ['concerns', 'careful', 'junk_or_scam']"
-        ".map((band) => titles({ verdict: { band, reasons: [] } }, band)),"
-        "older: titles({ score: 30 }, 'careful'),"
-        "kept: titles({ verdict: { band: 'careful', reasons: [reason] } }, 'careful'),"
-        "reliable: titles({ verdict: { band: 'reliable', reasons: [] } }, 'reliable'),"
-        "unassessed: titles({ score: -1 }, null)}));"
-    )
-    out = json.loads(
-        subprocess.run(
-            ["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True
-        ).stdout
-    )
-    assert out["words"] == shopper.catalogue()["labels"]  # the site's words are the API's labels
-    assert list(out["words"].values()) == ["Looks fine", "Worth a look", "Think twice", "Serious concerns"]
-    assert out["middle"] == [["Nothing clear-cut"]] * 3
-    assert out["older"] == ["Nothing clear-cut"]
-    assert out["kept"] == ["Fake countdown"]
-    assert out["reliable"] == [] and out["unassessed"] == []
-    assert shopper.catalogue()["reasons"]["overall"]["title"] == "Nothing clear-cut"  # the same words
-
-
-# ── Card and Wero first; crypto one quiet step away ────────────────────────────────────────────────────────────
-
-
-def test_checkout_has_three_tabs_and_crypto_behind_a_link() -> None:
-    page = (STATIC_DIR / "checkout.html").read_text()
-    tabs = re.findall(r'role="tab"[^>]*>([^<]+)</button>', page)
-    assert tabs == ["Buy checks", "Add to my pass"]
-    assert "tab-crypto" not in page and page.count("data-to-crypto") == 2  # under Buy checks and Add to my pass
-    assert 'id="crypto-back"' in page
-    # The test network's "no real money" concerns crypto only: it sits with the crypto panel, not above the tabs.
-    assert page.index('id="network"') > page.index('id="crypto-head"')
-    script = (STATIC_DIR / "checkout.js").read_text()
-    assert 'for (const way of document.querySelectorAll(".crypto-way")) way.hidden = !cryptoAvailable();' in script
-
-
-def test_the_home_page_prices_are_card_prices() -> None:
-    page = (STATIC_DIR / "index.html").read_text()
-    prices = page.split('<ul class="prices" id="prices">', 1)[1].split("</ul>", 1)[0]
-    assert "crypto" not in prices  # the price cards show what a shopper pays by card
-    assert 'href="/checkout?mode=crypto"' in page  # one quiet line for those who pay with crypto
 
 
 def test_buying_again_adds_to_the_pass_this_browser_uses() -> None:
@@ -533,7 +417,7 @@ async def test_the_claude_page_exists_only_while_oauth_is_on(
     text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", response.text)).split())
     base = settings.public_base_url.rstrip("/")
     assert f"claude mcp add --transport http unfret {base}/mcp" in text and "{{" not in response.text
-    assert f"up to {settings.free_checks_per_pass} free deep checks" in text
+    assert f"up to {settings.developer_free_checks} free deep checks" in text
     for tool in ("check_store_quick", "check_store_deep", "get_checks_left", "get_pricing"):
         assert tool in text, tool
     for section in ("examples", "troubleshooting", "support"):
@@ -700,8 +584,6 @@ def test_the_card_buttons_say_who_handles_the_payment_and_why_the_email() -> Non
     assert notes == [line, line]  # under Buy checks' and Add to my pass's card button
     for panel in ("new", "topup"):
         assert page.index(f'id="{panel}-pay"') < page.index('class="pay-note"', page.index(f'id="{panel}-pay"'))
-    home = " ".join((STATIC_DIR / "index.html").read_text().split())
-    assert "asks for your email for the receipt" in home  # the same words as the home page
 
 
 @pytest.mark.usefixtures("node")

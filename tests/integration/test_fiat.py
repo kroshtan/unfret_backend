@@ -153,7 +153,8 @@ async def test_partial_refunds_debit_pro_rata_and_may_go_negative(
     assert [r.json()["status"] for r in (quarter, again, half)] == ["debited", "unchanged", "debited"]
     assert await balance(pool, issued.account) == 1_000_000 - 10_000_000  # half of $20, the balance below zero
     analysis = await client.post("/v1/analyze", json=PAGE, headers={"Authorization": f"Bearer {issued.key}"})
-    assert (analysis.status_code, analysis.json()["error_code"]) == (402, "INSUFFICIENT_CREDITS")  # negative: blocked
+    # A negative balance pays for nothing: the pass isn't used, and its check would be a shopper's free one.
+    assert (analysis.status_code, analysis.json()["error_code"]) == (428, "PROOF_OF_WORK_REQUIRED")
     assert (await client.get("/v1/credits", headers={"Authorization": f"Bearer {issued.key}"})).json()[
         "checks_remaining"
     ] == 0

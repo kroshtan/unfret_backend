@@ -1785,3 +1785,68 @@ before this change and older servers have no `deep_check` (or `null`); clients s
 - `POST /v1/contributors` adds `points` (reports that agreed with the settled answer, or with the reviewer's level).
 - Admin: `POST /v1/admin/reports/{id}/label` takes `{"level": 0-4}` as well as `{"label": …}`; `GET /v1/admin/reports`
   items add `level`, `shown_level` and `reports` (`count`, `anonymous`, `levels`, `wrong`, `missing`).
+
+## Free checks for shoppers: the client contract (extension, Android app, `/check`; migration 43)
+
+Shoppers check for free, quick and deep, with **no pass and no identity**. Clients must not send a pass, a device id
+or anything else that names the user with a free check.
+
+**Quick check** (unchanged): `POST /v1/analyze` or `/v1/analyze/stream` with `{"tier": "quick", ...page}` and no
+`Authorization`. A few a minute per network (429 `TOO_MANY_REQUESTS`, `metadata.retry_after_s`).
+
+**Deep check** (the default tier), free:
+
+1. `GET /v1/analyze/challenge` → `{"challenge": str, "bits": int, "expires_at": float, "paused": bool,
+   "pause"?: {...}}`. If `paused` is true, don't solve it: show the pause (below) and offer a quick check.
+2. Find `solution` (a string of at most 32 characters, e.g. a decimal counter from 0) such that
+   `SHA-256(challenge + ":" + solution)` starts with `bits` zero bits (the same puzzle as `POST /v1/keys`; the site's
+   solver is `static/new-pass.js`). `bits` is 20 by default (about a million hashes): seconds in a browser.
+3. `POST /v1/analyze` (or `/stream`) with no `Authorization` and
+   `{...page, "proof_of_work": {"challenge": str, "solution": str}}`. A challenge works once, until `expires_at`
+   (5 minutes); get a new one per check.
+
+The result is the usual `AnalyzeResponse` with `"charged": false`, `"free_check": true`, `"charge_note": "Deep checks
+are free."`, a `share_token` and a `label_token` (`POST /v1/labels`); **no `report_token`** and no balance. A cached
+result (the same input within the hour) is answered the same way and still needs its proof of work.
+
+Errors (all JSON `{"detail", "error_code", "metadata"?}`):
+
+| error_code | HTTP | meaning | client |
+| --- | --- | --- | --- |
+| `PROOF_OF_WORK_REQUIRED` | 428 | no `proof_of_work` (also: a pass without bought checks, whose check is a free one) | get a challenge, solve, resend |
+| `BAD_CHALLENGE` | 400 | forged, expired, already used, too easy or unsolved | get a new challenge |
+| `FREE_CHECKS_PAUSED` | 429 | this month's LLM spend ceiling is reached | show the pause; offer a quick check |
+| `TOO_MANY_REQUESTS` | 429 | too many free deep checks from this network this hour (`metadata.retry_after_s`) | wait |
+| `SERVICE_UNAVAILABLE` | 503 | free deep checks can't be offered right now | quick check, retry later |
+
+**The pause (spend ceiling).** `FREE_CHECKS_PAUSED`'s `metadata` (also `pause` on the challenge and
+`/v1/pricing`'s `free.pause`): `{"reason": "spend_ceiling", "retry_after_s": int (to the 1st of next month, 00:00
+UTC), "quick_checks": true, "message_key": "free_checks_run_on_donations", "donate_url":
+"https://unfret.net/donate"}`. Clients show their own words for `message_key` (e.g. "Free deep checks are paused until
+next month: they run on donations.") with a "Support Unfret" link to `donate_url`. A quick result's suggestion of a
+deep check carries `action: "donate"` (label "Support Unfret") while paused, `action: "run_deep"` ("Deep checks are
+free.") otherwise. Bought checks, developer passes' bought checks and x402 are never paused.
+
+**Donations.** Always link to `https://unfret.net/donate` (or `/v1/pricing`'s `free.donate_url`), never to a payment
+page directly: `/donate` redirects to the current payment link (`UNFRET_DONATE_URL`), which can change without a
+client release (302 to `/support` while donations aren't open). `/support` explains what a donation pays for. A
+donation buys nothing.
+
+**Discovery.** `GET /v1/pricing` → `free`: `{"quick_checks": true, "deep_checks": true, "paused": bool, "back_at",
+"pause"?, "proof_of_work": {"challenge_url": "/v1/analyze/challenge", "bits"}, "donate_url",
+"developer_checks_per_pass": 20, "checks_per_pass": 0}` (`checks_per_pass` deprecated: always 0).
+
+**Passes.** A pass with bought checks still pays on `/v1/analyze` (no proof of work; `report_token` as before). A pass
+without bought checks is not used at all. `POST /v1/keys` ignores `"free": true` (a shopper's pass has no free checks
+any more; migration 43 sets them to 0). `GET /v1/credits`: `free_checks_remaining` is always 0, `checks_remaining` is
+bought checks only. `POST /v1/keys/move-free-checks` always answers `{"moved": 0}` (deprecated).
+
+**Developer passes** (API, MCP): 20 free deep checks each on `POST /v1/check` only, then bought packs, as before; their
+free checks pause with the day's developer budget or the month's spend ceiling (402 `INSUFFICIENT_CREDITS`, detail
+"Free developer checks are paused until next month. ..." at the ceiling). The MCP server's OAuth sign-in page now
+makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`). x402 is unchanged.
+
+**Removed:** the shoppers' daily free-check budget (`UNFRET_FREE_CHECKS_PER_PASS`, `UNFRET_FREE_PASSES_PER_IP_PER_DAY`,
+`UNFRET_FREE_DAILY_BUDGET_EUR`). **New settings:** `UNFRET_DEEP_POW_BITS`, `UNFRET_DEEP_POW_TTL_S`,
+`UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_PRICES_EUR_PER_MTOK`,
+`UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`, `UNFRET_DONATE_URL`. Migration 43: `llm_spend` (one number a month).

@@ -335,13 +335,14 @@ async def test_the_link_checker_offers_examples_starting_with_the_test_shop(
     assert examples.count("<li>") == 3 and "A &lt;b&gt;shop&lt;/b&gt;" in examples and "&quot;1&quot;" in examples
 
 
-def test_the_link_checker_gets_a_free_pass_once_per_browser() -> None:
+def test_the_link_checker_runs_free_deep_checks_without_a_pass() -> None:
     script = (STATIC_DIR / "check.js").read_text()
-    assert 'import { makePass } from "./new-pass.js";' in script
-    assert "makePass(api, { free: true })" in script and "markFreeGiven();" in script
-    # After that, or without a pass: a quick check, saying why, never a refusal.
-    assert 'run(link, "quick", abort, "none")' in script and 'await run(link, "quick", abort, outcome)' in script
-    assert 'error.code === "FREE_CHECKS_PAUSED"' in script
+    assert 'import { solve } from "./new-pass.js";' in script and "makePass" not in script
+    assert 'getJson("/v1/analyze/challenge")' in script and "body.proof_of_work =" in script
+    # A free check goes without the pass; paused this month: a quick check, saying why, with /donate.
+    assert 'const sent = work ? { "Content-Type": "application/json" } : headers(true);' in script
+    assert 'run(link, "quick", abort, work ? "paused" : "none")' in script
+    assert 'error.code === "FREE_CHECKS_PAUSED"' in script and '$("buy-card").href = "/donate";' in script
     checkout = (STATIC_DIR / "checkout.js").read_text()
     assert "const makeKey = () => makePass(api);" in checkout
 

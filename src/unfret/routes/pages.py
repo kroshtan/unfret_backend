@@ -14,6 +14,7 @@ Static HTML and vanilla JS from ``unfret/static``, no framework and no third-par
 Policy lets them load only their own scripts and talk only to this API.
 """
 
+import contextlib
 import html
 import json
 import re
@@ -545,7 +546,7 @@ def developers_claude() -> HTMLResponse:
     """
     if not settings.mcp_oauth_enabled:
         raise NotFoundError("Not found.")
-    fields = {"base_url": settings.public_base_url.rstrip("/"), "free_checks": str(settings.free_checks_per_pass)}
+    fields = {"base_url": settings.public_base_url.rstrip("/"), "free_checks": str(settings.developer_free_checks)}
     page = template("developers-claude.html", "/developers")
     for name, value in fields.items():
         page = page.replace("{{" + name + "}}", html.escape(value))
@@ -615,7 +616,6 @@ def why() -> HTMLResponse:
     """
     page = with_store_links(template("why.html", "/why"))
     for name, value in {
-        "free_checks": settings.free_checks_per_pass,
         "quick_per_minute": settings.quick_checks_per_minute,
     }.items():
         page = page.replace("{{" + name + "}}", str(value))
@@ -630,6 +630,48 @@ def money() -> HTMLResponse:
     :return: The page.
     """
     return _page("money.html", "/money")
+
+
+DONATE_CLICKS = "donate_clicks"
+
+
+@router.get("/support", response_class=HTMLResponse)
+def support() -> HTMLResponse:
+    """
+    Support Unfret: what a donation pays for (the free deep checks), and that it buys nothing.
+
+    :return: The page.
+    """
+    if settings.donate_url:
+        button = '<p><a class="button primary large" href="/donate">Donate</a></p>'
+    else:
+        button = '<p class="notice">Donations aren\'t open yet.</p>'
+    page = template("support.html", "/support").replace("{{donate}}", button)
+    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+
+
+@router.get("/donate", response_model=None)
+async def donate(request: Request) -> Response:
+    """
+    Where every "Support Unfret" link goes: a redirect to the current way to donate (``donate_url``).
+
+    Clients link here, never to the payment page itself, so it can change (a new payment link) without a release.
+    Counted as a number a month (``usage_counters``), nothing else. Without ``donate_url``: the support page.
+
+    :param request: The incoming request.
+    :return: A 302 to the payment page, or one to ``/support`` while donations aren't open.
+    """
+    if not settings.donate_url:
+        return RedirectResponse("/support", status_code=302, headers={"Cache-Control": "no-store"})
+    pool = request.app.db_pool
+    if pool is not None:
+        with contextlib.suppress(Exception):  # a count is never worth a failed redirect
+            await pool.execute(
+                "INSERT INTO usage_counters (name, period, count) VALUES ($1, to_char(NOW() AT TIME ZONE 'UTC', "
+                "'YYYY-MM'), 1) ON CONFLICT (name, period) DO UPDATE SET count = usage_counters.count + 1",
+                DONATE_CLICKS,
+            )
+    return RedirectResponse(settings.donate_url, status_code=302, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/press", response_class=HTMLResponse)
@@ -833,6 +875,7 @@ SITEMAP_PATHS = (
     "/about",
     "/accuracy",
     "/money",
+    "/support",
     "/developers",
     "/developers/http",
     "/connect",

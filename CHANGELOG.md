@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Free checks for shoppers
+
+* **Quick and deep checks are free, with no pass and no identity** (the extension, the Android app, `/check`). A free
+  deep check needs a proof of work (`GET /v1/analyze/challenge`, then `proof_of_work` with the check; 428
+  `PROOF_OF_WORK_REQUIRED` without one), is limited per network an hour in memory, and carries no `report_token`. A
+  pass is used only when it has bought checks. The client contract is in `docs/api-contract-v1.md` ("Free checks for
+  shoppers").
+* **A monthly LLM spend ceiling** (`UNFRET_LLM_SPEND_CEILING_EUR`, €100): every chat model call is priced from its
+  token counts and added up per month (`llm_spend`, migration 43). At the ceiling free deep checks answer 429
+  `FREE_CHECKS_PAUSED` (`reason: "spend_ceiling"`, `message_key: "free_checks_run_on_donations"`, `donate_url`)
+  until the 1st of next month; quick checks, bought checks and x402 go on.
+* **Developer passes** keep 20 free deep checks on `/v1/check`, paused at the ceiling too; the MCP OAuth sign-in
+  makes a developer pass. Shoppers' passes lose their free checks (migration 43); the shoppers' daily budget is gone.
+* **Support Unfret**: `/support` and `/donate` (a redirect to `UNFRET_DONATE_URL`, counted as a number a month). A
+  donation buys nothing. The home page, `/why`, `/money`, the terms and the privacy statement say so.
+
 ### Removed
 
 * **Affiliates, bonus codes, gift codes and report rewards.** The affiliate program (`/affiliates`, its stats page,

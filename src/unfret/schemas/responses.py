@@ -40,6 +40,34 @@ class Healthy(BaseModel):
     fiat: str | None = Field(default=None, description="Card top-ups: off, or the provider (polar:production, …)")
 
 
+class FreePause(BaseModel):
+    """Why free deep checks are paused, and what a client shows (the 429 ``FREE_CHECKS_PAUSED``'s ``metadata``)."""
+
+    reason: str = Field(description="spend_ceiling: this month's LLM spend reached its ceiling.")
+    retry_after_s: int = Field(description="Seconds until the 1st of next month, 00:00 UTC.")
+    quick_checks: bool = Field(description="Always true: quick checks still work.")
+    message_key: str = Field(
+        description="free_checks_run_on_donations: show that free checks run on donations, with donate_url."
+    )
+    donate_url: str = Field(description="This site's /donate, which goes to the current way to donate.")
+
+
+class ChallengeResponse(BaseModel):
+    """A proof-of-work challenge for a free deep check (``GET /v1/analyze/challenge``)."""
+
+    challenge: str
+    bits: int = Field(
+        description="Find a solution with SHA-256(challenge + ':' + solution) starting with this many zero bits "
+        "(solution: at most 32 characters, e.g. a decimal counter)."
+    )
+    expires_at: float = Field(description="Unix seconds; the challenge works once, until then.")
+    paused: bool = Field(
+        default=False,
+        description="Free deep checks are paused (the month's LLM spend ceiling): don't solve this, show pause.",
+    )
+    pause: FreePause | None = Field(default=None, description="While paused: why, until when, and what to show.")
+
+
 class AnalyzeResponse(BaseModel):
     """Response body for the analyze endpoint."""
 
@@ -75,7 +103,9 @@ class AnalyzeResponse(BaseModel):
         default=None, description="Which check this was: deep (the full analysis) or quick (rules only, free)."
     )
     free_check: bool | None = Field(
-        default=None, description="True when this check was one of the free ones (a pass's, or a day's without one)."
+        default=None,
+        description="True when this check was free: a shopper's deep check without bought checks, or one of a "
+        "developer pass's free checks.",
     )
     charge_note: str | None = Field(
         default=None,

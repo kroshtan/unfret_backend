@@ -11,7 +11,7 @@ const challengeField = document.getElementById("create-challenge");
 const solutionField = document.getElementById("create-solution");
 
 async function work() {
-  const response = await fetch("/v1/keys/challenge", { headers: { Accept: "application/json" } });
+  const response = await fetch("/v1/keys/challenge?developer=true", { headers: { Accept: "application/json" } });
   if (!response.ok) throw new Error(String(response.status));
   const challenge = await response.json();
   const solution = await solve(challenge.challenge, challenge.bits);

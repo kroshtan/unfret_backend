@@ -285,7 +285,9 @@ export function deepHintOf(result) {
     text: offer.text,
     cost: offer.cost ?? "",
     action,
-    label: offer.action_label || (action === "run_deep" ? "Run a deep check" : "Get checks"),
+    label:
+      offer.action_label ||
+      (action === "run_deep" ? "Run a deep check" : action === "donate" ? "Support Unfret" : "Get checks"),
     quiet: offer.quiet === true,
   };
 }
@@ -306,7 +308,7 @@ export function deepHintNode(hint, { run, checkoutHref }) {
     row.append(button);
   } else {
     const link = el("a", "button", hint.label);
-    link.href = checkoutHref;
+    link.href = hint.action === "donate" ? "/donate" : checkoutHref;
     row.append(link);
   }
   box.append(row);

@@ -37,6 +37,7 @@ from unfret.config import Settings
 from unfret.facts.schema import P2P_PLATFORMS
 from unfret.facts.service_platforms import SERVICE_PLATFORMS
 from unfret.llm import UNTRUSTED_NOTICE, throttled, untrusted
+from unfret.spend import SpendMeter
 
 logger = structlog.get_logger("unfret")
 
@@ -213,6 +214,7 @@ def use_model(model: Runnable[Any, Any] | None) -> None:
 def _model(name: str, base_url: str, api_key: str, timeout_s: float) -> Runnable[Any, Any]:
     return ChatOpenAI(
         model=name,
+        callbacks=[SpendMeter(name)],  # this month's LLM spend (unfret.spend)
         base_url=base_url,
         api_key=api_key,  # type: ignore[arg-type]
         temperature=0,

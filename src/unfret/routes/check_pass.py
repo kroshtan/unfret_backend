@@ -4,9 +4,9 @@
 For agents that have a pass rather than a wallet. The request and the verdict are the same as with x402; the charge
 follows ``POST /v1/analyze`` exactly (:mod:`unfret.routes.analyze`, whose helpers this uses, so the two can't drift):
 
-- a **deep** check uses one check: the pass's free checks first (:mod:`unfret.credits.free`, the one daily budget),
-  then its balance. A developer pass's free checks count here (``api=True``), and only here. Without either: 402
-  ``INSUFFICIENT_CREDITS``; with only free checks while today's budget is spent: 429 ``FREE_CHECKS_PAUSED``. A page
+- a **deep** check uses one check: a developer pass's free checks first (:mod:`unfret.credits.free`, their daily
+  budget; they count here, ``api=True``, and only here), then its balance. Without either, or with only free checks
+  while they are paused (the day's budget, or the month's LLM spend ceiling): 402 ``INSUFFICIENT_CREDITS``. A page
   that can't be read (422), assessed (score -1) or analysed (500/504) is given back.
 - a **quick** check is free, within the per-minute limit quick checks have on ``/v1/analyze`` (shared per pass).
 - ``/v1/check``'s own per-minute limit counts per pass here, not per visitor network, so agents behind one host (a

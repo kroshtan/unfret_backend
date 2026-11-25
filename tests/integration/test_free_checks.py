@@ -1,4 +1,4 @@
-"""Free checks: a new pass's free deep checks, the day's budget for them, and quick checks for everyone."""
+"""Free checks for shoppers: quick and deep with no pass, the proof of work, and the month's LLM spend ceiling."""
 
 import json
 from decimal import Decimal
@@ -10,8 +10,9 @@ import pytest
 
 from tests.integration.conftest import DROP_ALL, FakeGraph
 from tests.integration.test_keys import PAGE, PRICE, balance, bearer, solve
+from unfret import spend
 from unfret.config import settings
-from unfret.credits import free
+from unfret.credits import keys, ledger
 from unfret.main import app
 from unfret.migrations import MIGRATIONS, migrate
 from unfret.routes import analyze
@@ -20,7 +21,11 @@ from unfret.routes import analyze
 @pytest.fixture(autouse=True)
 def easy_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "key_pow_bits", 4)
+    monkeypatch.setattr(settings, "deep_pow_bits", 4)
+    monkeypatch.setattr(settings, "public_base_url", "https://unfret.test")
     monkeypatch.setattr(analyze, "_quick_rate", analyze.RateLimit(1000))
+    monkeypatch.setattr(analyze, "_free_deep_rate", analyze.RateLimit(1000, window_s=3600))
+    spend._pending.take()  # nothing metered by another test
 
 
 @pytest.fixture
@@ -31,299 +36,256 @@ def quick(monkeypatch: pytest.MonkeyPatch) -> FakeGraph:
     return graph
 
 
-def budget(monkeypatch: pytest.MonkeyPatch, checks: int) -> None:
-    """Set the day's budget to exactly ``checks`` free deep checks."""
-    monkeypatch.setattr(settings, "free_check_cost_eur", Decimal("0.01"))
-    monkeypatch.setattr(settings, "free_daily_budget_eur", Decimal(checks) / 100)
+async def solved(client: httpx.AsyncClient) -> dict[str, str]:
+    """A solved challenge, as a free deep check sends it."""
+    challenge = (await client.get("/v1/analyze/challenge")).json()
+    return {"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], challenge["bits"])}
 
 
-async def free_pass(client: httpx.AsyncClient, *, free_checks: bool = True) -> dict[str, Any]:
+async def free_deep(client: httpx.AsyncClient, body: dict[str, Any] | None = None, **kwargs: Any) -> httpx.Response:
+    return await client.post("/v1/analyze", json={**(body or PAGE), "proof_of_work": await solved(client)}, **kwargs)
+
+
+async def at_ceiling(pool: asyncpg.Pool) -> None:
+    await pool.execute(
+        "INSERT INTO llm_spend (month, micro_eur) VALUES ($1, $2)",
+        spend.month(),
+        int(settings.llm_spend_ceiling_eur * 1_000_000),
+    )
+
+
+async def a_pass(client: httpx.AsyncClient) -> dict[str, Any]:
     challenge = (await client.get("/v1/keys/challenge")).json()
     body = {"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], challenge["bits"])}
-    response = await client.post("/v1/keys", json={**body, "free": free_checks})
+    response = await client.post("/v1/keys", json={**body, "free": True})
     assert response.status_code == 201
     issued: dict[str, Any] = response.json()
     return issued
 
 
-async def test_a_free_pass_checks_five_pages_without_a_balance(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+async def test_a_deep_check_is_free_without_a_pass_with_a_solved_challenge(
+    client: httpx.AsyncClient, graph: FakeGraph
 ) -> None:
-    issued = await free_pass(client)
-    assert issued["free_checks"] == settings.free_checks_per_pass == 5
-    assert issued["balance_usd_micros"] == 0
+    response = await free_deep(client)
 
-    credits = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
-    assert credits["checks_remaining"] == 5 and credits["free_checks_remaining"] == 5
-    assert credits["free_checks_paused"] is False
-
-    for n in range(5):
-        page = {**PAGE, "url": f"https://shop.test/item-{n}"}
-        checked = await client.post("/v1/analyze", json=page, headers=bearer(issued["key"]))
-        assert checked.status_code == 200
-        assert checked.json()["charged"] is True and checked.json()["free_check"] is True
-        left = {3: "1 is left", 4: "none are left"}.get(n, f"{4 - n} are left")
-        assert checked.json()["charge_note"] == f"This check used one of your free checks; {left}."
-    assert await free.left(pool, issued["key_id"]) == 0
-    assert await balance(pool, issued["account"]) is None  # never touched the ledger
-
-    refused = await client.post(
-        "/v1/analyze", json={**PAGE, "url": "https://shop.test/6"}, headers=bearer(issued["key"])
-    )
-    assert refused.status_code == 402
-    assert refused.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["tier"] == "deep" and body["charged"] is False and body["free_check"] is True
+    assert body["charge_note"] == "Deep checks are free."
+    assert "report_token" not in body and "balance_usd_micros" not in body  # tied to no one
+    assert body["share_token"]  # anyone holding the result can still share it
+    assert len(graph.calls) == 1
 
 
-async def test_free_checks_go_before_bought_ones(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    issued = await free_pass(client)
-    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", issued["account"], PRICE)
+async def test_a_free_deep_check_needs_a_solved_unused_challenge(client: httpx.AsyncClient, graph: FakeGraph) -> None:
+    missing = await client.post("/v1/analyze", json=PAGE)
+    assert (missing.status_code, missing.json()["error_code"]) == (428, "PROOF_OF_WORK_REQUIRED")
+    assert missing.json()["metadata"]["challenge_url"] == "/v1/analyze/challenge"
 
-    checked = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-
-    assert checked.json()["free_check"] is True
-    assert checked.json()["balance_usd_micros"] == PRICE
-    assert await free.left(pool, issued["key_id"]) == 4
-    credits = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
-    assert credits["checks_remaining"] == 5  # one bought, four free
-
-
-async def test_a_pass_without_free_checks_unless_asked(client: httpx.AsyncClient) -> None:
-    issued = await free_pass(client, free_checks=False)
-    assert issued["free_checks"] == 0
-    old_client = await client.get("/v1/keys/challenge")  # an older client never sends "free": same as before
-    body = {"challenge": old_client.json()["challenge"], "solution": solve(old_client.json()["challenge"], 4)}
-    plain = await client.post("/v1/keys", json=body)
-    assert plain.json()["free_checks"] == 0
+    challenge = (await client.get("/v1/analyze/challenge")).json()
+    assert challenge["bits"] == 4 and challenge["paused"] is False and "pause" not in challenge
+    unsolved = {"challenge": challenge["challenge"], "solution": "x"}
+    if not keys.pow_ok(challenge["challenge"], "x", 4):
+        bad = await client.post("/v1/analyze", json={**PAGE, "proof_of_work": unsolved})
+        assert (bad.status_code, bad.json()["error_code"]) == (400, "BAD_CHALLENGE")
+    good = {"challenge": challenge["challenge"], "solution": solve(challenge["challenge"], 4)}
+    forged = {**good, "challenge": challenge["challenge"].replace(".4.", ".1.")}
+    assert (await client.post("/v1/analyze", json={**PAGE, "proof_of_work": forged})).status_code == 400
+    assert (await client.post("/v1/analyze", json={**PAGE, "proof_of_work": good})).status_code == 200
+    again = await client.post("/v1/analyze", json={**PAGE, "proof_of_work": good})
+    assert (again.status_code, again.json()["error_code"]) == (400, "BAD_CHALLENGE")  # used once
+    assert len(graph.calls) == 1
 
 
-async def test_one_network_gets_two_free_passes_a_day_then_empty_ones(
-    client: httpx.AsyncClient, pool: asyncpg.Pool
-) -> None:
-    passes = [await free_pass(client) for _ in range(3)]
-
-    assert [p["free_checks"] for p in passes] == [5, 5, 0]
-    assert await free.left(pool, passes[2]["key_id"]) == 0
-
-
-async def test_the_days_budget_pauses_free_checks_but_not_bought_ones(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    budget(monkeypatch, 1)
-    first, second = await free_pass(client), await free_pass(client)
-    assert (await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))).json()["free_check"] is True
-
-    paused = await client.post(
-        "/v1/analyze", json={**PAGE, "url": "https://shop.test/2"}, headers=bearer(second["key"])
-    )
-
-    assert paused.status_code == 429
-    assert paused.json()["error_code"] == "FREE_CHECKS_PAUSED"
-    assert paused.json()["detail"].startswith("Free deep checks are back tomorrow")
-    assert paused.json()["metadata"]["quick_checks"] is True
-    assert await free.left(pool, second["key_id"]) == 5  # nothing taken
-    credits = (await client.get("/v1/credits", headers=bearer(second["key"]))).json()
-    assert credits["free_checks_paused"] is True and credits["free_checks_remaining"] == 5
-    pricing = (await client.get("/v1/pricing")).json()
-    assert pricing["free"]["paused"] is True and pricing["free"]["checks_per_pass"] == 5
-
-    # A bought check still works, and the free ones wait.
-    await pool.execute("INSERT INTO wallets (pubkey, balance_usd_micros) VALUES ($1, $2)", second["account"], PRICE)
-    bought = await client.post(
-        "/v1/analyze", json={**PAGE, "url": "https://shop.test/3"}, headers=bearer(second["key"])
-    )
-    assert bought.status_code == 200 and bought.json().get("free_check") is None
-    assert await balance(pool, second["account"]) == 0
-    assert await free.left(pool, second["key_id"]) == 5
-
-
-async def test_a_zero_budget_turns_free_deep_checks_off(
+async def test_a_harder_setting_refuses_easier_challenges(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    budget(monkeypatch, 0)
-    issued = await free_pass(client)
-    response = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-    assert response.status_code == 429
+    easy = await solved(client)
+    monkeypatch.setattr(settings, "deep_pow_bits", 6)
+    refused = await client.post("/v1/analyze", json={**PAGE, "proof_of_work": easy})
+    assert refused.status_code == 400
 
 
-async def test_a_failed_free_check_is_given_back(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
-) -> None:
-    issued = await free_pass(client)
-    graph.error = RuntimeError("boom")
-
-    failed = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-    streamed = await client.post("/v1/analyze/stream", json=PAGE, headers=bearer(issued["key"]))
-
-    assert failed.status_code == 500 and "event: error" in streamed.text
-    assert await free.left(pool, issued["key_id"]) == 5
-    assert await free.used_today(pool) == 0
-
-
-async def test_a_page_that_couldnt_be_analysed_gives_the_free_check_back(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
-) -> None:
-    issued = await free_pass(client)
-    graph.result = {"score": -1, "explanation": "Not a product page.", "skill_results": []}
-
-    response = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-
-    assert response.json()["charged"] is False
-    assert await free.left(pool, issued["key_id"]) == 5
-    assert await free.used_today(pool) == 0
-
-
-async def test_the_stream_says_it_was_a_free_check(client: httpx.AsyncClient) -> None:
-    issued = await free_pass(client)
-    streamed = await client.post("/v1/analyze/stream", json=PAGE, headers=bearer(issued["key"]))
-    result = json.loads(streamed.text.strip().split("\n\n")[-1].split("\n")[1].removeprefix("data: "))
-    assert result["free_check"] is True and result["tier"] == "deep"
-
-
-async def test_free_checks_move_to_the_users_other_pass_and_never_become_balance(
+async def test_a_pass_without_bought_checks_is_not_used_for_a_free_check(
     client: httpx.AsyncClient, pool: asyncpg.Pool
 ) -> None:
-    gift = await free_pass(client)
-    bought = await free_pass(client, free_checks=False)
-    await client.post("/v1/analyze", json=PAGE, headers=bearer(gift["key"]))
+    issued = await a_pass(client)
+    assert issued["free_checks"] == 0  # "free": true gives nothing now: no pass is needed
 
-    moved = await client.post(
-        "/v1/keys/move-free-checks", json={"to_key_id": bought["key_id"]}, headers=bearer(gift["key"])
-    )
+    needs_work = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
+    assert needs_work.status_code == 428
+    response = await free_deep(client, headers=bearer(issued["key"]))
 
-    assert moved.status_code == 200 and moved.json() == {"moved": 4}
-    assert await free.left(pool, gift["key_id"]) == 0
-    assert await free.left(pool, bought["key_id"]) == 4
-    assert await balance(pool, bought["account"]) is None
-    again = await client.post(
-        "/v1/keys/move-free-checks", json={"to_key_id": bought["key_id"]}, headers=bearer(gift["key"])
-    )
-    assert again.json() == {"moved": 0}
-    unknown = await client.post(
-        "/v1/keys/move-free-checks", json={"to_key_id": "a" * 10}, headers=bearer(bought["key"])
-    )
-    assert unknown.json() == {"moved": 0}
-    assert await free.left(pool, bought["key_id"]) == 4
-    assert (await client.post("/v1/keys/move-free-checks", json={"to_key_id": "x"})).status_code == 401
+    assert response.status_code == 200
+    body = response.json()
+    assert body["free_check"] is True and body["charged"] is False and "report_token" not in body
+    assert await balance(pool, issued["account"]) is None  # the pass was never touched
 
 
-async def test_a_quick_check_is_free_for_everyone_and_never_charged(
+async def test_bought_checks_pay_without_any_work(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    issued = await a_pass(client)
+    await ledger.credit(pool, issued["account"], PRICE)
+
+    response = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["charged"] is True and "free_check" not in body and body["report_token"]
+    assert await balance(pool, issued["account"]) == 0
+
+
+async def test_the_spend_ceiling_pauses_free_deep_checks_only(
     client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, quick: FakeGraph
 ) -> None:
-    anonymous = await client.post("/v1/analyze", json={**PAGE, "tier": "quick"})
+    pow_ = await solved(client)
+    await at_ceiling(pool)
 
-    assert anonymous.status_code == 200
-    answer = anonymous.json()
-    assert answer.pop("label_token")  # anyone can report it ("Wrong result?")
-    assert answer == {
-        "score": 60,
-        "explanation": "A quick look.",
-        "charged": False,
-        "tier": "quick",
-        "charge_note": "Quick checks are free.",
+    paused = await client.post("/v1/analyze", json={**PAGE, "proof_of_work": pow_})
+
+    assert (paused.status_code, paused.json()["error_code"]) == (429, "FREE_CHECKS_PAUSED")
+    meta = paused.json()["metadata"]
+    assert meta["reason"] == "spend_ceiling" and meta["quick_checks"] is True
+    assert meta["message_key"] == "free_checks_run_on_donations"
+    assert meta["donate_url"] == "https://unfret.test/donate"
+    assert 0 < meta["retry_after_s"] <= 31 * 24 * 3600
+    assert "donations" in paused.json()["detail"]
+    challenge = (await client.get("/v1/analyze/challenge")).json()
+    assert challenge["paused"] is True and challenge["pause"] == {
+        **meta,
+        "retry_after_s": challenge["pause"]["retry_after_s"],
     }
-    assert quick.calls and not graph.calls  # the rules-only graph, never the LLM one
-
-    issued = await free_pass(client)
-    with_pass = await client.post("/v1/analyze/stream", json={**PAGE, "tier": "quick"}, headers=bearer(issued["key"]))
-    assert '"tier": "quick"' in with_pass.text and '"charged": false' in with_pass.text
-    assert '"charge_note": "Quick checks are free."' in with_pass.text
-    # A pass can report a quick result (the token binds the tier); a quick result is never shared.
-    assert '"report_token"' in with_pass.text and "share_token" not in with_pass.text
-    assert await free.left(pool, issued["key_id"]) == 5
-    assert await free.used_today(pool) == 0
+    pricing = (await client.get("/v1/pricing")).json()["free"]
+    assert pricing["paused"] is True and pricing["pause"]["message_key"] == "free_checks_run_on_donations"
+    # Quick checks and bought checks go on.
+    assert (await client.post("/v1/analyze", json={**PAGE, "tier": "quick"})).status_code == 200
+    issued = await a_pass(client)
+    await ledger.credit(pool, issued["account"], PRICE)
+    assert (await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))).status_code == 200
+    assert len(graph.calls) == 1  # the free one never ran
 
 
-async def test_a_cached_result_uses_a_free_check(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph
+async def test_the_spend_counts_from_the_meter_and_the_month_starts_over(pool: asyncpg.Pool) -> None:
+    spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 1_000_000)  # €0.15 + €0.35
+    spend.record("some-new-model", 1_000_000, 0)  # not listed: the high price, €2.00
+    assert await spend.spent_micro_eur(pool) == 2_500_000
+    await spend.flush(pool)
+    assert await pool.fetchval("SELECT micro_eur FROM llm_spend WHERE month = $1", spend.month()) == 2_500_000
+    assert await spend.spent_micro_eur(pool) == 2_500_000  # nothing counted twice
+    assert await spend.spent_micro_eur(pool, "2001-01") == 0
+    assert not (await spend.ceiling(pool)).reached
+
+
+async def test_the_meter_prices_a_models_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_prices_eur_per_mtok", "m=1.00/2.00")
+    assert spend.cost_micro_eur("m", 1000, 500) == 2000  # €0.001 + €0.001
+    assert spend.cost_micro_eur("m", 1, 0) == 1  # rounded up: never free
+    monkeypatch.setattr(settings, "llm_spend_ceiling_eur", Decimal("0.001"))
+    assert (await spend.ceiling(None)).reached  # without a database nothing can be metered: paused
+
+
+async def test_free_deep_checks_per_network_are_limited_an_hour(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first, second = await free_pass(client), await free_pass(client)
-    await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
-
-    cached = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
-    repeat = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
-
-    assert cached.json()["charged"] is True and cached.json()["free_check"] is True
-    assert repeat.json()["charged"] is False and "free_check" not in repeat.json()
-    assert cached.json()["charge_note"] == "This check used one of your free checks; 4 are left."
-    assert repeat.json()["charge_note"] == "You checked this page recently, so no new check was used."
-    assert len(graph.calls) == 1
-    assert await free.left(pool, second["key_id"]) == 4
-    assert await free.used_today(pool) == 2
+    monkeypatch.setattr(analyze, "_free_deep_rate", analyze.RateLimit(2, window_s=3600))
+    assert (await free_deep(client)).status_code == 200
+    assert (await free_deep(client, {**PAGE, "url": "https://shop.test/other"})).status_code == 200
+    third = await free_deep(client, {**PAGE, "url": "https://shop.test/third"})
+    assert (third.status_code, third.json()["error_code"]) == (429, "TOO_MANY_REQUESTS")
 
 
-async def test_a_cached_result_isnt_served_while_free_checks_are_paused(
-    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+async def test_a_cached_result_is_free_for_a_shopper_but_still_needs_the_work(
+    client: httpx.AsyncClient, graph: FakeGraph
 ) -> None:
-    budget(monkeypatch, 1)
-    first, second = await free_pass(client), await free_pass(client)
-    await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
-
-    refused = await client.post("/v1/analyze", json=PAGE, headers=bearer(second["key"]))
-    repeat = await client.post("/v1/analyze", json=PAGE, headers=bearer(first["key"]))
-
-    assert refused.status_code == 429 and refused.json()["error_code"] == "FREE_CHECKS_PAUSED"
-    assert repeat.status_code == 200 and repeat.json()["charged"] is False  # the pass that paid gets it again
-    assert await free.left(pool, second["key_id"]) == 5
+    assert (await free_deep(client)).status_code == 200
+    assert (await client.post("/v1/analyze", json=PAGE)).status_code == 428  # same gate as a fresh check
+    again = await free_deep(client)
+    assert again.status_code == 200 and again.json()["free_check"] is True
+    assert len(graph.calls) == 1  # served from the cache
 
 
-async def test_a_cached_quick_check_is_still_free(
+async def test_the_stream_runs_a_free_deep_check(client: httpx.AsyncClient) -> None:
+    body = {**PAGE, "proof_of_work": await solved(client)}
+    streamed = await client.post("/v1/analyze/stream", json=body)
+    assert streamed.status_code == 200
+    result = json.loads(streamed.text.split("event: result\ndata: ", 1)[1].split("\n", 1)[0])
+    assert result["free_check"] is True and result["charged"] is False
+    needs_work = await client.post("/v1/analyze/stream", json={**PAGE, "url": "https://shop.test/x"})
+    assert needs_work.status_code == 428
+
+
+async def test_a_quick_check_is_free_for_everyone(client: httpx.AsyncClient, quick: FakeGraph) -> None:
+    response = await client.post("/v1/analyze", json={**PAGE, "tier": "quick"})
+    assert response.status_code == 200
+    assert response.json()["tier"] == "quick" and response.json()["charge_note"] == "Quick checks are free."
+
+
+async def test_a_quick_result_suggests_a_free_deep_check_or_says_why_not(
     client: httpx.AsyncClient, pool: asyncpg.Pool, quick: FakeGraph
 ) -> None:
-    first, second = await free_pass(client), await free_pass(client)
-    body = {**PAGE, "tier": "quick"}
-
-    responses = [
-        await client.post("/v1/analyze", json=body, headers=bearer(first["key"])),
-        await client.post("/v1/analyze", json=body, headers=bearer(second["key"])),
-        await client.post("/v1/analyze", json=body),
-    ]
-
-    assert [r.json()["charged"] for r in responses] == [False, False, False]
-    assert len(quick.calls) == 1  # the others came from the cache
-    assert await free.left(pool, second["key_id"]) == 5
-    assert await free.used_today(pool) == 0
+    quick.result = {**quick.result, "verdict": None}
+    offer = await analyze.deep_cost(_request(pool), None, None)
+    assert offer == ("Deep checks are free.", "run_deep")
+    await at_ceiling(pool)
+    paused = await analyze.deep_cost(_request(pool), None, None)
+    assert paused[1] == "donate" and "donations" in paused[0]
 
 
-async def test_a_deep_check_still_needs_a_sign_in(client: httpx.AsyncClient) -> None:
-    response = await client.post("/v1/analyze", json=PAGE)
-    assert response.status_code == 401
-    expired = await client.post(
-        "/v1/analyze", json={**PAGE, "tier": "quick"}, headers=bearer(f"ufk_{'a' * 10}_{'b' * 52}")
-    )
-    assert expired.status_code == 401  # a pass that doesn't work is refused, not ignored
+def _request(pool: asyncpg.Pool) -> Any:
+    class _App:
+        db_pool = pool
+
+    class _Request:
+        app = _App()
+
+    return _Request()
 
 
-async def test_quick_checks_are_rate_limited(
-    client: httpx.AsyncClient, quick: FakeGraph, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(analyze, "_quick_rate", analyze.RateLimit(2))
-    statuses = [
-        (await client.post("/v1/analyze", json={**PAGE, "url": f"https://s.test/{n}", "tier": "quick"})).status_code
-        for n in range(3)
-    ]
-    assert statuses == [200, 200, 429]
-
-
-async def test_nothing_about_the_network_is_stored(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
-    issued = await free_pass(client)
-    await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-    tables = ["api_keys", "usage_counters", "wallets"]
+async def test_nothing_about_the_network_or_the_check_is_stored(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    await free_deep(client)
+    tables = ["api_keys", "usage_counters", "wallets", "llm_spend"]
     dump = json.dumps([[dict(r) for r in await pool.fetch(f"SELECT * FROM {t}")] for t in tables], default=str)  # noqa: S608
-    assert "127.0.0.1" not in dump and "testclient" not in dump
-    assert await pool.fetchval("SELECT count FROM usage_counters WHERE name = 'free_checks'") == 1
+    assert "127.0.0.1" not in dump and "testclient" not in dump and "shop.test" not in dump
+    assert await pool.fetchval("SELECT count(*) FROM api_keys") == 0  # no pass was made
 
 
-async def test_passes_from_before_the_developer_flag_keep_their_free_checks(
-    client: httpx.AsyncClient, pool: asyncpg.Pool
-) -> None:
+async def test_pricing_describes_the_free_tier(client: httpx.AsyncClient) -> None:
+    free_doc = (await client.get("/v1/pricing")).json()["free"]
+    assert free_doc["quick_checks"] is True and free_doc["deep_checks"] is True and free_doc["paused"] is False
+    assert free_doc["proof_of_work"] == {"challenge_url": "/v1/analyze/challenge", "bits": 4}
+    assert free_doc["donate_url"] == "https://unfret.test/donate"
+    assert free_doc["developer_checks_per_pass"] == 20 and free_doc["checks_per_pass"] == 0
+
+
+async def test_shoppers_free_checks_leave_their_passes(pool: asyncpg.Pool) -> None:
     await pool.execute(DROP_ALL)
-    await migrate(pool, [m for m in MIGRATIONS if m[0] < 34])
-    old = await pool.fetchval(
-        "INSERT INTO api_keys (id, key_hash, recovery_hash, free_checks) VALUES ('oldpass234', $1, $2, 20) "
-        "RETURNING id",
-        b"\x00" * 32,
-        b"\x01" * 32,
-    )
-    assert 34 in await migrate(pool)
-    assert await pool.fetchval("SELECT developer FROM api_keys WHERE id = $1", old) is False
-    assert await free.left(pool, old) == 20  # counted everywhere, as before
+    await migrate(pool, [m for m in MIGRATIONS if m[0] < 43])
+    for key_id, developer in (("shopper234", False), ("develop234", True)):
+        await pool.execute(
+            "INSERT INTO api_keys (id, key_hash, recovery_hash, free_checks, developer) VALUES ($1, $2, $3, 5, $4)",
+            key_id,
+            key_id.encode().ljust(32, b"\x00"),
+            key_id.encode().ljust(32, b"\x01"),
+            developer,
+        )
+    assert 43 in await migrate(pool)
+    left = {r["id"]: r["free_checks"] for r in await pool.fetch("SELECT id, free_checks FROM api_keys")}
+    assert left == {"shopper234": 0, "develop234": 5}
+
+
+async def test_donate_redirects_to_the_configured_link_and_counts_only(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed = await client.get("/donate")
+    assert (closed.status_code, closed.headers["location"]) == (302, "/support")
+    assert "Donations aren't open yet" in (await client.get("/support")).text
+
+    monkeypatch.setattr(settings, "donate_url", "https://pay.example/link")
+    response = await client.get("/donate")
+
+    assert (response.status_code, response.headers["location"]) == (302, "https://pay.example/link")
+    assert response.headers["cache-control"] == "no-store"
+    rows = [dict(r) for r in await pool.fetch("SELECT * FROM usage_counters WHERE name = 'donate_clicks'")]
+    assert rows == [{"name": "donate_clicks", "period": spend.month(), "count": 1}]
+    page = (await client.get("/support")).text
+    assert 'href="/donate"' in page and "pay.example" not in page  # the page links to /donate, never the link
+    assert "Nothing in return" in page

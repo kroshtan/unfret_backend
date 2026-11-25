@@ -17,11 +17,9 @@ from structlog.testing import capture_logs
 
 from tests.conftest import page_fetcher
 from tests.integration.conftest import FakeGraph
-from tests.integration.test_free_checks import free_pass
-from tests.integration.test_keys import bearer
+from tests.integration.test_free_checks import solved
 from unfret import page_fetch, shares
 from unfret.config import settings
-from unfret.credits import free
 from unfret.main import app
 from unfret.net import FetchedPage, RefusedError, UnsafeURLError
 from unfret.routes import analyze
@@ -96,7 +94,7 @@ async def test_a_url_checked_by_someone_else_costs_a_check_and_no_fetch(
 
     assert cached.json()["charged"] is True
     assert await balance(pool, address) == 0
-    assert refused.status_code == 402 and refused.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert refused.status_code == 428 and refused.json()["error_code"] == "PROOF_OF_WORK_REQUIRED"
     assert len(shop["calls"]) == 1 and len(graph.calls) == 1
 
 
@@ -152,15 +150,15 @@ async def test_a_page_that_cant_be_read_costs_nothing(  # noqa: PLR0917 - fixtur
     assert logs and "secret-shop" not in json.dumps(logs, default=str)
 
 
-async def test_an_empty_balance_gets_402_without_a_fetch(
+async def test_an_empty_balance_gets_the_free_checks_gate_without_a_fetch(
     client: httpx.AsyncClient, wallet: Wallet, shop: dict[str, Any]
 ) -> None:
     _, headers = await wallet(PRICE - 1)
 
     response = await client.post("/v1/analyze/stream", json={"url": URL}, headers=headers)
 
-    assert response.status_code == 402
-    assert response.json()["error_code"] == "INSUFFICIENT_CREDITS"
+    assert response.status_code == 428
+    assert response.json()["error_code"] == "PROOF_OF_WORK_REQUIRED"
     assert shop["calls"] == []
 
 
@@ -235,28 +233,24 @@ async def test_a_url_only_check_can_be_reported_with_the_page_fetched_again(
 
 
 @pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
-async def test_a_blocked_page_keeps_the_free_check_and_runs_nothing(  # noqa: PLR0917 - fixtures and parameters
+async def test_a_blocked_page_answers_a_free_deep_check_at_once_and_runs_nothing(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
     graph: FakeGraph,
-    pool: asyncpg.Pool,
     shop: dict[str, Any],
     path: str,
 ) -> None:
-    # The link checker's first check is on a free pass; a shop that turns the server away answers at once.
-    monkeypatch.setattr(settings, "key_pow_bits", 4)
-    monkeypatch.setattr(analyze, "_free_outcomes", analyze.RateLimit(1, window_s=3600))
-    issued = await free_pass(client)
+    # The link checker's deep check is a free one; a shop that turns the server away answers at once.
+    monkeypatch.setattr(settings, "deep_pow_bits", 4)
     shop["error"] = status_error(403)
 
-    for _ in range(2):  # and again: a refusal never counts as an uncharged analysis either
-        response = await client.post(path, json={"url": URL}, headers=bearer(issued["key"]))
+    for _ in range(2):
+        body = {"url": URL, "proof_of_work": await solved(client)}
+        response = await client.post(path, json=body)
         assert response.status_code == 422
         assert response.json()["error_code"] == "PAGE_BLOCKED"
 
     assert graph.calls == []
-    assert await free.left(pool, issued["key_id"]) == settings.free_checks_per_pass
-    assert await free.used_today(pool) == 0
 
 
 async def test_a_blocked_page_answers_a_quick_check_without_running_it(

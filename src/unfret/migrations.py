@@ -1072,6 +1072,34 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         ALTER TABLE report_labels ADD COLUMN comment TEXT CHECK (length(comment) <= 600);
         """,
     ),
+    (
+        45,
+        "the free pool, a day at a time",
+        """
+        -- The free LLM budget is a pool (unfret.spend): each UTC day adds its base, donations go in by hand, all free
+        -- LLM spend draws from it. One row; the spend a UTC day (free and paid, and how many free deep checks ran);
+        -- the donations' ledger: amount, day, note, nothing about who gave. The month's spend is gone.
+        CREATE TABLE free_pool (
+            id                 SMALLINT PRIMARY KEY CHECK (id = 1),
+            base_micro_eur     BIGINT NOT NULL,
+            donated_micro_eur  BIGINT NOT NULL DEFAULT 0,
+            credited_day       DATE NOT NULL
+        );
+        CREATE TABLE llm_spend_days (
+            day             DATE PRIMARY KEY,
+            free_micro_eur  BIGINT NOT NULL DEFAULT 0 CHECK (free_micro_eur >= 0),
+            paid_micro_eur  BIGINT NOT NULL DEFAULT 0 CHECK (paid_micro_eur >= 0),
+            free_checks     INTEGER NOT NULL DEFAULT 0 CHECK (free_checks >= 0)
+        );
+        CREATE TABLE free_pool_donations (
+            id        SERIAL PRIMARY KEY,
+            day       DATE NOT NULL,
+            micro_eur BIGINT NOT NULL CHECK (micro_eur > 0),
+            note      TEXT NOT NULL DEFAULT '' CHECK (length(note) <= 200)
+        );
+        DROP TABLE llm_spend;
+        """,
+    ),
 ]
 
 

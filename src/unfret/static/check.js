@@ -562,9 +562,9 @@ const QUICK_BECAUSE = {
     short: "Here's a quick check instead: free, it reads only this page, by its rules.",
   },
   paused: {
-    heading: "Free deep checks are paused until next month",
-    body: "Free checks run on donations, and this month's are used up. Here's a quick check instead: it reads only this page, by its rules.",
-    short: "Free deep checks run on donations, and this month's are used up, so here's a quick check.",
+    heading: "Free deep checks are paused until tomorrow",
+    body: "Free checks run on donations, and today's share is used up. Here's a quick check instead: it reads only this page, by its rules.",
+    short: "Free deep checks run on donations, and today's share is used up, so here's a quick check.",
     donate: true,
   },
   none: {
@@ -588,7 +588,7 @@ function runDeep() {
 }
 
 // A free deep check's proof of work: a challenge from the server, solved here (a few seconds on a phone). Null when
-// free deep checks are paused this month (the spend ceiling), or the challenge couldn't be had.
+// free deep checks are paused until 00:00 UTC (the free pool), or the challenge couldn't be had.
 async function proofOfWork() {
   try {
     const challenge = await getJson("/v1/analyze/challenge");

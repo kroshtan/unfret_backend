@@ -1,27 +1,35 @@
 """
-The LLM spend this calendar month, and the ceiling that pauses free deep checks.
+The free pool: what free LLM work may spend, a day at a time, and the meter that counts what it spent.
 
 Every chat model the service builds (:mod:`unfret.llm`, the reports' second opinion) carries a :class:`SpendMeter`:
 after each call it prices the tokens the provider reported (input and output, per million tokens, in euros:
-:attr:`unfret.config.Settings.llm_prices_eur_per_mtok`) and adds the cost to a counter in memory. A background task
-(:func:`run_forever`) adds that counter to the month's row in ``llm_spend`` every few seconds (micro-euros, one row a
-calendar month in UTC, nothing else: no page, no caller, no model). The month's spend is that row plus what is still
-in memory.
+:attr:`unfret.config.Settings.llm_prices_eur_per_mtok`) and adds the cost to a counter in memory, as **free** spend
+unless the call runs for a check someone paid for (:func:`paying`: a bought check, x402), which counts as **paid**. A
+background task (:func:`run_forever`) adds those counters to the day's row in ``llm_spend_days`` every few seconds
+(micro-euros free and paid, and how many free deep checks ran: one row a UTC day, nothing about a page, a caller or a
+model) and draws the free spend from the pool.
 
-**The ceiling.** Once the month's spend reaches ``llm_spend_ceiling_eur`` (€100 by default), free deep checks pause
-(``FREE_CHECKS_PAUSED`` with ``reason: "spend_ceiling"``) until the first of next month (UTC). Everything that pays
-keeps working: bought checks, x402, a developer pass's bought checks. Quick checks need no LLM and keep working too.
-The ceiling is a kill switch, not a budget per check: a deep check that started below it finishes.
+**The pool** (``free_pool``, one row). Every UTC day adds the daily base (``free_pool_daily_base_eur``, €3) to it; that
+base part stops growing at ``free_pool_base_cap_days`` days' worth (€90). Donations go in by hand
+(:func:`add_donation`, ``POST /v1/admin/free-pool/donations``: amount, day, note; nothing about donors) on top of
+that cap. All free LLM spend draws from it, the base part first: shoppers' free deep checks, developer passes' free
+deep checks, background work that runs for no one in particular. Paid spend never does. A day may spend at most
+``free_pool_daily_max_multiple`` times the base (€9), pool or not. Once the pool is empty, or the day's limit is
+spent, free deep checks pause until 00:00 UTC (``FREE_CHECKS_PAUSED``, ``reason: "spend_ceiling"``, ``scope:
+"day"``): the next day adds its base and starts a fresh day's limit. A deep check that started before finishes.
+Euros stay internal: in public the pool is a number of deep checks (:func:`checks_left_today`, at the measured average
+cost of a free deep check).
 
 Embedding calls (the photo and review indexes) are not metered: they cost a fraction of the chat calls.
 """
 
 import asyncio
 import threading
+from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import asyncpg
 import structlog
@@ -37,6 +45,8 @@ type Executor = asyncpg.Pool | asyncpg.Connection
 
 MICRO = Decimal(1_000_000)
 _MTOK = Decimal(1_000_000)
+# The days the average cost of a free deep check is measured over.
+_COST_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -99,71 +109,96 @@ def cost_micro_eur(model: str, input_tokens: int, output_tokens: int, config: Se
     return int(-(-(euros * MICRO) // 1))
 
 
-def month(now: datetime | None = None) -> str:
+def today(now: datetime | None = None) -> date:
     """
-    The ceiling's period: the calendar month in UTC.
+    The pool's period: the UTC day.
 
     :param now: The time (now by default).
-    :return: ``YYYY-MM``.
+    :return: The day.
     """
-    return (now or datetime.now(UTC)).strftime("%Y-%m")
+    return (now or datetime.now(UTC)).date()
 
 
-def seconds_to_next_month(now: datetime | None = None) -> int:
+def seconds_to_tomorrow(now: datetime | None = None) -> int:
     """
-    How long until the ceiling starts over (the first of next month, 00:00 UTC).
+    How long until free checks may run again: 00:00 UTC, when the day adds its base and its limit starts over.
 
     :param now: The time (now by default).
     :return: Seconds, at least 1.
     """
     now = now or datetime.now(UTC)
-    first = datetime(now.year + now.month // 12, now.month % 12 + 1, 1, tzinfo=UTC)
-    return max(1, int((first - now).total_seconds()))
+    tomorrow = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), UTC)
+    return max(1, int((tomorrow - now).total_seconds()))
 
 
 class _Pending:
-    """Micro-euros spent per month that aren't in the database yet (thread-safe: callbacks may run in threads)."""
+    """Amounts per day that aren't in the database yet (thread-safe: callbacks may run in threads)."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._by_month: dict[str, int] = {}
+        self._by_day: dict[date, int] = {}
 
-    def add(self, amount: int, period: str | None = None) -> None:
+    def add(self, amount: int, day: date | None = None) -> None:
         if amount <= 0:
             return
-        period = period or month()
+        day = day or today()
         with self._lock:
-            self._by_month[period] = self._by_month.get(period, 0) + amount
+            self._by_day[day] = self._by_day.get(day, 0) + amount
 
-    def get(self, period: str) -> int:
+    def get(self, day: date) -> int:
         with self._lock:
-            return self._by_month.get(period, 0)
+            return self._by_day.get(day, 0)
 
-    def take(self) -> dict[str, int]:
+    def total(self) -> int:
         with self._lock:
-            taken, self._by_month = self._by_month, {}
+            return sum(self._by_day.values())
+
+    def take(self) -> dict[date, int]:
+        with self._lock:
+            taken, self._by_day = self._by_day, {}
         return taken
 
-    def put_back(self, taken: dict[str, int]) -> None:
-        for period, amount in taken.items():
-            self.add(amount, period)
+    def put_back(self, taken: dict[date, int]) -> None:
+        for day, amount in taken.items():
+            self.add(amount, day)
 
 
-_pending = _Pending()
+_pending = _Pending()  # free spend, micro-euros
+_pending_paid = _Pending()  # spend for checks someone paid for
+_pending_checks = _Pending()  # free deep checks run
+# Whether the LLM calls of this task (and the tasks it starts) run for a check someone paid for.
+_paid: ContextVar[bool] = ContextVar("unfret_paid_spend", default=False)
 
 
-def record(model: str, input_tokens: int, output_tokens: int) -> int:
+def paying(paid: bool = True) -> None:
     """
-    Count a call's cost towards this month's spend (in memory until the next flush).
+    Mark the current task's LLM calls (and those of tasks it starts from now on) as paid for, or as free.
+
+    Call it before an analysis runs: a bought check or an x402 payment with ``True``.
+
+    :param paid: Whether someone paid for what runs now.
+    """
+    _paid.set(paid)
+
+
+def record(model: str, input_tokens: int, output_tokens: int, *, paid: bool | None = None) -> int:
+    """
+    Count a call's cost (in memory until the next flush): free, drawn from the pool, or paid (:func:`paying`).
 
     :param model: The model's name.
     :param input_tokens: Tokens sent.
     :param output_tokens: Tokens received.
+    :param paid: Paid for, or free; by default what :func:`paying` set for this task.
     :return: The cost in micro-euros.
     """
     cost = cost_micro_eur(model, input_tokens, output_tokens)
-    _pending.add(cost)
+    (_pending_paid if (_paid.get() if paid is None else paid) else _pending).add(cost)
     return cost
+
+
+def count_free_check() -> None:
+    """Count a free deep check that ran (a shopper's or a developer pass's): for the average cost of one."""
+    _pending_checks.add(1)
 
 
 class SpendMeter(BaseCallbackHandler):
@@ -192,65 +227,256 @@ class SpendMeter(BaseCallbackHandler):
                     record(self.model, int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0)))
 
 
-async def flush(db: Executor) -> None:
+async def _ensure_pool(conn: asyncpg.Connection, config: Settings, day: date) -> None:
     """
-    Add what is in memory to the database.
+    Make the pool row exist and add the base of every day up to ``day`` that hasn't been added yet (capped).
 
-    :param db: A pool or connection.
+    :param conn: A connection (in a transaction).
+    :param config: The settings.
+    :param day: The day to bring the pool up to.
     """
-    taken = _pending.take()
+    base = int(config.free_pool_daily_base_eur * MICRO)
+    cap = base * config.free_pool_base_cap_days
+    await conn.execute(
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, $1, 0, $2) "
+        "ON CONFLICT (id) DO NOTHING",
+        base,
+        day,
+    )
+    # Days since the last credit each add the base, up to the cap (a base part in debt still gets every day's base).
+    await conn.execute(
+        "UPDATE free_pool SET base_micro_eur = LEAST(base_micro_eur + $1::bigint * ($3::date - credited_day), "
+        "GREATEST($2::bigint, base_micro_eur)), credited_day = $3 WHERE id = 1 AND credited_day < $3",
+        base,
+        cap,
+        day,
+    )
+
+
+async def _draw(conn: asyncpg.Connection, amount: int) -> None:
+    """
+    Draw free spend from the pool.
+
+    The base part first (it is what stops growing at its cap), then donations; past both, the base part goes into
+    debt that the next days' bases pay off.
+
+    :param conn: A connection (in a transaction; the pool row exists).
+    :param amount: Micro-euros.
+    """
+    row = await conn.fetchrow("SELECT base_micro_eur, donated_micro_eur FROM free_pool WHERE id = 1 FOR UPDATE")
+    base, donated = int(row["base_micro_eur"]), int(row["donated_micro_eur"])
+    from_base = min(max(base, 0), amount)
+    from_donated = min(max(donated, 0), amount - from_base)
+    base -= amount - from_donated
+    await conn.execute(
+        "UPDATE free_pool SET base_micro_eur = $1, donated_micro_eur = $2 WHERE id = 1", base, donated - from_donated
+    )
+
+
+async def flush(db: asyncpg.Pool, config: Settings | None = None) -> None:
+    """
+    Add what is in memory to the database: each day's spend and free checks, the free spend drawn from the pool.
+
+    :param db: The pool.
+    :param config: The settings (the service's by default).
+    """
+    config = config or settings
+    free, paid, checks = _pending.take(), _pending_paid.take(), _pending_checks.take()
     try:
-        for period, amount in taken.items():
-            await db.execute(
-                "INSERT INTO llm_spend (month, micro_eur) VALUES ($1, $2) ON CONFLICT (month) "
-                "DO UPDATE SET micro_eur = llm_spend.micro_eur + EXCLUDED.micro_eur",
-                period,
-                amount,
-            )
-            taken[period] = 0
+        async with db.acquire() as conn, conn.transaction():
+            await _ensure_pool(conn, config, today())
+            for day in sorted(set(free) | set(paid) | set(checks)):
+                spent = free.get(day, 0)
+                await conn.execute(
+                    "INSERT INTO llm_spend_days (day, free_micro_eur, paid_micro_eur, free_checks) "
+                    "VALUES ($1, $2, $3, $4) ON CONFLICT (day) DO UPDATE SET "
+                    "free_micro_eur = llm_spend_days.free_micro_eur + EXCLUDED.free_micro_eur, "
+                    "paid_micro_eur = llm_spend_days.paid_micro_eur + EXCLUDED.paid_micro_eur, "
+                    "free_checks = llm_spend_days.free_checks + EXCLUDED.free_checks",
+                    day,
+                    spent,
+                    paid.get(day, 0),
+                    checks.get(day, 0),
+                )
+                if spent:
+                    await _draw(conn, spent)
+        free, paid, checks = {}, {}, {}
     finally:
-        _pending.put_back({p: a for p, a in taken.items() if a})
-
-
-async def spent_micro_eur(db: Executor, period: str | None = None) -> int:
-    """
-    The month's spend: the database's row plus what is still in memory.
-
-    :param db: A pool or connection.
-    :param period: The month (this one by default).
-    :return: Micro-euros.
-    """
-    period = period or month()
-    stored = await db.fetchval("SELECT micro_eur FROM llm_spend WHERE month = $1", period)
-    return int(stored or 0) + _pending.get(period)
+        _pending.put_back(free)
+        _pending_paid.put_back(paid)
+        _pending_checks.put_back(checks)
 
 
 @dataclass(frozen=True)
-class Ceiling:
-    """Where this month's spend stands against the ceiling."""
+class Standing:
+    """Where the free pool and today's limit stand."""
 
-    spent_micro_eur: int
-    ceiling_micro_eur: int
+    pool_micro_eur: int
+    spent_today_micro_eur: int
+    day_limit_micro_eur: int
 
     @property
     def reached(self) -> bool:
-        """Whether free deep checks are paused."""
-        return self.spent_micro_eur >= self.ceiling_micro_eur
+        """Whether free LLM work pauses: the pool is empty, or today's limit is spent."""
+        return self.pool_micro_eur <= 0 or self.spent_today_micro_eur >= self.day_limit_micro_eur
+
+    @property
+    def scope(self) -> Literal["day"] | None:
+        """
+        Until when free checks are paused, if they are: always until 00:00 UTC.
+
+        :return: ``day``, or ``None``.
+        """
+        return "day" if self.reached else None
+
+    @property
+    def left_micro_eur(self) -> int:
+        """What free work may still spend today: the pool, within today's limit."""
+        return max(min(self.pool_micro_eur, self.day_limit_micro_eur - self.spent_today_micro_eur), 0)
+
+    def retry_after_s(self, now: datetime | None = None) -> int:
+        """
+        Seconds until free checks are back: 00:00 UTC.
+
+        :param now: The time (now by default).
+        :return: Seconds (1 at least; 0 when they aren't paused).
+        """
+        return seconds_to_tomorrow(now) if self.reached else 0
 
 
-async def ceiling(db: Executor | None, config: Settings | None = None) -> Ceiling:
+async def standing(db: Executor | None, config: Settings | None = None, now: datetime | None = None) -> Standing:
     """
-    Where this month's spend stands. Without a database it counts as reached: nothing can be metered then.
+    Where the pool stands now, what is in memory counted. Without a database it counts as empty.
 
     :param db: A pool or connection, or ``None``.
     :param config: The settings (the service's by default).
+    :param now: The time (now by default).
     :return: The standing.
     """
     config = config or settings
-    cap = int(config.llm_spend_ceiling_eur * MICRO)
+    base = int(config.free_pool_daily_base_eur * MICRO)
+    limit = base * config.free_pool_daily_max_multiple
     if db is None:
-        return Ceiling(cap, cap)
-    return Ceiling(await spent_micro_eur(db), cap)
+        return Standing(0, limit, limit)
+    day = today(now)
+    row = await db.fetchrow("SELECT base_micro_eur, donated_micro_eur, credited_day FROM free_pool WHERE id = 1")
+    if row is None:
+        pool = base  # the first day's base, added at the first flush
+    else:
+        days = max((day - row["credited_day"]).days, 0)
+        cap = base * config.free_pool_base_cap_days
+        stored = int(row["base_micro_eur"])
+        grown = min(stored + base * days, max(cap, stored)) if days else stored
+        pool = grown + int(row["donated_micro_eur"])
+    spent = int(await db.fetchval("SELECT free_micro_eur FROM llm_spend_days WHERE day = $1", day) or 0)
+    return Standing(pool - _pending.total(), spent + _pending.get(day), limit)
+
+
+async def average_free_check_micro_eur(db: Executor, config: Settings | None = None) -> int:
+    """
+    The measured average cost of a free deep check: free spend over free deep checks, the last two weeks.
+
+    :param db: A pool or connection.
+    :param config: The settings (the estimate ``free_check_cost_eur`` until there is something to measure).
+    :return: Micro-euros, at least 1.
+    """
+    config = config or settings
+    row = await db.fetchrow(
+        "SELECT COALESCE(SUM(free_micro_eur), 0) AS spent, COALESCE(SUM(free_checks), 0) AS checks "
+        "FROM llm_spend_days WHERE day > $1",
+        today() - timedelta(days=_COST_DAYS),
+    )
+    if row is None or int(row["checks"]) < 20:  # too few to measure
+        return max(int(config.free_check_cost_eur * MICRO), 1)
+    return max(int(row["spent"]) // int(row["checks"]), 1)
+
+
+async def checks_left_today(db: Executor | None, config: Settings | None = None) -> int:
+    """
+    How many free deep checks may still run today, in public: what is left, at the average cost of one.
+
+    :param db: A pool or connection, or ``None``.
+    :param config: The settings (the service's by default).
+    :return: A count (0 when paused).
+    """
+    if db is None:
+        return 0
+    standing_now = await standing(db, config)
+    return standing_now.left_micro_eur // await average_free_check_micro_eur(db, config)
+
+
+async def add_donation(db: asyncpg.Pool, amount_eur: Decimal, note: str, config: Settings | None = None) -> int:
+    """
+    Add a donation to the pool (on top of the base part's cap), and keep it in the ledger: amount, day, note.
+
+    :param db: The pool.
+    :param amount_eur: The amount in euros (positive).
+    :param note: A short note (never anything about the donor).
+    :param config: The settings (the service's by default).
+    :return: The ledger row's id.
+    :raises ValueError: If the amount isn't positive.
+    """
+    if amount_eur <= 0:
+        raise ValueError("a donation must be positive")
+    micro = int(amount_eur * MICRO)
+    async with db.acquire() as conn, conn.transaction():
+        await _ensure_pool(conn, config or settings, today())
+        await conn.execute("UPDATE free_pool SET donated_micro_eur = donated_micro_eur + $1 WHERE id = 1", micro)
+        return int(
+            await conn.fetchval(
+                "INSERT INTO free_pool_donations (day, micro_eur, note) VALUES ($1, $2, $3) RETURNING id",
+                today(),
+                micro,
+                note[:200],
+            )
+        )
+
+
+async def pool_summary(db: asyncpg.Pool, config: Settings | None = None) -> dict[str, Any]:
+    """
+    The pool for the operator: euros, today's spend and limit, the average cost of a check, the ledger.
+
+    :param db: The pool.
+    :param config: The settings (the service's by default).
+    :return: The summary.
+    """
+    config = config or settings
+    async with db.acquire() as conn, conn.transaction():
+        await _ensure_pool(conn, config, today())
+    now = await standing(db, config)
+    row = await db.fetchrow("SELECT base_micro_eur, donated_micro_eur FROM free_pool WHERE id = 1")
+    donations = await db.fetch("SELECT id, day, micro_eur, note FROM free_pool_donations ORDER BY id DESC LIMIT 50")
+
+    def eur(micro: int) -> str:
+        return format(Decimal(micro) / MICRO, ".2f")
+
+    return {
+        "pool_eur": eur(now.pool_micro_eur),
+        "base_eur": eur(int(row["base_micro_eur"])) if row else "0.00",
+        "donated_eur": eur(int(row["donated_micro_eur"])) if row else "0.00",
+        "spent_today_eur": eur(now.spent_today_micro_eur),
+        "day_limit_eur": eur(now.day_limit_micro_eur),
+        "paused": now.reached,
+        "average_check_eur": format(Decimal(await average_free_check_micro_eur(db, config)) / MICRO, ".4f"),
+        "checks_left_today": await checks_left_today(db, config),
+        "donations": [
+            {"id": d["id"], "day": d["day"].isoformat(), "eur": eur(int(d["micro_eur"])), "note": d["note"]}
+            for d in donations
+        ],
+    }
+
+
+async def spent_free_micro_eur(db: Executor, day: date | None = None) -> int:
+    """
+    A day's free spend: the database's row plus what is still in memory.
+
+    :param db: A pool or connection.
+    :param day: The day (today by default).
+    :return: Micro-euros.
+    """
+    day = day or today()
+    stored = await db.fetchval("SELECT free_micro_eur FROM llm_spend_days WHERE day = $1", day)
+    return int(stored or 0) + _pending.get(day)
 
 
 async def run_forever(pool: asyncpg.Pool, interval_s: float = 5.0) -> None:

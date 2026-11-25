@@ -260,10 +260,9 @@ class Settings(BaseSettings):
     # costs the client a proof of work: deep_pow_bits leading zero bits of SHA-256 (each bit doubles the work), a
     # challenge valid for deep_pow_ttl_s and used once. At most free_deep_checks_per_ip_per_hour per visitor network
     # (in memory, salted hashes; Cloudflare's edge rules come first) and quick_checks_per_minute quick checks.
-    # The global kill switch: once the LLM spend this calendar month (UTC) reaches llm_spend_ceiling_eur, free deep
-    # checks pause until the first of next month (bought checks, developer passes' bought checks and x402 go on).
-    # The spend is metered from the provider's token counts at llm_prices_eur_per_mtok ("model=input/output" in
-    # euros per million tokens, comma-separated); a model not listed costs llm_price_unlisted_eur_per_mtok.
+    # The free pool (unfret.spend) pays for all free LLM work. The spend is metered from the provider's token counts
+    # at llm_prices_eur_per_mtok ("model=input/output" in euros per million tokens, comma-separated); a model not
+    # listed costs llm_price_unlisted_eur_per_mtok.
     deep_pow_bits: int = Field(default=20, ge=1, le=32)
     deep_pow_ttl_s: int = Field(default=300, ge=30)
     free_deep_checks_per_ip_per_hour: int = Field(default=30, ge=1)
@@ -272,7 +271,14 @@ class Settings(BaseSettings):
     # tied to the check), at most legacy_pass_free_deep_per_hour per pass (in memory, hashed) and within the network's
     # limit above; GET /v1/credits shows what is left of that hour as free checks, so those clients offer deep checks.
     legacy_pass_free_deep_per_hour: int = Field(default=10, ge=0)
-    llm_spend_ceiling_eur: Decimal = Field(default=Decimal(100), ge=0, decimal_places=2)
+    # The free pool (unfret.spend): every UTC day adds free_pool_daily_base_eur to it, its base part growing to at most
+    # free_pool_base_cap_days days' worth; donations go in by hand on top of that. All free LLM spend draws from it
+    # (shoppers' and developer passes' free deep checks, background work); paid spend never does. A day spends at most
+    # free_pool_daily_max_multiple times the base. Empty pool or the day's limit spent: free deep checks pause until
+    # 00:00 UTC.
+    free_pool_daily_base_eur: Decimal = Field(default=Decimal(3), ge=0, decimal_places=2)
+    free_pool_daily_max_multiple: int = Field(default=3, ge=1)
+    free_pool_base_cap_days: int = Field(default=30, ge=1)
     llm_prices_eur_per_mtok: str = "mistral-small-3.2-24b-instruct-2506=0.15/0.35,glm-5.3=1.80/5.50"
     llm_price_unlisted_eur_per_mtok: str = "2.00/6.00"
     # Where "Support Unfret" goes: /donate redirects here (a payment link that may be replaced, so clients only ever

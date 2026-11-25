@@ -11,6 +11,7 @@ every pass made before a moment (``python -m unfret.admin_cli retire-passes``).
 
 import json
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 import structlog
@@ -18,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import ad_store, crowd, objections, observations, recording, reports, shares, shop_store
+from unfret import ad_store, crowd, objections, observations, recording, reports, shares, shop_store, spend
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import keys, ledger, retire, vat
@@ -363,6 +364,42 @@ async def confirm_reports(body: ConfirmRequest, request: Request) -> dict[str, A
         "left": len(out) - len(labelled),
         "items": out,
     }
+
+
+class DonationRequest(BaseModel):
+    """A donation to add to the free pool: the amount and a short note, nothing about who gave."""
+
+    amount_eur: Decimal = Field(gt=0, le=Decimal(100_000), decimal_places=2)
+    note: str = Field(default="", max_length=200)
+
+
+@router.get("/free-pool")
+async def free_pool(request: Request) -> dict[str, Any]:
+    """
+    The free pool (:mod:`unfret.spend`), for the operator.
+
+    Euros in it, today's spend and limit, the average cost of a free deep check, the checks left today and the
+    donations' ledger.
+
+    :param request: The incoming request.
+    :return: The summary.
+    """
+    return await spend.pool_summary(_pool(request), settings)
+
+
+@router.post("/free-pool/donations")
+async def add_donation(body: DonationRequest, request: Request) -> dict[str, Any]:
+    """
+    Add a donation to the free pool by hand (on top of the base part's 30 days' cap), with a note for the ledger.
+
+    :param body: The amount in euros and a note (never the donor).
+    :param request: The incoming request.
+    :return: The ledger row's id and the pool afterwards.
+    """
+    pool = _pool(request)
+    donation = await spend.add_donation(pool, body.amount_eur, body.note, settings)
+    logger.info("free_pool_donation", eur=str(body.amount_eur))
+    return {"id": donation, **await spend.pool_summary(pool, settings)}
 
 
 # A grant is for support and store reviews, not a way to mint money: one grant is at most this much.

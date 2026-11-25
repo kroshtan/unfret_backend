@@ -1,19 +1,20 @@
 """The home page and its Dutch counterpart (/nl): what they say, in which order, and how they load."""
 
+import html
 import json
 import re
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
-from tests.unit.test_test_shop import DEEP_VERDICT, QUICK_VERDICT
+from tests.unit.test_test_shop import DEEP_VERDICT, QUICK_VERDICT, _deep, local_only  # noqa: F401 (a fixture)
 from unfret.card import REASON_SOURCES, source_label
 from unfret.config import settings
 from unfret.main import app
-from unfret.prices import format_usd
 from unfret.routes.pages import STATIC_DIR, asset_tag
 
 CATALOGUE = json.loads((STATIC_DIR.parent / "copy" / "en.json").read_text(encoding="utf-8"))
@@ -23,6 +24,12 @@ CATALOGUE = json.loads((STATIC_DIR.parent / "copy" / "en.json").read_text(encodi
 async def client() -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+async def shop_deep(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> dict[str, Any]:
+    request.getfixturevalue("local_only")
+    return await _deep(monkeypatch)
 
 
 def _flat(text: str) -> str:
@@ -87,7 +94,7 @@ async def test_the_home_page_and_the_dutch_page_name_each_other(client: httpx.As
 
 async def test_the_home_page_goes_from_the_question_to_the_developers(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
-    assert re.search(r"<h1>Check before <span class=\"soft\">you pay\.</span></h1>", page)
+    assert '<h1>Know what you\'re buying <span class="soft">before you pay.</span></h1>' in page
     hero = page.split('<section class="hero', 1)[1].split("</section>", 1)[0]
     assert 'id="start-check"' in hero and 'class="sample"' in hero  # the field and the test shop's result, on top
     order = [
@@ -95,8 +102,10 @@ async def test_the_home_page_goes_from_the_question_to_the_developers(client: ht
         page.index('id="start-check"'),
         page.index('class="sample"'),
         page.index('class="proof'),
+        page.index('id="questions"'),
+        page.index('id="levels"'),
         page.index('id="tricks"'),
-        page.index('aria-labelledby="price-heading"'),
+        page.index('id="together"'),
         page.index('aria-labelledby="faq-heading"'),
         page.index('class="dev-line'),
     ]
@@ -111,7 +120,7 @@ async def test_the_link_field_checks_on_the_link_checker_with_free_checks(client
     assert re.search(r'<input id="start-link" type="text" inputmode="url"', form)
     assert '<label class="visually-hidden" for="start-link">' in page
     assert 'type="submit">Check</button>' in form and "data-error" in form
-    assert "Quick and deep checks are free." in _flat(form) and "No key, no account" in form
+    assert "Free, quick and deep. No account, no pass" in _flat(form)
     assert 'data-example="/test-shop"' in form
     home = (STATIC_DIR / "home.js").read_text()
     assert "wireStartForm(" in home
@@ -120,13 +129,19 @@ async def test_the_link_field_checks_on_the_link_checker_with_free_checks(client
     assert "takeHandedLink()" in check and "requestSubmit" in check
 
 
-async def test_the_test_shop_result_is_the_real_one(client: httpx.AsyncClient) -> None:
+async def test_the_test_shop_result_is_the_real_one(client: httpx.AsyncClient, shop_deep: dict[str, Any]) -> None:
     page = (await client.get("/")).text
     sample = page.split('class="sample"', 1)[1].split("</figure>", 1)[0]
     band, reasons = DEEP_VERDICT
-    assert (band, reasons) == QUICK_VERDICT  # free (quick) or deep, the test shop gets the same answer
-    assert f'<div class="verdict {band}">' in sample
-    assert f'<p class="label">{CATALOGUE["labels"][band]}</p>' in sample
+    assert (band, reasons) == QUICK_VERDICT  # free (quick) or deep, the test shop gets the same cards
+    # The level, its words and the one-line explanation of a (free) deep check, as /check shows them.
+    risk = shop_deep["verdict"]["risk"]
+    assert f'<div class="verdict level-{risk["level"]}">' in sample
+    assert f'<span class="level-num" aria-hidden="true">{risk["level"]}</span>' in sample
+    assert f"Risk level {risk['level']} of 4" in sample
+    assert f'<p class="label">{CATALOGUE["levels"]["labels"][risk["key"]]}</p>' in sample
+    assert f'<p class="headline">{html.escape(risk["explanation"], quote=False)}</p>' in _flat(sample)
+    assert [r["type"] for r in shop_deep["verdict"]["reasons"]] == reasons
     cards = re.findall(
         r'<li class="card (?:high|medium|low)"><span class="title">(.*?)</span><p class="detail">(.*?)</p>'
         r'<p class="source">Source: (.*?)</p></li>',
@@ -164,25 +179,81 @@ async def test_the_home_page_keeps_what_it_had(client: httpx.AsyncClient) -> Non
     assert f'href="{settings.chrome_store_url}"' in page and f'href="{settings.firefox_store_url}"' in page
     home = (STATIC_DIR / "home.js").read_text()
     assert "chooseButtons()" in home
-    assert 'euros ? "€0" : "$0"' in home  # the free tier in the packs' currency
     # The honest note about the big shops that only the extension and the app can read.
     assert "turn automatic checks away" in page and "Android" in page
-    # The patterns Unfret catches (#159), the free tier first, and ads and tradespeople lower down.
+    # The patterns Unfret catches (#159), made-up examples only, and ads and tradespeople lower down.
     tricks = page[page.index('id="tricks"') : page.index("</section>", page.index('id="tricks"'))]
     assert len(re.findall(r'<li class="pattern">', tricks)) >= 8
-    assert page.index('aria-labelledby="price-heading"') < page.index('aria-labelledby="beyond-heading"')
+    assert "The examples above are made up" in _flat(tricks) and "never calls a shop names" in _flat(tricks)
+    assert page.index('id="together"') < page.index('aria-labelledby="beyond-heading"')
     assert page.index('id="tricks"') < page.index('aria-labelledby="beyond-heading"')
 
 
-async def test_agents_have_their_own_way_in_near_the_top(client: httpx.AsyncClient) -> None:
+async def test_the_shoppers_questions_and_the_levels_guide_the_page(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
-    agents = page.split('id="agents"', 1)[1].split("</section>", 1)[0]
-    assert "x402" in agents and "/v1/check" in agents and "unfret-mcp" in agents
-    assert 'href="/developers">Developer guide</a>' in agents
-    assert format_usd(settings.x402_price_quick_usd_micros) in agents
-    assert format_usd(settings.x402_price_deep_usd_micros) in agents
-    assert f"{settings.public_base_url.rstrip('/')}/v1/check" in agents
-    assert page.index('id="agents"') < page.index('id="tricks"')  # before the shopper's details, not a footnote
+    questions = page.split('id="questions"', 1)[1].split("</section>", 1)[0]
+    asked = re.findall(r"<h3>(.*?)</h3>", questions)
+    assert asked == [
+        "Will it arrive?",
+        "Am I protected?",
+        "Am I being pushed?",
+        "Is it worth the price?",
+        "Does it work?",
+        "Is it any good?",
+    ]
+    scale = page.split('class="level-scale"', 1)[1].split("</ol>", 1)[0]
+    labels = CATALOGUE["levels"]["labels"]
+    shown = re.findall(
+        r'<li class="level-(\d)"><span class="level-num" aria-hidden="true">(\d)</span><span><b>(.*?)\.</b>',
+        _flat(scale),
+    )
+    keys = ["wont_arrive", "doesnt_work", "overpaying", "manipulation", "none"]
+    assert [(int(a), int(b), html.unescape(c)) for a, b, c in shown] == [
+        (4 - i, 4 - i, labels[k]) for i, k in enumerate(keys)
+    ]
+
+
+async def test_agents_get_one_line_at_the_end(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/")).text
+    main = page.split("<main>", 1)[1].split('class="dev-line', 1)[0]
+    assert "x402" not in main and "/v1/check" not in main  # the home page is for shoppers
+    assert 'id="agents"' not in page
+
+
+async def test_reports_the_leaderboard_and_donations_are_explained(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/")).text
+    together = _flat(page.split('id="together"', 1)[1].split("</section>", 1)[0])
+    assert "Wrong result?" in together and "never who sent it" in together
+    assert 'id="leaderboard"' in together and "Leaderboard" in together
+    assert 'href="/support">Support Unfret</a>' in together and "donations" in together
+    home = (STATIC_DIR / "home.js").read_text()
+    assert "/v1/contributors/leaderboard?limit=" in home
+
+
+@pytest.mark.usefixtures("node")
+def test_the_leaderboard_rows_are_clean(tmp_path: Path) -> None:
+    for name in ("home.js", "install-button.js", "start-check.js", "check-core.js"):
+        (tmp_path / name).write_text((STATIC_DIR / name).read_text())
+    (tmp_path / "package.json").write_text('{"type": "module"}')
+    body = {
+        "entries": [
+            {"rank": 1, "handle": "ana", "agreed": 12, "settled": 14},
+            {"rank": 2, "handle": "  ", "agreed": 3, "settled": 3},
+            {"rank": 3, "handle": "bo", "agreed": "x", "settled": 1},
+            {"rank": 4, "handle": "cy", "agreed": 1, "settled": 1},
+        ]
+    }
+    script = (
+        f"import {{ leaderboardRows }} from {json.dumps((tmp_path / 'home.js').as_uri())};"
+        f"process.stdout.write(JSON.stringify([leaderboardRows({json.dumps(body)}), leaderboardRows(null),"
+        f" leaderboardRows({json.dumps(body)}, 1)]));"
+    )
+    out = subprocess.run(["node", "--input-type=module", "-e", script], check=True, capture_output=True, text=True)
+    assert json.loads(out.stdout) == [
+        [{"rank": 1, "handle": "ana", "agreed": 12}, {"rank": 4, "handle": "cy", "agreed": 1}],
+        [],
+        [{"rank": 1, "handle": "ana", "agreed": 12}],
+    ]
 
 
 async def test_the_questions_are_answered_honestly(client: httpx.AsyncClient) -> None:
@@ -206,10 +277,12 @@ async def test_the_dutch_page_is_dutch_and_sends_the_rest_to_the_english_pages(c
     assert response.status_code == 200
     page = response.text
     assert page.startswith('<!doctype html>\n<html lang="nl">')
-    assert '<h1>Check de verkoper <span class="soft">voordat je betaalt.</span></h1>' in page
+    assert '<h1>Weet wat je koopt <span class="soft">voordat je betaalt.</span></h1>' in page
     text = _flat(page)
-    assert "iDEAL | Wero" in text and "Marktplaats" in text
-    assert "uitgebreide checks zijn gratis" in text and "snelle checks gratis" in text
+    assert "Marktplaats" in text and "risiconiveau" in text
+    assert "Snelle en uitgebreide checks zijn gratis" in text and "donaties" in text
+    # The same story as the home page: free, no packs.
+    assert "/checkout" not in page and "pakket" not in text and "data-free-count" not in page
     assert "Unfret antwoordt in het Engels" in text  # results come in English: said up front
     # The shared header stays English, and says so; the footer is Dutch, with the English footer's links.
     assert '<header class="site-header" lang="en">' in page
@@ -219,22 +292,11 @@ async def test_the_dutch_page_is_dutch_and_sends_the_rest_to_the_english_pages(c
     assert re.findall(r'href="([^"]*)"', footer) == re.findall(r'href="([^"]*)"', english)
     # The English pages for the rest, marked as English; no translated legal pages.
     main = page.split("<main>", 1)[1].split("</main>", 1)[0]
-    for path in ("/", "/privacy", "/terms", "/money", "/checkout?checks=25", "/extension"):
+    for path in ("/", "/privacy", "/terms", "/money", "/support", "/extension"):
         assert f'href="{path}" hreflang="en"' in main, path
     for path in ("/nl/terms", "/nl/privacy", "/nl/check"):
         assert (await client.get(path)).status_code == 404
     assert 'id="start-check"' in main and 'data-empty="Plak eerst een link."' in main
-
-
-async def test_the_dutch_page_shows_euro_prices_with_vat_included(client: httpx.AsyncClient) -> None:
-    page = (await client.get("/nl")).text
-    prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
-    assert prices.index('class="free"') < prices.index('data-checks="25"') < prices.index('data-checks="100"')
-    assert "€ 6,50" in prices and "€ 21,00" in prices  # the defaults, VAT included: what a Dutch buyer pays
-    assert "6,66" not in page and "21,18" not in page
-    assert "Prijzen inclusief btw" in page
-    script = (STATIC_DIR / "nl.js").read_text()
-    assert '"/v1/pricing"' in script and 'cardPrice(body, pack, "eur", "NL")' in script
 
 
 # ── start-check.js: the hand-off to /check ───────────────────────────────────────────────────────────────────────
@@ -280,33 +342,23 @@ async def test_the_hero_offers_the_link_checker_without_install_next_to_the_inst
 ) -> None:
     hero = _flat((await client.get("/")).text.split('<section class="hero', 1)[1].split("</section>", 1)[0])
     assert "nothing to install to try it." in hero  # next to "Add to Chrome": installing is the other way in
+    assert "no pass" in hero
     assert "nothing to install." not in hero
 
 
-async def test_the_questions_say_checks_need_no_pass_and_passes_dont_expire(client: httpx.AsyncClient) -> None:
+async def test_the_questions_say_checks_need_no_pass(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
     faq = _flat(page.split('class="faq"', 1)[1].split("</section>", 1)[0])
     assert "Checks are free and need no account, no pass, no name and no email" in faq
-    assert "Do passes or checks expire?" in faq
-    assert "don't expire" in faq and "doesn't delete a pass for not being used" in faq
-    assert "refuses to touch passes that bought checks" in faq  # what retire-passes does by default
+    assert "Do passes or checks expire?" not in faq  # a developer's question: on /developers
+    assert "risk level from 0 to 4" in faq
+    assert "Organizations that protect consumers" in faq
 
 
-@pytest.mark.parametrize("path", ["/nl"])
-async def test_the_prices_read_as_separate_words(client: httpx.AsyncClient, path: str) -> None:
-    page = (await client.get(path)).text
-    prices = page.split('id="prices"', 1)[1].split("</ul>", 1)[0]
-    assert "</span><span" not in prices  # a screen reader or an agent reads "Free 5 deep checks", not "Free5 deep"
-    text = " ".join(re.sub(r"<[^>]+>", "", prices).split())
-    assert ("Free 5 deep checks" in text and "$0 Start" in text) or ("Gratis 5 uitgebreide" in text)
-
-
-async def test_the_home_page_says_checks_are_free_and_run_on_donations(client: httpx.AsyncClient) -> None:
+async def test_the_home_page_offers_no_packs(client: httpx.AsyncClient) -> None:
     page = (await client.get("/")).text
-    section = _flat(page.split('aria-labelledby="price-heading"', 1)[1].split("</section>", 1)[0])
-    assert "Free for shoppers" in section and "Deep checks run on donations" in section
-    assert 'href="/support"' in section and 'href="/developers"' in section
-    assert "checkout?checks=" not in page  # no packs offered to shoppers
+    assert 'href="/checkout' not in page
+    assert "Buy checks" not in page and 'href="/support"' in page
 
 
 async def test_the_test_shops_discount_is_the_same_everywhere(client: httpx.AsyncClient) -> None:
@@ -385,6 +437,5 @@ def test_euro_card_prices_are_shown_as_they_are_and_dollar_prices_get_the_vat(tm
         "Sales tax or VAT is added at checkout where it applies.",
         "Card prices include 21% VAT for the Netherlands.",
     ]
-    # The pages say what the price includes for the currency they show it in.
-    assert 'taxNote(body, hint, euros ? "eur" : "usd")' in (STATIC_DIR / "home.js").read_text()
+    # Checkout says what the price includes for the currency it shows it in.
     assert "taxNote(pricing, payCountry, cardCurrency())" in (STATIC_DIR / "checkout.js").read_text()

@@ -141,7 +141,7 @@ def test_sign_in_never_asks_the_wallet_for_a_chain_id() -> None:
 async def test_home_page_introduces_unfret_without_third_party_requests(client: httpx.AsyncClient) -> None:
     response = await client.get("/")
     assert response.status_code == 200
-    assert "Check before" in response.text and "<span>Unfret</span>" in response.text
+    assert "before you pay" in response.text and "<span>Unfret</span>" in response.text
     assert "default-src 'none'" in response.headers["content-security-policy"]
     assert 'href="/extension"' in response.text and 'href="/privacy"' in response.text
     # Both store links filled in, under the hero's link field.
@@ -149,7 +149,7 @@ async def test_home_page_introduces_unfret_without_third_party_requests(client: 
     assert response.text.count(f'href="{settings.chrome_store_url}"') == 1
     assert response.text.count(f'href="{settings.firefox_store_url}"') == 1
     assert 'href="https://addons.mozilla.org/' in response.text
-    # Its script fills in the prices (/v1/pricing) and the store buttons.
+    # Its script fills in the leaderboard and the store buttons.
     assert response.text.count("<script") == 1
     assert f'<script type="module" src="/static/{asset_tag()}/home.js"></script>' in response.text
 
@@ -192,10 +192,10 @@ async def test_pages_name_their_assets_under_the_build(client: httpx.AsyncClient
 
 SITE_PAGES = {
     "/": None,
-    "/checkout": "/checkout",
+    "/checkout": None,  # developer passes and old store clients: not in the menu
     "/check": "/check",
     "/connect": None,  # the wallet sign-in: reached from My checks and the extension, not the menu
-    "/my-checks": "/my-checks",
+    "/my-checks": None,  # developer passes: in the footer, not the menu
     "/privacy": None,  # in the footer, not the menu
     "/extension": "/extension",
     "/welcome": None,
@@ -212,7 +212,8 @@ async def test_every_page_has_the_shared_header_and_footer(
     assert page.count('<header class="site-header">') == 1 and page.count('<footer class="site-footer">') == 1
     footer = page.split('<footer class="site-footer">', 1)[1]
     assert (
-        "<p>Check before you pay. Unfret reads" in footer and "Shop without the worry" not in page
+        "<p>Free consumer protection for online shoppers. Unfret reads" in footer
+        and "Shop without the worry" not in page
     )  # the home's line
     nav = page.split('<nav class="site-nav"', 1)[1].split("</nav>", 1)[0]
     marked = [line.strip() for line in nav.splitlines() if 'aria-current="page"' in line]
@@ -306,10 +307,11 @@ async def test_my_checks_is_a_static_page_with_a_strict_policy(client: httpx.Asy
     assert "/v1/keys/phone-qr" in script and "/v1/keys/recover" in script
 
 
-def test_the_menu_leads_to_my_checks_not_a_wallet_sign_in() -> None:
+def test_the_menu_is_for_shoppers_and_the_developer_pass_is_in_the_footer() -> None:
     header = (STATIC_DIR / "partials" / "header.html").read_text()
     footer = (STATIC_DIR / "partials" / "footer.html").read_text()
-    assert 'href="/my-checks">My checks</a>' in header and 'href="/my-checks">My checks</a>' in footer
+    assert 'href="/support">Support Unfret</a>' in header and "/checkout" not in header and "/my-checks" not in header
+    assert 'href="/my-checks">Developer pass</a>' in footer
     assert "/connect" not in header and "/connect" not in footer and "Sign in" not in header
 
 
@@ -352,9 +354,8 @@ def test_the_pages_say_shoppers_check_free_and_developers_buy_packs() -> None:
     checkout = (STATIC_DIR / "checkout.html").read_text()
     assert checkout.index('id="free-first"') < checkout.index('id="packs"')
     money = " ".join((STATIC_DIR / "money.html").read_text().split())
-    assert "25 checks for $6.50 (€6.50 in the euro area), or 100 checks for $21 (€21)" in money
-    assert "gift code" not in money and "Card prices include tax" in money and "before tax" not in money
-    assert money.index("Donations") < money.index("Checks for developers") < money.index("25 checks for $6.50")
+    assert "gift code" not in money and "$6.50" not in money  # prices are on /developers, from the settings
+    assert money.index("Donations") < money.index("Checks for developers")
     my_checks = " ".join((STATIC_DIR / "my-checks.html").read_text().split())
     assert "gift code" not in my_checks
 
@@ -457,7 +458,7 @@ async def test_developers_are_one_click_away_from_every_page(client: httpx.Async
     assert 'href="/developers">Developers and AI agents</a>' in footer
     assert 'href="/llms.txt"' not in footer  # humans get a page, machines get llms.txt from it
     home = (await client.get("/")).text
-    assert 'href="/developers">Developer guide</a>' in home
+    assert 'href="/developers">developer page</a>' in home
     assert "/developers" in app.openapi()["info"]["description"]  # /docs points there too
 
 
@@ -471,12 +472,13 @@ def test_small_words_match_across_checkout() -> None:
     assert "small discount" not in checkout  # crypto is cheaper only for the 25-pack (B5)
 
 
-def test_the_home_page_leads_with_the_seller_then_agents_and_keeps_ads_and_trades_lower() -> None:
+def test_the_home_page_leads_with_protection_and_keeps_ads_and_trades_lower() -> None:
     page = (STATIC_DIR / "index.html").read_text()
     hero = page.split('<section class="hero', 1)[1].split("</section>", 1)[0]
-    assert "Check before" in hero and "seller" in hero
-    order = [page.index(f'aria-labelledby="{name}-heading"') for name in ("dev", "tricks", "price", "beyond")]
-    assert order == sorted(order)  # agents right after the hero; ads and tradespeople a secondary section below
+    assert "Consumer protection, free for every shopper" in hero and "risk level" in " ".join(hero.split())
+    names = ("questions", "levels", "tricks", "together", "beyond")
+    order = [page.index(f'aria-labelledby="{name}-heading"') for name in names]
+    assert order == sorted(order)  # the shopper's questions first; ads and tradespeople a secondary section below
 
 
 @pytest.mark.parametrize("path", ["/check", "/checkout", "/connect", "/my-checks", "/"])
@@ -537,7 +539,6 @@ def test_the_privacy_statement_names_every_key_the_site_keeps_in_the_browser() -
 
 async def test_the_home_page_says_which_shops_need_the_extension_or_app(client: httpx.AsyncClient) -> None:
     hero = (await client.get("/")).text.split('<section class="hero', 1)[1].split("</section>", 1)[0]
-    assert "On Amazon and other marketplaces" in hero
     note = " ".join(hero.split("turn automatic checks away", 1)[1].split("</p>", 1)[0].split())
     assert "browser extension and the Android app still read them" in note
     assert 'href="/check"' in note  # where the list is

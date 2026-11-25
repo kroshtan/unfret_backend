@@ -26,7 +26,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from unfret import __version__, accuracy, clients_info
+from unfret import __version__, accuracy, clients_info, levels, shopper
 from unfret.config import settings
 from unfret.credits import packs
 from unfret.credits.keys import MAX_EXTRA_BITS
@@ -152,20 +152,40 @@ router = APIRouter(include_in_schema=False)
 
 
 @router.get("/", response_class=HTMLResponse)
-def home() -> HTMLResponse:
+def home(app: str | None = None) -> HTMLResponse:
     """
-    The home page: what Unfret is, for shoppers and for agents (also the homepage of the store listing).
+    The home page: Unfret for shoppers (also the homepage of the store listing), with one line to ``/developers``.
 
-    The agents' section quotes the x402 prices from the same settings as ``/developers``, and the page names ``/nl``
-    as its Dutch counterpart.
+    The risk levels are named in the result card's words (the copy catalogue), and the page names ``/nl`` as its
+    Dutch counterpart. The Play app links to ``/?app=play``: no menu, no link-checking form and no mention of
+    donating (Google Play's payments policy), its links kept to the pages that have a Play variant
+    (:func:`play_variant`).
+
+    :param app: ``play`` for the Play app's variant.
 
     :return: The page.
     """
-    page = with_store_links(template("index.html", "/")).replace("{{hreflang}}", hreflang_links())
-    fields = developer_fields()
-    for name in ("base_url", "quick_price", "deep_price"):
-        page = page.replace("{{" + name + "}}", html.escape(fields[name]))
-    return HTMLResponse(versioned(page), headers=PAGE_HEADERS)
+    play = app == PLAY_APP
+    if play:
+        page = template("index.html", header="header-play.html", footer="footer-play.html")
+    else:
+        page = with_store_links(template("index.html", "/"))
+    page = page.replace("{{hreflang}}", "" if play else hreflang_links())
+    for level, key in levels.KEYS.items():
+        page = page.replace(f"{{{{level_{level}}}}}", html.escape(level_label(key)))
+    if play:
+        return HTMLResponse(versioned(play_variant(page, "/")), headers=PLAY_HEADERS)
+    return HTMLResponse(versioned(web_variant(page)), headers=PAGE_HEADERS)
+
+
+def level_label(key: str) -> str:
+    """
+    A risk level's words, as the result card says them.
+
+    :param key: The level's key (``wont_arrive`` … ``none``).
+    :return: The words.
+    """
+    return str(shopper.catalogue()["levels"]["labels"][key])
 
 
 def hreflang_links() -> str:
@@ -222,6 +242,33 @@ PLAY_APP = "play"
 PLAY_LINK_HOSTS = frozenset({"www.autoriteitpersoonsgegevens.nl"})
 PLAY_HEADERS = {**PAGE_HEADERS, "X-Robots-Tag": "noindex"}
 _ANCHOR_RE = re.compile(r"<a\b([^>]*)>(.*?)</a>", re.DOTALL)
+# Text the Play app's variant leaves out (donations: Google Play's payments policy) or shows instead, marked in the
+# page as <!-- play:off -->…<!-- /play:off --> and <!-- play:on … -->.
+_PLAY_OFF_RE = re.compile(r"<!-- play:off -->.*?<!-- /play:off -->\n?", re.DOTALL)
+_PLAY_ON_RE = re.compile(r"<!-- play:on (.*?) -->\n?", re.DOTALL)
+_PLAY_MARK_RE = re.compile(r"<!-- /?play:off -->\n?")
+
+
+def web_variant(page: str) -> str:
+    """
+    A page for the web: the Play app's alternative text (``<!-- play:on … -->``) and the markers removed.
+
+    :param page: The page's HTML.
+    :return: The HTML.
+    """
+    return _PLAY_MARK_RE.sub("", _PLAY_ON_RE.sub("", page))
+
+
+def play_text(page: str) -> str:
+    """
+    A page's text for the Play app: what is marked ``play:off`` left out, what is marked ``play:on`` shown.
+
+    :param page: The page's HTML.
+    :return: The HTML.
+    """
+    return _PLAY_ON_RE.sub(lambda m: m.group(1) + "\n", _PLAY_OFF_RE.sub("", page))
+
+
 _HREF_RE = re.compile(r'\bhref="([^"]*)"')
 
 
@@ -231,7 +278,7 @@ def _play_link(match: re.Match[str]) -> str:
     url = urlsplit(html.unescape(href.group(1))) if href else None
     if url is None or url.scheme == "mailto":
         return match.group(0)
-    if not url.scheme and not url.netloc and url.path in PLAY_PAGES:
+    if not url.scheme and not url.netloc and (url.path in PLAY_PAGES or url.path == "/"):
         fragment = f"#{url.fragment}" if url.fragment else ""
         target = html.escape(f"{url.path}?app={PLAY_APP}{fragment}")
         return "<a" + _HREF_RE.sub(lambda _: f'href="{target}"', attributes, count=1) + f">{text}</a>"
@@ -250,7 +297,7 @@ def play_variant(page: str, path: str) -> str:
     """
     canonical = html.escape(settings.public_base_url.rstrip("/") + path)
     head = f'  <meta name="robots" content="noindex">\n  <link rel="canonical" href="{canonical}">\n</head>'
-    return _ANCHOR_RE.sub(_play_link, page.replace("</head>", head, 1))
+    return _ANCHOR_RE.sub(_play_link, play_text(page).replace("</head>", head, 1))
 
 
 def _policy_page(
@@ -259,7 +306,7 @@ def _policy_page(
     if app == PLAY_APP:
         page = template(name, header="header-play.html", footer="footer-play.html")
         return HTMLResponse(versioned(play_variant(fill(page), path)), headers=PLAY_HEADERS)
-    return HTMLResponse(versioned(with_store_links(fill(template(name, path)))), headers=PAGE_HEADERS)
+    return HTMLResponse(versioned(web_variant(with_store_links(fill(template(name, path))))), headers=PAGE_HEADERS)
 
 
 @router.get("/key", include_in_schema=False)

@@ -427,7 +427,7 @@ async def test_the_play_variant_has_no_menu_and_no_link_to_buying(client: httpx.
             or url.startswith("https://www.autoriteitpersoonsgegevens.nl")
         ), url
     for purchase in ("/checkout", "/money", "/affiliates", "/extension", "/developers", "/check\"", "polar.sh",
-                     "/my-checks", 'href="/"', "kroshtan.com"):  # fmt: skip
+                     "/my-checks", 'href="/"', "kroshtan.com", "/support", "/donate"):  # fmt: skip
         assert purchase not in page, purchase
 
 
@@ -438,14 +438,42 @@ async def test_the_play_variant_keeps_the_text_and_points_to_the_normal_page(
     normal = (await client.get(path)).text
     variant = (await client.get(path, params={"app": "play"})).text
 
-    assert _main_text(variant) == _main_text(normal)
+    # The same text, but for what is marked for the Play app (donations, which Google Play's policy keeps out).
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(pages_module, "web_variant", lambda page: page)  # the normal page, its Play markers kept
+        marked = (await client.get(path)).text
+    assert _main_text(variant) == _main_text(pages_module.play_text(marked))
+    assert _main_text(normal) == _main_text(pages_module.web_variant(marked))
+    assert "donat" not in variant.lower() and "/support" not in variant
     assert '<meta name="robots" content="noindex">' in variant
     assert f'<link rel="canonical" href="{settings.public_base_url.rstrip("/")}{path}">' in variant
     assert "canonical" not in normal and "noindex" not in normal
-    assert '<header class="site-header">' in normal and 'href="/checkout"' in normal
+    assert '<header class="site-header">' in normal and 'href="/support"' in normal
 
 
 async def test_any_other_app_gets_the_normal_page(client: httpx.AsyncClient) -> None:
     response = await client.get("/privacy", params={"app": "other"})
 
-    assert 'href="/checkout"' in response.text and "x-robots-tag" not in response.headers
+    assert 'href="/support"' in response.text and "x-robots-tag" not in response.headers
+
+
+async def test_the_play_apps_home_page_never_mentions_donating_and_keeps_the_visit_in_play(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/", params={"app": "play"})
+    assert response.status_code == 200 and response.headers["x-robots-tag"] == "noindex"
+    page = response.text
+    assert "{{" not in page and "play:" not in page
+    for word in ("donat", "support unfret", "/support", "/donate", "/check", "/checkout", "/developers"):
+        assert word not in page.lower(), word
+    assert "<nav" not in page and 'id="start-check"' not in page
+    hrefs = [href.group(1) for href in (_HREF.search(tag) for tag in _ANCHOR.findall(page)) if href]
+    assert hrefs and all(h.startswith("mailto:") or h.endswith("?app=play") for h in hrefs), hrefs
+    assert "Free for shoppers" in page and "Checks are free for shoppers; developers" in page
+    # The web's home page keeps its donation section, without the Play app's markers or text.
+    web = (await client.get("/")).text
+    assert (
+        'href="/support">Support Unfret</a>' in web
+        and "play:" not in web
+        and "Share a link to the Unfret app" not in web
+    )

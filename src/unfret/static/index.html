@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f3f8f5" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0c1613" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="Check before you pay: paste a link and Unfret tells you, in plain words, who you'd be buying from and whether it all adds up. For products on Amazon and other marketplaces, web shops you've never heard of, second-hand ads and the websites of tradespeople and local services, and pay-per-check over x402 for AI agents.">
-  <title>Unfret · check before you pay</title>
+  <meta name="description" content="Free consumer protection for online shoppers. Paste a link before you pay: Unfret tells you whether the order may not arrive, whether you're protected and whether the page is pushing you, as one risk level with the reasons. No account, no pass. For marketplaces, web shops, second-hand ads and the websites of tradespeople and local services.">
+  <title>Unfret · free protection for online shoppers</title>
   {{hreflang}}
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -20,11 +20,12 @@
     <section class="hero hero-start">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Marketplaces, web shops, second-hand ads, tradespeople</p>
-          <h1>Check before <span class="soft">you pay.</span></h1>
-          <p class="lead">On Amazon and other marketplaces, the seller is often someone other than the platform, and a
-            web shop you've never heard of can be anyone. Paste the link: Unfret reads that one page and tells you in
-            plain words who you'd be buying from and whether it all adds up.</p>
+          <p class="eyebrow">Consumer protection, free for every shopper</p>
+          <h1>Know what you're buying <span class="soft">before you pay.</span></h1>
+          <p class="lead">Paste a link to a product, a web shop or an ad. Unfret checks whether your order may not
+            arrive, whether you're protected, and whether the page is pushing you or overcharging you. You get one risk
+            level, with the reasons behind it.</p>
+          <!-- play:off -->
           <form class="start-check" id="start-check" novalidate data-empty="Paste or type a link first."
             data-invalid="That doesn't look like a link. Copy the whole address from the shop's page.">
             <label class="visually-hidden" for="start-link">Link to a product, an ad or a shop</label>
@@ -34,8 +35,8 @@
               <button class="primary large" type="submit">Check</button>
             </div>
             <p class="error-text" data-error role="alert" hidden></p>
-            <p class="start-hint" id="start-hint">Quick and deep checks are free. No key, no account, nothing to
-              install to try it.
+            <p class="start-hint" id="start-hint">Free, quick and deep. No account, no pass, nothing to install to
+              try it.
               <button type="button" class="link" data-example="/test-shop">Try the test shop</button></p>
           </form>
           <div class="buttons get-buttons">
@@ -47,15 +48,17 @@
           <p class="also">Some big shops, bol.com and eBay among them, turn automatic checks away, so
             <a href="/check">checking a link</a> from them on this site doesn't work: the browser extension and the
             Android app still read them, in your own browser.</p>
+          <!-- /play:off -->
+          <!-- play:on <p class="lead">Share a link to the Unfret app, or paste it there, to check it on your phone.</p> -->
         </div>
 
         <figure class="sample" aria-labelledby="sample-caption">
           <p class="sample-page"><span class="i i-lock" aria-hidden="true"></span> unfret.net/test-shop</p>
-          <div class="verdict junk_or_scam">
-            <span class="symbol" aria-hidden="true">✕</span>
-            <p class="label">Serious concerns</p>
+          <div class="verdict level-4">
+            <span class="level-num" aria-hidden="true">4</span>
+            <div><p class="scale">Risk level 4 of 4</p><p class="label">May not arrive, or may not be safe</p></div>
           </div>
-          <p class="headline">Fake countdown and paid extra already ticked.</p>
+          <p class="headline">Level 4 because: Hidden text to fool checks + Little shop information + Title full of search terms + Hard-to-believe claims.</p>
           <ul class="cards">
             <li class="card high"><span class="title">Hidden text to fool checks</span><p class="detail">The page hides
               text aimed at AI tools, to influence checks like this one.</p><p class="source">Source: The page's code</p></li>
@@ -81,34 +84,58 @@
       </ul>
     </section>
 
-    <section class="section" id="agents" aria-labelledby="dev-heading">
+    <section id="questions" class="section" aria-labelledby="questions-heading">
       <div class="wrap">
-        <div class="dev">
-          <div>
-            <p class="eyebrow">The other way in</p>
-            <h2 id="dev-heading">For AI agents: pay per check with x402</h2>
-            <p>A shopping agent can ask Unfret before it pays: one HTTP call to <code>/v1/check</code>, paid per check
-              over x402 in USDC or SOL, from {{quick_price}} for a quick check and {{deep_price}} for a deep one. No
-              account, no key. Or add the MCP server and let it pay for the agent. The answer is an action (allow, warn
-              or block) and the evidence behind it.</p>
-            <p class="buttons"><a class="button primary" href="/developers">Developer guide</a>
-              <a class="button quiet" href="/docs">API reference</a></p>
-          </div>
-          <pre class="terminal"><span class="c"># Any MCP client: the agent pays from its own wallet</span>
-<span class="k">uvx</span> unfret-mcp
-
-<span class="c"># Or call the API yourself, paid per call</span>
-<span class="k">POST</span> {{base_url}}/v1/check</pre>
+        <div class="section-head">
+          <h2 id="questions-heading">The questions to ask before you pay</h2>
+          <p>Unfret checks the page for you with these in mind, and tells you what it found and where it found it.</p>
         </div>
+        <ul class="questions">
+          <li><h3>Will it arrive?</h3><p>Who is really selling, how long the shop has been around, and whether its
+            address and company details hold up.</p></li>
+          <li><h3>Am I protected?</h3><p>How you pay and whether you can get your money back: a card or a
+            platform's buyer protection, or a bank transfer you can't undo.</p></li>
+          <li><h3>Am I being pushed?</h3><p>Countdowns that start again, stock that never runs out, discounts on a
+            price nobody paid, and reviews that weren't written here.</p></li>
+          <li><h3>Is it worth the price?</h3><p>Generic goods under a made-up brand, the same photo on other shops for
+            less, costs that show up only at checkout.</p></li>
+          <li><h3>Does it work?</h3><p>Claims that contradict each other or the photos, and specs that can't be
+            true.</p></li>
+          <li><h3>Is it any good?</h3><p>Signs of throwaway quality: the hardest to tell from a page, so Unfret says
+            what it saw and leaves the call to you.</p></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="levels" class="section" aria-labelledby="levels-heading">
+      <div class="wrap">
+        <div class="section-head">
+          <h2 id="levels-heading">How a result reads</h2>
+          <p>One risk level, from 0 to 4: the higher, the worse. It always comes with its reasons, worst first.</p>
+        </div>
+        <ol class="level-scale" reversed>
+          <li class="level-4"><span class="level-num" aria-hidden="true">4</span><span><b>{{level_4}}.</b> The shop may
+            not be real, or your card or personal details may be at risk.</span></li>
+          <li class="level-3"><span class="level-num" aria-hidden="true">3</span><span><b>{{level_3}}.</b> Claims that
+            don't add up.</span></li>
+          <li class="level-2"><span class="level-num" aria-hidden="true">2</span><span><b>{{level_2}}.</b> Markups,
+            hidden costs, costly returns.</span></li>
+          <li class="level-1"><span class="level-num" aria-hidden="true">1</span><span><b>{{level_1}}.</b> Fake
+            urgency, fake discounts, fake reviews.</span></li>
+          <li class="level-0"><span class="level-num" aria-hidden="true">0</span><span><b>{{level_0}}.</b> Nothing
+            worrying on the page.</span></li>
+        </ol>
+        <p class="aside-note">How you pay counts too: a card or a platform's buyer protection can lower the level;
+          a bank transfer, crypto or gift cards can raise it. Several smaller problems together can add up to a
+          higher level.</p>
       </div>
     </section>
 
     <section id="tricks" class="section" aria-labelledby="tricks-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="tricks-heading">What Unfret checks</h2>
-          <p>Who's really selling, and the same few tricks that turn up on shop after shop. Each one is easy to miss
-            when you're about to pay, and each one is something Unfret checks for you.</p>
+          <h2 id="tricks-heading">Tricks Unfret looks for</h2>
+          <p>The same few tricks turn up on shop after shop. Each one is easy to miss when you're about to pay.</p>
         </div>
         <ul class="patterns">
           <li class="pattern">
@@ -169,27 +196,33 @@
       </div>
     </section>
 
-    <section class="section" aria-labelledby="price-heading">
+    <section id="together" class="section" aria-labelledby="together-heading">
       <div class="wrap">
         <div class="section-head">
-          <h2 id="price-heading">Free for shoppers</h2>
-          <p>Quick checks and deep checks are free, with no account and nothing that says who you are. Deep checks
-            run on donations: if a month's run out, they pause until the 1st of the next month, and quick checks keep
-            working.</p>
+          <h2 id="together-heading">Every check makes Unfret better</h2>
+          <p>Think a result is wrong? Tap <b>Wrong result?</b> under it, pick the level you'd give and the findings
+            that are off or missing. Your report keeps the page, with personal details removed, and never who sent
+            it. Reports like yours teach Unfret, so the next shopper gets a better answer.</p>
         </div>
         <div class="pricing">
-          <div class="price-list">
-          <p><a class="button primary" href="/check">Check a link</a> <a class="button" href="/support">Support
-            Unfret</a></p>
-          <p class="small muted price-note">Building an AI agent or an app? Checks for the API and the MCP server are
-            on <a href="/developers">Developers and AI agents</a>.</p>
+          <div class="leaderboard-box">
+            <h3>Leaderboard</h3>
+            <p class="small">Want credit? Pick a name when you report, and your reports that hold up count here. No
+              account: just a key kept in your browser.</p>
+            <ol class="leaderboard" id="leaderboard" hidden></ol>
+            <p class="small muted" id="leaderboard-empty">No names on the board yet. Be the first.</p>
           </div>
+          <!-- play:off -->
           <div class="code-box">
-            <h3>What's a quick check?</h3>
-            <p>A quick check reads only the page, by Unfret's rules, and is always free. A deep check also looks the
-              seller up elsewhere and has the page read by a language model, which costs money each time: that's what
-              donations pay for.</p>
+            <h3>Free for shoppers, kept free by donations</h3>
+            <p>Quick and deep checks are free, with no account and nothing that says who you are. A deep check has a
+              language model read the page, which costs money every time: donations pay for that. If a month's
+              donations run out, deep checks pause until the 1st of the next month, and quick checks keep working.</p>
+            <p class="buttons"><a class="button primary" href="/support">Support Unfret</a>
+              <a class="button" href="/check">Check a link</a></p>
             <p class="small">Unfret never earns from shops: no affiliate links to shops, no paid placements.</p>
+          <!-- /play:off -->
+          <!-- play:on <div class="code-box"><h3>Free for shoppers</h3><p>Quick and deep checks are free, with no account and nothing that says who you are.</p></div> -->
           </div>
         </div>
       </div>
@@ -203,9 +236,9 @@
         <div class="faq">
           <details>
             <summary>Does Unfret tell me a shop is a scam?</summary>
-            <p>No. Unfret never calls a shop a scam. It gives one of four answers (Looks fine, Worth a look, Think
-              twice or Serious concerns) and shows what it noticed on the page and where that comes from. It can miss
-              a bad shop, and it can warn about a good one, so the decision is yours. See <a href="/accuracy">how accurate it is</a>.</p>
+            <p>No. Unfret never calls a shop a scam. It gives a risk level from 0 to 4 and shows what it noticed on
+              the page and where that comes from. It can miss a bad shop, and it can warn about a good one, so the
+              decision is yours. See <a href="/accuracy">how accurate it is</a>.</p>
           </details>
           <details>
             <summary>Which sites does it work on?</summary>
@@ -217,30 +250,24 @@
           <details>
             <summary>What happens to the links I check?</summary>
             <p>Unfret reads the one page you ask about, only when you ask. The links you check aren't stored and are
-              never linked to you. The <a href="/privacy">privacy statement</a> has the details.</p>
+              never linked to you. A "Wrong result?" report keeps that one page, with personal details removed, and
+              not who sent it. The <a href="/privacy">privacy statement</a> has the details.</p>
           </details>
           <details>
             <summary>Why not just ask an AI assistant?</summary>
             <p>A capable assistant can do much of a careful check if you ask it well, and it makes a good second
               opinion. Unfret adds records no assistant has (prices, product photos and shops it has seen before)
-              and gives the same verdict for the same evidence, with the source of every finding:
+              and gives the same answer for the same evidence, with the source of every finding:
               <a href="/why">Unfret compared</a>.</p>
           </details>
           <details>
             <summary>Do I need an account?</summary>
             <p>No. Checks are free and need no account, no pass, no name and no email: nothing ties a check to
-              you. (Developers who buy checks for the API get an Unfret pass, a code that holds them.)</p>
-          </details>
-          <details>
-            <summary>Do passes or checks expire?</summary>
-            <p>No. A pass and the checks on it don't expire, and Unfret doesn't delete a pass for not being used. A
-              pass ends when you replace it with its backup code (the old one stops working) or ask us to delete
-              it. Unfret can also retire old passes in a one-off clean-up, as at the fresh start when free checks
-              began; by default such a clean-up refuses to touch passes that bought checks.</p>
+              you.</p>
           </details>
           <details>
             <summary>How does Unfret make money?</summary>
-            <p>Shoppers' checks run on donations; developers and AI agents pay for theirs. Nothing else: no ads, no
+            <p><!-- play:off -->Shoppers' checks run on donations; developers<!-- /play:off --><!-- play:on Checks are free for shoppers; developers --> and AI agents pay for theirs. Nothing else: no ads, no
               selling data, no affiliate links to shops.
               <a href="/money">How Unfret makes money</a>.</p>
           </details>
@@ -248,7 +275,9 @@
             <summary>Who makes Unfret?</summary>
             <p>Floris van Beers, a one-person company in the Netherlands (Kroshtan). The code is open source under the
               MIT licence, and
-              the language model that reads pages runs in the EU, at Scaleway. <a href="/about">About Unfret</a>.</p>
+              the language model that reads pages runs in the EU, at Scaleway. <a href="/about">About Unfret</a>.
+              Organizations that protect consumers are welcome to <a href="mailto:hello@unfret.net">get in
+              touch</a>.</p>
           </details>
         </div>
       </div>
@@ -268,14 +297,14 @@
           </div>
           <div class="tile">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6.5a4 4 0 0 0-5.3 5.3L4 17l3 3 5.2-5.2a4 4 0 0 0 5.3-5.3l-2.5 2.5-2.5-.5-.5-2.5z"/></svg>
-            <div><h3>Tradespeople</h3><p>Call centres posing as the plumber around the corner, payment before the
+            <div><h3>Tradespeople</h3><p>Call centers posing as the plumber around the corner, payment before the
               work, prices only named at your door, and reviews copied from site to site.</p></div>
           </div>
         </div>
       </div>
     </section>
 
-    <p class="dev-line wrap">Building with Unfret? The API, x402 and the MCP server are on the
+    <p class="dev-line wrap">Building a shopping agent or an app? The paid API and the MCP server are on the
       <a href="/developers">developer page</a>.</p>
   </main>
 

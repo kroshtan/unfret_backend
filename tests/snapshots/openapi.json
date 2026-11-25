@@ -5318,7 +5318,7 @@
   },
   "/v1/labels": {
    "post": {
-    "description": "Report a wrong result: the level you think is right, and which findings are wrong or missing.\n\nSend the result's ``label_token`` back with the analysed request exactly as it was sent: the report keeps that\npage (scrubbed of personal details) for review, never who sent it. Reports never change a result; reviewed and\nagreeing reports become training data. Without a contributor key a report is anonymous, weighs little and counts\nonly where others agree; one per result. With a key: one per page (a new one replaces the old), 50 a day, and\npoints on the leaderboard (opt-in).\n\n:param body: The report.\n:param request: The incoming request.\n:return: What happened.",
+    "description": "Report a wrong result: the level you think is right, and which findings are wrong or missing.\n\nSend the result's ``label_token`` back with the analysed request exactly as it was sent: the report keeps that\npage (scrubbed of personal details) for review, never who sent it. Reports never change a result; reviewed and\nagreeing reports become training data. Without a contributor key a report is anonymous, weighs little and counts\nonly where others agree; one per result. With a key: one per page (a new one replaces the old), 50 a day, and\npoints on the leaderboard (opt-in).\n\n:param body: The report.\n:param request: The incoming request.\n:return: What happened.\n:raises crowd.LabelError: (as an HTTP error) a token for another page.",
     "operationId": "send_label_v1_labels_post",
     "requestBody": {
      "content": {

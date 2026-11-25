@@ -17,8 +17,8 @@ deep checks, background work that runs for no one in particular. Paid spend neve
 ``free_pool_daily_max_multiple`` times the base (€9), pool or not. Once the pool is empty, or the day's limit is
 spent, free deep checks pause until 00:00 UTC (``FREE_CHECKS_PAUSED``, ``reason: "spend_ceiling"``, ``scope:
 "day"``): the next day adds its base and starts a fresh day's limit. A deep check that started before finishes.
-Euros stay internal: in public the pool is a number of deep checks (:func:`checks_left_today`, at the measured average
-cost of a free deep check).
+Euros stay internal: in public the pool is a number of deep checks (:func:`checks_left_today`: what is left today at
+``public_cost_per_check_eur``, €0.05, the public figure, never the measured average).
 
 Embedding calls (the photo and review indexes) are not metered: they cost a fraction of the chat calls.
 """
@@ -393,7 +393,9 @@ async def average_free_check_micro_eur(db: Executor, config: Settings | None = N
 
 async def checks_left_today(db: Executor | None, config: Settings | None = None) -> int:
     """
-    How many free deep checks may still run today, in public: what is left, at the average cost of one.
+    How many free deep checks may still run today, in public: what is left ÷ ``public_cost_per_check_eur``.
+
+    The public figure (€0.05 a check: €3 shows 60), not the measured average, which stays internal.
 
     :param db: A pool or connection, or ``None``.
     :param config: The settings (the service's by default).
@@ -401,8 +403,22 @@ async def checks_left_today(db: Executor | None, config: Settings | None = None)
     """
     if db is None:
         return 0
-    standing_now = await standing(db, config)
-    return standing_now.left_micro_eur // await average_free_check_micro_eur(db, config)
+    config = config or settings
+    return public_checks((await standing(db, config)).left_micro_eur, config)
+
+
+def public_checks(micro_eur: int, config: Settings | None = None) -> int:
+    """
+    Euros as a number of free deep checks, in public: ``micro_eur`` ÷ ``public_cost_per_check_eur``, rounded down.
+
+    The one count /v1/pricing and /live both show (€0.05 a check: €3 is 60).
+
+    :param micro_eur: Micro-euros (negative counts as none).
+    :param config: The settings (the service's by default).
+    :return: The checks.
+    """
+    config = config or settings
+    return max(micro_eur, 0) // int(config.public_cost_per_check_eur * MICRO)
 
 
 async def add_donations(

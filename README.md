@@ -404,8 +404,8 @@ deep, with **no pass and nothing that names them or their device** (the client A
   them), spendable at once within the day's limit. All free spend draws from it (shoppers' deep checks, developer passes' free checks, background work),
   at most `UNFRET_FREE_POOL_DAILY_MAX_MULTIPLE` (3) times the base a day. Empty pool or the day's limit spent: free
   deep checks answer `429 FREE_CHECKS_PAUSED` (`reason: "spend_ceiling"`, `scope: "day"`, `message_key`,
-  `donate_url`) until 00:00 UTC. In public the pool is a number of checks (`/v1/pricing` → `free.deep_checks_left_today`),
-  never euros. Embedding calls are not metered.
+  `donate_url`) until 00:00 UTC. In public the pool is a number of checks (`/v1/pricing` → `free.deep_checks_left_today`:
+  what is left today ÷ `UNFRET_PUBLIC_COST_PER_CHECK_EUR`, €0.05, so €3 shows 60), never euros. Embedding calls are not metered.
 - **No report tokens**: a free check carries no `report_token` (reports are per account); its `label_token` and
   `share_token` work as for any result.
 
@@ -717,7 +717,7 @@ endpoint, `GET /v1/stats/live` (`unfret.live_stats`), computed at most once a mi
 `Cache-Control: public, max-age=60`: checks that answered today, this month and all time (`usage_counters`
 `checks_quick` / `checks_deep`, a number a UTC day, written with the usage events and kept for good; migration 46
 filled them from the events already recorded), free checks left today (the free pool's remainder at
-`UNFRET_LIVE_CHECK_COST_EUR`, €0.05, a check; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
+`UNFRET_PUBLIC_COST_PER_CHECK_EUR`, €0.05, a check, as `/v1/pricing` counts it; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
 (€90; this month's rows in the free pool's ledger of donations, `free_pool_donations`: a donation added with
 `make free-pool` shows within a minute), the stores' row counts, verified "Wrong result?" reports and the top ten nicknames.
 
@@ -1196,6 +1196,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_LLM_PRICES_EUR_PER_MTOK` / `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK` | Mistral Small 3.2 and GLM-5.3 / `2.00/6.00` | List prices per model, `model=input/output` in euros per million tokens, comma-separated; the second for any model not listed |
 | `UNFRET_DONATE_URL` | — | Where `/donate` redirects (an `https://` payment link); empty: donations aren't open |
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): developer passes' day's budget over this is their day's number of free deep checks |
+| `UNFRET_PUBLIC_COST_PER_CHECK_EUR` | `0.05` | The cost of a free deep check as said in public: `free.deep_checks_left_today` is the euros left today ÷ this |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
 | `UNFRET_POLAR_ORG_TAX_INCLUSIVE` | `true` | Polar's organisation-wide tax behaviour is *inclusive*: a price with no tax behaviour of its own (`null`) counts as inclusive. `false`: `null` counts as exclusive |

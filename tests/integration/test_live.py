@@ -141,6 +141,12 @@ async def test_free_checks_left_are_checks_never_euros(
     assert "3.12" not in json.dumps(stats)
 
 
+async def test_live_and_pricing_show_the_same_free_checks_left(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    live = (await client.get("/v1/stats/live")).json()["free_checks_left_today"]["value"]
+    pricing = (await client.get("/v1/pricing")).json()["free"]["deep_checks_left_today"]
+    assert live == pricing == 60  # €3 today at the public €0.05 a check
+
+
 async def test_the_leaderboard_shows_approved_nicknames_with_five_verified_reports(
     client: httpx.AsyncClient, pool: asyncpg.Pool
 ) -> None:

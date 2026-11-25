@@ -434,8 +434,8 @@ async def test_an_empty_pool_pauses_until_the_next_day_adds_its_base(pool: async
 
 async def test_the_pool_in_public_is_a_number_of_checks(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     free_doc = (await client.get("/v1/pricing")).json()["free"]
-    # €3 today at the estimated cost of a deep check (until enough have run to measure it), never euros.
-    assert free_doc["deep_checks_left_today"] == 3_000_000 // int(settings.free_check_cost_eur * 1_000_000)
+    # €3 today at the public €0.05 a check: 60, never euros, never the measured average.
+    assert free_doc["deep_checks_left_today"] == 60
     assert not any("eur" in key for key in free_doc)
     await pool.execute(
         "INSERT INTO llm_spend_days (day, free_micro_eur, free_checks) VALUES ($1, 1000000, 100)",

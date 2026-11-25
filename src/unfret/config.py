@@ -280,6 +280,9 @@ class Settings(BaseSettings):
     developer_free_daily_budget_eur: Decimal = Field(default=Decimal("1.00"), ge=0, decimal_places=2)
     developer_pow_extra_bits: int = Field(default=4, ge=0, le=8)
     free_check_cost_eur: Decimal = Field(default=Decimal("0.005"), gt=0, decimal_places=6)
+    # The cost of a free deep check as said in public: /v1/pricing's free.deep_checks_left_today (and /live) is the
+    # euros the pool and the day's limit still allow ÷ this (€3 → 60), never the measured average.
+    public_cost_per_check_eur: Decimal = Field(default=Decimal("0.05"), gt=0, decimal_places=4)
     quick_checks_per_minute: int = Field(default=10, ge=1)
     # VAT on crypto purchases (unfret.credits.vat). "nl_under_threshold": below the EU's €10,000 threshold for
     # cross-border sales, every EU buyer pays Dutch VAT and everyone else none; "per_country": each EU buyer pays
@@ -395,9 +398,9 @@ class Settings(BaseSettings):
     usage_events_retention_days: int = Field(default=400, ge=1)
 
     # The public live stats (/live, GET /v1/stats/live; unfret.live_stats): this month's donations (the free pool's
-    # ledger) against live_funding_goal_eur, and the free pool, shown as checks at live_check_cost_eur each.
+    # ledger) against live_funding_goal_eur, and the free pool, shown as checks at public_cost_per_check_eur each
+    # (the same count as /v1/pricing's free.deep_checks_left_today).
     live_funding_goal_eur: float = Field(default=90.0, gt=0)
-    live_check_cost_eur: float = Field(default=0.05, gt=0)
 
     # /terms shows a visible "draft" note at the top, for a new version of the terms that isn't approved yet.
     terms_draft: bool = False

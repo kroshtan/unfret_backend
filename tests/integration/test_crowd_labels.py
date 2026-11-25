@@ -82,7 +82,12 @@ def send(client: httpx.AsyncClient, checked: Callable[..., Awaitable[tuple[dict[
 async def test_a_report_keeps_the_page_scrubbed_and_never_who_sent_it(
     client: httpx.AsyncClient, pool: asyncpg.Pool, send: Send
 ) -> None:
-    sent = await send(level=4, wrong=["countdown"], missing=["new_domain"])
+    sent = await send(
+        level=4,
+        wrong=["countdown"],
+        missing=["new_domain"],
+        comment="I paid by bank transfer and nothing came. Mail me at jan.jansen@example.nl or +31 6 1234 5678.",
+    )
     assert sent.status_code == 201, sent.text
     assert sent.json() == {"status": "queued", "updated": False, "anonymous": True}
     item = dict(await pool.fetchrow("SELECT * FROM reports"))
@@ -98,6 +103,7 @@ async def test_a_report_keeps_the_page_scrubbed_and_never_who_sent_it(
         ["new_domain"],
         True,
     )
+    assert "jan.jansen" not in json.dumps(label, default=str)
     queue = (await client.get("/v1/admin/reports", headers=ADMIN)).json()["items"][0]
     assert queue["reports"] == {
         "count": 1,
@@ -105,6 +111,7 @@ async def test_a_report_keeps_the_page_scrubbed_and_never_who_sent_it(
         "levels": {"4": 1},
         "wrong": {"countdown": 1},
         "missing": {"new_domain": 1},
+        "comments": ["I paid by bank transfer and nothing came. Mail me at [email] or [phone]."],
     }
 
 

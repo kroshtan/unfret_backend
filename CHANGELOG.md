@@ -28,6 +28,9 @@
 
 ### One "Wrong result?" flow
 
+* **A report's comment** (`comment` on `POST /v1/labels`, 500 characters, scrubbed like page text; migration 44),
+  shown to the reviewer (`make reports`). **Every finding behind the level has a source** (`risk.because[].source`,
+  as on the card's reasons).
 * **`GET /v1/catalogue/findings`**: the finding types a shopper can mark as missing, each with a short title and its
   default level (public, cached a day), so the apps stop hard-coding them.
 * **Reports and labels are one flow** (`POST /v1/labels`): the level the shopper thinks is right (0-4) and which

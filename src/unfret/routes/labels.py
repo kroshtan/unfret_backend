@@ -61,6 +61,12 @@ class LabelRequest(BaseModel):
         max_length=crowd.MAX_TYPES,
         description="Findings this result should have shown: reason types from the copy catalogue it didn't show.",
     )
+    comment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="The shopper's own words, for the reviewer (optional). Personal details (e-mail addresses, phone "
+        "numbers, bank and card numbers, names in greetings, addresses) are removed before it is stored.",
+    )
     explanation: str = Field(default="", max_length=4000, description="The result's explanation, as returned.")
     verdict: Verdict | None = Field(default=None, description="The result's verdict, as returned.")
     contributor_key: str | None = Field(default=None, max_length=64, description=KEY_DESCRIPTION)
@@ -187,6 +193,7 @@ async def send_label(body: LabelRequest, request: Request) -> LabelResponse:
             wrong=body.wrong,
             missing=body.missing,
             contributor_key=body.contributor_key,
+            comment=body.comment,
             explanation=body.explanation,
             verdict=body.verdict.model_dump(mode="json") if body.verdict else None,
         )

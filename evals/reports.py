@@ -135,7 +135,10 @@ def _reports_line(item: dict[str, Any]) -> str:
         parts.append("wrong: " + ", ".join(f"{k}×{v}" for k, v in said["wrong"].items()))
     if said.get("missing"):
         parts.append("missing: " + ", ".join(f"{k}×{v}" for k, v in said["missing"].items()))
-    return "reports: " + "  ·  ".join(parts)
+    line = "reports: " + "  ·  ".join(parts)
+    for comment in said.get("comments", [])[:3]:
+        line += "\n  said: " + comment[:200]
+    return line
 
 
 def corpus_entry(

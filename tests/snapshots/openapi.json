@@ -1345,6 +1345,19 @@
    "LabelRequest": {
     "description": "A \"Wrong result?\" report: the level you think is right, and which findings are wrong or missing.",
     "properties": {
+     "comment": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The shopper's own words, for the reviewer (optional). Personal details (e-mail addresses, phone numbers, bank and card numbers, names in greetings, addresses) are removed before it is stored.",
+      "title": "Comment"
+     },
      "contributor_key": {
       "anyOf": [
        {
@@ -1549,6 +1562,18 @@
       ],
       "description": "The level this finding is evidence for (1\u20134, higher is worse), or null for a modifier.",
       "title": "Level"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the evidence comes from, in words, as on the card's reasons: \"The page\", \"Domain registry (RDAP)\", \u2026",
+      "title": "Source"
      },
      "title": {
       "description": "The finding in words: \"Fake countdown\".",

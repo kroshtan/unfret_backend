@@ -45,7 +45,7 @@ import structlog
 
 from unfret import crowd, levels, page_fetch, result_cache
 from unfret.config import Settings
-from unfret.reports.scrub import page_identity, page_of
+from unfret.reports.scrub import page_identity, page_of, scrub_text
 from unfret.schemas.requests import AnalyzeRequest
 from unfret.test_shop import is_test_shop
 
@@ -246,6 +246,7 @@ async def submit(
     missing: list[str],
     contributor_key: str | None = None,
     reason: Reason | None = None,
+    comment: str | None = None,
     explanation: str = "",
     verdict: dict[str, Any] | None = None,
     now: datetime | None = None,
@@ -267,6 +268,7 @@ async def submit(
     :param missing: Findings the reporter says are missing.
     :param contributor_key: The device's contributor key, or ``None``.
     :param reason: An older report's reason (``POST /v1/reports``); derived from the level otherwise.
+    :param comment: The shopper's own words, if any (scrubbed here).
     :param explanation: The explanation the reporter was shown, if sent.
     :param verdict: The verdict the reporter was shown, if sent.
     :param now: Current time (injectable for tests).
@@ -294,6 +296,7 @@ async def submit(
             wrong=wrong,
             missing=missing,
             contributor_key=contributor_key,
+            comment=scrub_text(comment.strip())[:500] if comment and comment.strip() else None,
         )
         outcome: Outcome
         report_id: int | None = None
@@ -525,7 +528,7 @@ async def queue(
         for r in await pool.fetch("SELECT id, payload FROM reports WHERE id = ANY($1)", [i["id"] for i in items])
     }
     said = await pool.fetch(
-        "SELECT page_key, level, wrong, missing, anonymous FROM report_labels "
+        "SELECT page_key, level, wrong, missing, anonymous, comment FROM report_labels "
         "WHERE page_key = ANY($1) AND NOT settled",
         [i["page_key"] for i in items],
     )
@@ -538,6 +541,7 @@ async def queue(
             "levels": dict(Counter(str(r["level"]) for r in mine if r["level"] is not None)),
             "wrong": dict(Counter(t for r in mine for t in r["wrong"])),
             "missing": dict(Counter(t for r in mine for t in r["missing"])),
+            "comments": [r["comment"] for r in mine if r["comment"]],
         }
     return items
 

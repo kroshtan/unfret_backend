@@ -218,6 +218,7 @@ async def record(
     wrong: list[str],
     missing: list[str],
     contributor_key: str | None,
+    comment: str | None = None,
 ) -> tuple[Status, float]:
     """
     Record one report's label in the caller's transaction (see the module docstring for the limits).
@@ -230,6 +231,7 @@ async def record(
     :param wrong: Reason types of the result the reporter says are wrong.
     :param missing: Reason types the reporter says the result should have found.
     :param contributor_key: The device's contributor key, or ``None`` (anonymous).
+    :param comment: The shopper's own words, scrubbed already.
     :return: recorded or updated (this contributor had reported the page before), and the label's weight.
     :raises LabelError: See :class:`LabelError`.
     """
@@ -252,7 +254,7 @@ async def record(
         if used is None:
             raise LabelError("ALREADY_LABELLED", "This result was reported already.")
         w = weight(settings, None)
-        await _insert(conn, shown, page_key, level, wrong, missing, None, w)
+        await _insert(conn, shown, page_key, level, wrong, missing, None, w, comment)
         return "recorded", w
     row = await _contributor(conn, digest)
     count = int(row["day_count"]) if row["last_label_day"] == today else 0
@@ -270,7 +272,7 @@ async def record(
         row["id"],
     )
     w = weight(settings, row)
-    await _insert(conn, shown, page_key, level, wrong, missing, row["id"], w)
+    await _insert(conn, shown, page_key, level, wrong, missing, row["id"], w, comment)
     return ("updated" if replaced else "recorded"), w
 
 
@@ -283,10 +285,11 @@ async def _insert(  # noqa: PLR0917 - one row's columns
     missing: list[str],
     contributor: int | None,
     w: float,
+    comment: str | None = None,
 ) -> None:
     await conn.execute(
         "INSERT INTO report_labels (page_key, contributor_id, anonymous, tier, shown_level, shown_types, level, "
-        "wrong, missing, weight, created_day) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        "wrong, missing, weight, created_day, comment) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
         page_key,
         contributor,
         contributor is None,
@@ -298,6 +301,7 @@ async def _insert(  # noqa: PLR0917 - one row's columns
         missing,
         w,
         _today(),
+        comment,
     )
 
 

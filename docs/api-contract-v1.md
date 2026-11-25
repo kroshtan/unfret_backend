@@ -1873,3 +1873,14 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   a payment modifier such as `irreversible_payment_only`), data rather than a rule. Clients should read this list
   instead of hard-coding it; new types may be added with a server release. `missing` accepts exactly these types
   (minus the ones the result showed); `overall` (the scorer's small signs) is not one.
+
+## Changes (a report's comment; a source for every finding behind the level; backwards-compatible)
+
+- `POST /v1/labels` takes an optional `comment` (the shopper's own words, at most 500 characters). Personal details
+  are removed before it is stored, as in report page text (e-mail addresses, phone numbers, bank and card numbers,
+  names in greetings, delivery lines); it is shown to the reviewer only, never with who wrote it. `explanation` stays
+  the result's own explanation, as returned.
+- `verdict.risk.because[]` adds `source`: where the finding's evidence comes from, in words, the same as
+  `verdict.reasons[].source` ("The page", "Domain registry (RDAP)", …), for every finding behind the level, not only
+  the three on the card.
+- Admin: `GET /v1/admin/reports` items' `reports` add `comments` (scrubbed, never who wrote them).

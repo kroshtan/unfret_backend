@@ -155,6 +155,23 @@ async def _write(pool: asyncpg.Pool, batch: list[_Event]) -> None:
         stored = {**attrs, "returning": old[account]} if account is not None and account in old else attrs
         rows.append((at, kind, route, json.dumps(stored)))
     await pool.executemany("INSERT INTO usage_events (at, kind, route, attrs) VALUES ($1, $2, $3, $4::jsonb)", rows)
+    await _count_checks(pool, batch)
+
+
+async def _count_checks(pool: asyncpg.Pool, batch: list[_Event]) -> None:
+    # Checks that answered, a number a UTC day and tier in usage_counters, kept for good (the /live page's totals;
+    # the events themselves go after usage_events_retention_days).
+    counts = Counter(
+        (f"checks_{attrs['tier']}", at.astimezone(UTC).strftime("%Y-%m-%d"))
+        for at, kind, _, attrs, _ in batch
+        if kind == "check" and attrs.get("outcome") == "ok" and attrs.get("tier") in {"quick", "deep"}
+    )
+    if counts:
+        await pool.executemany(
+            "INSERT INTO usage_counters (name, period, count) VALUES ($1, $2, $3) ON CONFLICT (name, period) "
+            "DO UPDATE SET count = usage_counters.count + EXCLUDED.count",
+            [(name, period, n) for (name, period), n in counts.items()],
+        )
 
 
 async def _run(pool: asyncpg.Pool, queue: asyncio.Queue[_Event]) -> None:

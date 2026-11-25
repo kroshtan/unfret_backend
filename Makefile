@@ -1,4 +1,4 @@
-.PHONY: levels help install lint audit android-release retire-passes free-pool test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
+.PHONY: levels help install lint audit android-release retire-passes free-pool nicknames test test-unit test-integration test-expansion e2e e2e-base e2e-oauth db-up db-down run docker-up clean corpus eu-shops balance new-classes markets opinions split label reports eval accuracy golden golden-set train model-release bump vat-rates-check safety-gate safety-gate-check deep-review deep-label-test llm-label
 .DEFAULT_GOAL := help
 
 TEST_DB_CONTAINER = unfret-test-postgres
@@ -130,6 +130,9 @@ free-pool:  ## The free pool, or add donations by hand, one ledger entry each: A
 
 retire-passes:  ## Retire every pass made before a moment (dry run unless --confirm): ARGS="--before ISO [--keep ID | --keep-from FILE]... [--confirm]"
 	uv run python -m unfret.admin_cli retire-passes $(ARGS)
+
+nicknames:  ## Review leaderboard nicknames for /live (UNFRET_URL, UNFRET_ADMIN_TOKEN[_FILE]): ARGS="list" | "approve NAME" | "reject NAME"
+	uv run python -m unfret.nicknames_cli $(ARGS)
 
 eval:  ## Score the pipeline on the corpus (EVAL_ARGS="--limit 200 --replay")
 	uv run python -m evals.run $(EVAL_ARGS)

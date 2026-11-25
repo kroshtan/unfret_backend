@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="robots" content="noindex">
-  <meta name="description" content="Unfret for Android: share a link from any app and check it on your phone itself. Download the signed APK, check it, install it.">
+  <meta name="description" content="Unfret for Android: share a link from any app and check it on your phone itself. Get it on Google Play, or the signed beta APK.">
   <title>Unfret for Android · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -18,7 +18,16 @@
     <p class="lead">Share a link to Unfret from any app and check it on your phone itself. The page opens inside
       Unfret, over your own connection, and is read on your phone when you tap <b>Check this page</b>.</p>
 
+    <section class="panel apk-play" aria-labelledby="play">
+      <h2 id="play">Get it on Google Play</h2>
+      <p>The easiest way: install Unfret from Google Play, and Play keeps it up to date.</p>
+      <p class="buttons"><a class="button primary large" href="{{play_url}}" rel="noopener">Get it on Google
+        Play</a></p>
+    </section>
+
     {{download}}
+
+    {{dev}}
 
     <h2 id="what">What it does</h2>
     <ul>
@@ -28,11 +37,12 @@
         still show it, and you can deal with a cookie banner or a captcha yourself.</li>
       <li><strong>It reads the page on your phone</strong> when you tap <b>Check this page</b>, with the same code as
         the browser extension, and tells you in plain words whether it all adds up.</li>
-      <li>It uses the checks on your Unfret pass, like the extension and the <a href="/check">link checker</a>.
-        Nothing is sold in the app: <b>Get checks</b> opens <a href="/checkout">this website</a>.</li>
+      <li><strong>Checks are free</strong>: no account, no pass, nothing sold in the app, like the extension and the
+        <a href="/check">link checker</a>.</li>
     </ul>
 
-    <h2 id="install">Install it</h2>
+    <h2 id="install">Install the APK</h2>
+    <p>Only for the APK: from Google Play, Play installs it for you.</p>
     <ol class="howto">
       <li><b>Download the APK on your phone.</b> Your browser may warn that this kind of file can harm your device:
         that's said of every app from outside Google Play. Tap <b>Download anyway</b>.</li>
@@ -48,9 +58,10 @@
     <p>It needs {{min_android}} or newer.</p>
 
     <h2 id="updates">Updates</h2>
-    <p>The app doesn't update itself yet. When a new version is out, download it from this page and open it like the
-      first time: it installs over the old one and keeps your pass. That works because every version is signed with
-      the same key.</p>
+    <p>Installed from Google Play, Play updates it. The APK doesn't update itself: when a new beta is out, download it
+      from this page and open it like the first time, and it installs over the old one. That works because every
+      version, on Play and here, is signed with the same key, and each new one has a higher version number: an APK
+      installs over the Play version, and Play takes over again once its version is newer.</p>
     <p class="muted small">If Android ever refuses an update because it conflicts with the installed app, that file was
       not signed by Unfret: don't uninstall Unfret to make it fit. (A test build you made yourself from the source
       code is signed with another key: uninstall that one first.)</p>
@@ -77,19 +88,18 @@
     <ul>
       <li><strong>Nothing is read until you tap Check this page.</strong> Loading a page sends nothing to Unfret.</li>
       <li><strong>Sent, only to unfret.net:</strong> the page address, its product facts and visible text (account
-        menus, forms, checkout and addresses that aren't the business's own are removed on your phone first), and
-        your Unfret pass. No device details, no location, no contacts.</li>
-      <li><strong>Kept on your phone:</strong> your pass, encrypted, and that you accepted the intro. The pages you
-        open are forgotten when you close them.</li>
+        menus, forms, checkout and addresses that aren't the business's own are removed on your phone first). No
+        pass, no account, no device details, no location, no contacts.</li>
+      <li><strong>Kept on your phone:</strong> that you accepted the intro. The pages you open are forgotten when you
+        close them.</li>
       <li>No ads, no trackers, no analytics or crash reporting, no Google Play Services.</li>
     </ul>
     <p>The app's full statement is
       <a href="https://git.kroshtan.com/kroshtan/unfret_android/src/branch/main/PRIVACY.md" rel="noopener">its privacy
       policy</a>; what the server keeps is on <a href="/privacy">Privacy</a>.</p>
 
-    <h2 id="play">Google Play</h2>
-    <p>Unfret will be on Google Play later, with the same app. Until then this page is the place to get it. The app is
-      open source under the MIT licence:
+    <h2 id="source">Source code</h2>
+    <p>The app is open source under the MIT licence:
       <a href="https://git.kroshtan.com/kroshtan/unfret_android" rel="noopener">source code</a>.</p>
   </main>
 

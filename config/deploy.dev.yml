@@ -37,6 +37,9 @@ env:
     # Where /donate sends "Support Unfret" (a payment link: replace it here when it runs out; clients only ever link
     # to /donate).
     UNFRET_DONATE_URL: https://checkout.revolut.com/pay/88e458d0-d084-4bea-b654-c44e568fdb18
+    # /android also offers Unfret Dev (the app's test build of main, net.unfret.android.dev, talking to dev only):
+    # dev only, never production (unfret.android_dev).
+    UNFRET_ANDROID_DEV_BUILDS: "true"
   secret:
     - UNFRET_LLM_API_KEY
     - UNFRET_POSTGRES_URI

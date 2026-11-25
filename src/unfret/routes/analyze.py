@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.callbacks import UsageMetadataCallbackHandler
 
-from unfret import card, observations, page_fetch, reports, result_cache, shares
+from unfret import card, crowd, observations, page_fetch, reports, result_cache, shares
 from unfret.auth import optional_account, require_account
 from unfret.config import settings
 from unfret.credits import affiliates, free, keys, ledger
@@ -407,6 +407,18 @@ def _response(
         report_token=report_token,
     )
     secret = settings.session_secret.get_secret_value()
+    risk = (result.get("verdict") or {}).get("risk")
+    if shared_from is not None and risk and settings.crowd_labels:
+        # Lets whoever sees this result label it (POST /v1/labels); nothing is stored now, and it names no one.
+        response.label_token = crowd.issue_token(
+            secret,
+            shared_from.url,
+            tier=tier,
+            level=int(risk["level"]),
+            types=[b["type"] for b in risk.get("because", [])]
+            + [r["type"] for r in result["verdict"].get("reasons", [])],
+            ttl_s=settings.crowd_label_token_ttl_s,
+        )
     if shared_from is not None and shared_from.tier == "deep" and secret and not result.get(_PRIVATE):
         # Lets whoever sees this result make it public later (POST /v1/shares); it names no account.
         response.share_token = shares.issue_token(

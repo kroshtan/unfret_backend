@@ -920,6 +920,61 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE INDEX oauth_spent_refresh_grant_idx ON oauth_spent_refresh (grant_id);
         """,
     ),
+    (
+        39,
+        "crowd labels and contributors",
+        """
+        -- Labels from the product (unfret.crowd): no IP address, no account, no time (the day only), no page address
+        -- (page_key is a keyed hash of it). contributors.key_hash is a keyed hash of a key made on the device. The
+        -- contributor link on a label is dropped once its page settles or after crowd_link_days (housekeeping).
+        CREATE TABLE contributors (
+            id              BIGSERIAL PRIMARY KEY,
+            key_hash        BYTEA NOT NULL UNIQUE,
+            handle          TEXT UNIQUE,
+            public          BOOLEAN NOT NULL DEFAULT FALSE,
+            reputation      REAL NOT NULL DEFAULT 1.0,
+            labels          INTEGER NOT NULL DEFAULT 0,
+            settled         INTEGER NOT NULL DEFAULT 0,
+            agreed          INTEGER NOT NULL DEFAULT 0,
+            last_label_day  DATE,
+            day_count       INTEGER NOT NULL DEFAULT 0,
+            created_on      DATE NOT NULL DEFAULT CURRENT_DATE
+        );
+        CREATE TABLE crowd_labels (
+            id              BIGSERIAL PRIMARY KEY,
+            page_key        TEXT NOT NULL,
+            contributor_id  BIGINT REFERENCES contributors(id) ON DELETE SET NULL,
+            anonymous       BOOLEAN NOT NULL,
+            tier            TEXT NOT NULL,
+            shown_level     SMALLINT NOT NULL,
+            shown_types     TEXT[] NOT NULL DEFAULT '{}',
+            level           SMALLINT CHECK (level BETWEEN 0 AND 4),
+            disagree        TEXT[] NOT NULL DEFAULT '{}',
+            weight          REAL NOT NULL,
+            settled         BOOLEAN NOT NULL DEFAULT FALSE,
+            created_day     DATE NOT NULL
+        );
+        CREATE INDEX crowd_labels_open_idx ON crowd_labels (page_key) WHERE NOT settled;
+        CREATE INDEX crowd_labels_contributor_idx ON crowd_labels (contributor_id) WHERE contributor_id IS NOT NULL;
+        CREATE TABLE crowd_tokens_used (
+            token_hash  BYTEA PRIMARY KEY,
+            expires_on  DATE NOT NULL
+        );
+        CREATE TABLE crowd_answers (
+            id           BIGSERIAL PRIMARY KEY,
+            page_key     TEXT NOT NULL,
+            level        SMALLINT NOT NULL,
+            shown_level  SMALLINT NOT NULL,
+            tier         TEXT NOT NULL,
+            disagree     TEXT[] NOT NULL DEFAULT '{}',
+            labels       INTEGER NOT NULL,
+            weight       REAL NOT NULL,
+            held         BOOLEAN NOT NULL DEFAULT FALSE,
+            settled_on   DATE NOT NULL
+        );
+        CREATE INDEX crowd_answers_page_idx ON crowd_answers (page_key);
+        """,
+    ),
 ]
 
 

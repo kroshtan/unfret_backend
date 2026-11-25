@@ -1713,3 +1713,18 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   `risk` (extension, Android, website, MCP server), then the field stays for one more minor release with its
   description saying so, then it is dropped from the shopper verdict (the x402 `band` and `never_warns_on_bands` move
   to a level-based policy in the same release).
+
+## Changes (labels from the product, contributor keys, leaderboard; backwards-compatible)
+
+- `POST /v1/analyze` (and the stream's result) adds `label_token` (absent without a URL or a risk level).
+- New `POST /v1/labels` (no sign-in): `{"label_token": str, "level"?: 0-4, "disagree"?: [reason type],
+  "contributor_key"?: str}` → 201 `{"status": "recorded"|"updated", "anonymous": bool}`. `disagree` only names types
+  the result showed (`verdict.reasons[].type`, `verdict.risk.because[].type`); a level or a disagreement is required.
+  Errors: 400 `BAD_LABEL_TOKEN` / `BAD_LABEL` / `BAD_CONTRIBUTOR_KEY`, 409 `ALREADY_LABELLED` (anonymous: one label per
+  result), 429 `LABEL_LIMIT` (50 a day per key), 503 `LABELS_PAUSED` (anonymous daily cap) / `LABELS_OFF`.
+- The contributor key: 32 random bytes in base64url without padding (43 characters), generated and stored on the
+  device, sent only with labels and contributor calls, never with a check. Losing it starts a new profile.
+- New `POST /v1/contributors` `{"contributor_key", "handle"?: str ("" removes), "public"?: bool}` → `{"handle",
+  "public", "labels", "settled", "agreed", "trusted", "rank"}` (400 `BAD_HANDLE`, 409 `HANDLE_TAKEN`);
+  `POST /v1/contributors/forget` `{"contributor_key"}` → `{"deleted": bool}`; `GET /v1/contributors/leaderboard
+  ?limit=50` → `{"entries": [{"rank", "handle", "agreed", "settled"}]}`.

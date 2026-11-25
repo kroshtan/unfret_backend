@@ -92,8 +92,14 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "usage_events",  # anonymous usage events: coarse enums only, never a page (test_usage.py)
         "uptime_probes",  # Unfret's own endpoints' health, written by the uptime probe
         "oauth_spent_refresh",  # hashes of rotated-away refresh tokens, so presenting one revokes its grant
+        "contributors",  # labels from the product (unfret.crowd): only once someone sends a label
+        "crowd_labels",
+        "crowd_tokens_used",
+        "crowd_answers",
         "schema_migrations",
     }
+    for table in ("contributors", "crowd_labels", "crowd_tokens_used", "crowd_answers"):
+        assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608 - a check stores no label
     for table in ("vat_quotes", "crypto_sales", "invites", "affiliate_passes", "affiliate_earnings", "objections"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     for table in ("oauth_clients", "oauth_codes", "oauth_grants", "oauth_spent_refresh"):

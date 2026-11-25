@@ -384,6 +384,30 @@ class Settings(BaseSettings):
     shares_per_visitor_per_day: int = 20
     shares_daily_cap: int = 1000
 
+    # Labels from the product (unfret.crowd): a result's label token is good for crowd_label_token_ttl_s. Anonymous
+    # labels weigh crowd_anonymous_weight and count only where another agrees, at most crowd_anonymous_daily_cap a day
+    # in all; a contributor key is on probation (crowd_new_key_weight) until crowd_probation_settled of its labels
+    # settled, then weighs its reputation (up crowd_reputation_up per agreement, down crowd_reputation_down per
+    # disagreement, at most crowd_max_reputation; under crowd_mute_reputation its labels weigh nothing), with
+    # crowd_key_daily_labels a day. A page settles at crowd_settle_weight; a burst over crowd_burst_labels a day that
+    # lowers the level is held for a person. Links to contributors go after crowd_link_days, open labels after
+    # crowd_open_days.
+    crowd_labels: bool = True
+    crowd_label_token_ttl_s: int = Field(default=7 * 24 * 3600, ge=60)
+    crowd_anonymous_weight: float = Field(default=0.2, ge=0)
+    crowd_anonymous_daily_cap: int = Field(default=5_000, ge=0)
+    crowd_new_key_weight: float = Field(default=0.5, ge=0)
+    crowd_probation_settled: int = Field(default=5, ge=0)
+    crowd_key_daily_labels: int = Field(default=50, ge=1)
+    crowd_reputation_up: float = Field(default=0.05, ge=0)
+    crowd_reputation_down: float = Field(default=0.15, ge=0)
+    crowd_max_reputation: float = Field(default=3.0, ge=1)
+    crowd_mute_reputation: float = Field(default=0.3, ge=0)
+    crowd_settle_weight: float = Field(default=2.0, gt=0)
+    crowd_burst_labels: int = Field(default=20, ge=2)
+    crowd_link_days: int = Field(default=30, ge=1)
+    crowd_open_days: int = Field(default=180, ge=1)
+
     # Requests from shop owners and sellers (POST /v1/objections, the /objection page): at most
     # objections_per_visitor_per_day per visitor network (in memory) and objections_daily_cap in total per UTC day; an
     # open request is deleted after objection_days at the latest (the operator deletes it once handled).

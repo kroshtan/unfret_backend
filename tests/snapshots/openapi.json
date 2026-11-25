@@ -152,6 +152,18 @@
       "description": "True when this check was one of the free ones (a pass's, or a day's without one).",
       "title": "Free Check"
      },
+     "label_token": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Pass to POST /v1/labels (no sign-in) to label this result: the page's overall risk level and the findings you disagree with (within 7 days). Absent without a URL or a risk level.",
+      "title": "Label Token"
+     },
      "page_type": {
       "anyOf": [
        {
@@ -502,6 +514,125 @@
      "first_pack_only"
     ],
     "title": "CodeCheckResponse",
+    "type": "object"
+   },
+   "Contributor": {
+    "description": "A contributor's profile.",
+    "properties": {
+     "agreed": {
+      "description": "Of those, how many agreed with the settled answer.",
+      "title": "Agreed",
+      "type": "integer"
+     },
+     "handle": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Handle"
+     },
+     "labels": {
+      "description": "Labels sent.",
+      "title": "Labels",
+      "type": "integer"
+     },
+     "public": {
+      "title": "Public",
+      "type": "boolean"
+     },
+     "rank": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Place on the public leaderboard, when on it.",
+      "title": "Rank"
+     },
+     "settled": {
+      "description": "Labels on pages whose answer has settled.",
+      "title": "Settled",
+      "type": "integer"
+     },
+     "trusted": {
+      "description": "Past probation: labels count fully.",
+      "title": "Trusted",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "handle",
+     "public",
+     "labels",
+     "settled",
+     "agreed",
+     "trusted"
+    ],
+    "title": "Contributor",
+    "type": "object"
+   },
+   "ContributorKey": {
+    "description": "A contributor key, alone.",
+    "properties": {
+     "contributor_key": {
+      "description": "Optional contributor key: 32 random bytes in base64url (43 characters, no padding), made on the device and kept there. Send it only with labels and profile calls, never with a check. Unfret keeps a keyed hash of it.",
+      "maxLength": 64,
+      "title": "Contributor Key",
+      "type": "string"
+     }
+    },
+    "required": [
+     "contributor_key"
+    ],
+    "title": "ContributorKey",
+    "type": "object"
+   },
+   "ContributorRequest": {
+    "description": "Make or change a contributor profile.",
+    "properties": {
+     "contributor_key": {
+      "description": "Optional contributor key: 32 random bytes in base64url (43 characters, no padding), made on the device and kept there. Send it only with labels and profile calls, never with a check. Unfret keeps a keyed hash of it.",
+      "maxLength": 64,
+      "title": "Contributor Key",
+      "type": "string"
+     },
+     "handle": {
+      "anyOf": [
+       {
+        "maxLength": 24,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A pseudonymous handle for the leaderboard (3-24 letters, digits, - or _); \"\" removes it.",
+      "title": "Handle"
+     },
+     "public": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Show on the public leaderboard (needs a handle).",
+      "title": "Public"
+     }
+    },
+    "required": [
+     "contributor_key"
+    ],
+    "title": "ContributorRequest",
     "type": "object"
    },
    "CreateKeyRequest": {
@@ -1271,6 +1402,129 @@
      "balance_usd_micros"
     ],
     "title": "KeyResponse",
+    "type": "object"
+   },
+   "LabelRequest": {
+    "description": "A shopper's label of one result.",
+    "properties": {
+     "contributor_key": {
+      "anyOf": [
+       {
+        "maxLength": 64,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Optional contributor key: 32 random bytes in base64url (43 characters, no padding), made on the device and kept there. Send it only with labels and profile calls, never with a check. Unfret keeps a keyed hash of it.",
+      "title": "Contributor Key"
+     },
+     "disagree": {
+      "description": "Reason types of this result you say are wrong (verdict.reasons[].type or risk.because[].type).",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 40,
+      "title": "Disagree",
+      "type": "array"
+     },
+     "label_token": {
+      "description": "The label_token from the analysis result.",
+      "maxLength": 1500,
+      "title": "Label Token",
+      "type": "string"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "maximum": 4.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The page's OVERALL risk level as you see it: 1 may not arrive or may not be safe, 2 may not work as described, 3 may cost more than it's worth, 4 pressure and tricks, 0 no concern. Optional when disagreeing with findings only.",
+      "title": "Level"
+     }
+    },
+    "required": [
+     "label_token"
+    ],
+    "title": "LabelRequest",
+    "type": "object"
+   },
+   "LabelResponse": {
+    "description": "The label is in.",
+    "properties": {
+     "anonymous": {
+      "description": "True without a contributor key: it counts only where others agree.",
+      "title": "Anonymous",
+      "type": "boolean"
+     },
+     "status": {
+      "description": "recorded, or updated (this contributor had labelled the page before).",
+      "enum": [
+       "recorded",
+       "updated"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "anonymous"
+    ],
+    "title": "LabelResponse",
+    "type": "object"
+   },
+   "Leaderboard": {
+    "description": "Contributors who opted in, past probation, by labels that agreed with the settled answer.",
+    "properties": {
+     "entries": {
+      "items": {
+       "$ref": "#/components/schemas/LeaderboardEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+     }
+    },
+    "required": [
+     "entries"
+    ],
+    "title": "Leaderboard",
+    "type": "object"
+   },
+   "LeaderboardEntry": {
+    "description": "One public contributor.",
+    "properties": {
+     "agreed": {
+      "title": "Agreed",
+      "type": "integer"
+     },
+     "handle": {
+      "title": "Handle",
+      "type": "string"
+     },
+     "rank": {
+      "title": "Rank",
+      "type": "integer"
+     },
+     "settled": {
+      "title": "Settled",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "rank",
+     "handle",
+     "agreed",
+     "settled"
+    ],
+    "title": "LeaderboardEntry",
     "type": "object"
    },
    "LevelModifier": {
@@ -4728,6 +4982,142 @@
     }
    }
   },
+  "/v1/contributors": {
+   "post": {
+    "description": "Make, change or read a contributor profile (fields left out stay as they are).\n\n:param body: The key and what to change.\n:param request: The incoming request.\n:return: The profile.",
+    "operationId": "contributor_profile_v1_contributors_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContributorRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Contributor"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Contributor Profile",
+    "tags": [
+     "Labels"
+    ]
+   }
+  },
+  "/v1/contributors/forget": {
+   "post": {
+    "description": "Delete a contributor profile. Labels already sent stay, unlinked, and no longer count.\n\n:param body: The key.\n:param request: The incoming request.\n:return: ``{\"deleted\": bool}``.",
+    "operationId": "forget_contributor_v1_contributors_forget_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContributorKey"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": {
+          "enum": [
+           true,
+           false
+          ],
+          "type": "boolean"
+         },
+         "title": "Response Forget Contributor V1 Contributors Forget Post",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Forget Contributor",
+    "tags": [
+     "Labels"
+    ]
+   }
+  },
+  "/v1/contributors/leaderboard": {
+   "get": {
+    "description": "The public leaderboard (pseudonymous handles of contributors who opted in).\n\n:param request: The incoming request.\n:param limit: How many (at most 100).\n:return: The entries.",
+    "operationId": "leaderboard_v1_contributors_leaderboard_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Leaderboard"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Leaderboard",
+    "tags": [
+     "Labels"
+    ]
+   }
+  },
   "/v1/credits": {
    "get": {
     "description": "The balance of the signed-in wallet or the API key.\n\n:param request: The incoming request.\n:param address: The account (injected by require_account).\n:return: The balance, how many analyses it covers (a developer pass's free checks apart: they are for the API),\n    and whether an invite can still be redeemed onto it.",
@@ -5463,6 +5853,48 @@
     "summary": "Recover Key",
     "tags": [
      "API keys"
+    ]
+   }
+  },
+  "/v1/labels": {
+   "post": {
+    "description": "Label a result: the page's overall risk level, and/or the findings you disagree with.\n\nSend the result's ``label_token`` back. Labels never change a result; agreeing labels become training data and a\nreview queue. Without a contributor key a label is anonymous, weighs little and counts only where others agree;\none label per result. With a key: one per page (a new one replaces the old), 50 a day.\n\n:param body: The label.\n:param request: The incoming request.\n:return: What happened.",
+    "operationId": "send_label_v1_labels_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LabelRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/LabelResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Send Label",
+    "tags": [
+     "Labels"
     ]
    }
   },

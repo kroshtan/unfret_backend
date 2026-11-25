@@ -89,6 +89,11 @@ class AnalyzeResponse(BaseModel):
         description="Pass to POST /v1/reports to report this result as wrong (within 7 days, by the same account), "
         "for a quick check as for a deep one. Absent for pages that couldn't be analysed and without an account.",
     )
+    label_token: str | None = Field(
+        default=None,
+        description="Pass to POST /v1/labels (no sign-in) to label this result: the page's overall risk level and the "
+        "findings you disagree with (within 7 days). Absent without a URL or a risk level.",
+    )
     verdict: Verdict | None = Field(
         default=None,
         description="For shoppers: the band in words, a headline and up to three plain reasons, in English.",

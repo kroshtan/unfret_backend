@@ -214,7 +214,7 @@ def use_model(model: Runnable[Any, Any] | None) -> None:
 def _model(name: str, base_url: str, api_key: str, timeout_s: float) -> Runnable[Any, Any]:
     return ChatOpenAI(
         model=name,
-        callbacks=[SpendMeter(name)],  # this month's LLM spend (unfret.spend)
+        callbacks=[SpendMeter(name)],  # the LLM spend, free or paid (unfret.spend)
         base_url=base_url,
         api_key=api_key,  # type: ignore[arg-type]
         temperature=0,

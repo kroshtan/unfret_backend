@@ -901,7 +901,7 @@ def deep_check_cost(
 
 def shopper_deep_check_cost(*, paused: bool, donate: bool = True) -> tuple[str, DeepAction | None]:
     """
-    What a deep check costs a shopper (no bought checks): nothing, unless this month's free ones are paused.
+    What a deep check costs a shopper (no bought checks): nothing, unless free ones are paused until 00:00 UTC.
 
     :param paused: Whether free deep checks are paused (the month's LLM spend ceiling).
     :param donate: Whether the client may show a donate link (a Google Play build may not).

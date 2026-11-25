@@ -354,7 +354,7 @@ class DeepCheck(BaseModel):
     action: Literal["run_deep", "get_checks", "donate"] | None = Field(
         default=None,
         description="run_deep: the caller can run it now (tier deep; free for a shopper); get_checks: it needs checks "
-        "first (a pass on /v1/check); donate: free deep checks are paused this month (link to /donate).",
+        "first (a pass on /v1/check); donate: free deep checks are paused until 00:00 UTC (link to /donate).",
     )
     action_label: str | None = Field(default=None, description='"Run a deep check", "Get checks" or "Support Unfret".')
 

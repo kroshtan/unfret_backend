@@ -1815,22 +1815,22 @@ Errors (all JSON `{"detail", "error_code", "metadata"?}`):
 | --- | --- | --- | --- |
 | `PROOF_OF_WORK_REQUIRED` | 428 | no `proof_of_work` (also: a pass without bought checks, whose check is a free one) | get a challenge, solve, resend |
 | `BAD_CHALLENGE` | 400 | forged, expired, already used, too easy or unsolved | get a new challenge |
-| `FREE_CHECKS_PAUSED` | 429 | this month's LLM spend ceiling is reached | show the pause; offer a quick check |
+| `FREE_CHECKS_PAUSED` | 429 | the free pool is empty, or today's limit is spent | show the pause; offer a quick check |
 | `TOO_MANY_REQUESTS` | 429 | too many free deep checks from this network this hour (`metadata.retry_after_s`) | wait |
 | `SERVICE_UNAVAILABLE` | 503 | free deep checks can't be offered right now | quick check, retry later |
 
-**The pause (spend ceiling).** `FREE_CHECKS_PAUSED`'s `metadata` (also `pause` on the challenge and
-`/v1/pricing`'s `free.pause`): `{"reason": "spend_ceiling", "retry_after_s": int (to the 1st of next month, 00:00
-UTC), "quick_checks": true, "message_key": "free_checks_run_on_donations", "donate_url":
-"https://unfret.net/donate"}`. Clients show their own words for `message_key` (e.g. "Free deep checks are paused until
-next month: they run on donations.") with a "Support Unfret" link to `donate_url`. A quick result's suggestion of a
+**The pause (the free pool).** `FREE_CHECKS_PAUSED`'s `metadata` (also `pause` on the challenge
+and `/v1/pricing`'s `free.pause`): `{"reason": "spend_ceiling", "scope": "day", "retry_after_s": int (to 00:00 UTC),
+"quick_checks": true, "message_key": "free_checks_run_on_donations", "donate_url": "https://unfret.net/donate"}`.
+Clients show their own words for `message_key` (e.g. "Free deep checks are paused until tomorrow: they run on
+donations.") with a "Support Unfret" link to `donate_url`. `scope` is always `day`. A quick result's suggestion of a
 deep check carries `action: "donate"` (label "Support Unfret") while paused, `action: "run_deep"` ("Deep checks are
 free.") otherwise. Bought checks, developer passes' bought checks and x402 are never paused.
 
 **Clients that may not link to donations** (a Google Play build): send `X-Unfret-Donate: off` with the challenge,
 the check and `/v1/pricing`. The pause then has `message_key: "free_checks_paused"` and no `donate_url`, the detail
 doesn't mention donations, and a paused deep-check suggestion has no action (`action` and `action_label` absent;
-`cost`: "Free deep checks are paused until next month. Quick checks still work.").
+`cost`: "Free deep checks are paused until 00:00 UTC. Quick checks still work.").
 
 **Older store clients** (the extension and the Android app before the free-check versions) keep working: they send
 their pass with a deep check and solve no challenge. A pass without bought checks then stands in for the proof of
@@ -1855,13 +1855,13 @@ without bought checks is not charged and not tied to the check (see "Older store
 `"free": true` (a shopper's pass has no free checks any more; migration 43 sets them to 0). `POST /v1/keys/move-free-checks` always answers `{"moved": 0}` (deprecated).
 
 **Developer passes** (API, MCP): 20 free deep checks each on `POST /v1/check` only, then bought packs, as before; their
-free checks pause with the day's developer budget or the month's spend ceiling (402 `INSUFFICIENT_CREDITS`, detail
-"Free developer checks are paused until next month. ..." at the ceiling). The MCP server's OAuth sign-in page now
+free checks pause with the day's developer budget or the free LLM budget (402 `INSUFFICIENT_CREDITS`, "...back at
+00:00 UTC...", `metadata.retry_after_s`). The MCP server's OAuth sign-in page now
 makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`). x402 is unchanged.
 
 **Removed:** the shoppers' daily free-check budget (`UNFRET_FREE_CHECKS_PER_PASS`, `UNFRET_FREE_PASSES_PER_IP_PER_DAY`,
 `UNFRET_FREE_DAILY_BUDGET_EUR`). **New settings:** `UNFRET_DEEP_POW_BITS`, `UNFRET_DEEP_POW_TTL_S`,
-`UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_PRICES_EUR_PER_MTOK`,
+`UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR`, `UNFRET_LLM_SPEND_CEILING_EUR` (replaced by the pool, below), `UNFRET_LLM_PRICES_EUR_PER_MTOK`,
 `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK`, `UNFRET_DONATE_URL`. Migration 43: `llm_spend` (one number a month).
 
 ## Changes (the findings catalogue; backwards-compatible)
@@ -1884,3 +1884,23 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
   `verdict.reasons[].source` ("The page", "Domain registry (RDAP)", …), for every finding behind the level, not only
   the three on the card.
 - Admin: `GET /v1/admin/reports` items' `reports` add `comments` (scrubbed, never who wrote them).
+
+## Changes (the free pool replaces the monthly ceiling; paid spend apart; migration 45)
+
+- **A pool, not a monthly ceiling.** Each UTC day adds the daily base (`UNFRET_FREE_POOL_DAILY_BASE_EUR`, €3) to one
+  free pool; its base part stops growing at `UNFRET_FREE_POOL_BASE_CAP_DAYS` (30) days' worth. Donations are added by
+  hand (`POST /v1/admin/free-pool/donations` `{"amount_eur", "note"}`, `make free-pool ARGS="add 25 --note ..."`;
+  ledger: amount, day, note, nothing about donors) on top of that cap. All free LLM spend draws from the pool (the base
+  part first): shoppers' free deep checks, developer passes' free deep checks, background work. Paid spend (bought
+  checks, x402) never does: it is metered apart and never pauses anything. A day may spend at most `UNFRET_FREE_POOL_DAILY_MAX_MULTIPLE` (3) times the base.
+- **The pause is always until 00:00 UTC:** `FREE_CHECKS_PAUSED`'s `metadata` (and the challenge's and `/v1/pricing`'s
+  `pause`) adds `scope: "day"` (always); `retry_after_s` counts to 00:00 UTC; `message_key`, `donate_url` and
+  `X-Unfret-Donate: off` work as before. It comes when the pool is empty or the day's limit is spent.
+  `/v1/pricing` → `free.back_at` is `"00:00 UTC"`. A developer pass with only free checks gets the same 402 ("back at
+  00:00 UTC"). The deep-check suggestion's paused cost reads "Free deep checks are paused until 00:00 UTC: they run
+  on donations."
+- **In public the pool is checks, not euros:** `GET /v1/pricing` → `free.deep_checks_left_today` (what the pool and
+  the day's limit still allow, at the measured average cost of a free deep check; 0 while paused). `GET
+  /v1/admin/free-pool` (operator) shows the euros and the ledger.
+- Settings removed: `UNFRET_LLM_SPEND_CEILING_EUR`, `UNFRET_LLM_SPEND_DAILY_PACING`. Migration 45: `free_pool`,
+  `llm_spend_days` (free and paid spend and free deep checks a day), `free_pool_donations`; `llm_spend` is dropped.

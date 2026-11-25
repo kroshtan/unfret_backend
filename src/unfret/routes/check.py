@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from unfret import __version__, clients_info, observations, usage, verdict_store
+from unfret import __version__, clients_info, observations, spend, usage, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
 from unfret.net import fetch_public_page
@@ -694,6 +694,7 @@ async def _analyse_before_settling(
     graph = request.app.graph if body.tier == "deep" else request.app.quick_graph
     if graph is None:
         return JSONResponse({"detail": "Analysis is not available.", "error_code": "SERVICE_UNAVAILABLE"}, 503)
+    spend.paying()  # paid over x402: never the free budget
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
             with observations.observed_as(_provenance(request, body)):
@@ -859,6 +860,7 @@ async def _paid_check(  # noqa: PLR0911
     if fast is not None:
         logger.info("check_fast_path", tier=body.tier)
         return 200, fast.model_dump(mode="json"), paid
+    spend.paying()  # paid over x402: never the free budget
     try:
         async with asyncio.timeout(min(settings.analysis_timeout_s, settings.x402_analysis_timeout_s)):
             with observations.observed_as(_provenance(request, body)):
@@ -1299,7 +1301,7 @@ pass's checks (free ones first), a quick check is free (a few a minute), and the
 `balance_usd_micros` and `free_checks_left`. A developer pass (steps above) comes with {dev["free_deep_checks"]} free
 deep checks, for the API and the MCP server: they count on POST /v1/check only, not on /v1/analyze (the website, the
 browser extension, the phone app). It is for trying Unfret out: one per network a day, and developer passes' free
-checks have their own daily budget: once it is used (or this month's LLM spend ceiling is reached), a developer
+checks have their own daily budget: once it is used (or the free pool is spent for the day), a developer
 pass with only free checks gets 402 INSUFFICIENT_CREDITS until it is back (`retry_after_s`). Buy more checks for a
 pass at {url}/checkout; bought checks work everywhere. GET {url}/v1/credits with the pass answers
 `checks_remaining`, `api_free_checks_remaining` (a developer pass's), `free_checks_paused` and

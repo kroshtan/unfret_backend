@@ -78,7 +78,9 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "ad_contacts",
         "x402_audit_cursor",  # hot-wallet transactions only (the outflow audit), never a page or a caller
         "x402_audit_flags",
-        "llm_spend",  # the LLM spend a month: one number, nothing about a page or a caller
+        "llm_spend_days",  # the LLM spend a day: numbers, nothing about a page or a caller
+        "free_pool",  # the free pool: one row of numbers
+        "free_pool_donations",  # amounts, days and notes, nothing about donors
         "objections",  # what a shop owner sends from /objection, never a check
         "oauth_clients",  # the MCP server's OAuth (unfret.oauth): clients, and hashes of codes and tokens for a pass
         "oauth_codes",

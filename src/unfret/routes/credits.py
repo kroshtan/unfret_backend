@@ -74,9 +74,9 @@ class CreditsResponse(BaseModel):
     )
     free_checks_paused: bool = Field(
         default=False,
-        description="Free deep checks are paused: this month's LLM spend ceiling (back next month), or for a "
-        "developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC). Bought checks and quick "
-        "checks work.",
+        description="Free deep checks are paused: the free pool, or the day's limit on it, is used up for today, "
+        "or for a developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC either way). Bought "
+        "checks and quick checks work.",
     )
     api_free_checks_remaining: int = Field(
         default=0,
@@ -196,15 +196,19 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     document["local_payment_method"] = _method_document(method) if method else None
     document["api_keys"] = door.sign_in_enabled
     # The free tier: quick and deep checks are free for shoppers, with no pass (a deep one with a proof of work),
-    # until this month's LLM spend reaches its ceiling; a developer pass comes with its own free deep checks.
-    paused = (await spend.ceiling(request.app.db_pool, settings)).reached
+    # while the free pool and the day's limit allow (unfret.spend); a developer pass has its own free deep checks.
+    standing = await spend.standing(request.app.db_pool, settings)
+    paused = standing.scope is not None
     donate = donate_allowed(request)
     document["free"] = {
         "quick_checks": True,
         "deep_checks": True,
         "paused": paused,
-        "back_at": "the 1st of next month, 00:00 UTC",
-        **({"pause": paused_metadata(donate=donate)} if paused else {}),
+        "back_at": "00:00 UTC",
+        # What the free pool still allows today, in deep checks (at the measured average cost of one): euros stay
+        # internal. 0 while paused.
+        "deep_checks_left_today": await spend.checks_left_today(request.app.db_pool, settings),
+        **({"pause": paused_metadata(standing, donate=donate)} if paused else {}),
         "proof_of_work": {"challenge_url": "/v1/analyze/challenge", "bits": settings.deep_pow_bits},
         **({"donate_url": donate_link()} if donate else {}),
         "developer_checks_per_pass": settings.developer_free_checks,
@@ -243,7 +247,7 @@ async def get_balance(request: Request, address: str = Depends(require_account))
     # An older store client checks with its pass, and offers a deep check only while this says there are checks:
     # the free deep checks its pass may still run this hour (see analyze._free_gate), paused at the spend ceiling.
     # Only while it has no bought checks: those pay first, and are what it shows then.
-    ceiling = (await spend.ceiling(pool, settings)).reached
+    ceiling = (await spend.standing(pool, settings)).scope is not None
     bought = max(balance, 0) // settings.analysis_price_usd_micros
     legacy = 0 if developer or bought else legacy_free_left(address)
     return CreditsResponse(

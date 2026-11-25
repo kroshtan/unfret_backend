@@ -36,7 +36,7 @@ def get_llm() -> BaseChatModel:
     """
     return ChatOpenAI(
         model=settings.llm_model,
-        callbacks=[SpendMeter(settings.llm_model)],  # this month's LLM spend (unfret.spend)
+        callbacks=[SpendMeter(settings.llm_model)],  # the LLM spend, free or paid (unfret.spend)
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
         temperature=0,
@@ -182,7 +182,7 @@ def get_vision_llm() -> BaseChatModel:
     """
     return ChatOpenAI(
         model=settings.photo_claims_model,
-        callbacks=[SpendMeter(settings.photo_claims_model)],  # this month's LLM spend (unfret.spend)
+        callbacks=[SpendMeter(settings.photo_claims_model)],  # the LLM spend, free or paid (unfret.spend)
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
         temperature=0,
@@ -249,7 +249,7 @@ def get_claims_llm() -> BaseChatModel:
     """
     return ChatOpenAI(
         model=settings.claim_audit_model,
-        callbacks=[SpendMeter(settings.claim_audit_model)],  # this month's LLM spend (unfret.spend)
+        callbacks=[SpendMeter(settings.claim_audit_model)],  # the LLM spend, free or paid (unfret.spend)
         base_url=settings.llm_base_url,
         api_key=settings.llm_api_key,
         temperature=0,

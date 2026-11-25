@@ -4,7 +4,12 @@ What the operator's command-line tools share: a client for the running service's
 Environment: ``UNFRET_URL`` (default https://unfret.net) and ``UNFRET_ADMIN_TOKEN``, or ``UNFRET_ADMIN_TOKEN_FILE``
 (default ``~/kroshtan_secrets/unfret-prod-admin-token``).
 
-Command::
+Commands::
+
+    free-pool [add EUR --note TEXT]
+
+Show the free pool (:mod:`unfret.spend`), or add a donation to it by hand: the amount in euros and a note for the
+ledger, never who gave. Usage: ``make free-pool ARGS="add 25 --note 'Revolut, 25 Nov'"``.
 
     retire-passes --before ISO [--keep KEY_ID]... [--keep-from FILE]... [--confirm]
                   [--include-wallet-balances] [--include-purchases]
@@ -82,6 +87,10 @@ def _key_id(value: str) -> str:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m unfret.admin_cli", description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
+    pool = commands.add_parser("free-pool", help="show the free pool, or add a donation to it")
+    pool.add_argument("action", nargs="?", choices=["add"], help="add a donation")
+    pool.add_argument("amount", nargs="?", help="the amount in euros, e.g. 25 or 12.50")
+    pool.add_argument("--note", default="", help="a short note for the ledger (never the donor)")
     retire = commands.add_parser("retire-passes", help="retire every pass made before a moment (dry run by default)")
     retire.add_argument("--before", type=_moment, required=True, help="ISO date or time, UTC unless it says otherwise")
     retire.add_argument("--keep", type=_key_id, action="append", default=[], help="a pass's key id to keep")
@@ -158,6 +167,35 @@ def describe(r: dict[str, Any], target: str) -> str:
     return "\n".join(text)
 
 
+def free_pool(api: httpx.Client, args: argparse.Namespace) -> int:
+    """
+    Show the free pool, or add a donation to it, and print the pool.
+
+    :param api: The admin client.
+    :param args: The parsed command line.
+    :return: The exit status: 1 when the service refused (or the request failed).
+    """
+    if args.action == "add":
+        if not args.amount:
+            print("Say how much: free-pool add 25 --note '...'", file=sys.stderr)  # noqa: T201
+            return 1
+        response = api.post("/v1/admin/free-pool/donations", json={"amount_eur": args.amount, "note": args.note})
+    else:
+        response = api.get("/v1/admin/free-pool")
+    if response.is_error:
+        print(f"Failed ({response.status_code}): {response.text[:300]}", file=sys.stderr)  # noqa: T201
+        return 1
+    pool = response.json()
+    print(  # noqa: T201 - command-line tool
+        f"Pool €{pool['pool_eur']} (base €{pool['base_eur']}, donated €{pool['donated_eur']}); today €"
+        f"{pool['spent_today_eur']} of €{pool['day_limit_eur']}; a free deep check ≈ €{pool['average_check_eur']}; "
+        f"{pool['checks_left_today']} left today{' (paused)' if pool['paused'] else ''}"
+    )
+    for donation in pool["donations"][:10]:
+        print(f"  #{donation['id']} {donation['day']} €{donation['eur']} {donation['note']}")  # noqa: T201
+    return 0
+
+
 def run(api: httpx.Client, argv: list[str], target: str = "") -> int:
     """
     Run one command and print the outcome.
@@ -168,6 +206,8 @@ def run(api: httpx.Client, argv: list[str], target: str = "") -> int:
     :return: The exit status: 1 when the service refused (or the request failed).
     """
     args = _parser().parse_args(argv)
+    if args.command == "free-pool":
+        return free_pool(api, args)
     body = {
         "before": args.before.isoformat(),
         "keep": keep_ids(args),

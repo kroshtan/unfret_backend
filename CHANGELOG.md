@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### The free pool
+
+* All free LLM spend (shoppers' free deep checks, developer passes' free checks, background work) draws from one free
+  pool: each UTC day adds its base (`UNFRET_FREE_POOL_DAILY_BASE_EUR`, €3), the base part capped at 30 days' worth;
+  donations go in by hand on top (`make free-pool`, `POST /v1/admin/free-pool/donations`, a ledger of amount, day and
+  note). A day spends at most three times the base. Empty pool or the day's limit spent: free deep checks pause until
+  00:00 UTC (`FREE_CHECKS_PAUSED`, `scope: "day"`). LLM calls for bought checks and x402 are metered apart and never
+  pause. `/v1/pricing` → `free.deep_checks_left_today` shows the pool as checks. Migration 45 (`free_pool`,
+  `llm_spend_days`, `free_pool_donations`; the monthly `llm_spend` and its settings are gone).
+
 ### Free checks for shoppers
 
 * **Quick and deep checks are free, with no pass and no identity** (the extension, the Android app, `/check`). A free

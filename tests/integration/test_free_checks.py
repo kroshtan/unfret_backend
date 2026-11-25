@@ -1,6 +1,7 @@
-"""Free checks for shoppers: quick and deep with no pass, the proof of work, and the month's LLM spend ceiling."""
+"""Free checks for shoppers: quick and deep with no pass, the proof of work, and the free pool."""
 
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,7 +26,8 @@ def easy_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "public_base_url", "https://unfret.test")
     monkeypatch.setattr(analyze, "_quick_rate", analyze.RateLimit(1000))
     monkeypatch.setattr(analyze, "_free_deep_rate", analyze.RateLimit(1000, window_s=3600))
-    spend._pending.take()  # nothing metered by another test
+    for pending in (spend._pending, spend._pending_paid, spend._pending_checks):
+        pending.take()  # nothing metered by another test
 
 
 @pytest.fixture
@@ -47,10 +49,11 @@ async def free_deep(client: httpx.AsyncClient, body: dict[str, Any] | None = Non
 
 
 async def at_ceiling(pool: asyncpg.Pool) -> None:
+    """The free pool is empty: free deep checks pause until 00:00 UTC."""
     await pool.execute(
-        "INSERT INTO llm_spend (month, micro_eur) VALUES ($1, $2)",
-        spend.month(),
-        int(settings.llm_spend_ceiling_eur * 1_000_000),
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, 0, 0, $1) "
+        "ON CONFLICT (id) DO UPDATE SET base_micro_eur = 0, donated_micro_eur = 0, credited_day = $1",
+        spend.today(),
     )
 
 
@@ -201,7 +204,7 @@ async def test_the_spend_ceiling_pauses_free_deep_checks_only(
     assert meta["reason"] == "spend_ceiling" and meta["quick_checks"] is True
     assert meta["message_key"] == "free_checks_run_on_donations"
     assert meta["donate_url"] == "https://unfret.test/donate"
-    assert 0 < meta["retry_after_s"] <= 31 * 24 * 3600
+    assert 0 < meta["retry_after_s"] <= 24 * 3600 and meta["scope"] == "day"
     assert "donations" in paused.json()["detail"]
     challenge = (await client.get("/v1/analyze/challenge")).json()
     assert challenge["paused"] is True and challenge["pause"] == {
@@ -218,23 +221,25 @@ async def test_the_spend_ceiling_pauses_free_deep_checks_only(
     assert len(graph.calls) == 1  # the free one never ran
 
 
-async def test_the_spend_counts_from_the_meter_and_the_month_starts_over(pool: asyncpg.Pool) -> None:
+async def test_the_spend_counts_from_the_meter_and_draws_from_the_pool(pool: asyncpg.Pool) -> None:
     spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 1_000_000)  # €0.15 + €0.35
     spend.record("some-new-model", 1_000_000, 0)  # not listed: the high price, €2.00
-    assert await spend.spent_micro_eur(pool) == 2_500_000
+    assert await spend.spent_free_micro_eur(pool) == 2_500_000
+    before = await spend.standing(pool)
+    assert before.pool_micro_eur == 3_000_000 - 2_500_000  # the first day's base, what is in memory counted
     await spend.flush(pool)
-    assert await pool.fetchval("SELECT micro_eur FROM llm_spend WHERE month = $1", spend.month()) == 2_500_000
-    assert await spend.spent_micro_eur(pool) == 2_500_000  # nothing counted twice
-    assert await spend.spent_micro_eur(pool, "2001-01") == 0
-    assert not (await spend.ceiling(pool)).reached
+    row = await pool.fetchrow("SELECT * FROM llm_spend_days WHERE day = $1", spend.today())
+    assert (row["free_micro_eur"], row["paid_micro_eur"]) == (2_500_000, 0)
+    assert await spend.spent_free_micro_eur(pool) == 2_500_000  # nothing counted twice
+    after = await spend.standing(pool)
+    assert (after.pool_micro_eur, after.spent_today_micro_eur) == (500_000, 2_500_000) and not after.reached
 
 
 async def test_the_meter_prices_a_models_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "llm_prices_eur_per_mtok", "m=1.00/2.00")
     assert spend.cost_micro_eur("m", 1000, 500) == 2000  # €0.001 + €0.001
     assert spend.cost_micro_eur("m", 1, 0) == 1  # rounded up: never free
-    monkeypatch.setattr(settings, "llm_spend_ceiling_eur", Decimal("0.001"))
-    assert (await spend.ceiling(None)).reached  # without a database nothing can be metered: paused
+    assert (await spend.standing(None)).reached  # without a database nothing can be metered: paused
 
 
 async def test_free_deep_checks_per_network_are_limited_an_hour(
@@ -298,7 +303,7 @@ def _request(pool: asyncpg.Pool, headers: dict[str, str] | None = None) -> Any:
 
 async def test_nothing_about_the_network_or_the_check_is_stored(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
     await free_deep(client)
-    tables = ["api_keys", "usage_counters", "wallets", "llm_spend"]
+    tables = ["api_keys", "usage_counters", "wallets", "llm_spend_days", "free_pool"]
     dump = json.dumps([[dict(r) for r in await pool.fetch(f"SELECT * FROM {t}")] for t in tables], default=str)  # noqa: S608
     assert "127.0.0.1" not in dump and "testclient" not in dump and "shop.test" not in dump
     assert await pool.fetchval("SELECT count(*) FROM api_keys") == 0  # no pass was made
@@ -341,7 +346,119 @@ async def test_donate_redirects_to_the_configured_link_and_counts_only(
     assert (response.status_code, response.headers["location"]) == (302, "https://pay.example/link")
     assert response.headers["cache-control"] == "no-store"
     rows = [dict(r) for r in await pool.fetch("SELECT * FROM usage_counters WHERE name = 'donate_clicks'")]
-    assert rows == [{"name": "donate_clicks", "period": spend.month(), "count": 1}]
+    assert rows == [{"name": "donate_clicks", "period": spend.today().strftime("%Y-%m"), "count": 1}]
     page = (await client.get("/support")).text
     assert 'href="/donate"' in page and "pay.example" not in page  # the page links to /donate, never the link
     assert "Nothing in return" in page
+
+
+# ── The free pool ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+async def test_each_day_adds_its_base_up_to_thirty_days_worth(pool: asyncpg.Pool) -> None:
+    day1 = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+    await pool.execute(
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, 3000000, 0, $1)",
+        day1.date(),
+    )
+    assert (await spend.standing(pool, now=day1 + timedelta(days=4))).pool_micro_eur == 15_000_000  # 5 days: €15
+    # The base part stops growing at 30 days' worth (€90), however long nothing is spent.
+    assert (await spend.standing(pool, now=day1 + timedelta(days=100))).pool_micro_eur == 90_000_000
+
+
+async def test_donations_go_on_top_of_the_cap_but_a_day_spends_three_times_the_base(pool: asyncpg.Pool) -> None:
+    await pool.execute(
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, 90000000, 0, $1)",
+        spend.today(),
+    )
+    donation = await spend.add_donation(pool, Decimal(50), "Revolut, by hand")
+
+    now = await spend.standing(pool)
+    assert now.pool_micro_eur == 140_000_000 and now.day_limit_micro_eur == 9_000_000
+    assert now.left_micro_eur == 9_000_000  # the day's limit, not the pool
+    ledger = [dict(r) for r in await pool.fetch("SELECT day, micro_eur, note FROM free_pool_donations")]
+    assert donation > 0 and ledger == [{"day": spend.today(), "micro_eur": 50_000_000, "note": "Revolut, by hand"}]
+    # Spending €9 in a day pauses free checks until 00:00 UTC, with €131 still in the pool.
+    spend.record("some-new-model", 4_500_000, 0)  # €9
+    await spend.flush(pool)
+    paused = await spend.standing(pool)
+    assert paused.reached and paused.scope == "day" and 0 < paused.retry_after_s() <= 24 * 3600
+    assert paused.pool_micro_eur == 131_000_000
+    # The base part was drawn first; the donation is still whole.
+    assert await pool.fetchval("SELECT donated_micro_eur FROM free_pool") == 50_000_000
+
+
+async def test_an_empty_pool_pauses_until_the_next_day_adds_its_base(pool: asyncpg.Pool) -> None:
+    today = datetime(2026, 11, 10, 18, 0, tzinfo=UTC)
+    await pool.execute(
+        "INSERT INTO free_pool (id, base_micro_eur, donated_micro_eur, credited_day) VALUES (1, 0, 0, $1)",
+        today.date(),
+    )
+    assert (await spend.standing(pool, now=today)).reached
+    tomorrow = await spend.standing(pool, now=today + timedelta(hours=7))
+    assert not tomorrow.reached and tomorrow.pool_micro_eur == 3_000_000
+
+
+async def test_the_pool_in_public_is_a_number_of_checks(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    free_doc = (await client.get("/v1/pricing")).json()["free"]
+    # €3 today at the estimated cost of a deep check (until enough have run to measure it), never euros.
+    assert free_doc["deep_checks_left_today"] == 3_000_000 // int(settings.free_check_cost_eur * 1_000_000)
+    assert not any("eur" in key for key in free_doc)
+    await pool.execute(
+        "INSERT INTO llm_spend_days (day, free_micro_eur, free_checks) VALUES ($1, 1000000, 100)",
+        spend.today() - timedelta(days=1),
+    )
+    assert await spend.average_free_check_micro_eur(pool) == 10_000  # measured: €1 over 100 checks
+    await at_ceiling(pool)
+    assert (await client.get("/v1/pricing")).json()["free"]["deep_checks_left_today"] == 0
+
+
+async def test_the_operator_adds_a_donation(client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import SecretStr  # noqa: PLC0415
+
+    monkeypatch.setattr(settings, "admin_token", SecretStr("operator-token"))
+    admin = {"Authorization": "Bearer operator-token"}
+    added = await client.post(
+        "/v1/admin/free-pool/donations", json={"amount_eur": "25", "note": "Revolut"}, headers=admin
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["donated_eur"] == "25.00" and added.json()["donations"][0]["note"] == "Revolut"
+    shown = (await client.get("/v1/admin/free-pool", headers=admin)).json()
+    assert shown["pool_eur"] == "28.00"  # today's base and the donation
+    assert (await client.get("/v1/admin/free-pool")).status_code in {401, 403}
+
+
+async def test_paid_spend_never_counts_towards_the_free_budget(pool: asyncpg.Pool) -> None:
+    spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 0, paid=True)  # €0.15, a bought check's
+    spend.record("mistral-small-3.2-24b-instruct-2506", 1_000_000, 0)  # €0.15, free
+    assert await spend.spent_free_micro_eur(pool) == 150_000
+    await spend.flush(pool)
+    row = await pool.fetchrow("SELECT * FROM llm_spend_days WHERE day = $1", spend.today())
+    assert (row["free_micro_eur"], row["paid_micro_eur"]) == (150_000, 150_000)
+
+
+async def test_a_bought_checks_llm_calls_count_as_paid(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    import contextvars  # noqa: PLC0415
+
+    def in_task(paid: bool) -> None:
+        spend.paying(paid)
+        spend.record("m", 1_000_000, 0)
+
+    contextvars.copy_context().run(in_task, True)
+    contextvars.copy_context().run(in_task, False)
+    await spend.flush(pool)
+    row = await pool.fetchrow("SELECT * FROM llm_spend_days WHERE day = $1", spend.today())
+    assert row["free_micro_eur"] == row["paid_micro_eur"] == 2_000_000  # the unlisted price, €2 a million
+
+
+async def test_the_pause_says_until_midnight(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    await at_ceiling(pool)
+    paused = await free_deep(client)
+    meta = paused.json()["metadata"]
+    assert meta["scope"] == "day" and 0 < meta["retry_after_s"] <= 24 * 3600
+    assert "until 00:00 UTC" in paused.json()["detail"]
+    off = await client.post(
+        "/v1/analyze", json={**PAGE, "proof_of_work": await solved(client)}, headers={"X-Unfret-Donate": "off"}
+    )
+    assert off.json()["metadata"]["scope"] == "day" and "donate_url" not in off.json()["metadata"]
+    assert (await client.get("/v1/pricing")).json()["free"]["back_at"] == "00:00 UTC"

@@ -13,8 +13,8 @@ the pass pays from bought checks (packs), as before.
 
 **The budget.** Every developer free deep check counts towards a global counter a UTC day (``usage_counters``
 ``developer_free_checks``: a number per day, nothing about anyone), capped at
-:attr:`unfret.config.Settings.developer_free_daily_checks_cap`. Once it is reached, or once this month's LLM spend
-reaches the ceiling (:mod:`unfret.spend`), a developer pass with only free checks is answered as an empty pass is
+:attr:`unfret.config.Settings.developer_free_daily_checks_cap`. Once it is reached, or once the free pool or the day's
+limit is spent (:mod:`unfret.spend`), a developer pass with only free checks is answered as an empty pass is
 (``developer_paused``), saying when they are back. Bought checks and quick checks go on either way. A free check whose
 analysis fails or can't be done is given back, to the pass and to the day's budget.
 """
@@ -89,20 +89,19 @@ async def paused(db: Executor, settings: Settings) -> bool:
     cap = settings.developer_free_daily_checks_cap
     if cap <= 0 or await used_today(db) >= cap:
         return True
-    return (await spend.ceiling(db, settings)).reached
+    return (await spend.standing(db, settings)).reached
 
 
 async def back_in_s(db: Executor, settings: Settings) -> int:
     """
-    When paused developer free checks are back: next month at the spend ceiling, tomorrow otherwise.
+    When paused developer free checks are back: when the free LLM budget is (spend), or 00:00 UTC.
 
     :param db: A pool or connection.
     :param settings: The service settings.
     :return: Seconds.
     """
-    if (await spend.ceiling(db, settings)).reached:
-        return spend.seconds_to_next_month()
-    return seconds_to_tomorrow()
+    standing = await spend.standing(db, settings)
+    return standing.retry_after_s() if standing.reached else seconds_to_tomorrow()
 
 
 async def take_for_key(
@@ -125,7 +124,7 @@ async def take_for_key(
         row = await conn.fetchrow("SELECT free_checks, developer FROM api_keys WHERE id = $1 FOR UPDATE", key_id)
         if row is None or not row["free_checks"] or not row["developer"]:
             return "none", None
-        if (await spend.ceiling(conn, settings)).reached:
+        if (await spend.standing(conn, settings)).reached:
             return "developer_paused", None
         cap = settings.developer_free_daily_checks_cap
         # One statement: concurrent checks can't both take the budget's last check.
@@ -139,6 +138,7 @@ async def take_for_key(
         if not taken:
             return "developer_paused", None
         await conn.execute("UPDATE api_keys SET free_checks = free_checks - 1 WHERE id = $1", key_id)
+    spend.count_free_check()
     return "taken", Spent(period, key_id)
 
 

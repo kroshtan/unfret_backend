@@ -141,7 +141,7 @@ async def lifespan(api: UnfretAPI) -> AsyncGenerator[None]:
     if api.credits.scanner is not None:
         tasks.append(asyncio.create_task(api.credits.run_forever()))
     tasks.append(asyncio.create_task(housekeeping(api.db_pool)))
-    tasks.append(asyncio.create_task(spend.run_forever(api.db_pool)))  # this month's LLM spend, from the meter
+    tasks.append(asyncio.create_task(spend.run_forever(api.db_pool)))  # the LLM spend into the free pool
     usage.start(api.db_pool)  # anonymous usage events, written in the background
     try:
         async with mcp_remote.running(api):  # the remote MCP server at /mcp

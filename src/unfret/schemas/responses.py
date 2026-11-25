@@ -47,9 +47,13 @@ class FreePause(BaseModel):
     retry_after_s: int = Field(description="Seconds until the 1st of next month, 00:00 UTC.")
     quick_checks: bool = Field(description="Always true: quick checks still work.")
     message_key: str = Field(
-        description="free_checks_run_on_donations: show that free checks run on donations, with donate_url."
+        description="free_checks_run_on_donations: show that free checks run on donations, with donate_url; "
+        "free_checks_paused: the same without a donate link (a client that sent X-Unfret-Donate: off)."
     )
-    donate_url: str = Field(description="This site's /donate, which goes to the current way to donate.")
+    donate_url: str | None = Field(
+        default=None,
+        description="This site's /donate, which goes to the current way to donate (absent with X-Unfret-Donate: off).",
+    )
 
 
 class ChallengeResponse(BaseModel):

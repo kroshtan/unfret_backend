@@ -28,7 +28,7 @@ from unfret.credits.packs import EURO_AREA, CardCurrency, Pack, card_currency, e
 from unfret.credits.pricing import pricing, purchase_transaction, solana_pay_url
 from unfret.facts import PageFacts
 from unfret.prices import Currency, PriceUnavailableError, format_usd
-from unfret.routes.analyze import donate_link, paused_metadata
+from unfret.routes.analyze import donate_allowed, donate_link, legacy_free_left, paused_metadata
 from unfret.schemas.errors import (
     BadRequestError,
     ConflictError,
@@ -60,21 +60,23 @@ class CreditsResponse(BaseModel):
     address: str = Field(description="The account: the wallet's address, or key:<id> for an API key.")
     balance_usd_micros: int = Field(description="The balance in micro-dollars (1 USD = 1,000,000).")
     checks_remaining: int = Field(
-        description="Bought checks left: the balance in checks (a developer pass's free checks are "
-        "api_free_checks_remaining)."
+        description="Checks left: the balance in checks, plus free_checks_remaining (a developer pass's free checks "
+        "are api_free_checks_remaining)."
     )
     balance_lamports: int = Field(
         description="Deprecated: the same micro-dollar balance under its old name, kept for older clients."
     )
     free_checks_remaining: int = Field(
         default=0,
-        description="Deprecated, always 0: a shopper's deep checks are free without a pass (GET /v1/pricing → free).",
+        description="For older store clients that check with a pass: the free deep checks this pass may still run "
+        "this hour (included in checks_remaining), while it has no bought checks. New clients need no pass (GET "
+        "/v1/pricing → free). 0 for a developer pass.",
     )
     free_checks_paused: bool = Field(
         default=False,
-        description="A developer pass's free deep checks (api_free_checks_remaining) are paused: today's budget is "
-        "used up (back at 00:00 UTC) or this month's LLM spend ceiling is reached (back next month). Bought checks "
-        "and quick checks work.",
+        description="Free deep checks are paused: this month's LLM spend ceiling (back next month), or for a "
+        "developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC). Bought checks and quick "
+        "checks work.",
     )
     api_free_checks_remaining: int = Field(
         default=0,
@@ -196,14 +198,15 @@ async def get_pricing(request: Request, response: Response) -> dict[str, Any]:
     # The free tier: quick and deep checks are free for shoppers, with no pass (a deep one with a proof of work),
     # until this month's LLM spend reaches its ceiling; a developer pass comes with its own free deep checks.
     paused = (await spend.ceiling(request.app.db_pool, settings)).reached
+    donate = donate_allowed(request)
     document["free"] = {
         "quick_checks": True,
         "deep_checks": True,
         "paused": paused,
         "back_at": "the 1st of next month, 00:00 UTC",
-        **({"pause": paused_metadata()} if paused else {}),
+        **({"pause": paused_metadata(donate=donate)} if paused else {}),
         "proof_of_work": {"challenge_url": "/v1/analyze/challenge", "bits": settings.deep_pow_bits},
-        "donate_url": donate_link(),
+        **({"donate_url": donate_link()} if donate else {}),
         "developer_checks_per_pass": settings.developer_free_checks,
         "checks_per_pass": 0,  # deprecated: a shopper's pass came with free checks; no pass is needed now
     }
@@ -234,13 +237,22 @@ async def get_balance(request: Request, address: str = Depends(require_account))
     balance = row or 0
     key_id = address.removeprefix(keys.ACCOUNT_PREFIX) if keys.is_key_account(address) else None
     api_free = await free.left(pool, key_id, api=True) if key_id is not None else 0
+    developer = key_id is not None and bool(
+        await pool.fetchval("SELECT developer FROM api_keys WHERE id = $1", key_id)
+    )
+    # An older store client checks with its pass, and offers a deep check only while this says there are checks:
+    # the free deep checks its pass may still run this hour (see analyze._free_gate), paused at the spend ceiling.
+    # Only while it has no bought checks: those pay first, and are what it shows then.
+    ceiling = (await spend.ceiling(pool, settings)).reached
+    bought = max(balance, 0) // settings.analysis_price_usd_micros
+    legacy = 0 if developer or bought else legacy_free_left(address)
     return CreditsResponse(
         address=address,
         balance_usd_micros=balance,
-        checks_remaining=max(balance, 0) // settings.analysis_price_usd_micros,
+        checks_remaining=bought + legacy,
         balance_lamports=balance,
-        free_checks_remaining=0,
-        free_checks_paused=bool(api_free) and await free.paused(pool, settings),
+        free_checks_remaining=legacy,
+        free_checks_paused=(bool(legacy) and ceiling) or (bool(api_free) and await free.paused(pool, settings)),
         api_free_checks_remaining=api_free,
     )
 

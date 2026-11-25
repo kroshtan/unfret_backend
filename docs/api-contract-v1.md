@@ -1827,6 +1827,20 @@ next month: they run on donations.") with a "Support Unfret" link to `donate_url
 deep check carries `action: "donate"` (label "Support Unfret") while paused, `action: "run_deep"` ("Deep checks are
 free.") otherwise. Bought checks, developer passes' bought checks and x402 are never paused.
 
+**Clients that may not link to donations** (a Google Play build): send `X-Unfret-Donate: off` with the challenge,
+the check and `/v1/pricing`. The pause then has `message_key: "free_checks_paused"` and no `donate_url`, the detail
+doesn't mention donations, and a paused deep-check suggestion has no action (`action` and `action_label` absent;
+`cost`: "Free deep checks are paused until next month. Quick checks still work.").
+
+**Older store clients** (the extension and the Android app before the free-check versions) keep working: they send
+their pass with a deep check and solve no challenge. A pass without bought checks then stands in for the proof of
+work: the check runs as a free one (`free_check: true`, `charged: false`, nothing taken, no `report_token`), at most
+`UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` (10) per pass an hour (then 429 `TOO_MANY_REQUESTS`) and within the network's
+hourly limit. For them `GET /v1/credits` reports, while the pass has no bought checks, `checks_remaining` =
+`free_checks_remaining` = what is left of that hour, and `free_checks_paused: true` at the spend ceiling (so they
+offer a quick check, as before on `FREE_CHECKS_PAUSED`). Not compatible: `POST /v1/invites/redeem`, bonus codes and
+affiliate calls answer 404; a pass made with `"free": true` comes with `free_checks: 0`; old report rewards are gone.
+
 **Donations.** Always link to `https://unfret.net/donate` (or `/v1/pricing`'s `free.donate_url`), never to a payment
 page directly: `/donate` redirects to the current payment link (`UNFRET_DONATE_URL`), which can change without a
 client release (302 to `/support` while donations aren't open). `/support` explains what a donation pays for. A
@@ -1837,9 +1851,8 @@ donation buys nothing.
 "developer_checks_per_pass": 20, "checks_per_pass": 0}` (`checks_per_pass` deprecated: always 0).
 
 **Passes.** A pass with bought checks still pays on `/v1/analyze` (no proof of work; `report_token` as before). A pass
-without bought checks is not used at all. `POST /v1/keys` ignores `"free": true` (a shopper's pass has no free checks
-any more; migration 43 sets them to 0). `GET /v1/credits`: `free_checks_remaining` is always 0, `checks_remaining` is
-bought checks only. `POST /v1/keys/move-free-checks` always answers `{"moved": 0}` (deprecated).
+without bought checks is not charged and not tied to the check (see "Older store clients"). `POST /v1/keys` ignores
+`"free": true` (a shopper's pass has no free checks any more; migration 43 sets them to 0). `POST /v1/keys/move-free-checks` always answers `{"moved": 0}` (deprecated).
 
 **Developer passes** (API, MCP): 20 free deep checks each on `POST /v1/check` only, then bought packs, as before; their
 free checks pause with the day's developer budget or the month's spend ceiling (402 `INSUFFICIENT_CREDITS`, detail

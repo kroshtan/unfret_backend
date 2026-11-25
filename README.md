@@ -400,7 +400,10 @@ deep, with **no pass and nothing that names them or their device** (the client A
   `share_token` work as for any result.
 
 A pass with bought checks still pays for a deep check on `/v1/analyze` (and needs no proof of work); a pass without
-them is simply not used, and the check is a free one. **Donations** ("Support Unfret", `/support`) go through
+them is not charged, and the check is a free one: older store clients, which send their pass and solve no challenge,
+get it without the work, at most `UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` per pass an hour (in memory), and
+`GET /v1/credits` shows them that allowance as free checks. A client that may not link to donations (a Google Play
+build) sends `X-Unfret-Donate: off` and gets no donate link. **Donations** ("Support Unfret", `/support`) go through
 `/donate`, a redirect to `UNFRET_DONATE_URL`, so the payment link can change without a client release; clicks are
 counted as a number a month (`usage_counters` `donate_clicks`), nothing else. A donation buys nothing.
 
@@ -1159,6 +1162,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_DEVELOPER_POW_EXTRA_BITS` | `4` | How much harder a developer pass's proof of work is than an ordinary pass's (`UNFRET_KEY_POW_BITS`, 18): each bit doubles the work, so 4 is 16 times |
 | `UNFRET_DEEP_POW_BITS` / `UNFRET_DEEP_POW_TTL_S` | `20` / `300` | A free deep check's proof of work: leading zero bits of SHA-256 (each bit doubles the work), and how long a challenge stays valid |
 | `UNFRET_FREE_DEEP_CHECKS_PER_IP_PER_HOUR` | `30` | Free deep checks per visitor network an hour (in memory, salted hashes) |
+| `UNFRET_LEGACY_PASS_FREE_DEEP_PER_HOUR` | `10` | Free deep checks an hour per pass from older store clients, which send a pass instead of a proof of work |
 | `UNFRET_LLM_SPEND_CEILING_EUR` | `100` | The LLM spend a calendar month (UTC) at which free deep checks pause until the 1st of next month |
 | `UNFRET_LLM_PRICES_EUR_PER_MTOK` / `UNFRET_LLM_PRICE_UNLISTED_EUR_PER_MTOK` | Mistral Small 3.2 and GLM-5.3 / `2.00/6.00` | List prices per model, `model=input/output` in euros per million tokens, comma-separated; the second for any model not listed |
 | `UNFRET_DONATE_URL` | — | Where `/donate` redirects (an `https://` payment link); empty: donations aren't open |

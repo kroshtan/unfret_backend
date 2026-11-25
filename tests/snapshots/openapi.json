@@ -605,19 +605,19 @@
       "type": "integer"
      },
      "checks_remaining": {
-      "description": "Bought checks left: the balance in checks (a developer pass's free checks are api_free_checks_remaining).",
+      "description": "Checks left: the balance in checks, plus free_checks_remaining (a developer pass's free checks are api_free_checks_remaining).",
       "title": "Checks Remaining",
       "type": "integer"
      },
      "free_checks_paused": {
       "default": false,
-      "description": "A developer pass's free deep checks (api_free_checks_remaining) are paused: today's budget is used up (back at 00:00 UTC) or this month's LLM spend ceiling is reached (back next month). Bought checks and quick checks work.",
+      "description": "Free deep checks are paused: this month's LLM spend ceiling (back next month), or for a developer pass's (api_free_checks_remaining) today's budget (back at 00:00 UTC). Bought checks and quick checks work.",
       "title": "Free Checks Paused",
       "type": "boolean"
      },
      "free_checks_remaining": {
       "default": 0,
-      "description": "Deprecated, always 0: a shopper's deep checks are free without a pass (GET /v1/pricing \u2192 free).",
+      "description": "For older store clients that check with a pass: the free deep checks this pass may still run this hour (included in checks_remaining), while it has no bought checks. New clients need no pass (GET /v1/pricing \u2192 free). 0 for a developer pass.",
       "title": "Free Checks Remaining",
       "type": "integer"
      }
@@ -952,12 +952,19 @@
     "description": "Why free deep checks are paused, and what a client shows (the 429 ``FREE_CHECKS_PAUSED``'s ``metadata``).",
     "properties": {
      "donate_url": {
-      "description": "This site's /donate, which goes to the current way to donate.",
-      "title": "Donate Url",
-      "type": "string"
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "This site's /donate, which goes to the current way to donate (absent with X-Unfret-Donate: off).",
+      "title": "Donate Url"
      },
      "message_key": {
-      "description": "free_checks_run_on_donations: show that free checks run on donations, with donate_url.",
+      "description": "free_checks_run_on_donations: show that free checks run on donations, with donate_url; free_checks_paused: the same without a donate link (a client that sent X-Unfret-Donate: off).",
       "title": "Message Key",
       "type": "string"
      },
@@ -981,8 +988,7 @@
      "reason",
      "retry_after_s",
      "quick_checks",
-     "message_key",
-     "donate_url"
+     "message_key"
     ],
     "title": "FreePause",
     "type": "object"

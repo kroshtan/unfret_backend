@@ -94,7 +94,7 @@ async def test_a_url_checked_by_someone_else_costs_a_check_and_no_fetch(
 
     assert cached.json()["charged"] is True
     assert await balance(pool, address) == 0
-    assert refused.status_code == 428 and refused.json()["error_code"] == "PROOF_OF_WORK_REQUIRED"
+    assert refused.status_code == 200 and refused.json()["free_check"] is True  # a free check, from the cache
     assert len(shop["calls"]) == 1 and len(graph.calls) == 1
 
 
@@ -150,16 +150,17 @@ async def test_a_page_that_cant_be_read_costs_nothing(  # noqa: PLR0917 - fixtur
     assert logs and "secret-shop" not in json.dumps(logs, default=str)
 
 
-async def test_an_empty_balance_gets_the_free_checks_gate_without_a_fetch(
-    client: httpx.AsyncClient, wallet: Wallet, shop: dict[str, Any]
+async def test_a_free_check_over_its_limit_is_refused_without_a_fetch(
+    client: httpx.AsyncClient, wallet: Wallet, shop: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(analyze, "_legacy_pass_rate", analyze.RateLimit(1, window_s=3600))
     _, headers = await wallet(PRICE - 1)
+    assert (await client.post("/v1/analyze", json={"url": URL}, headers=headers)).status_code == 200
 
-    response = await client.post("/v1/analyze/stream", json={"url": URL}, headers=headers)
+    response = await client.post("/v1/analyze/stream", json={"url": URL + "&2"}, headers=headers)
 
-    assert response.status_code == 428
-    assert response.json()["error_code"] == "PROOF_OF_WORK_REQUIRED"
-    assert shop["calls"] == []
+    assert response.status_code == 429
+    assert len(shop["calls"]) == 1
 
 
 async def test_fetches_are_rate_limited_per_account(

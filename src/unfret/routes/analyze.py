@@ -50,6 +50,20 @@ _fetch_rate = RateLimit(settings.analyze_fetch_per_minute)
 _quick_rate = RateLimit(settings.quick_checks_per_minute)
 # Free deep checks per visitor network an hour (behind Cloudflare's own edge limits; in memory, salted hashes).
 _free_deep_rate = RateLimit(settings.free_deep_checks_per_ip_per_hour, window_s=3600)
+# Free deep checks per pass an hour from older store clients, which send a pass instead of a proof of work.
+_legacy_pass_rate = RateLimit(settings.legacy_pass_free_deep_per_hour, window_s=3600)
+
+
+def legacy_free_left(account: str) -> int:
+    """
+    The free deep checks an older store client's pass has left this hour (for ``GET /v1/credits``).
+
+    :param account: The pass's (or wallet's) account.
+    :return: The count.
+    """
+    return _legacy_pass_rate.remaining(account)
+
+
 # Analyses per account that ran but were refunded (hung up, or not assessable): they cost LLM calls all the same.
 _free_outcomes = RateLimit(settings.analyze_free_outcomes_per_hour, window_s=3600)
 
@@ -109,8 +123,24 @@ FREE_PAUSED = (
     "Free deep checks are paused until the 1st of next month: they run on donations, and this month's are used up. "
     "Quick checks still work."
 )
-# The stable key clients show their own words for, with the donate link.
+# Without a donate link (a client that may not show one: X-Unfret-Donate: off).
+FREE_PAUSED_PLAIN = "Free deep checks are paused until the 1st of next month. Quick checks still work."
+# The stable keys clients show their own words for: with the donate link, and without one.
 FREE_PAUSED_MESSAGE_KEY = "free_checks_run_on_donations"
+FREE_PAUSED_PLAIN_MESSAGE_KEY = "free_checks_paused"
+# The header a client sends when it may not link to donations (a Google Play build): off, 0, false or no.
+DONATE_HEADER = "X-Unfret-Donate"
+
+
+def donate_allowed(request: Request) -> bool:
+    """
+    Whether this client may show a donate link: unless it sends ``X-Unfret-Donate: off`` (a Google Play build).
+
+    :param request: The incoming request.
+    :return: ``True`` unless the client opted out.
+    """
+    value = request.headers.get(DONATE_HEADER, "").strip().lower()
+    return value not in {"off", "0", "false", "no"}
 
 
 def donate_link() -> str:
@@ -151,20 +181,32 @@ async def _developer_paused(request: Request, balance: int) -> NoReturn:
     )
 
 
-def paused_metadata() -> dict[str, Any]:
+def paused_metadata(*, donate: bool = True) -> dict[str, Any]:
     """
     What a 429 ``FREE_CHECKS_PAUSED`` carries besides its detail (and ``/v1/pricing``'s ``free`` while paused).
 
+    :param donate: Whether the client may show a donate link (:func:`donate_allowed`).
     :return: ``reason`` (``spend_ceiling``), ``retry_after_s`` (to the 1st of next month, UTC), ``quick_checks``
-        (``true``: they still work), ``message_key`` and ``donate_url``.
+        (``true``: they still work), ``message_key`` and, when allowed, ``donate_url``.
     """
     return {
         "reason": "spend_ceiling",
         "retry_after_s": spend.seconds_to_next_month(),
         "quick_checks": True,
-        "message_key": FREE_PAUSED_MESSAGE_KEY,
-        "donate_url": donate_link(),
+        "message_key": FREE_PAUSED_MESSAGE_KEY if donate else FREE_PAUSED_PLAIN_MESSAGE_KEY,
+        **({"donate_url": donate_link()} if donate else {}),
     }
+
+
+def paused_detail(request: Request) -> tuple[str, dict[str, Any]]:
+    """
+    The detail and metadata of a 429 ``FREE_CHECKS_PAUSED``, for this client.
+
+    :param request: The incoming request (whether it may show a donate link).
+    :return: The detail and the metadata.
+    """
+    donate = donate_allowed(request)
+    return (FREE_PAUSED if donate else FREE_PAUSED_PLAIN), paused_metadata(donate=donate)
 
 
 def _ip(request: Request) -> str:
@@ -309,6 +351,8 @@ async def _caller(request: Request, body: AnalyzeRequest, account: str | None) -
         return account  # its own repeat within the hour: served again, free (_cached)
     if await _balance(request, account) >= settings.analysis_price_usd_micros:
         return account
+    # Not used: the check is a free one. An older store client sends its pass and solves no challenge (_free_gate).
+    request.state.legacy_pass = account
     return None
 
 
@@ -336,14 +380,23 @@ async def _free_gate(request: Request, body: AnalyzeRequest) -> None:
     if not get_credits(request).secret or request.app.db_pool is None:
         raise ServiceUnavailableError("Free deep checks are not available right now. Quick checks still work.")
     if (await spend.ceiling(request.app.db_pool, settings)).reached:
-        raise TooManyRequestsError(FREE_PAUSED, error_code="FREE_CHECKS_PAUSED", metadata=paused_metadata())
+        detail, metadata = paused_detail(request)
+        raise TooManyRequestsError(detail, error_code="FREE_CHECKS_PAUSED", metadata=metadata)
     pow_ = body.proof_of_work
-    if pow_ is None:
+    legacy = getattr(request.state, "legacy_pass", None)
+    if pow_ is None and legacy is not None:
+        # An older store client: its pass stands in for the proof of work, a few an hour per pass.
+        if (wait := _legacy_pass_rate.retry_after(legacy)) is not None:
+            raise TooManyRequestsError(
+                "Too many deep checks this hour; wait a while. Quick checks still work.",
+                metadata={"retry_after_s": max(1, int(wait) + 1)},
+            )
+    elif pow_ is None:
         raise ProofOfWorkRequiredError(
             "A free deep check needs a solved challenge: GET /v1/analyze/challenge, then send it as proof_of_work.",
             metadata={"challenge_url": "/v1/analyze/challenge"},
         )
-    if not _deep_challenges(request).redeem(pow_.challenge, pow_.solution):
+    elif not _deep_challenges(request).redeem(pow_.challenge, pow_.solution):
         raise BadRequestError(
             "Challenge invalid, expired, used or unsolved; get a new one.", error_code="BAD_CHALLENGE"
         )
@@ -515,7 +568,7 @@ def _response(
 
 async def deep_cost(
     request: Request, account: str | None, balance: int | None, *, api: bool = False
-) -> tuple[str, card.DeepAction]:
+) -> tuple[str, card.DeepAction | None]:
     """
     What a deep check would cost this caller, for a quick result's suggestion (:func:`unfret.card.deep_check_cost`).
 
@@ -537,7 +590,8 @@ async def deep_cost(
         return card.deep_check_cost(free_left=free_left, paused=paused, bought=bought)
     if bought > 0:
         return card.deep_check_cost(bought=bought)
-    return card.shopper_deep_check_cost(paused=pool is None or (await spend.ceiling(pool, settings)).reached)
+    paused = pool is None or (await spend.ceiling(pool, settings)).reached
+    return card.shopper_deep_check_cost(paused=paused, donate=donate_allowed(request))
 
 
 async def _charge_note(request: Request, account: str | None, response: AnalyzeResponse) -> str:
@@ -711,7 +765,7 @@ async def challenge(request: Request) -> ChallengeResponse:
         bits=bits,
         expires_at=expires,
         paused=paused,
-        pause=FreePause(**paused_metadata()) if paused else None,
+        pause=FreePause(**paused_metadata(donate=donate_allowed(request))) if paused else None,
     )
 
 

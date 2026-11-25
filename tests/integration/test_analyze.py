@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -118,15 +119,15 @@ async def test_an_account_short_of_a_check_gets_a_free_check_instead(
 
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
 
-    # Not charged and not refused for money: a shopper's free deep check, which needs its proof of work.
-    assert (response.status_code, response.json()["error_code"]) == (428, "PROOF_OF_WORK_REQUIRED")
-    assert graph.calls == []
+    # Not charged and not refused for money: a shopper's free deep check (an older client's, without the work).
+    assert response.status_code == 200 and response.json()["free_check"] is True
+    assert "charged" in response.json() and response.json()["charged"] is False
 
 
 async def test_unknown_wallet_has_no_credits(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze", json=PAGE, headers=headers)
-    assert response.status_code == 428  # a free check, not paid by the wallet
+    assert response.status_code == 200 and response.json()["free_check"] is True  # free, not paid by the wallet
 
 
 @pytest.mark.parametrize("headers", [{"Authorization": "Bearer nonsense"}, {"Authorization": "Basic YTpi"}])
@@ -306,10 +307,10 @@ async def test_a_cached_result_streams_at_once_and_charged(
 
 
 @pytest.mark.parametrize("path", ["/v1/analyze", "/v1/analyze/stream"])
-async def test_an_account_without_checks_cant_tell_a_page_was_checked(
+async def test_an_account_without_checks_gets_a_cached_or_fresh_page_alike(
     client: httpx.AsyncClient, graph: FakeGraph, wallet: Any, path: str
 ) -> None:
-    # Security audit M6: a 200 from the cache (vs a 402) told an empty account that someone checked the page lately.
+    # Security audit M6 was about a 200 from the cache vs a 402. Free checks answer both alike now: a free check.
     _, first = await wallet(PRICE)
     await client.post("/v1/analyze", json=PAGE, headers=first)
     _, empty = await wallet(0)
@@ -317,9 +318,9 @@ async def test_an_account_without_checks_cant_tell_a_page_was_checked(
     cached = await client.post(path, json=PAGE, headers=empty)
     unchecked = await client.post(path, json={**PAGE, "url": "https://shop.test/never-checked"}, headers=empty)
 
-    assert cached.status_code == unchecked.status_code == 428  # both a free check's gate, cached or not
-    assert cached.json() == unchecked.json()
-    assert len(graph.calls) == 1
+    assert cached.status_code == unchecked.status_code == 200
+    assert all(re.search(r'"free_check": ?true', r.text) for r in (cached, unchecked))
+    assert len(graph.calls) == 2
 
 
 async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
@@ -336,7 +337,7 @@ async def test_a_cached_page_that_couldnt_be_assessed_is_free_but_needs_a_check(
 
     assert (cached.json()["score"], cached.json()["charged"]) == (-1, False)
     assert await balance(pool, address) == PRICE
-    assert refused.status_code == 428
+    assert refused.status_code == 200 and refused.json()["score"] == -1  # a free check: the same answer
     assert len(graph.calls) == 1
 
 
@@ -463,7 +464,7 @@ async def test_hanging_up_mid_stream_refunds_and_reveals_no_evidence(
 async def test_stream_needs_credits_or_a_proof_of_work(client: httpx.AsyncClient, wallet: Any) -> None:
     _, headers = await wallet(0)
     response = await client.post("/v1/analyze/stream", json=PAGE, headers=headers)
-    assert response.status_code == 428
+    assert response.status_code == 200 and '"free_check": true' in response.text  # an older client's free check
 
 
 async def test_stream_failure_is_refunded_without_details(

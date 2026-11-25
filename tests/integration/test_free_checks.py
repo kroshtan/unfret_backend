@@ -112,14 +112,68 @@ async def test_a_pass_without_bought_checks_is_not_used_for_a_free_check(
     issued = await a_pass(client)
     assert issued["free_checks"] == 0  # "free": true gives nothing now: no pass is needed
 
-    needs_work = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
-    assert needs_work.status_code == 428
     response = await free_deep(client, headers=bearer(issued["key"]))
 
     assert response.status_code == 200
     body = response.json()
     assert body["free_check"] is True and body["charged"] is False and "report_token" not in body
     assert await balance(pool, issued["account"]) is None  # the pass was never touched
+
+
+async def test_an_older_store_client_checks_free_with_its_pass_and_no_work(
+    client: httpx.AsyncClient, pool: asyncpg.Pool, graph: FakeGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The extension and the Android app in the stores send their pass and solve no challenge.
+    monkeypatch.setattr(analyze, "_legacy_pass_rate", analyze.RateLimit(2, window_s=3600))
+    issued = await a_pass(client)
+    credits = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
+    assert (credits["checks_remaining"], credits["free_checks_remaining"], credits["free_checks_paused"]) == (
+        2,
+        2,
+        False,
+    )
+
+    first = await client.post("/v1/analyze", json=PAGE, headers=bearer(issued["key"]))
+    second = await client.post(
+        "/v1/analyze/stream", json={**PAGE, "url": "https://shop.test/2"}, headers=bearer(issued["key"])
+    )
+    third = await client.post(
+        "/v1/analyze", json={**PAGE, "url": "https://shop.test/3"}, headers=bearer(issued["key"])
+    )
+
+    assert first.status_code == 200 and first.json()["free_check"] is True and "report_token" not in first.json()
+    assert second.status_code == 200 and '"free_check": true' in second.text
+    assert (third.status_code, third.json()["error_code"]) == (429, "TOO_MANY_REQUESTS")  # a few an hour per pass
+    assert (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()["checks_remaining"] == 0
+    assert await balance(pool, issued["account"]) is None
+    # At the ceiling it says so, as the older clients understand: paused free checks, quick checks only.
+    monkeypatch.setattr(analyze, "_legacy_pass_rate", analyze.RateLimit(2, window_s=3600))
+    await at_ceiling(pool)
+    paused = (await client.get("/v1/credits", headers=bearer(issued["key"]))).json()
+    assert paused["free_checks_paused"] is True and paused["free_checks_remaining"] == paused["checks_remaining"]
+    refused = await client.post(
+        "/v1/analyze", json={**PAGE, "url": "https://shop.test/4"}, headers=bearer(issued["key"])
+    )
+    assert refused.json()["error_code"] == "FREE_CHECKS_PAUSED"
+
+
+async def test_a_client_that_may_not_link_to_donations_gets_none(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    await at_ceiling(pool)
+    off = {"X-Unfret-Donate": "off"}
+
+    paused = await client.post("/v1/analyze", json={**PAGE, "proof_of_work": await solved(client)}, headers=off)
+    challenge = (await client.get("/v1/analyze/challenge", headers=off)).json()
+    pricing = (await client.get("/v1/pricing", headers=off)).json()["free"]
+
+    meta = paused.json()["metadata"]
+    assert meta["message_key"] == "free_checks_paused" and "donate_url" not in meta
+    assert "donation" not in paused.json()["detail"]
+    assert challenge["pause"]["message_key"] == "free_checks_paused" and "donate_url" not in challenge["pause"]
+    assert "donate_url" not in pricing and "donate_url" not in pricing["pause"]
+    cost = await analyze.deep_cost(_request(pool, off), None, None)
+    assert cost[1] is None and "donation" not in cost[0]
 
 
 async def test_bought_checks_pay_without_any_work(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
@@ -230,14 +284,16 @@ async def test_a_quick_result_suggests_a_free_deep_check_or_says_why_not(
     assert paused[1] == "donate" and "donations" in paused[0]
 
 
-def _request(pool: asyncpg.Pool) -> Any:
+def _request(pool: asyncpg.Pool, headers: dict[str, str] | None = None) -> Any:
     class _App:
         db_pool = pool
 
     class _Request:
         app = _App()
 
-    return _Request()
+    request = _Request()
+    request.headers = headers or {}  # type: ignore[attr-defined]
+    return request
 
 
 async def test_nothing_about_the_network_or_the_check_is_stored(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:

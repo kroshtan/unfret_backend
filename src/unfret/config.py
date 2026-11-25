@@ -267,6 +267,11 @@ class Settings(BaseSettings):
     deep_pow_bits: int = Field(default=20, ge=1, le=32)
     deep_pow_ttl_s: int = Field(default=300, ge=30)
     free_deep_checks_per_ip_per_hour: int = Field(default=30, ge=1)
+    # Older store clients (the extension and the Android app before the free-check versions) send a pass with every
+    # check and solve no challenge. Their deep check runs as a free one all the same (the pass pays nothing and is not
+    # tied to the check), at most legacy_pass_free_deep_per_hour per pass (in memory, hashed) and within the network's
+    # limit above; GET /v1/credits shows what is left of that hour as free checks, so those clients offer deep checks.
+    legacy_pass_free_deep_per_hour: int = Field(default=10, ge=0)
     llm_spend_ceiling_eur: Decimal = Field(default=Decimal(100), ge=0, decimal_places=2)
     llm_prices_eur_per_mtok: str = "mistral-small-3.2-24b-instruct-2506=0.15/0.35,glm-5.3=1.80/5.50"
     llm_price_unlisted_eur_per_mtok: str = "2.00/6.00"

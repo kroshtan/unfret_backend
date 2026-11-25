@@ -899,18 +899,21 @@ def deep_check_cost(
     return text.format(price=_dollars(smallest.card_usd_micros), checks=smallest.checks), "get_checks"
 
 
-def shopper_deep_check_cost(*, paused: bool) -> tuple[str, DeepAction]:
+def shopper_deep_check_cost(*, paused: bool, donate: bool = True) -> tuple[str, DeepAction | None]:
     """
     What a deep check costs a shopper (no bought checks): nothing, unless this month's free ones are paused.
 
     :param paused: Whether free deep checks are paused (the month's LLM spend ceiling).
-    :return: The words and the action (``run_deep``, or ``donate`` while paused).
+    :param donate: Whether the client may show a donate link (a Google Play build may not).
+    :return: The words and the action (``run_deep``; while paused ``donate``, or none without a donate link).
     """
     cost: dict[str, str] = catalogue()["deep_check"]["cost"]
-    return (cost["shopper_paused"], "donate") if paused else (cost["shopper_free"], "run_deep")
+    if not paused:
+        return cost["shopper_free"], "run_deep"
+    return (cost["shopper_paused"], "donate") if donate else (cost["shopper_paused_plain"], None)
 
 
-def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
+def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction | None]) -> DeepCheck:
     """
     A suggestion with what it costs this caller and its one button (nothing for one that isn't suggested).
 
@@ -921,7 +924,7 @@ def with_cost(offer: DeepCheck, cost: tuple[str, DeepAction]) -> DeepCheck:
     if not offer.suggested:
         return offer
     text, action = cost
-    label = str(catalogue()["deep_check"]["actions"][action])
+    label = str(catalogue()["deep_check"]["actions"][action]) if action is not None else None
     return offer.model_copy(update={"cost": text, "action": action, "action_label": label})
 
 

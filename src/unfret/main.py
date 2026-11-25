@@ -202,6 +202,7 @@ app.add_middleware(
         "PAYMENT-SIGNATURE",
         "X-Delete-Code",
         "X-Unfret-Claim",
+        "X-Unfret-Donate",
         "Mcp-Protocol-Version",
         "Mcp-Session-Id",
         "Mcp-Method",

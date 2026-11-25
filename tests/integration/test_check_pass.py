@@ -308,18 +308,12 @@ async def test_a_developer_pass_spends_no_free_check_on_analyze(
 ) -> None:
     developer, empty = await new_pass(client, developer=True), await new_pass(client)
 
-    refused = await client.post("/v1/analyze", json=PAGE, headers=bearer(developer["key"]))
+    analyzed = await client.post("/v1/analyze", json=PAGE, headers=bearer(developer["key"]))
     as_empty = await client.post("/v1/analyze", json=PAGE, headers=bearer(empty["key"]))
-    streamed = await client.post("/v1/analyze/stream", json=PAGE, headers=bearer(developer["key"]))
-    url_only = await client.post(
-        "/v1/analyze", json={"url": "https://shop.test/x", "tier": "deep"}, headers=bearer(developer["key"])
-    )
 
-    # Exactly what a pass with no checks left gets, before any work: a shopper's free check, needing its work.
-    assert (refused.status_code, refused.json()) == (as_empty.status_code, as_empty.json())
-    assert refused.status_code == 428 and refused.json()["error_code"] == "PROOF_OF_WORK_REQUIRED"
-    assert streamed.status_code == 428 and url_only.status_code == 428
-    assert graph.calls == []
+    # What a pass with no bought checks gets on /v1/analyze: a shopper's free check, its own free checks untouched.
+    assert analyzed.status_code == as_empty.status_code == 200
+    assert analyzed.json()["free_check"] is True and as_empty.json()["free_check"] is True
     assert await free.left(pool, developer["key_id"], api=True) == 20 and await free.used_today(pool) == 0
     # ...while /v1/check spends them.
     checked = await client.post("/v1/check", json=CHECK, headers=bearer(developer["key"]))
@@ -360,7 +354,8 @@ async def test_credits_say_a_developer_pass_free_checks_are_for_the_api(
     shop = (await client.get("/v1/credits", headers=bearer(shopper["key"]))).json()
 
     assert (dev["checks_remaining"], dev["free_checks_remaining"], dev["api_free_checks_remaining"]) == (1, 0, 20)
-    assert (shop["checks_remaining"], shop["free_checks_remaining"], shop["api_free_checks_remaining"]) == (0, 0, 0)
+    # A shopper's pass shows an older store client what it may still check free this hour.
+    assert (shop["checks_remaining"], shop["free_checks_remaining"], shop["api_free_checks_remaining"]) == (10, 10, 0)
 
 
 async def test_a_developer_pass_free_checks_dont_move(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:

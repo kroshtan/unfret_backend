@@ -65,6 +65,18 @@ class RateLimit:
             return hits[0] + self.window_s - now
         return None
 
+    def remaining(self, ip: str) -> int:
+        """
+        How many more requests would be allowed now, without counting one.
+
+        :param ip: The client address (or any other key).
+        :return: The count.
+        """
+        hits = self._hits.get(visitor_key(ip))
+        now = self.clock()
+        used = sum(1 for hit in hits if hit > now - self.window_s) if hits else 0
+        return max(self.limit - used, 0)
+
     def retry_after(self, ip: str) -> float | None:
         """
         Count a request, or say how long to wait.

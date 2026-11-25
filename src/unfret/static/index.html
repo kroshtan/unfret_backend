@@ -25,6 +25,7 @@
           <p class="lead">Paste a link to a product, a web shop or an ad. Unfret checks whether your order may not
             arrive, whether you're protected, and whether the page is pushing you or overcharging you. You get one risk
             level, with the reasons behind it.</p>
+          <!-- play:off -->
           <form class="start-check" id="start-check" novalidate data-empty="Paste or type a link first."
             data-invalid="That doesn't look like a link. Copy the whole address from the shop's page.">
             <label class="visually-hidden" for="start-link">Link to a product, an ad or a shop</label>
@@ -47,6 +48,8 @@
           <p class="also">Some big shops, bol.com and eBay among them, turn automatic checks away, so
             <a href="/check">checking a link</a> from them on this site doesn't work: the browser extension and the
             Android app still read them, in your own browser.</p>
+          <!-- /play:off -->
+          <!-- play:on <p class="lead">Share a link to the Unfret app, or paste it there, to check it on your phone.</p> -->
         </div>
 
         <figure class="sample" aria-labelledby="sample-caption">
@@ -209,6 +212,7 @@
             <ol class="leaderboard" id="leaderboard" hidden></ol>
             <p class="small muted" id="leaderboard-empty">No names on the board yet. Be the first.</p>
           </div>
+          <!-- play:off -->
           <div class="code-box">
             <h3>Free for shoppers, kept free by donations</h3>
             <p>Quick and deep checks are free, with no account and nothing that says who you are. A deep check has a
@@ -217,6 +221,8 @@
             <p class="buttons"><a class="button primary" href="/support">Support Unfret</a>
               <a class="button" href="/check">Check a link</a></p>
             <p class="small">Unfret never earns from shops: no affiliate links to shops, no paid placements.</p>
+          <!-- /play:off -->
+          <!-- play:on <div class="code-box"><h3>Free for shoppers</h3><p>Quick and deep checks are free, with no account and nothing that says who you are.</p></div> -->
           </div>
         </div>
       </div>
@@ -261,7 +267,7 @@
           </details>
           <details>
             <summary>How does Unfret make money?</summary>
-            <p>Shoppers' checks run on donations; developers and AI agents pay for theirs. Nothing else: no ads, no
+            <p><!-- play:off -->Shoppers' checks run on donations; developers<!-- /play:off --><!-- play:on Checks are free for shoppers; developers --> and AI agents pay for theirs. Nothing else: no ads, no
               selling data, no affiliate links to shops.
               <a href="/money">How Unfret makes money</a>.</p>
           </details>

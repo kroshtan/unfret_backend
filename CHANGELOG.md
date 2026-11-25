@@ -32,7 +32,8 @@
   week-old label tokens are converted, migration 41); with the findings behind it (`because`, ordered by level), the combining step when smaller problems add up
   (`combined`) and the protection step when the payment raised or lowered it (`modifier`), in one line
   (`explanation`). Each card reason carries the level it is evidence for (`level`, the table in `unfret.levels`), and
-  the card orders reasons by level. Until a level model sets it, the level is the scorer's band translated
+  the card orders reasons by level. The three reasons shown are the strongest evidence (something seen before
+  something missing, then severity), ordered by level, so a missing policy never pushes a proven trick off the card. Until a level model sets it, the level is the scorer's band translated
   (`source: "band"`). `verdict.band` stays, deprecated, until the clients read the level.
 * **The level judge** (`unfret.level_judge`, off: `UNFRET_LEVEL_JUDGE=false`): the claim audit's model (GLM-5.3)
   sets a deep check's level from the page, every finding with its level, the scorer's risk and a few labelled

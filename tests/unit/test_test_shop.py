@@ -62,10 +62,11 @@ TRICKS: dict[str, set[tuple[str, str]]] = {
 DEEP_TRICKS: dict[str, set[tuple[str, str]]] = {
     "invented reviews": {("reviews", "review_velocity"), ("reviews", "rating_shape"), ("reviews", "duplicates")},
 }
-# The verdict: the band, and its first three reasons by risk level (identifiers, not the words a shopper reads).
-QUICK_VERDICT = ("junk_or_scam", ["hidden_ai_text", "origin_doubt", "generic_brand"])
-DEEP_VERDICT = ("junk_or_scam", ["hidden_ai_text", "missing_trust_info", "word_soup"])
-DEEP_CHECKOUT_VERDICT = ("junk_or_scam", ["hidden_ai_text", "missing_trust_info", "word_soup"])
+# The verdict: the band, and the three reasons shown: the strongest evidence, ordered by level (identifiers, not the
+# words a shopper reads).
+QUICK_VERDICT = ("junk_or_scam", ["hidden_ai_text", "timer_resets", "preticked_addon"])
+DEEP_VERDICT = ("junk_or_scam", ["hidden_ai_text", "timer_resets", "preticked_addon"])
+DEEP_CHECKOUT_VERDICT = ("junk_or_scam", ["hidden_ai_text", "drip_pricing", "timer_resets"])
 
 
 @pytest.fixture

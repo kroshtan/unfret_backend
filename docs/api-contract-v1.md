@@ -1756,3 +1756,10 @@ before this change and older servers have no `deep_check` (or `null`); clients s
   renumbered so that a higher number is always worse: 0 none, 1 manipulation, 2 overpaying, 3 doesn't work, 4 won't
   arrive (they were 1 won't arrive … 4 manipulation). `risk.key` is unchanged; read the key when in doubt. Label tokens
   issued before the change are still accepted and read the old way round; stored labels were converted (migration 41).
+
+## Changes (which reasons the card shows; backwards-compatible)
+
+- `verdict.reasons`: the (up to three) reasons shown are the strongest evidence, whatever their level: something
+  seen on the page or elsewhere before something missing from it, then by severity. They are then ordered by level
+  (worst first), then strength. `risk.because` is ordered the same way within each level. The level itself is
+  unchanged.

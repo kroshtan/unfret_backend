@@ -1021,12 +1021,12 @@ def complete(
             market=shop_market(facts, state.get("url", ""), state.get("cleaned_content", "")),
         ):
             titles.setdefault(key, str(catalogue()["reasons"][key]["title"]))
-    # The card orders reasons by level (1 first); within a level the verdict's own order (severity) stands.
+    # The card orders reasons by level (worst first), then by how strong their evidence is.
     parsed.reasons.sort(key=lambda r: levels.order_key(r.type))
     if parsed.risk is None:
         parsed.risk = levels.from_band(
             parsed.band,
-            sorted(titles, key=levels.order_key),
+            sorted(titles, key=lambda t: (levels.order_key(t), shopper.evidence_rank(t))),
             positive_types=[p.type for p in parsed.positives],
             titles=titles,
         )

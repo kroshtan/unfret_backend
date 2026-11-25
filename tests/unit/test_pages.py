@@ -674,7 +674,7 @@ def test_the_checklist_heading_adds_up_and_the_charge_line_is_a_sentence(tmp_pat
 
 async def test_the_developer_page_says_the_terms_and_who_may_get_in_touch(client: httpx.AsyncClient) -> None:
     text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", (await client.get("/developers")).text)).split())
-    assert f"Developer pass: {settings.developer_free_checks} free deep checks, then packs of checks." in text
+    assert f"Developer pass: {settings.developer_free_checks} free deep checks, then top up by the amount." in text
     assert "x402:" in text and "Solana" in text
     assert "Organizations that protect consumers (consumer groups, regulators, researchers) are welcome" in text
     assert "risk is the overall risk level, higher is worse" in text

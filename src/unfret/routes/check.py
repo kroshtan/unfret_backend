@@ -1238,7 +1238,7 @@ async def llms_txt(request: Request) -> str:
 
 Unfret is a consumer protection tool: free for shoppers in the browser extension, the Android app and at
 {url}/check. This file is for agents and developers, who pay for checks (a developer pass's free checks, then
-packs; or x402 per call). Organizations that protect consumers can get in touch: hello@unfret.net.
+top-ups by the amount; or x402 per call). Organizations that protect consumers can get in touch: hello@unfret.net.
 
 ## Three ways to use Unfret
 

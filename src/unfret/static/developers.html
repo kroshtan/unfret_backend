@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Unfret for developers and shopping agents: the paid API and MCP server. A developer pass comes with free deep checks, then packs; or pay per call over x402 in USDC on Solana or Base, with no account. Returns allow, warn or block, the risk level and the evidence.">
+  <meta name="description" content="Unfret for developers and shopping agents: the paid API and MCP server. A developer pass comes with free deep checks, then top-ups by the amount; or pay per call over x402 in USDC on Solana or Base, with no account. Returns allow, warn or block, the risk level and the evidence.">
   <title>For developers and shopping agents · Unfret</title>
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/site.css">
@@ -25,7 +25,7 @@
             <code>block</code>, with the same risk level (0 to 4) a shopper sees and the evidence behind it. Use it
             from an MCP client, from the API with an Unfret pass, or pay per call over x402 with no account.</p>
           <ul class="dev-terms">
-            <li><b>Developer pass:</b> {{developer_checks}} free deep checks, then packs of checks. Quick checks are
+            <li><b>Developer pass:</b> {{developer_checks}} free deep checks, then top up by the amount. Quick checks are
               free.</li>
             <li><b>x402:</b> {{quick_price}} quick, {{deep_price}} deep, paid per call in {{payment_options}}.</li>
             <li><b>Shoppers</b> check for free in the extension, the app and on this site; this page is for code.</li>
@@ -115,7 +115,7 @@
             seconds of work in this browser, no account. One per browser, and one a day per network. Quick checks
             are always free.</p>
           <p class="small">The free checks are for the API and the MCP server (<code>POST /v1/check</code>). After
-            them, <a href="/checkout">buy a pack of checks</a> for the pass: {{packs_line}}. No subscription, and
+            them, <a href="/checkout">top up the pass</a>: {{packs_line}}. No subscription, and
             checks don't expire.</p>
           <p class="buttons"><button type="button" id="dev-pass-make" class="primary">Make a developer pass</button></p>
           <p id="dev-pass-status" class="small" role="status" aria-live="polite"></p>

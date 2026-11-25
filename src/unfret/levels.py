@@ -184,16 +184,28 @@ class Risk(BaseModel):
 
 
 @cache
-def _copy() -> dict[str, Any]:
+def level_copy() -> dict[str, Any]:
+    """
+    The level texts of the copy catalogue (``copy/en.json`` "levels").
+
+    :return: The texts.
+    """
     from unfret.shopper import catalogue  # noqa: PLC0415 - shopper imports this module
 
     return dict(catalogue()["levels"])
 
 
-def _title(reason_type: str, titles: dict[str, str]) -> str:
+def title_of(reason_type: str, titles: dict[str, str] | None = None) -> str:
+    """
+    A reason's (or positive's) title: as the card shows it, else the catalogue's.
+
+    :param reason_type: The type.
+    :param titles: Titles as the card shows them, by type.
+    :return: The title.
+    """
     from unfret.shopper import catalogue  # noqa: PLC0415 - shopper imports this module
 
-    if reason_type in titles:
+    if titles and reason_type in titles:
         return titles[reason_type]
     copy = catalogue()
     entry = copy["reasons"].get(reason_type) or copy["positives"].get(reason_type) or {}
@@ -227,7 +239,7 @@ def explain(
     :param modifier: The protection step, if any.
     :return: The line.
     """
-    copy = _copy()
+    copy = level_copy()
     if level == NONE:
         return str(copy["none_explanation"])
     if combined:
@@ -264,7 +276,7 @@ def from_band(
     """
     titles = titles or {}
     types = list(dict.fromkeys(reason_types))
-    copy = _copy()
+    copy = level_copy()
     if band == "reliable":
         return Risk(
             level=NONE, key="none", label=copy["labels"]["none"], explanation=copy["none_explanation"], source="band"
@@ -275,7 +287,7 @@ def from_band(
     combined_text: str | None = None
     if combine(found) is not None:
         level = 1
-        parts = [_title(next(t for t in weighed if level_of(t) == lv), titles) for lv in (2, 3, 4)]
+        parts = [title_of(next(t for t in weighed if level_of(t) == lv), titles) for lv in (2, 3, 4)]
         combined_text = str(copy["combined"]).format(reasons=" + ".join(parts))
     if band == "junk_or_scam":
         level = 1
@@ -285,17 +297,17 @@ def from_band(
     if raising and level > 1:
         level -= 1
         modifier = LevelModifier(
-            direction="raised", type=raising, text=str(copy["raised"]).format(reason=_title(raising, titles))
+            direction="raised", type=raising, text=str(copy["raised"]).format(reason=title_of(raising, titles))
         )
     elif lowering and not raising and 1 < level < 4:
         level += 1
         modifier = LevelModifier(
-            direction="lowered", type=lowering, text=str(copy["lowered"]).format(reason=_title(lowering, titles))
+            direction="lowered", type=lowering, text=str(copy["lowered"]).format(reason=title_of(lowering, titles))
         )
     if band == "concerns" and level == 1:
         level = 2
     because = sorted(
-        (LevelReason(type=t, level=level_of(t), title=_title(t, titles)) for t in types if t != "overall"),
+        (LevelReason(type=t, level=level_of(t), title=title_of(t, titles)) for t in types if t != "overall"),
         key=lambda r: order_key(r.type),
     )
     return Risk(

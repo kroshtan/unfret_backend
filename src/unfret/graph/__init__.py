@@ -279,6 +279,24 @@ def _recording(
     return node
 
 
+async def _level_judged(state: AnalysisState, verdict: dict[str, Any]) -> dict[str, Any]:
+    """
+    A deep check's verdict with the level judge's risk (:mod:`unfret.level_judge`); the band's on any failure.
+
+    :param state: The analysis state, with the judge's update.
+    :param verdict: The completed verdict.
+    :return: The verdict.
+    """
+    from unfret import level_judge  # noqa: PLC0415 - it imports the LLM client
+
+    try:
+        risk, _, _ = await level_judge.judge(**level_judge.inputs_from_state(dict(state), verdict))
+    except Exception:
+        logger.warning("level_judge_failed", exc_info=True)
+        return verdict
+    return {**verdict, "risk": risk.model_dump()}
+
+
 def _carded(
     judge: Callable[[AnalysisState], Awaitable[dict[str, Any]]], available: list[Skill]
 ) -> Callable[..., Awaitable[dict[str, Any]]]:
@@ -298,6 +316,8 @@ def _carded(
             # With the judge's own update (the scorer's assessment): the card marks the areas of its small signs.
             judged = cast(AnalysisState, {**state, **update})
             update["verdict"] = card.complete(update["verdict"], judged, available=available, applicable=SKILLS)
+            if settings.level_judge and {s.name for s in available} >= {s.name for s in SKILLS}:
+                update["verdict"] = await _level_judged(judged, update["verdict"])
         return update
 
     return node

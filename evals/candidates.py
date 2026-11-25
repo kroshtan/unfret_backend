@@ -50,7 +50,7 @@ from typing import Any
 import structlog
 from langchain_core.globals import get_llm_cache
 
-from evals.corpus import Corpus, LabelRecord, QueueItem, dump_json, is_llm, now_iso
+from evals.corpus import Corpus, LabelRecord, QueueItem, dump_json, is_llm, legacy_label, now_iso
 from evals.label import read_key
 from evals.run import configure
 from evals.sources.deep_candidates import DATASET
@@ -92,7 +92,13 @@ UNSURE = 0.4  # scorer confidence below this is "unsure"
 SURE_FINE = 35  # a score below this is the scorer saying the page is fine
 _EXCERPT_CHARS = 900
 FINDING_KEYS = {"c": "correct", "w": "wrong", "u": "unsure", "\r": "unsure", "\n": "unsure"}
-PAGE_KEYS = {"l": "legit", "j": "junk", "s": "scam"}
+# From the level batches on (Floris, 2026-11-25) a page gets its OVERALL risk level, not the most serious single
+# finding: 1 may not arrive / unsafe / data theft, 2 doesn't work, 3 overpaying, 4 pressure and tricks, 0 none.
+LEVEL_KEYS = {"1": 1, "2": 2, "3": 3, "4": 4, "0": 0, "n": 0}
+LEVEL_HELP = (
+    "level: [1] may not arrive/unsafe/data theft  [2] doesn't work  [3] overpaying  [4] pressure/tricks  "
+    "[0/n] no concern  ·  lower levels together can make 1; recourse lowers, irreversible payment raises"
+)
 
 
 def notes_of(record: LabelRecord) -> dict[str, Any]:
@@ -234,6 +240,7 @@ def result_row(result: dict[str, Any]) -> dict[str, Any]:
         "page_type": str(result.get("page_type", "")),
         "score": int(result["score"]),
         "band": str(verdict.get("band", "")),
+        "level": (verdict.get("risk") or {}).get("level"),
         "confidence": assessment.get("confidence"),
         "risk": assessment.get("risk_score"),
         "features": features,
@@ -635,8 +642,11 @@ def describe(
     ]
     if not hidden and row.get("score") is not None:
         sure = conf if conf is None else round(conf, 2)
-        lines.append(f"scorer: {row['score']}  ·  {row.get('band', '')}  ·  confidence {sure}")
-    if record.label:
+        level = f"  ·  level {row['level']}" if row.get("level") is not None else ""
+        lines.append(f"scorer: {row['score']}  ·  {row.get('band', '')}{level}  ·  confidence {sure}")
+    if record.level is not None:
+        lines.insert(3, f"in the corpus as level {record.level} ({record.level_source}, {record.origin_dataset})")
+    elif record.label:
         lines.insert(3, f"in the corpus as {record.label} ({record.label_source}, {record.origin_dataset})")
     if row.get("piece_count"):
         piece = row["piece_count"]
@@ -654,22 +664,24 @@ def describe(
     others = [f for f in row.get("findings", []) if not is_new(f["skill"])][:4]
     if others:
         lines.append("other findings: " + "; ".join(f"{f['type']}" for f in others))
-    lines += ["", textwrap.fill(text, 110), "", "[l]egit  [j]unk  [s]cam  [r]eject  [o]pen  [k] skip  [q]uit"]
+    lines += ["", textwrap.fill(text, 110), "", LEVEL_HELP, "[r]eject  [o]pen  [k] skip  [q]uit"]
     return "\n".join(lines)
 
 
-def decide(corpus: Corpus, record: LabelRecord, label: str | None, *, hidden: bool) -> None:
+def decide(corpus: Corpus, record: LabelRecord, label: str | None, *, hidden: bool, level: int | None = None) -> None:
     """
     Log one decision: the page, its new label (``None``: rejected), the label before, and whether it was blind.
 
     :param corpus: The corpus.
     :param record: The page as it was.
-    :param label: The decision.
+    :param label: The decision (the legacy label; derived from ``level`` for a level decision).
     :param hidden: Whether the scorer's answer was hidden.
+    :param level: The overall level decided (0–4), from the level batches on.
     """
     row = {
         "id": record.id,
         "label": label,
+        **({"level": level, "level_before": record.level} if level is not None else {}),
         "before": record.label,
         "before_source": record.label_source,
         "blind": hidden,
@@ -812,17 +824,19 @@ def label(corpus: Corpus, batch: int, mode: str = "queue") -> None:
             tally["rejected"] += 1
             print("→ rejected")  # noqa: T201 - interactive tool
             continue
-        if key not in PAGE_KEYS:
+        if key not in LEVEL_KEYS:
             tally["skipped"] += 1
             continue
-        page_label = PAGE_KEYS[key]
-        print(f"→ {page_label}")  # noqa: T201 - interactive tool
+        level = LEVEL_KEYS[key]
+        page_label = legacy_label(level)
+        print(f"→ level {level}")  # noqa: T201 - interactive tool
         if row.get("new_findings"):
             save_finding_labels(corpus, record, ask_findings(row["new_findings"]), hidden=hidden)
-        decide(corpus, record, page_label, hidden=hidden)
-        corpus.update([record.model_copy(update={"label": page_label, "label_source": "human", "confidence": 1.0})])
-        tally[page_label] += 1
-    left = len(queue) - sum(tally[k] for k in ("legit", "junk", "scam", "rejected"))
+        decide(corpus, record, page_label, hidden=hidden, level=level)
+        update = {"label": page_label, "label_source": "human", "confidence": 1.0, "level": level}
+        corpus.update([record.model_copy(update=update | {"level_source": "human"})])
+        tally[f"level {level}"] += 1
+    left = len(queue) - sum(v for k, v in tally.items() if k != "skipped")
     print(f"\nThis batch: {dict(tally)}. {left} left in the queue. Then: `make split`, and commit the corpus.")  # noqa: T201
 
 

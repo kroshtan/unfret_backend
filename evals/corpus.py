@@ -52,8 +52,20 @@ class LabelRecord(BaseModel):
     """Ground truth and provenance for one corpus page."""
 
     id: str
-    label: Label | None = Field(default=None, description="None while no source is confident enough.")
+    label: Label | None = Field(
+        default=None,
+        description="The legacy label (legit, junk, scam): None while no source is confident enough. For pages "
+        "labelled with a level it is derived from the level (:func:`legacy_label`).",
+    )
     label_source: LabelSource | None = None
+    level: int | None = Field(
+        default=None,
+        ge=0,
+        le=4,
+        description="The overall risk level (1 most serious … 4; 0 no concern), from the level-labelling batches on. "
+        "The OVERALL level, not the most serious single finding.",
+    )
+    level_source: LabelSource | None = None
     confidence: float = 0.0
     platform: str = Field(default="", description="Marketplace name, or empty for a brand's own shop.")
     page_type: str = Field(
@@ -75,6 +87,41 @@ class LabelRecord(BaseModel):
     rule_features: list[str] = Field(
         default_factory=list, description="Features a labelling rule used; exclude or check them when training."
     )
+
+
+# Levels in order of severity, as ranks: 0 none, 1 manipulation (level 4), 2 overpaying (3), 3 doesn't work (2),
+# 4 won't arrive (1). The ordinal scorer learns P(rank >= k) for k = 1..4.
+LEVEL_RANK: dict[int, int] = {0: 0, 4: 1, 3: 2, 2: 3, 1: 4}
+RANK_LEVEL: dict[int, int] = {v: k for k, v in LEVEL_RANK.items()}
+# What an old label says about the rank, as (lowest, highest): the old labels only mean "something wrong" or not.
+# scam = level 1; junk = real goods deceptively or badly represented: doesn't work or overpaying (not a shop that
+# may not deliver, more than pressure alone); legit = not misrepresented: no concern, pressure or overpaying at most.
+LEGACY_RANKS: dict[str, tuple[int, int]] = {"scam": (4, 4), "junk": (2, 3), "legit": (0, 2)}
+
+
+def legacy_label(level: int) -> Label:
+    """
+    The legacy label for a level label, so the binary scorer keeps training on new labels.
+
+    :param level: 0–4.
+    :return: legit for no concern, scam for level 1, junk for levels 2–4 ("something wrong").
+    """
+    return "legit" if level == 0 else "scam" if level == 1 else "junk"
+
+
+def rank_bounds(record: LabelRecord) -> tuple[int, int] | None:
+    """
+    What a record's labels say about its rank (:data:`LEVEL_RANK`): exact for a level label, a range for an old one.
+
+    :param record: The record.
+    :return: ``(lowest, highest)``, or ``None`` when unlabelled.
+    """
+    if record.level is not None:
+        rank = LEVEL_RANK[record.level]
+        return rank, rank
+    if record.label is not None:
+        return LEGACY_RANKS[record.label]
+    return None
 
 
 def page_class(record: LabelRecord) -> str:
@@ -154,7 +201,13 @@ class Corpus:
 
     def write_labels(self, records: Iterable[LabelRecord]) -> None:
         """Replace ``labels.jsonl`` with ``records``, sorted by id."""
-        lines = [r.model_dump_json() for r in sorted(records, key=lambda r: r.id)]
+        # The level fields only on records that have a level, so older records stay byte-for-byte the same.
+        lines = [
+            r.model_dump_json(
+                exclude={"level", "level_source"} if r.level is None and r.level_source is None else None
+            )
+            for r in sorted(records, key=lambda r: r.id)
+        ]
         tmp = self.labels_path.with_suffix(".tmp")
         tmp.write_text("".join(f"{line}\n" for line in lines))
         tmp.replace(self.labels_path)

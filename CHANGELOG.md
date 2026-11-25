@@ -16,6 +16,13 @@
   examples (`UNFRET_LEVEL_JUDGE_EXAMPLES_PATH`, a private file). It answers in parts (the level, the reasons it used,
   which ones combined, the protection step); the card's texts are built from those, never the model's words. Any
   failure keeps the band's level. To be compared with a level classifier on level labels before it is turned on.
+* **Level labels** (`make deep-label`): from the next batch on, a page is labelled with its OVERALL level (keys 1-4,
+  0 or n for none), and each new finding correct / wrong as before. `labels.jsonl` gains `level` and
+  `level_source` (only on records that have one); the legacy label follows from the level (0 legit, 1 scam, 2-4
+  junk) so the current scorer keeps training. `label_decisions.jsonl` logs `level` and `level_before`.
+* **`make levels`** (`evals.levels`): the ordinal level classifier, four calibrated thresholds trained on what each
+  label settles (old labels only bound the level), refusing to train before 150 level labels; and the level judge
+  against the level labels (exact, within one, any concern), pinning judge-scorer disagreements to the label queue.
 
 ### Usage statistics
 

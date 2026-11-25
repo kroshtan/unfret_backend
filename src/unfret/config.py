@@ -1,4 +1,3 @@
-import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, Self
@@ -10,23 +9,22 @@ from solders.pubkey import Pubkey
 from unfret.x402.evm import parse_address
 
 
-def _pack_prices(value: str) -> dict[int, int]:
+def _bonus_tiers_valid(value: str) -> bool:
     """
-    Pack prices as set: ``"25=6.00,100=20.00"`` → ``{25: 600, 100: 2000}``.
+    Whether ``topup_bonus`` reads like ``50=10,100=15`` (from amount = percent).
 
     :param value: The setting.
-    :return: Pack size → cents; empty for an empty setting.
-    :raises ValueError: If it is malformed (a size twice, an amount that isn't positive with at most cents).
+    :return: True if it does.
     """
-    prices: dict[int, int] = {}
-    for item in filter(None, (part.strip() for part in value.split(","))):
-        size, sep, amount = (piece.strip() for piece in item.partition("="))
-        whole = re.fullmatch(r"\d{1,6}(\.\d{1,2})?", amount)
-        cents = int(Decimal(amount) * 100) if whole else 0
-        if not sep or not size.isdigit() or int(size) in prices or cents <= 0:
-            raise ValueError(f"malformed pack prices: {value!r}")
-        prices[int(size)] = cents
-    return prices
+    for part in filter(None, (p.strip() for p in value.split(","))):
+        start, sep, pct = part.partition("=")
+        try:
+            Decimal(start.strip())
+        except ArithmeticError:
+            return False
+        if not sep or not pct.strip().isdigit():
+            return False
+    return True
 
 
 class Settings(BaseSettings):
@@ -226,32 +224,19 @@ class Settings(BaseSettings):
     pairing_ttl_s: int = 300  # phone sign-in pairings (in memory)
     pairing_per_ip: int = 10  # pairings a visitor may start per 10 minutes
     # Prices are canonical in US dollars. ONE setting sets them all: the price of a check, which is what an
-    # analysis costs in credits, what an x402 deep check costs, and what each pack is made of (unfret.credits.packs).
+    # analysis costs in credits, what an x402 deep check costs, and what a top-up buys (unfret.credits.topup).
     # Balances and amounts are integer micro-dollars (1 USD = 1_000_000 = USDC's base unit). USDC is charged exactly;
     # SOL (wSOL) is converted at quote and payment time from Pyth's SOL/USD price, read on chain through our RPC, and
     # refused while that price is stale or uncertain.
-    price_per_check_usd: Decimal = Field(default=Decimal("0.20"), gt=0, decimal_places=6)
-    # Credits are sold in packs of this many checks. With crypto a pack costs checks × price (VAT included); by card
-    # (the Merchant of Record) it costs its card_prices_usd price, or (a pack not named there) that plus the card
-    # costs, rounded up (packs.card_price). Packs taken off sale keep what they credited: a pass keeps its checks.
-    packs: list[int] = [25, 100]
-    card_fee_pct: Decimal = Field(default=Decimal("6.5"), ge=0, lt=50)  # the provider's cut, worst case (non-US card)
-    card_fee_flat_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
-    card_price_step_usd: Decimal = Field(default=Decimal("0.50"), gt=0)  # card prices are rounded up to this
-    # Card prices in dollars (unfret.credits.packs): "25=6.50,100=21.00". Set by hand, like the euro prices; a pack
-    # not named here costs its derived card price. Each Polar product needs a USD price equal to its pack's, or its
-    # checkout is refused before anyone pays. card_prices_usd_tax_inclusive (the default): these prices include sales
-    # tax/VAT (the provider takes it out of the price); false: tax is added at checkout.
-    card_prices_usd: str = "25=6.50,100=21.00"
-    card_prices_usd_tax_inclusive: bool = True
-    # Card prices in euros, for visitors from the euro area (unfret.credits.packs): "25=6.00,100=20.00", one per
-    # pack. Set by hand (not derived from the dollar price, so they stay round); each Polar product needs a EUR price
-    # equal to its pack's. A EUR checkout is what shows "iDEAL | Wero" to Dutch buyers. Empty: everyone pays in
-    # dollars. card_prices_eur_tax_inclusive (the default): these prices include VAT, the same for every buyer (the
-    # provider takes each country's VAT out of it), so the EUR price of each Polar product must be set to "inclusive"
-    # tax behaviour, or its checkout is refused; false: VAT is added on top at checkout, like the dollar prices.
-    card_prices_eur: str = "25=6.50,100=21.00"
-    card_prices_eur_tax_inclusive: bool = True
+    price_per_check_usd: Decimal = Field(default=Decimal("0.10"), gt=0, decimal_places=6)
+    # Top-ups (unfret.credits.topup): the buyer names an amount before VAT, at least topup_min_amount; it buys
+    # floor(amount / price per check) checks, euros at price_per_check_eur for visitors from the euro area (while
+    # card_eur_enabled), plus a bonus by amount (topup_bonus: "from=percent", +10% from 50, +15% from 100). VAT is
+    # added at checkout. Payment fees are absorbed.
+    price_per_check_eur: Decimal = Field(default=Decimal("0.10"), gt=0, decimal_places=6)
+    topup_min_amount: Decimal = Field(default=Decimal(10), gt=0, decimal_places=2)
+    topup_bonus: str = "50=10,100=15"
+    card_eur_enabled: bool = True
     # Whether Polar's organisation-wide tax default is "inclusive": a price whose tax_behavior is null (the
     # organisation's default) then counts as inclusive (Polar sets tax behaviour for the whole account).
     polar_org_tax_inclusive: bool = True
@@ -334,13 +319,12 @@ class Settings(BaseSettings):
     # Fiat top-ups for API keys through a Merchant of Record (Polar). Prices in USD; webhooks are Standard Webhooks,
     # signed with this whsec_ secret and refused outside the replay window.
     fiat_webhook_secret: SecretStr = SecretStr("")
-    # Polar (unfret.credits.polar): on only when the access token, a product for every pack and the webhook secret
-    # are all set. polar_products maps pack sizes to Polar product ids: "25=<uuid>,100=<uuid>". A product for a pack
-    # that is no longer on sale (an old "50=<uuid>") is ignored: no checkout starts for it, and an order for it is
-    # left for a person to look at.
+    # Polar (unfret.credits.polar): on only when the access token, the top-up product and the webhook secret are all
+    # set. polar_topup_product is a product with a custom ("pay what you want") price in USD and in EUR, tax added at
+    # checkout (tax behaviour exclusive): each checkout sets the amount the buyer named.
     polar_access_token: SecretStr = SecretStr("")
     polar_environment: Literal["sandbox", "production"] = "sandbox"
-    polar_products: str = ""
+    polar_topup_product: str = ""
     polar_timeout_s: float = 15.0
     fiat_webhook_tolerance_s: int = 300
     fiat_retention_days: int = 180
@@ -627,8 +611,8 @@ class Settings(BaseSettings):
         prices = (self.analysis_price_usd_micros, self.x402_price_quick_usd_micros, self.x402_price_deep_usd_micros)
         if min(prices) <= 0:
             problems.append("prices must be positive")
-        if not self.packs or self.packs != sorted(set(self.packs)) or self.packs[0] <= 0:
-            problems.append("packs must be distinct positive check counts, ascending")
+        if not _bonus_tiers_valid(self.topup_bonus):
+            problems.append("topup_bonus must read like 50=10,100=15")
         if not 0 <= self.quote_tolerance_bps <= 1_000:
             problems.append("quote_tolerance_bps must be 0-1000 (at most 10%)")
         if not 0 < self.x402_max_priority_fee_bps <= 5_000:
@@ -696,38 +680,6 @@ class Settings(BaseSettings):
             raise ValueError("inconsistent settings: " + "; ".join(problems))
         return self
 
-    @model_validator(mode="after")
-    def _card_prices_consistent(self) -> Self:
-        """
-        Refuse malformed card prices and Polar products, and prices that leave a pack on sale unpriced.
-
-        :return: The settings.
-        :raises ValueError: Listing every contradiction found.
-        """
-        problems: list[str] = []
-        try:
-            self.polar_product_ids  # noqa: B018 - parsed for its errors; products of packs off sale are ignored
-        except ValueError as exc:
-            problems.append(str(exc))
-        try:
-            eur = self.card_eur_cents
-        except ValueError as exc:
-            problems.append(str(exc))
-        else:
-            if eur and not set(self.packs) <= set(eur):
-                problems.append("card_prices_eur must price every pack on sale (or be empty: dollars only)")
-        try:
-            usd = self.card_usd_cents  # a pack it doesn't name gets the derived price
-        except ValueError as exc:
-            problems.append(str(exc))
-        else:
-            # A card price under the pack's value would make crypto the dearer way to pay.
-            if cheap := sorted(n for n, cents in usd.items() if cents * 10_000 < n * self.analysis_price_usd_micros):
-                problems.append(f"card_prices_usd is below the value of the packs {cheap} (checks × price_per_check)")
-        if problems:
-            raise ValueError("inconsistent settings: " + "; ".join(problems))
-        return self
-
     def summary(self) -> dict[str, Any]:
         """
         What this instance runs with, for the start-up log: no secrets, only whether each is set.
@@ -766,62 +718,16 @@ class Settings(BaseSettings):
         )
 
     @property
-    def polar_product_ids(self) -> dict[int, str]:
-        """
-        The Polar product of each pack, from :attr:`polar_products` (``"25=<uuid>,100=<uuid>"``).
-
-        :return: Pack size → product id.
-        :raises ValueError: If the setting is malformed.
-        """
-        products: dict[int, str] = {}
-        for item in filter(None, (part.strip() for part in self.polar_products.split(","))):
-            size, sep, product = (piece.strip() for piece in item.partition("="))
-            if not sep or not size.isdigit() or not product or int(size) in products:
-                raise ValueError("polar_products must read like 25=<product id>,100=<product id>")
-            products[int(size)] = product
-        return products
-
-    @property
-    def card_eur_cents(self) -> dict[int, int]:
-        """
-        Each pack's card price in euro cents, from :attr:`card_prices_eur` (``"25=6.00,100=20.00"``).
-
-        :return: Pack size → euro cents; empty when euro prices are off.
-        :raises ValueError: If the setting is malformed.
-        """
-        try:
-            return _pack_prices(self.card_prices_eur)
-        except ValueError:
-            raise ValueError(
-                "card_prices_eur must read like 25=6.00,100=20.00 (positive euros, at most cents)"
-            ) from None
-
-    @property
-    def card_usd_cents(self) -> dict[int, int]:
-        """
-        The packs' card prices in dollar cents set by hand, from :attr:`card_prices_usd` (``"25=6.00,100=20.00"``).
-
-        :return: Pack size → cents; a pack not named here gets the derived card price.
-        :raises ValueError: If the setting is malformed.
-        """
-        try:
-            return _pack_prices(self.card_prices_usd)
-        except ValueError:
-            raise ValueError(
-                "card_prices_usd must read like 25=6.00,100=20.00 (positive dollars, at most cents)"
-            ) from None
-
-    @property
     def polar_configured(self) -> bool:
         """
-        Whether card payments through Polar are on: the token, the webhook secret and a product for every pack.
+        Whether card payments through Polar are on: the token, the webhook secret and the top-up product.
 
         :return: True when all are set.
         """
         return bool(
             self.polar_access_token.get_secret_value()
             and self.fiat_webhook_secret.get_secret_value()
-            and set(self.packs) <= set(self.polar_product_ids)
+            and self.polar_topup_product.strip()
         )
 
     @property

@@ -47,41 +47,32 @@ async def test_price_list_shows_dollar_prices_exact_usdc_and_a_live_sol_quote() 
     doc = await pricing(Settings(), HOT, PriceBook(Settings(), StaticOracle("100")), USDC)
     assert (doc["currency"], doc["price_per_check_usd_micros"], doc["price_per_check_usd"]) == (
         "USD",
-        200_000,
-        "$0.20",
+        100_000,
+        "$0.10",
     )
-    assert (doc["analysis_usd_micros"], doc["analysis_usd"]) == (200_000, "$0.20")
-    assert doc["x402"] == {"quick_usd_micros": 10_000, "deep_usd_micros": 200_000}
-    assert "bonuses" not in doc
-    first = doc["packs"][0]
-    assert (first["checks"], first["price_usd"], first["crypto_usd"], first["credited_usd_micros"]) == (
-        25,
-        "$6.50",
-        "$5.00",
-        5_000_000,
-    )
-    assert first["label"]["en"] == ("25 checks — $6.50 · pay with crypto: $5.00, VAT included")
-    assert set(first["label"]) == {"en"}  # the app is in English; the map stays for clients that read it
-    assert all("invites" not in p for p in doc["packs"])  # no gift codes any more
-    assert doc["packs"][1]["label"]["en"] == ("100 checks — $21.00 · pay with crypto: $20.00, VAT included")
-    assert "invites" not in doc
-    assert doc["suggested_packs"][0] == {"checks": 25, "usd_micros": 5_000_000}
+    assert (doc["analysis_usd_micros"], doc["analysis_usd"]) == (100_000, "$0.10")
+    assert doc["x402"] == {"quick_usd_micros": 10_000, "deep_usd_micros": 100_000}
+    assert "bonuses" not in doc and "invites" not in doc
+    assert doc["packs"] == doc["suggested_packs"] == []  # any amount now: see topup
+    top = doc["topup"]
+    assert (top["min_amount"], top["price_per_check"]) == ("10", {"usd": "0.10", "eur": "0.10"})
+    assert top["bonus"] == [{"from_amount": "50", "pct": 10}, {"from_amount": "100", "pct": 15}]
     assert doc["vat"]["mode"] == "nl_under_threshold"
     assert doc["vat"]["eu_rates_pct"]["DE"] == "21"  # Dutch VAT for every EU buyer under the threshold
     # By card the provider charges each buyer their own country's rate: the pages show card prices with that.
     assert (doc["vat"]["card_rates_pct"]["DE"], doc["vat"]["card_rates_pct"]["FI"]) == ("19", "25.5")
     assert "US" not in doc["vat"]["card_rates_pct"]
     usdc = doc["usdc"]
-    assert (usdc["mint"], usdc["analysis_units"]) == (str(USDC), 200_000)
-    assert usdc["x402"] == {"quick_units": 10_000, "deep_units": 200_000}
+    assert (usdc["mint"], usdc["analysis_units"]) == (str(USDC), 100_000)
+    assert usdc["x402"] == {"quick_units": 10_000, "deep_units": 100_000}
     sol = doc["sol"]
-    assert (sol["usd_per_sol"], sol["source"], sol["analysis_lamports"]) == ("100", "pyth", 2_000_000)
-    assert sol["x402"] == {"quick_lamports": 100_000, "deep_lamports": 2_000_000}
-    assert doc["analysis_lamports"] == 2_000_000  # backward compatible: the current SOL price of a check
+    assert (sol["usd_per_sol"], sol["source"], sol["analysis_lamports"]) == ("100", "pyth", 1_000_000)
+    assert sol["x402"] == {"quick_lamports": 100_000, "deep_lamports": 1_000_000}
+    assert doc["analysis_lamports"] == 1_000_000  # backward compatible: the current SOL price of a check
 
     stale = await pricing(Settings(), HOT, PriceBook(Settings(), StaticOracle(None)), USDC)
     assert stale["sol"] is None and "stale" in stale["sol_unavailable"]
-    assert stale["usdc"]["analysis_units"] == 200_000  # USDC prices never depend on the oracle
+    assert stale["usdc"]["analysis_units"] == 100_000  # USDC prices never depend on the oracle
 
 
 def token_tx(*ixs: dict[str, Any], fee_payer: str | None = None, err: Any = None) -> dict[str, Any]:

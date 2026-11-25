@@ -28,7 +28,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from unfret import __version__, accuracy, clients_info, levels, shopper
 from unfret.config import settings
-from unfret.credits import packs
+from unfret.credits import topup as topups
 from unfret.credits.keys import MAX_EXTRA_BITS
 from unfret.prices import format_usd
 from unfret.routes.check import get_x402_base
@@ -384,28 +384,18 @@ def with_oauth(page: str, oauth_on: bool) -> str:
 
 def packs_line() -> str:
     """
-    The packs on sale and their prices by card and with crypto, for the developer pages.
+    How checks are bought, for the developer pages: the price of a check, the least top-up and the bonus.
 
-    By card in dollars and in euros, each with tax included while its prices include it; with crypto VAT included.
-
-    :return: E.g. "25 for $6.50 and 100 for $21.00 by card, tax included; in the euro area €6.50 and €21.00 by card,
-        VAT included; with crypto 25 for $5.00 and …".
+    :return: E.g. "$0.10 a check (€0.10 in the euro area), any amount from 10 before VAT, +10% checks from 50 and
+        +15% from 100; VAT is added at checkout".
     """
-    on_sale = packs.packs(settings)
-    card = _listed([f"{p.checks} for {format_usd(p.card_usd_micros)}" for p in on_sale])
-    crypto = _listed([f"{p.checks} for {format_usd(p.value_usd_micros)}" for p in on_sale])
-    if all(p.tax_inclusive("usd") for p in on_sale):
-        line = f"{card} by card, tax included"
-    else:
-        line = (
-            f"{card} by card, before tax (checkout shows the card price with VAT for an EU country, and adds sales "
-            "tax where it applies elsewhere)"
-        )
-    if packs.euros_on(settings):
-        euros = _listed([packs.format_eur(p.card_eur_cents or 0) for p in on_sale])
-        inclusive = all(p.tax_inclusive("eur") for p in on_sale)
-        line += f"; in the euro area {euros} by card, " + ("VAT included" if inclusive else "plus VAT")
-    return f"{line}; with crypto {crypto}, VAT included"
+    tiers = topups.bonus_tiers(settings)
+    bonus = _listed([f"+{pct}% checks from {start:f}" for start, pct in tiers])
+    eur = f" (€{settings.price_per_check_eur:f} in the euro area)" if settings.card_eur_enabled else ""
+    return (
+        f"${settings.price_per_check_usd:f} a check{eur}, any amount from {settings.topup_min_amount:f} before VAT"
+        f"{', ' + bonus if bonus else ''}; VAT is added at checkout"
+    )
 
 
 def _listed(items: list[str]) -> str:
@@ -425,7 +415,7 @@ def _limits_and_measurements() -> dict[str, str]:
     """
     The pass's prices and limits (from the settings) and what was measured on a running server.
 
-    :return: Text for the ``/developers`` placeholders about packs, limits, the sample response and the times.
+    :return: Text for the ``/developers`` placeholders about top-ups, limits, the sample response and the times.
     """
     measured = json.loads(DEVELOPERS_MEASURED.read_text(encoding="utf-8"))
     sample = measured["sample"]
@@ -783,9 +773,9 @@ def checkout() -> HTMLResponse:
 # What the welcome page says above its three ways in when the extension's new pass came without free checks.
 WELCOME_NOTES = {
     "had-free": "This browser has had its free checks already, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, buy a pack or use a gift code from a friend.",
+    "checks stay free; for deep checks, top up or use a gift code from a friend.",
     "none-today": "There were no free checks to give just now, so your new Unfret pass starts without them. Quick "
-    "checks stay free; for deep checks, buy a pack or use a gift code from a friend.",
+    "checks stay free; for deep checks, top up or use a gift code from a friend.",
 }
 # Above it all when the extension's old pass was retired (``?renewed=1``, the 0.13.0 fresh start): calm, one line.
 RENEWED_NOTE = '<p class="note" role="status">Unfret has a new free start: your old pass has ended.</p>'

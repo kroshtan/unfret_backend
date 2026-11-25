@@ -107,7 +107,7 @@ jobs:
           UNFRET_ADMIN_TOKEN: ${{ secrets.DEV_ADMIN_TOKEN }}
           UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.DEV_POLAR_ACCESS_TOKEN }}
           UNFRET_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
-          UNFRET_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
+          UNFRET_POLAR_TOPUP_PRODUCT: ${{ secrets.DEV_POLAR_TOPUP_PRODUCT }}
           UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
           # Read-only access to the private model store (README, "The model"); unset: the open baseline scorer.
           MODEL_READ_TOKEN: ${{ secrets.MODEL_READ_TOKEN }}
@@ -173,7 +173,7 @@ jobs:
           UNFRET_ADMIN_TOKEN: ${{ secrets.PROD_ADMIN_TOKEN }}
           # Card top-ups (Polar): all three or none.
           UNFRET_POLAR_ACCESS_TOKEN: ${{ secrets.PROD_POLAR_ACCESS_TOKEN }}
-          UNFRET_POLAR_PRODUCTS: ${{ secrets.PROD_POLAR_PRODUCTS }}
+          UNFRET_POLAR_TOPUP_PRODUCT: ${{ secrets.PROD_POLAR_TOPUP_PRODUCT }}
           UNFRET_FIAT_WEBHOOK_SECRET: ${{ secrets.PROD_FIAT_WEBHOOK_SECRET }}
           # x402 on Base mainnet: hot key, cold address and CDP key required once Base is enabled; the rest optional.
           UNFRET_X402_BASE_HOT_KEY: ${{ secrets.PROD_BASE_HOT_KEY }}
@@ -191,11 +191,11 @@ jobs:
           done
           ((${#missing[@]} == 0)) || { echo "::error::production secrets not set: ${missing[*]}"; exit 1; }
           polar=0
-          for name in UNFRET_POLAR_ACCESS_TOKEN UNFRET_POLAR_PRODUCTS UNFRET_FIAT_WEBHOOK_SECRET; do
+          for name in UNFRET_POLAR_ACCESS_TOKEN UNFRET_POLAR_TOPUP_PRODUCT UNFRET_FIAT_WEBHOOK_SECRET; do
             [[ -n "${!name}" ]] && polar=$((polar + 1))
           done
           ((polar == 0 || polar == 3)) \
-            || { echo "::error::set all of PROD_POLAR_ACCESS_TOKEN, PROD_POLAR_PRODUCTS, PROD_FIAT_WEBHOOK_SECRET, or none"; exit 1; }
+            || { echo "::error::set all of PROD_POLAR_ACCESS_TOKEN, PROD_POLAR_TOPUP_PRODUCT, PROD_FIAT_WEBHOOK_SECRET, or none"; exit 1; }
           ((polar == 3)) && echo "card top-ups: on (Polar production)" || echo "card top-ups: off (no PROD_POLAR_* secrets)"
           [[ "$UNFRET_SOLANA_RPC_URL" != *devnet* && "$UNFRET_SOLANA_RPC_URL" != *testnet* ]] \
             || { echo "::error::PROD_SOLANA_RPC_URL points at a test network"; exit 1; }

@@ -343,14 +343,14 @@ async def get_checks_left(ctx: Context) -> dict[str, Any]:
 @server.tool(
     title="Unfret prices",
     description=(
-        "Returns Unfret's current prices: what a quick and a deep check cost, the check packs a pass can buy and the "
+        "Returns Unfret's current prices: what a quick and a deep check cost, how a pass is topped up and the "
         "free checks."
     ),
     annotations=_readonly("Unfret prices"),
 )
 async def get_pricing(ctx: Context) -> dict[str, Any]:
     """
-    Unfret's current prices: what a check costs, the packs a pass can buy, and the free checks.
+    Unfret's current prices: what a check costs, how a pass is topped up (any amount), and the free checks.
 
     :param ctx: The MCP request context.
     :return: ``status``, ``ok`` and ``pricing`` (the ``GET /v1/pricing`` document), or ``error``.

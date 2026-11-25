@@ -1,10 +1,9 @@
-// Card prices as a buyer pays them. Card prices that include tax (/v1/pricing's card_tax_inclusive, by default both
-// dollars and euros) are the final price, the same for every buyer, and are shown as they are. Where a currency's
-// prices are before tax instead, the card provider (Polar, the Merchant of Record) adds VAT to them at checkout, so a
-// price shown without it would go up at the last step, exactly what Unfret warns shoppers about. For a country in the
-// EU such a price is shown with that country's standard VAT rate, which is what the provider charges a consumer there (/v1/pricing's
-// vat.card_rates_pct; not eu_rates_pct, which is what Unfret itself charges on a crypto purchase), rounded half up
-// to the cent; elsewhere tax depends on the buyer's state or country, and is named as added at checkout.
+// Top-up prices as a buyer pays them. A top-up is an amount before VAT (/v1/pricing's topup: the price of a check, the
+// least amount, the bonus tiers); the card provider (Polar, the Merchant of Record) adds VAT at checkout, so a price
+// shown without it would go up at the last step, exactly what Unfret warns shoppers about. For a country in the EU the
+// price is shown with that country's standard VAT rate, which is what the provider charges a consumer there
+// (/v1/pricing's vat.card_rates_pct; not eu_rates_pct, which is what Unfret itself charges on a crypto purchase),
+// rounded half up to the cent; elsewhere tax depends on the buyer's state or country, and is named as added at checkout.
 
 /** The VAT rate (percent, e.g. 21 or 25.5) a buyer from `country` pays by card, or null outside the EU. */
 export function vatPct(pricing, country) {
@@ -27,25 +26,6 @@ export function withVat(cents, pct) {
 export function formatCents(cents, currency) {
   const amount = (cents / 100).toFixed(2);
   return currency === "eur" ? `€${amount}` : `$${amount}`;
-}
-
-/** A pack's card price in `currency` as listed (before tax, or with it where it is included), in cents, or null. */
-export function netCents(pack, currency) {
-  if (currency === "eur") return Number.isInteger(pack.price_eur_cents) ? pack.price_eur_cents : null;
-  return Number.isInteger(pack.price_usd_micros) ? Math.round(pack.price_usd_micros / 10_000) : null;
-}
-
-/**
- * A pack's card price for a buyer from `country` paying in `currency`: { text, cents, vat } with the VAT included
- * for an EU country (vat: the rate), without any tax elsewhere (vat: null). A price that already includes VAT is
- * shown as it is. Null when the pack has no such price.
- */
-export function cardPrice(pricing, pack, currency, country) {
-  const net = netCents(pack, currency);
-  if (net === null) return null;
-  const pct = vatPct(pricing, country);
-  const cents = pct === null || taxIncluded(pricing, currency) ? net : withVat(net, pct);
-  return { text: formatCents(cents, currency), cents, vat: pct };
 }
 
 /**
@@ -76,15 +56,30 @@ export function countryPhrase(code) {
 }
 
 /**
- * The pack a `?checks=<n>` link asks for: that pack if it is on sale, else the one closest in size (the smaller on a
- * tie), with `replaced: true` (an old link to a pack that's gone, such as the 50-pack). Null without a size or packs.
+ * What a top-up of `amount` (before VAT, in `currency`) buys, as /v1/pricing's topup says (the server's own sums
+ * decide): { amount, cents, checks, bonus, pct } — floor(amount / price per check) checks, plus the bonus of the highest
+ * tier the amount reaches. Null without a price for the currency.
  */
-export function packFor(packs, checks) {
-  const asked = Number(checks) || 0;
-  if (asked <= 0 || !packs?.length) return null;
-  const exact = packs.find((p) => p.checks === asked);
-  if (exact) return { pack: exact, replaced: false };
-  const distance = (p) => Math.abs(p.checks - asked);
-  const nearest = [...packs].sort((a, b) => distance(a) - distance(b) || a.checks - b.checks)[0];
-  return { pack: nearest, replaced: true };
+export function topupFor(pricing, amount, currency) {
+  const price = Number(pricing?.topup?.price_per_check?.[currency]);
+  const value = Math.floor(Number(amount) * 100 + 1e-6) / 100;
+  if (!price || !(value > 0)) return null;
+  const base = Math.floor(Math.round(value * 1e6) / Math.round(price * 1e6) + 1e-9);
+  const tiers = pricing.topup.bonus ?? [];
+  const pct = Math.max(0, ...tiers.filter((t) => value >= Number(t.from_amount)).map((t) => Number(t.pct)));
+  const bonus = Math.floor((base * pct) / 100);
+  return { amount: value, cents: Math.round(value * 100), checks: base + bonus, bonus, pct };
+}
+
+/** The top-up in one line, with the VAT for `country` once known: "€100.00 → 1,150 checks · €121.00 incl. 21% VAT". */
+export function topupLine(pricing, top, currency, country, { crypto = false } = {}) {
+  const checks = `${top.checks.toLocaleString("en-US")} checks${top.bonus ? ` (incl. ${top.bonus.toLocaleString("en-US")} bonus)` : ""}`;
+  const head = `${formatCents(top.cents, currency)} → ${checks}`;
+  if (!country) return `${head} · plus VAT`;
+  const rates = crypto ? pricing?.vat?.eu_rates_pct : pricing?.vat?.card_rates_pct;
+  const pct = rates?.[country];
+  if (pct === undefined || pct === null) {
+    return crypto ? `${head} · no VAT outside the EU` : `${head} · sales tax or VAT added at checkout where it applies`;
+  }
+  return `${head} · ${formatCents(withVat(top.cents, pct), currency)} incl. ${Number(pct)}% VAT (${country})`;
 }

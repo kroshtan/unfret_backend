@@ -15,7 +15,7 @@ method Polar doesn't offer there would only show a card form behind a button tha
 from dataclasses import dataclass
 
 from unfret.config import Settings
-from unfret.credits.packs import CardCurrency, euros_on
+from unfret.credits.topup import CardCurrency
 
 
 @dataclass(frozen=True)
@@ -38,13 +38,13 @@ CARD = "card"
 
 def offered(settings: Settings, method: LocalMethod) -> bool:
     """
-    Whether a method can be used now: its currency is on (euro methods need ``card_prices_eur``).
+    Whether a method can be used now: its currency is on (euro methods need ``card_eur_enabled``).
 
     :param settings: The service settings.
     :param method: The method.
     :return: True if a checkout for it can be created.
     """
-    return method.currency == "usd" or euros_on(settings)
+    return method.currency == "usd" or settings.card_eur_enabled
 
 
 def local_method(settings: Settings, country: str | None) -> LocalMethod | None:

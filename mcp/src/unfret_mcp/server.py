@@ -48,7 +48,7 @@ server = MCPServer(
     title="Unfret",
     instructions=(
         "Check a store or product listing for scam, dropshipping and dark-pattern signals before buying. Each check "
-        "is paid from your own wallet, in USDC or wSOL on Solana or in USDC on Base (quick $0.01, deep $0.20; "
+        "is paid from your own wallet, in USDC or wSOL on Solana or in USDC on Base (quick $0.01, deep $0.10; "
         "get_pricing has the live prices; wSOL at the current SOL price) within a dollar spend cap, or, when this "
         "server was set up with an Unfret pass, from the pass (quick checks free, deep checks one of its checks). "
         "Act on `action`: allow = proceed, warn = ask your human first, block = don't buy."
@@ -164,7 +164,7 @@ async def check_store(
         Field(
             description=(
                 "quick: rule checks on the page itself, $0.01. deep: everything, including an LLM reading of "
-                "the page, reviews, domain age and reverse image search, $0.20."
+                "the page, reviews, domain age and reverse image search, $0.10."
             )
         ),
     ] = "quick",
@@ -185,7 +185,7 @@ async def check_store(
     Pass page_content (the page's HTML) for marketplaces such as Amazon, which block server-side fetches.
 
     :param url: The store or product page URL.
-    :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.20).
+    :param tier: quick (cheap checks, $0.01) or deep (everything incl. reverse image search, $0.10).
     :param policy: How cautious the returned action is: strict, balanced or lenient.
     :param page_content: The page's HTML, if available.
     :return: ``status`` (ok, not_paid, pending, unknown, unavailable), ``ok``, the ``verdict`` (action, risk_score,

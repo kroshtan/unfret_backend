@@ -9,10 +9,10 @@ and moves the cursor, in one database transaction. The cursor moves by compare-a
 exactly once even if two scanners run or one restarts mid-way.
 
 A purchase is valued in dollars at crediting time (:meth:`~unfret.prices.PriceBook.value`; USDC is exact, SOL is
-converted with Pyth's SOL/USD price), VAT included: the account is credited all of it (crypto prices include VAT), and
-the sale is recorded with its country and the VAT worked out of it (:mod:`unfret.credits.vat`) in the same database
-transaction. When SOL can't be valued
-(oracle stale), the SOL scanner stops at that transaction and retries later rather than guess.
+converted with Pyth's SOL/USD price); its VAT is worked out of it at the quote's rate and the net buys checks
+(:mod:`unfret.credits.topup`), and the sale is recorded with its country and the VAT worked out of it
+(:mod:`unfret.credits.vat`) in the same database transaction. When SOL can't be valued (oracle stale), the SOL scanner
+stops at that transaction and retries later rather than guess.
 
 Who is credited, and at which VAT rate: the quote's Solana Pay reference (a random public key that
 ``/v1/credits/purchase-tx`` adds to the transfer as a read-only account, and that wallets add for the Solana Pay
@@ -39,7 +39,7 @@ from solders.pubkey import Pubkey
 
 from unfret import usage
 from unfret.config import Settings
-from unfret.credits import keys, ledger, vat
+from unfret.credits import keys, ledger, topup, vat
 from unfret.prices import Currency, PriceBook, PriceUnavailableError
 from unfret.x402.solana import SolanaRpc, associated_token_address
 
@@ -303,7 +303,8 @@ class CreditScanner:
 
     async def _credit(self, conn: asyncpg.Connection, account: str, sale: vat.Sale) -> None:
         """Credit one account's purchase."""
-        await ledger.credit(conn, account, sale.credited_usd_micros, purchase=True)
+        # The net (what arrived less its VAT) buys checks at the price of a check, with the top-up's bonus.
+        await ledger.credit(conn, account, topup.crypto_credits(self.settings, sale.net_usd_micros), purchase=True)
 
     async def scan_once(self) -> int:
         """
@@ -337,7 +338,11 @@ class CreditScanner:
                 }
                 # Zero-value transfers (anyone can send one) and dust worth no net credit credit nothing; the
                 # cursor still moves past them. Crediting 0 would raise and stall the scanner on that transaction.
-                sales = {account: sale for account, sale in sales.items() if sale[1].net_usd_micros > 0}
+                sales = {
+                    account: sale
+                    for account, sale in sales.items()
+                    if topup.crypto_credits(self.settings, sale[1].net_usd_micros) > 0
+                }
             async with self.pool.acquire() as conn, conn.transaction():
                 current = await conn.fetchval(
                     "SELECT signature FROM scan_cursor WHERE name = $1 FOR UPDATE", self.name
@@ -357,7 +362,7 @@ class CreditScanner:
                 logger.info(
                     "credits_purchased",
                     currency=self.currency,
-                    credited_usd_micros=sale.credited_usd_micros,
+                    credited_usd_micros=topup.crypto_credits(self.settings, sale.net_usd_micros),
                     vat_usd_micros=sale.vat_usd_micros,
                 )
                 usage.record("payment", method="solana", purpose="pass", currency=self.currency.lower())

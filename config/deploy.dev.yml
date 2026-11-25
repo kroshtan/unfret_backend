@@ -49,7 +49,7 @@ env:
     # set. The environment (sandbox | production) is a secret too, so it's chosen with the token, not here.
     - UNFRET_POLAR_ACCESS_TOKEN
     - UNFRET_POLAR_ENVIRONMENT
-    - UNFRET_POLAR_PRODUCTS
+    - UNFRET_POLAR_TOPUP_PRODUCT
     - UNFRET_FIAT_WEBHOOK_SECRET
     # x402 on Base Sepolia (on above; off again while the hot key or cold address is empty). The hot key is payTo's
     # key (a Sepolia-only key holding a little Sepolia ETH for the sweeps' gas); the cold address and the optional

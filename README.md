@@ -430,8 +430,9 @@ Developers and agents have **three ways in**, all running the same check at the 
 | `POST` | `/v1/analyze` | Analyse a page, free (with `proof_of_work` for a deep check) or paid from a pass: `{ "url", "page_content"?, "page_facts"?, "checkout_content"?, "tier"?, "proof_of_work"? }` |
 | `POST` | `/v1/analyze/stream` | The same, streamed as server-sent events (`page_type`, `finding`…, `result`) |
 | `GET` | `/v1/credits` | The balance of the signed-in wallet or the pass |
-| `GET` | `/v1/pricing` | The price of a check, x402 prices, the packs (by card and with crypto), VAT rules, hot wallet |
-| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that buys a pack (VAT included), plus a Solana Pay link |
+| `GET` | `/v1/pricing` | The price of a check, x402 prices, top-ups (`topup`: least amount, bonus tiers), VAT rules, hot wallet |
+| `GET` | `/v1/pricing/topup` | What an amount buys: checks, bonus, VAT for a country, the total and a one-line label |
+| `POST` | `/v1/credits/purchase-tx` | Unsigned SOL or USDC transfer that tops up by an amount (VAT on top), plus a Solana Pay link |
 | `GET` | `/v1/credits/solana-pay.svg` | The same purchase as a Solana Pay QR code |
 | `GET` | `/v1/credits/quotes/{id}` | Whether a crypto purchase is paid |
 | `GET` | `/v1/schema/page-facts` | JSON schema of `PageFacts`, for clients that extract facts themselves |
@@ -453,24 +454,21 @@ message (no spending rights; the nonce is stateless and expires in five minutes)
 user state stored is `wallet → balance in micro-dollars`**: no emails, no purchase history (the chain is the
 ledger), no record of what was analysed.
 
-**Pricing.** One setting, `UNFRET_PRICE_PER_CHECK_USD` ($0.20), sets every price: an analysis costs one check in
-credits, an x402 deep check costs one check, and credits are sold in packs of 25 and 100 checks
-(`src/unfret/credits/packs.py`), after the free ones (a new pass's free deep checks, and quick checks). A pack's price
-is its card price, $6.50 and $21 with sales tax/VAT included (`UNFRET_CARD_PRICES_USD`, set by hand, and
-`UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE`, on by default; a pack not
-named there costs its value plus the card provider's worst-case cut of 6.5% + $0.50, rounded up to $0.50); paying
-with SOL or USDC costs the pack's value ($5, $20) **VAT included** (an EU buyer's VAT is worked out of the price,
-never added), never more than by card: not more than the dollar card price (a card price below the pack's
-value is refused at start-up), nor than the euro card price with VAT, while a euro is worth at least a dollar. The card price is shown as *the* price and crypto as the discount
-where there is one, never as a card surcharge (EU rules forbid surcharging consumer card payments). Either way the
-account is credited the pack's value, so a check costs the same in credits however it was bought. Visitors from the
-euro area (Cloudflare's country hint) pay by card in **euros** instead: €6.50, €21 **including VAT**
-(`UNFRET_CARD_PRICES_EUR`, set by hand rather than converted; `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE`, on by default).
-The euro price is the final price, the same for every buyer whatever their country's VAT rate: Polar takes the VAT out
-of it instead of adding it, and the margin absorbs the difference between rates. The dollar prices include tax the
-same way (with `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` off they are before sales tax/VAT, and checkout adds it). The 50-pack is no longer sold: what it credited
-keeps working, and an old `/checkout?checks=50` link picks the nearest pack and says so. Dutch visitors
-also get a **"Pay with iDEAL | Wero"** button above the card one (see *Local payment methods* below).
+**Pricing.** A check costs `UNFRET_PRICE_PER_CHECK_USD` ($0.10; `UNFRET_PRICE_PER_CHECK_EUR`, €0.10, by card from the
+euro area): an analysis costs one check in credits and an x402 deep check costs one check ($0.10; quick stays $0.01).
+After the free ones (shoppers' checks, a developer pass's 20 free deep checks), a pass is **topped up by any amount**
+from `UNFRET_TOPUP_MIN_AMOUNT` (10, dollars or euros) **before VAT** (`src/unfret/credits/topup.py`):
+`checks = floor(amount ÷ price per check)`, plus a bonus of the checks for larger amounts (`UNFRET_TOPUP_BONUS`,
+`50=10,100=15`: +10% from 50, +15% from 100). €100 buys 1,150 checks. VAT is **added at checkout**, by Polar for card
+payments (the merchant of record, at the buyer's country's rate) and by the quote for crypto (below); payment fees
+are absorbed, never taken off the checks. Pages show both prices once the country is known: "€100.00 → 1,150 checks
+(incl. 150 bonus) · €121.00 incl. 21% VAT (NL)" (`GET /v1/pricing/topup?amount=100&currency=eur&country=NL`). A
+pass's balance stays in micro-dollars: a top-up credits its checks at the dollar price of a check, whatever currency
+paid, so a check costs the same in credits however it was bought. Visitors from the euro area (Cloudflare's country
+hint) pay by card in **euros** (`UNFRET_CARD_EUR_ENABLED`, on). The fixed packs (25 and 100 checks) are gone: older
+clients that still send `checks` are priced at `checks × price per check` (at least the minimum), and an old
+`/checkout?checks=<n>` link fills in that amount. Dutch visitors also get a **"Pay with iDEAL | Wero"** button above
+the card one (see *Local payment methods* below).
 
 **VAT on crypto purchases** (`src/unfret/credits/vat.py`). The buyer states their country; the checkout prefills it
 from Cloudflare's `CF-IPCountry`, trusted only when Caddy saw the request come from Cloudflare's edge (it forwards
@@ -482,13 +480,15 @@ EU's TEDB (`make vat-rates-check` compares it and the Cloudflare ranges with the
 service logs `vat_rates_stale` 45 days after the table was last rewritten). Card
 purchases are sold by the payment provider, which handles their tax.
 
-**Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a pack for the buyer's country and stores that as
+**Buying.** `/v1/credits/purchase-tx` (and the Solana Pay QR) prices a top-up (`amount` before VAT) for the buyer's
+country and stores that as
 a quote; the transaction's memo is `unfret:quote:<id>`, so the scanner credits the right account (the payer, another
 wallet, or an API key) and records the right VAT. [`/checkout`](https://unfret.net/checkout) does it from a
 browser wallet or a phone. A background scanner walks the hot wallet's finalized transactions (a second one its USDC
 account) and credits every incoming transfer, top-level or inside a program call: what arrived (USDC at face value,
 SOL at its dollar value at crediting time, Pyth SOL/USD, rounded down; it waits rather than guesses while the price is
-stale), all of it: crypto prices include VAT, which is worked out of what arrived at the quote's rate. Each credit
+stale): the checks its value before VAT buys, with the bonus; the VAT is worked out of what arrived at the quote's
+rate (the quote added it on top). Each credit
 leaves a sales record (day, country, net, rate, VAT, asset, amount, signature; no
 IP, no wallet column) in the same database transaction, kept ten years; `GET /v1/admin/sales/<YYYY-Qn>` exports a
 quarter as CSV. A transfer without a quote, a manual one, counts as a sale to an unknown country at the Dutch rate;
@@ -528,7 +528,7 @@ iPhone, a computer) `/pass` is a tiny page (`noindex`, `no-store`, no referrer) 
 else is in the fragment) and ask before storing it, because any site can link to `/pass`. A page's verdict headline
 never repeats its label, which every client shows right above it.
 
-There is no free trial: every new wallet or API key starts at zero checks and buys a pack. Grant an API key credit by
+There is no free trial: every new wallet or API key starts at zero bought checks and tops up. Grant an API key credit by
 hand (support, a store reviewer's test checks) with `POST /v1/admin/keys/<key_id>/grant` and `{"usd_micros": n}`, at
 most $10 a grant, with the admin token.
 
@@ -559,7 +559,7 @@ Open reports from retired passes are deleted with them: label them first (`make 
 
 ### Card payments for API keys (Polar)
 
-API keys can also be topped up by card through [Polar](https://polar.sh), the Merchant of Record: Polar sells the pack,
+API keys can also be topped up by card through [Polar](https://polar.sh), the Merchant of Record: Polar sells the top-up,
 collects the buyer's details and sales tax/VAT, and issues the invoice; this service only learns that a key was paid
 for (`src/unfret/credits/polar.py`, `src/unfret/credits/fiat.py`). Card payments are **off** (`/v1/pricing` says
 `fiat.available: false`, `/v1/credits/fiat-checkout` answers 503, readiness says `"fiat": "off"`) until all of these
@@ -569,26 +569,19 @@ are set:
 | --- | --- |
 | `UNFRET_POLAR_ACCESS_TOKEN` | An **Organization Access Token** (Polar → Settings → Developers) with the single scope **`checkouts:write`**. Nothing else is called: no product, order, customer or refund reads |
 | `UNFRET_POLAR_ENVIRONMENT` | `production` (https://api.polar.sh, real money) or `sandbox` (https://sandbox-api.polar.sh; the default, also when empty). The token, products and webhook must come from the same environment |
-| `UNFRET_POLAR_PRODUCTS` | The Polar product of every pack: `25=<product id>,100=<product id>`. A product for a pack no longer on sale (`50=…`) is ignored: no checkout starts for it and its orders are logged, not credited |
+| `UNFRET_POLAR_TOPUP_PRODUCT` | The top-up product's id: one product with a custom ("pay what you want") price |
 | `UNFRET_FIAT_WEBHOOK_SECRET` | The webhook endpoint's `whsec_…` secret |
 
-**In Polar:** one one-time product per pack, priced at the pack's card price **in USD**
-(`UNFRET_CARD_PRICES_USD`: $6.50, $21.00), **plus a second price in EUR** equal to `UNFRET_CARD_PRICES_EUR` (€6.50,
-€21.00; keep USD as the organisation's default currency), each with its tax behaviour set to **inclusive** while
-`UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` / `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` are on (the defaults; *exclusive*
-with the setting off), on the price itself or as the organisation's default (`UNFRET_POLAR_ORG_TAX_INCLUSIVE`, on by default, says that
-default is inclusive, since it isn't readable with the checkout token; off, a price left on the default counts as
-wrong for a tax-inclusive pack). A product whose price or tax behaviour differs from the pack's (say, not
-yet changed in Polar after the setting) refuses its checkouts, so nobody pays the old price or VAT on top of a price
-shown with VAT; the other packs sell on. A tax-inclusive euro order is credited when its `net_amount + tax_amount` is
-the pack's price (Polar's `net_amount` is then the price less the buyer's VAT); refunds still count from
-the `net_amount`. A checkout is created for the pack's product with `currency:
-"usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our account id
-(`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and
+**In Polar:** one one-time product, "Unfret checks", with a **custom price** ("pay what you want") **in USD**
+(minimum $10) **plus a second custom price in EUR** (minimum €10; keep USD as the organisation's default currency),
+each with its tax behaviour set to **exclusive** on the price itself (a price left on an inclusive organisation
+default refuses its checkouts). A checkout is created for it with `amount` (the amount before VAT, in cents),
+`currency: "usd"`, or `"eur"` for visitors from the euro area (or when the page asks for it), discount codes off, our
+account id (`key:<id>`) and this site's address (`UNFRET_PUBLIC_BASE_URL`) in its metadata and
 `/checkout?paid=1&checkout={CHECKOUT_ID}` as the success URL (Polar fills in the checkout's id); nothing about the
-buyer is sent. If Polar answers with another currency or price, the checkout is refused before
-anyone pays; a refused euro checkout falls back to the dollar one (logged as `fiat_checkout_eur_fallback`), so a
-product still missing its euro price costs euro-area buyers iDEAL | Wero, not the sale.
+buyer is sent. Polar adds the buyer's VAT or sales tax on top. If Polar answers with another currency or amount, or a
+tax-inclusive price, the checkout is refused before anyone pays; a refused euro checkout falls back to the dollar one
+(logged as `fiat_checkout_eur_fallback`).
 
 **Local payment methods** (`src/unfret/credits/local_methods.py`). Polar picks the methods its checkout shows from
 the checkout's currency and the buyer's billing country, and with no country it shows cards only: iDEAL | Wero
@@ -623,9 +616,9 @@ never signed out from another browser. The buying browser, opened later, learns 
 that its key was replaced and forgets it. The page removes the checkout's id from the address bar at once.
 
 **Webhook:** add an endpoint at `https://<host>/v1/webhooks/fiat` (format *Raw*), subscribed to **`order.paid`**,
-**`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited the pack's value once,
-and only if it is for a configured pack's product at exactly that pack's card price before tax (`net_amount`) in the
-order's currency (USD, or EUR at the pack's euro price; the currency is kept in `fiat_payments.currency`); anything else credits nothing and logs `polar_order_not_credited` (order id, reason, currency and
+**`order.refunded`**, **`refund.created`** and **`refund.updated`**. A paid order is credited once, and only if it is
+for the top-up product in USD or EUR: the checks its amount before tax (`net_amount`) buys, with the bonus (the
+currency is kept in `fiat_payments.currency`); anything else credits nothing and logs `polar_order_not_credited` (order id, reason, currency and
 amount; never the buyer) for a person to sort out in Polar. Refunds take back the refunded share of the credits
 (`refunded_amount`, before tax); a refund that settles a dispute Polar lost takes back the whole order. Polar has no
 webhook for disputes themselves. Other events are acknowledged and ignored.
@@ -1158,9 +1151,10 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_POSTGRES_URI` | `postgresql://unfret:unfret@localhost:5432/unfret` | Tables are created on startup |
 | `UNFRET_SESSION_SECRET` | — | Signs nonces and session tokens; sign-in and credits are off (503) while empty |
 | `UNFRET_SIWS_DOMAIN` | `unfret.net` | Sign-in messages must be bound to this domain |
-| `UNFRET_PRICE_PER_CHECK_USD` | `0.20` | The price of a check: an analysis, an x402 deep check, and what packs are made of |
+| `UNFRET_PRICE_PER_CHECK_USD` / `UNFRET_PRICE_PER_CHECK_EUR` | `0.10` / `0.10` | The price of a check before VAT: an analysis, an x402 deep check, and what a top-up buys (euros: by card from the euro area) |
 | `UNFRET_X402_PRICE_QUICK_USD_MICROS` | `10000` | The x402 quick tier ($0.01) |
-| `UNFRET_PACKS` | `[25,100]` | Pack sizes in checks |
+| `UNFRET_TOPUP_MIN_AMOUNT` / `UNFRET_TOPUP_BONUS` | `10` / `50=10,100=15` | The least top-up before VAT (dollars or euros), and the bonus tiers: `<from amount>=<percent of the checks>` |
+| `UNFRET_CARD_EUR_ENABLED` | `true` | Card top-ups in euros for visitors from the euro area |
 | `UNFRET_DEVELOPER_FREE_CHECKS` / `UNFRET_DEVELOPER_PASSES_PER_IP_PER_DAY` | `20` / `1` | Developer passes (`"developer": true`): their free deep checks (they count on `/v1/check` only), and how many per visitor network a day; past it a pass is made empty |
 | `UNFRET_DEVELOPER_FREE_DAILY_BUDGET_EUR` | `1.00` | Developer passes' free deep checks together a UTC day, in euros of estimated cost (200 checks at the default cost: ten full developer passes), apart from the shoppers' budget; then a developer pass with only free checks gets `402` until 00:00 UTC. 0 turns them off |
 | `UNFRET_DEVELOPER_POW_EXTRA_BITS` | `4` | How much harder a developer pass's proof of work is than an ordinary pass's (`UNFRET_KEY_POW_BITS`, 18): each bit doubles the work, so 4 is 16 times |
@@ -1173,11 +1167,6 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_FREE_CHECK_COST_EUR` | `0.005` | The estimated cost of one deep check (LLM and embedding tokens, retries included): developer passes' day's budget over this is their day's number of free deep checks |
 | `UNFRET_QUICK_CHECKS_PER_MINUTE` | `10` | Free quick checks (rules only) per account, or per visitor network without one |
 | `UNFRET_CHECK_EXAMPLES` | the test shop, its sister shop, the clean shop | Links `/check` offers to try, as JSON `[["label", "address"], ...]` (a path for this site) |
-| `UNFRET_CARD_PRICES_USD` | `25=6.50,100=21.00` | Each pack's card price in dollars (tax included while `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` is on), set by hand; a pack not named here gets the derived price below. Never below the pack's value (refused at start-up). Each Polar product needs the same USD price |
-| `UNFRET_CARD_FEE_PCT` / `UNFRET_CARD_FEE_FLAT_USD` / `UNFRET_CARD_PRICE_STEP_USD` | `6.5` / `0.50` / `0.50` | How the card price of a pack without one in `UNFRET_CARD_PRICES_USD` is derived |
-| `UNFRET_CARD_PRICES_EUR` | `25=6.50,100=21.00` | Each pack's card price in euros for visitors from the euro area; one per pack on sale (others are ignored), or empty for dollars only. Each Polar product needs the same EUR price |
-| `UNFRET_CARD_PRICES_EUR_TAX_INCLUSIVE` | `true` | The euro card prices include VAT (the final price, the same for every buyer); each product's EUR price must have the tax behaviour *inclusive* in Polar. `false`: VAT is added at checkout, like the dollar prices |
-| `UNFRET_CARD_PRICES_USD_TAX_INCLUSIVE` | `true` | The dollar card prices include sales tax/VAT (the final price); `false`: tax is added at checkout |
 | `UNFRET_POLAR_ORG_TAX_INCLUSIVE` | `true` | Polar's organisation-wide tax behaviour is *inclusive*: a price with no tax behaviour of its own (`null`) counts as inclusive. `false`: `null` counts as exclusive |
 | `UNFRET_VAT_MODE` | `nl_under_threshold` | VAT on crypto purchases: Dutch VAT for all EU buyers, or `per_country` |
 | `UNFRET_QUOTE_TOLERANCE_BPS` | `200` | How far a wSOL payment may drift from the quote |
@@ -1195,7 +1184,7 @@ Settings are defined and validated in [`src/unfret/config.py`](src/unfret/config
 | `UNFRET_OBJECTIONS_PER_VISITOR_PER_DAY` / `UNFRET_OBJECTIONS_DAILY_CAP` / `UNFRET_OBJECTION_DAYS` | `5` / `200` / `90` | Requests from shop owners (`/objection`): per visitor network per day, in total per day, and how long an open one is kept |
 | `UNFRET_TERMS_DRAFT` | `false` | Show a "draft, not in force" note at the top of `/terms` (for a new version of the terms that isn't approved yet) |
 | `UNFRET_ADMIN_TOKEN` | — | Bearer token for `/v1/admin/…` and the readiness details (balances, alert names); off while empty |
-| `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_PRODUCTS` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
+| `UNFRET_POLAR_ACCESS_TOKEN` / `UNFRET_POLAR_ENVIRONMENT` / `UNFRET_POLAR_TOPUP_PRODUCT` / `UNFRET_FIAT_WEBHOOK_SECRET` | — / `sandbox` / — / — | Card top-ups for API keys through Polar (see above); off unless all are set |
 
 ## Development
 
@@ -1286,7 +1275,7 @@ wallet and session secret:
 | Solana | devnet (test money) | **mainnet** |
 | Kamal destination | `config/deploy.dev.yml` (containers `unfret-web-dev-<sha>`, DB `unfret-dev-db`) | `config/deploy.production.yml` (`unfret-web-production-<sha>`, `unfret-prod-db`) |
 | Deployed | **automatically** on every push to `main` (`.forgejo/workflows/deploy-dev.yaml`, through `cd.yaml`) | **only by hand** (`.forgejo/workflows/deploy-production.yaml`, through `cd.yaml`) |
-| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_PRODUCTS`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_PRODUCTS`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
+| Repo secrets | `DEV_POSTGRES_PASSWORD`, `DEV_SESSION_SECRET`, `DEV_HOT_WALLET_KEY`, `DEV_COLD_ADDRESS`; optional `DEV_ADMIN_TOKEN`, and for card payments `DEV_POLAR_ACCESS_TOKEN`, `DEV_POLAR_ENVIRONMENT`, `DEV_POLAR_TOPUP_PRODUCT`, `DEV_FIAT_WEBHOOK_SECRET`; for the e2e sweep (production's gate) `DEV_E2E_PAYER_KEY`, `DEV_E2E_KEY` and `DEV_ADMIN_TOKEN` | `PROD_POSTGRES_PASSWORD`, `PROD_SESSION_SECRET`, `PROD_HOT_WALLET_KEY`, `PROD_COLD_ADDRESS`, `PROD_SOLANA_RPC_URL` (all required); for card payments `PROD_POLAR_ACCESS_TOKEN`, `PROD_POLAR_TOPUP_PRODUCT`, `PROD_FIAT_WEBHOOK_SECRET` (all three or none; Polar's production environment is fixed in `config/deploy.production.yml`) |
 
 **x402 on Base** is off in both environments (`UNFRET_X402_BASE_ENABLED: "false"` in dev's deploy file; production
 doesn't set it). Dev reads the optional repo secrets `DEV_BASE_HOT_KEY` (a Base Sepolia key holding a little Sepolia
@@ -1367,14 +1356,14 @@ per pass (the same pass's repeat free, a cached result charged to another pass, 
 streamed, and every page the server can't read (`PAGE_BLOCKED`, `PAGE_UNAVAILABLE`,
 `INVALID_URL`, `PAGE_TOO_THIN`, a validation error) free; sign-in with the payer's wallet; x402 with the MCP client
 (quick in USDC, deep in wSOL, confirmed on devnet, a replayed payment answered once and debited once, an underpayment
-and a malformed header refused, a bot-check page free); credit packs bought in USDC (memo) and in SOL by the Solana Pay
+and a malformed header refused, a bot-check page free); $10 top-ups bought in USDC (memo) and in SOL by the Solana Pay
 reference alone; card top-ups (a Polar checkout page, then made-up signed `order.paid`/`order.refunded` webhooks: dev
 runs **live** Polar, so no real order is ever completed); the retired showcase's 404 and the operator endpoints' 401. Fixture pages
 come from the forge at the commit dev runs, each URL carrying a per-run marker that must not appear in dev's app logs
 or database afterwards (over ssh). It refuses to run against anything whose `/.well-known/x402` isn't devnet, and
-checks that the payer holds at least 1.5 SOL and 5.01 devnet USDC before spending (it never uses a faucet: "fund
+checks that the payer holds at least 1.5 SOL and 10.01 devnet USDC before spending (it never uses a faucet: "fund
 <address>"). The e2e key gets a working credit for the run and ends at exactly its starting balance (operator grant
-or debit). A run takes about five minutes and spends about $10.21 of devnet USDC and SOL (two packs and two x402
+or debit). A run takes about five minutes and spends about $20.11 of devnet USDC and SOL (two $10 top-ups and two x402
 checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 
 | Setting | Repo secret (production gate) | |
@@ -1383,7 +1372,7 @@ checks), which goes to dev's hot wallet and is swept to dev's cold wallet.
 | `UNFRET_E2E_KEY` | `DEV_E2E_KEY` | a long-lived API key on dev (`ufk_…`, made once at dev's `/checkout`), so a run creates only one key (5 per address per day) |
 | `UNFRET_E2E_ADMIN_TOKEN` | `DEV_ADMIN_TOKEN` | dev's operator token |
 | `UNFRET_E2E_FIAT_WEBHOOK_SECRET` | `DEV_FIAT_WEBHOOK_SECRET` | dev's Polar webhook secret, to sign the made-up order events |
-| `UNFRET_E2E_POLAR_PRODUCTS` | `DEV_POLAR_PRODUCTS` | the packs' Polar products (`25=<id>,…`) |
+| `UNFRET_E2E_POLAR_TOPUP_PRODUCT` | `DEV_POLAR_TOPUP_PRODUCT` | the Polar top-up product's id |
 | `UNFRET_E2E_EXPECT_FIAT` | (from `DEV_POLAR_ENVIRONMENT`) | readiness's `fiat`, default `polar:production`; `off` skips the card tests |
 | `UNFRET_E2E_SSH` | `kamal@git.kroshtan.com` | where to read dev's logs and dump its database; without it the privacy check is skipped |
 | `UNFRET_E2E_URL`, `UNFRET_E2E_COMMIT`, `UNFRET_E2E_FIXTURE_REF`, `UNFRET_E2E_RPC_URL`, `UNFRET_E2E_NO_SKIP` | | the target (default dev), the commit it must run, the commit to serve the fixtures from (default: the one dev runs), the devnet RPC, and whether a skip fails the run (the gate sets it) |

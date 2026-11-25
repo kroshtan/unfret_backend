@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from unfret import __version__, clients_info, observations, spend, usage, verdict_store
 from unfret.config import settings
 from unfret.credits import ledger
+from unfret.credits import topup as topups
 from unfret.net import fetch_public_page
 from unfret.page_fetch import final_address, is_challenge_page
 from unfret.prices import format_usd
@@ -1225,6 +1226,10 @@ async def llms_txt(request: Request) -> str:
     networks = " and ".join(f"{'/'.join(n['assets'])} on {n['network_name']} ({n['network']})" for n in d["networks"])
     oauth_on = mcp_oauth_on()
     examples_networks = "Solana: USDC or wSOL; Base: USDC" if base_on else "Solana: USDC or wSOL"
+    topup_min = f"${settings.topup_min_amount:f}"
+    topup_price = f"${settings.price_per_check_usd:f}"
+    tiers = [f"+{pct}% checks from ${start:f}" for start, pct in topups.bonus_tiers(settings)]
+    topup_bonus = " and ".join(tiers) if tiers else "no bonus"
     return f"""# Unfret
 
 > Risk signals for AI shopping agents: is this store, marketplace listing, second-hand ad or service provider's
@@ -1251,8 +1256,9 @@ Get a pass without an account (a developer pass, {dev["free_deep_checks"]} free 
    challenge + ":" + solution starts with `bits` zero bits ({dev["pow_bits"]} today; a few seconds).
 3. POST {dev["create"]} with {{"challenge", "solution", "developer": true}} → 201 {{"key": "ufk_...",
    "recovery_code", "free_checks", …}}. Both secrets are shown once: save them.
-Or buy checks for any pass at {url}/checkout. GET {url}/v1/credits with the pass says what is left; GET
-{url}/v1/pricing has every price.
+Or top up any pass at {url}/checkout: any amount from {topup_min} before VAT, {topup_price} a check, {topup_bonus}
+(GET {url}/v1/pricing/topup?amount=<n> says what an amount buys). GET {url}/v1/credits with the pass says what is
+left; GET {url}/v1/pricing has every price.
 
 ### 3. x402 pay-per-call (no account)
 

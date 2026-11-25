@@ -19,23 +19,23 @@ async def test_every_sales_route_follows_the_price_of_a_check(
     client: httpx.AsyncClient, wallet: Any, monkeypatch: pytest.MonkeyPatch, price: str
 ) -> None:
     monkeypatch.setattr(settings, "price_per_check_usd", Decimal(price))
-    monkeypatch.setattr(settings, "card_prices_usd", "")  # hand-set card prices stay put; derived ones follow
     check = int(Decimal(price) * 1_000_000)
 
     # The price list (also what the MCP server's get_pricing and the checkout page show).
     listed = (await client.get("/v1/pricing")).json()
     assert listed["price_per_check_usd_micros"] == listed["analysis_usd_micros"] == check
     assert listed["x402"]["deep_usd_micros"] == check
-    assert [p["crypto_usd_micros"] for p in listed["packs"]] == [25 * check, 100 * check]
+    assert listed["topup"]["price_per_check"]["usd"] == price
 
     # x402 discovery and llms.txt (agents).
     discovery = (await client.get("/.well-known/x402")).json()
     assert discovery["tiers"]["deep"]["price_usd_micros"] == check
     assert f"deep = ${Decimal(check) / 1_000_000:.2f}" in (await client.get("/llms.txt")).text
 
-    # A crypto purchase: the pack costs checks × price (USDC, outside the EU: no VAT).
-    body = {"address": str(Keypair().pubkey()), "checks": 100, "country": "US", "currency": "USDC"}
-    assert (await client.post("/v1/credits/purchase-tx", json=body)).json()["amount"] == 100 * check
+    # A crypto top-up: $20 buys 20 ÷ price checks (USDC, outside the EU: no VAT).
+    body = {"address": str(Keypair().pubkey()), "amount": "20", "country": "US", "currency": "USDC"}
+    bought = (await client.post("/v1/credits/purchase-tx", json=body)).json()
+    assert (bought["amount"], bought["checks"]) == (20_000_000, int(20 / Decimal(price)))
 
     # An analysis costs one check, and the balance counts checks at that price.
     address, headers = await wallet(3 * check)

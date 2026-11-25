@@ -15,7 +15,7 @@ from tests.integration.conftest import DROP_ALL, bearer
 from tests.unit.x402_helpers import StaticOracle
 from unfret.auth import get_credits
 from unfret.config import settings
-from unfret.credits import CreditsDoor, keys, siws, vat
+from unfret.credits import CreditsDoor, keys, siws, topup, vat
 from unfret.credits.scanner import CreditScanner
 from unfret.main import app
 from unfret.migrations import MIGRATIONS, migrate
@@ -29,9 +29,9 @@ PRICE = settings.analysis_price_usd_micros
 SOL_BOOK = PriceBook(settings, StaticOracle("1000"))
 
 
-def net(received: int) -> int:
-    """What a transfer without a quote credits: all of it (prices include VAT; the Dutch VAT is recorded out of it)."""
-    return received
+def net(received: int, bps: int = 2100) -> int:
+    """What a transfer credits: the checks its value less the VAT in it buys (without a quote: the Dutch rate)."""
+    return topup.crypto_credits(settings, vat.split_gross(received, bps)[0])
 
 
 def transfer(source: str, destination: str, lamports: int, *, inner: bool = False) -> dict[str, Any]:
@@ -198,17 +198,18 @@ async def test_pricing_without_purchases(client: httpx.AsyncClient) -> None:
     body = (await client.get("/v1/pricing")).json()
     assert (body["currency"], body["analysis_usd_micros"]) == ("USD", PRICE)
     assert body["hot_wallet"] is None
-    assert [(p["checks"], p["price_usd"], p["crypto_usd"]) for p in body["packs"]] == [
-        (25, "$6.50", "$5.00"),
-        (100, "$21.00", "$20.00"),
+    assert body["packs"] == []  # fixed packs are gone: any amount from the minimum
+    assert body["topup"]["min_amount"] == "10" and body["topup"]["bonus"] == [
+        {"from_amount": "50", "pct": 10},
+        {"from_amount": "100", "pct": 15},
     ]
-    assert body["fiat"]["min_usd_micros"] == 6_500_000  # the smallest pack by card
+    assert body["fiat"]["min_usd_micros"] == 10_000_000
     assert body["vat"]["country_hint"] is None  # not through Cloudflare
     assert "no-store" in (await client.get("/v1/pricing")).headers["cache-control"]
 
 
 async def test_purchases_off_until_the_scanner_runs(client: httpx.AsyncClient) -> None:
-    body = {"address": str(Keypair().pubkey()), "checks": 25, "country": "NL"}
+    body = {"address": str(Keypair().pubkey()), "amount": "10", "country": "NL"}
     response = await client.post("/v1/credits/purchase-tx", json=body)
     assert response.status_code == 503
 
@@ -225,11 +226,11 @@ async def shop(client: httpx.AsyncClient, pool: asyncpg.Pool) -> ChainRpc:
     return rpc
 
 
-async def test_purchase_transaction_pays_the_pack_vat_included(
+async def test_purchase_transaction_pays_the_amount_plus_vat(
     client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool
 ) -> None:
     buyer = Keypair()
-    body = {"address": str(buyer.pubkey()), "checks": 25, "country": "DE"}
+    body = {"address": str(buyer.pubkey()), "amount": "10", "country": "DE"}
     response = await client.post("/v1/credits/purchase-tx", json=body)
 
     assert response.status_code == 200
@@ -238,14 +239,14 @@ async def test_purchase_transaction_pays_the_pack_vat_included(
     assert reply["price"] == {
         "country": "DE",
         "vat_rate_pct": "21",  # under the threshold every EU buyer pays the Dutch rate
-        "net_usd_micros": 4_132_231,  # $5.00 less the 21% VAT in it
-        "vat_usd_micros": 867_769,
-        "total_usd_micros": 5_000_000,  # the pack's crypto price, the same for every country
-        "total_usd": "$5.00",
+        "net_usd_micros": 10_000_000,  # the amount named, before VAT
+        "vat_usd_micros": 2_100_000,  # 21% on top
+        "total_usd_micros": 12_100_000,
+        "total_usd": "$12.10",
     }
-    assert reply["amount"] == 50_000_000  # $5.00 at $100/SOL
+    assert reply["amount"] == 121_000_000  # $12.10 at $100/SOL
     quote = await pool.fetchrow("SELECT * FROM vat_quotes")
-    assert (quote["country"], quote["checks"], quote["beneficiary"]) == ("DE", 25, None)
+    assert (quote["country"], quote["checks"], quote["beneficiary"]) == ("DE", 100, None)
     memo = f"unfret:quote:{quote['id']}"
     assert reply["quote_id"] == quote["id"]  # what the checkout polls
     reference = Pubkey.from_string(quote["reference"])  # the Solana Pay reference, in case the wallet drops the memo
@@ -261,37 +262,36 @@ async def test_purchase_transaction_pays_the_pack_vat_included(
 
 
 async def test_buyers_outside_the_eu_pay_no_vat(client: httpx.AsyncClient, shop: ChainRpc) -> None:
-    body = {"address": str(Keypair().pubkey()), "checks": 100, "country": "us", "currency": "USDC"}
+    body = {"address": str(Keypair().pubkey()), "amount": "20", "country": "us", "currency": "USDC"}
     reply = (await client.post("/v1/credits/purchase-tx", json=body)).json()
     assert (reply["price"]["country"], reply["price"]["vat_usd_micros"], reply["amount"]) == ("US", 0, 20_000_000)
-    old = await client.post("/v1/credits/purchase-tx", json={**body, "checks": 50})  # the 50-pack, off sale
-    assert (old.status_code, old.json()["metadata"]) == (400, {"packs": [25, 100]})
+    assert reply["checks"] == 200
+    # An older client asking for checks: priced at the check's price, refused below the minimum.
+    legacy = await client.post(
+        "/v1/credits/purchase-tx", json={**{k: v for k, v in body.items() if k != "amount"}, "checks": 25}
+    )
+    assert (legacy.status_code, legacy.json()["error_code"]) == (400, "AMOUNT_TOO_SMALL")
 
 
 @pytest.mark.parametrize(
-    ("checks", "country", "detail"),
+    ("amount", "country", "code", "detail"),
     [
-        (10, "NL", "Not a pack size."),
-        (26, "NL", "Not a pack size."),
-        (25, "XX", "Not a country code (ISO 3166 alpha-2)."),
-        (25, "N1", "Not a country code (ISO 3166 alpha-2)."),
+        ("9.99", "NL", "AMOUNT_TOO_SMALL", "A top-up is at least $10.00 before VAT."),
+        ("10", "XX", "BAD_REQUEST", "Not a country code (ISO 3166 alpha-2)."),
+        ("10", "N1", "BAD_REQUEST", "Not a country code (ISO 3166 alpha-2)."),
     ],
 )
-async def test_only_packs_and_real_countries(
-    client: httpx.AsyncClient, shop: ChainRpc, checks: int, country: str, detail: str
+async def test_at_least_the_minimum_and_real_countries(  # noqa: PLR0917 - fixtures and parameters
+    client: httpx.AsyncClient, shop: ChainRpc, amount: str, country: str, code: str, detail: str
 ) -> None:
-    body = {"address": str(Keypair().pubkey()), "checks": checks, "country": country}
+    body = {"address": str(Keypair().pubkey()), "amount": amount, "country": country}
     response = await client.post("/v1/credits/purchase-tx", json=body)
-    assert (response.status_code, response.json()["error_code"], response.json()["detail"]) == (
-        400,
-        "BAD_REQUEST",
-        detail,
-    )
+    assert (response.status_code, response.json()["error_code"], response.json()["detail"]) == (400, code, detail)
 
 
-async def test_amounts_are_gone(client: httpx.AsyncClient, shop: ChainRpc) -> None:
-    body = {"address": str(Keypair().pubkey()), "lamports": 15_000_000}  # the old arbitrary-amount request
-    assert (await client.post("/v1/credits/purchase-tx", json=body)).status_code == 422
+async def test_lamports_are_not_an_amount(client: httpx.AsyncClient, shop: ChainRpc) -> None:
+    body = {"address": str(Keypair().pubkey()), "lamports": 15_000_000}  # the old amount-in-lamports request
+    assert (await client.post("/v1/credits/purchase-tx", json=body)).status_code == 422  # no country
 
 
 async def test_cloudflares_country_counts_only_from_cloudflare(
@@ -302,7 +302,7 @@ async def test_cloudflares_country_counts_only_from_cloudflare(
     forged = {"X-Edge-Peer": "203.0.113.9", "CF-IPCountry": "FR"}  # someone hitting the box directly
     assert (await client.get("/v1/pricing", headers=forged)).json()["vat"]["country_hint"] is None
 
-    body = {"address": str(Keypair().pubkey()), "checks": 25, "country": "BE"}
+    body = {"address": str(Keypair().pubkey()), "amount": "10", "country": "BE"}
     await client.post("/v1/credits/purchase-tx", json=body, headers=from_cloudflare)
     await client.post("/v1/credits/purchase-tx", json={**body, "country": "FR"}, headers=from_cloudflare)
     await client.post("/v1/credits/purchase-tx", json=body, headers=forged)
@@ -311,10 +311,10 @@ async def test_cloudflares_country_counts_only_from_cloudflare(
 
 
 async def test_solana_pay_qr(client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool) -> None:
-    response = await client.get("/v1/credits/solana-pay.svg", params={"checks": 25, "country": "NL"})
+    response = await client.get("/v1/credits/solana-pay.svg", params={"amount": "10", "country": "NL"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
-    assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$5.00", "21")
+    assert (response.headers["x-unfret-total-usd"], response.headers["x-unfret-vat-rate"]) == ("$12.10", "21")
     assert response.text.startswith("<svg")
     quote_id = await pool.fetchval("SELECT id FROM vat_quotes")
     assert response.headers["x-unfret-quote"] == quote_id  # the page reads it (same origin) to poll the quote
@@ -485,7 +485,7 @@ async def test_purchase_quote_names_the_beneficiary(
     client: httpx.AsyncClient, shop: ChainRpc, pool: asyncpg.Pool
 ) -> None:
     vault, member = Keypair().pubkey(), Keypair().pubkey()
-    body = {"address": str(vault), "checks": 25, "country": "NL", "beneficiary": str(member)}
+    body = {"address": str(vault), "amount": "10", "country": "NL", "beneficiary": str(member)}
     response = await client.post("/v1/credits/purchase-tx", json=body)
 
     assert response.status_code == 200
@@ -500,7 +500,7 @@ async def test_purchase_quote_names_the_beneficiary(
 
 
 async def quoted(pool: asyncpg.Pool, country: str, *, beneficiary: str | None = None, edge: str | None = None) -> str:
-    quote = vat.price_quote(settings, 25, 5_000_000, country, edge=edge, beneficiary=beneficiary)
+    quote = vat.price_quote(settings, 50, 5_000_000, country, edge=edge, beneficiary=beneficiary)  # $5 before VAT
     await vat.save_quote(pool, quote)
     return quote.memo
 
@@ -510,26 +510,26 @@ async def test_a_quoted_purchase_credits_the_price_and_records_the_vat_in_it(poo
     scanner = CreditScanner(rpc, pool, HOT.pubkey(), settings, book=SOL_BOOK)  # type: ignore[arg-type]
     await scanner.initialise()
     hot, member = str(HOT.pubkey()), str(Keypair().pubkey())
-    rpc.add("nl", with_memos(transfer("anna", hot, 5_000_000), await quoted(pool, "NL")))  # $5, VAT included
-    rpc.add("us", with_memos(transfer("bill", hot, 5_000_000), await quoted(pool, "US")))
-    rpc.add("for", with_memos(transfer("vault", hot, 5_000_000), await quoted(pool, "DE", beneficiary=member)))
-    rpc.add("odd", with_memos(transfer("cleo", hot, 5_000_000), await quoted(pool, "BE", edge="NL")))
-    rpc.add("hand", transfer("dirk", hot, 5_000_000))  # sent by hand, without a quote
+    rpc.add("nl", with_memos(transfer("anna", hot, 6_050_000), await quoted(pool, "NL")))  # $5 plus 21% VAT
+    rpc.add("us", with_memos(transfer("bill", hot, 5_000_000), await quoted(pool, "US")))  # no VAT
+    rpc.add("for", with_memos(transfer("vault", hot, 6_050_000), await quoted(pool, "DE", beneficiary=member)))
+    rpc.add("odd", with_memos(transfer("cleo", hot, 6_050_000), await quoted(pool, "BE", edge="NL")))
+    rpc.add("hand", transfer("dirk", hot, 6_050_000))  # sent by hand, without a quote
 
     assert await scanner.scan_once() == 5
-    assert await balance(pool, "anna") == 5_000_000  # 25 checks
+    assert await balance(pool, "anna") == 5_000_000  # its $5 before VAT: 50 checks
     assert await balance(pool, "bill") == 5_000_000
     assert await balance(pool, member) == 5_000_000 and await balance(pool, "vault") is None
-    assert await balance(pool, "dirk") == 5_000_000  # all of it; recorded at the Dutch rate, conservatively
+    assert await balance(pool, "dirk") == 5_000_000  # at the Dutch rate, conservatively
     rows = await pool.fetch("SELECT * FROM crypto_sales ORDER BY id")
     assert [(r["country"], r["country_mismatch"], r["vat_rate_bps"], r["vat_usd_micros"]) for r in rows] == [
-        ("NL", False, 2100, 867_769),  # the VAT worked out of $5: $4.132231 net
+        ("NL", False, 2100, 1_050_000),  # the VAT worked out of $6.05: $5 net
         ("US", False, 0, 0),
-        ("DE", False, 2100, 867_769),
-        ("BE", True, 2100, 867_769),
-        ("unknown", False, 2100, 867_769),
+        ("DE", False, 2100, 1_050_000),
+        ("BE", True, 2100, 1_050_000),
+        ("unknown", False, 2100, 1_050_000),
     ]
-    assert [(r["signature"], r["asset"], r["amount"]) for r in rows][0] == ("nl", "SOL", 5_000_000)
+    assert [(r["signature"], r["asset"], r["amount"]) for r in rows][0] == ("nl", "SOL", 6_050_000)
     # Nothing that identifies a person: no IP, no wallet column (the transaction on chain shows who paid).
     columns = {
         r["column_name"]
@@ -547,7 +547,7 @@ async def test_the_scanner_marks_only_the_credited_quote_paid_once(pool: asyncpg
     hot = str(HOT.pubkey())
     paid, unpaid, dust = [await quoted(pool, "NL") for _ in range(3)]
     paid_id = paid.removeprefix(vat.QUOTE_MEMO_PREFIX)
-    rpc.add("first", with_memos(transfer("anna", hot, 5_000_000), paid))
+    rpc.add("first", with_memos(transfer("anna", hot, 6_050_000), paid))
     rpc.add("zero", with_memos(transfer("bill", hot, 0), dust))  # credits nothing: not paid
     assert await scanner.scan_once() == 1
     rows = {r["id"]: r["paid_at"] for r in await pool.fetch("SELECT id, paid_at FROM vat_quotes")}
@@ -555,7 +555,7 @@ async def test_the_scanner_marks_only_the_credited_quote_paid_once(pool: asyncpg
     assert first is not None and set(rows.values()) == {None}
     assert unpaid.removeprefix(vat.QUOTE_MEMO_PREFIX) in rows
 
-    rpc.add("again", with_memos(transfer("anna", hot, 5_000_000), paid))  # paying the same quote twice
+    rpc.add("again", with_memos(transfer("anna", hot, 6_050_000), paid))  # paying the same quote twice
     assert await scanner.scan_once() == 1
     assert await scanner.scan_once() == 0
     assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", paid_id) == first  # set once
@@ -571,7 +571,7 @@ def with_accounts(tx: dict[str, Any], *accounts: str) -> dict[str, Any]:
 
 async def key_quote(pool: asyncpg.Pool) -> tuple[vat.Quote, str]:
     issued = await keys.create(pool)
-    quote = vat.price_quote(settings, 25, 5_000_000, "NL", edge=None, beneficiary=f"key:{issued.key_id}")
+    quote = vat.price_quote(settings, 50, 5_000_000, "NL", edge=None, beneficiary=f"key:{issued.key_id}")
     await vat.save_quote(pool, quote)
     assert quote.reference is not None
     return quote, f"key:{issued.key_id}"
@@ -585,10 +585,10 @@ async def test_a_reference_without_the_memo_credits_the_quotes_key(pool: asyncpg
     quote, account = await key_quote(pool)
     hot = str(HOT.pubkey())
     assert quote.reference is not None
-    rpc.add("phantom", with_accounts(transfer("payer", hot, 5_000_000), "payer", hot, quote.reference))
+    rpc.add("phantom", with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference))
 
     assert await scanner.scan_once() == 1
-    assert await balance(pool, account) == 5_000_000  # 25 checks: the price, VAT included
+    assert await balance(pool, account) == 5_000_000  # 50 checks: $5 before VAT
     assert await balance(pool, "payer") is None
     assert await balance(pool, quote.reference) is None  # the reference is never credited
     assert await pool.fetchval("SELECT paid_at FROM vat_quotes WHERE id = $1", quote.id) is not None
@@ -602,7 +602,7 @@ async def test_a_reference_and_the_memo_credit_once(pool: asyncpg.Pool) -> None:
     quote, account = await key_quote(pool)
     hot = str(HOT.pubkey())
     assert quote.reference is not None
-    both = with_memos(with_accounts(transfer("payer", hot, 5_000_000), "payer", hot, quote.reference), quote.memo)
+    both = with_memos(with_accounts(transfer("payer", hot, 6_050_000), "payer", hot, quote.reference), quote.memo)
     rpc.add("both", both)
 
     assert await scanner.scan_once() == 1
@@ -618,13 +618,13 @@ async def test_an_unknown_reference_falls_back_to_the_memo_then_the_sender(pool:
     await scanner.initialise()
     quote, account = await key_quote(pool)
     hot, stranger = str(HOT.pubkey()), str(Keypair().pubkey())
-    rpc.add("memo", with_memos(with_accounts(transfer("anna", hot, 5_000_000), "anna", hot, stranger), quote.memo))
-    rpc.add("bare", with_accounts(transfer("bill", hot, 5_000_000), "bill", hot, stranger))
+    rpc.add("memo", with_memos(with_accounts(transfer("anna", hot, 6_050_000), "anna", hot, stranger), quote.memo))
+    rpc.add("bare", with_accounts(transfer("bill", hot, 6_050_000), "bill", hot, stranger))
 
     assert await scanner.scan_once() == 2
     assert await balance(pool, account) == 5_000_000  # the memo's quote
     assert await balance(pool, "anna") is None
-    assert await balance(pool, "bill") == net(5_000_000)  # no quote at all: the sender, as before
+    assert await balance(pool, "bill") == net(6_050_000)  # no quote at all: the sender, as before
     assert await balance(pool, stranger) is None
 
 
@@ -670,11 +670,11 @@ async def test_per_country_mode_charges_each_eu_countrys_own_rate(
     client: httpx.AsyncClient, shop: ChainRpc, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "vat_mode", "per_country")
-    body = {"address": str(Keypair().pubkey()), "checks": 25, "country": "HU", "currency": "USDC"}
+    body = {"address": str(Keypair().pubkey()), "amount": "10", "country": "HU", "currency": "USDC"}
     reply = (await client.post("/v1/credits/purchase-tx", json=body)).json()
-    # The price stays $5.00 (VAT included); only the VAT in it follows the rate.
-    assert (reply["price"]["vat_rate_pct"], reply["amount"]) == ("27", 5_000_000)
-    assert (reply["price"]["net_usd_micros"], reply["price"]["vat_usd_micros"]) == (3_937_007, 1_062_993)
+    # The amount stays $10 before VAT; the VAT on top follows the country's rate.
+    assert (reply["price"]["vat_rate_pct"], reply["amount"]) == ("27", 12_700_000)
+    assert (reply["price"]["net_usd_micros"], reply["price"]["vat_usd_micros"]) == (10_000_000, 2_700_000)
     assert (await client.get("/v1/pricing")).json()["vat"]["eu_rates_pct"]["FI"] == "25.5"
 
 
@@ -831,7 +831,7 @@ async def test_purchase_transaction_can_top_up_an_api_key(
 ) -> None:
     issued = await keys.create(pool)
     payer = Keypair().pubkey()
-    pack = {"address": str(payer), "checks": 25, "country": "NL"}
+    pack = {"address": str(payer), "amount": "10", "country": "NL"}
     for named in (issued.key_id, issued.key):  # the id, or the whole key (only the id is used)
         response = await client.post("/v1/credits/purchase-tx", json={**pack, "key_id": named})
         assert response.status_code == 200
@@ -840,5 +840,5 @@ async def test_purchase_transaction_can_top_up_an_api_key(
     assert beneficiaries == {f"key:{issued.key_id}"}
     unknown = await client.post("/v1/credits/purchase-tx", json={**pack, "key_id": "bbbbbbbbbb"})
     assert unknown.status_code == 404
-    qr = await client.get(f"/v1/credits/solana-pay.svg?checks=25&country=NL&key_id={issued.key_id}")
+    qr = await client.get(f"/v1/credits/solana-pay.svg?amount=10&country=NL&key_id={issued.key_id}")
     assert qr.status_code == 200

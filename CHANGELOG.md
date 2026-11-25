@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Top-ups by amount
+
+* The packs are gone: a pass is topped up by any amount from 10 (dollars or euros) **before VAT**; checks =
+  floor(amount ÷ $0.10, or €0.10 in the euro area), +10% checks from 50 and +15% from 100 (`UNFRET_TOPUP_MIN_AMOUNT`,
+  `UNFRET_TOPUP_BONUS`). VAT is added at checkout (Polar for cards, the quote for crypto); fees are absorbed. A check
+  is $0.10 (`UNFRET_PRICE_PER_CHECK_USD`, was $0.20): x402 deep follows, quick stays $0.01, and existing balances
+  (micro-dollars) count twice as many checks.
+* `GET /v1/pricing` → `topup` (least amount, price per check, bonus tiers, examples); new `GET /v1/pricing/topup`
+  (what an amount buys, with the VAT for a country and a ready label: "€100.00 → 1,150 checks (incl. 150 bonus) ·
+  €121.00 incl. 21% VAT (NL)"). `packs` and `suggested_packs` are empty lists.
+* Purchases take `amount`; older clients' `checks` is priced as checks × price. `400 AMOUNT_TOO_SMALL` /
+  `AMOUNT_REQUIRED`. `/checkout` has an amount field showing both prices.
+* Polar: one top-up product with custom USD and EUR prices, tax exclusive (`UNFRET_POLAR_TOPUP_PRODUCT`, replacing
+  `UNFRET_POLAR_PRODUCTS`; repo secrets `DEV_POLAR_TOPUP_PRODUCT` / `PROD_POLAR_TOPUP_PRODUCT`). The card price
+  settings (`UNFRET_PACKS`, `UNFRET_CARD_PRICES_*`, `UNFRET_CARD_FEE_*`, `UNFRET_CARD_PRICE_STEP_USD`) are gone.
+
 ### The free pool
 
 * All free LLM spend (shoppers' free deep checks, developer passes' free checks, background work) draws from one free

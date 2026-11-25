@@ -348,7 +348,7 @@ class DeepCheck(BaseModel):
     cost: str | None = Field(
         default=None,
         description='What a deep check would cost this caller, in words: "Uses 1 of your 3 free deep checks.", "Uses '
-        '1 check (you have 12).", "Deep checks come in packs, from $6.00 for 25."; on /v1/check paid with x402, the '
+        '1 check (you have 12).", "Checks cost $0.10 each, from a $10.00 top-up."; on /v1/check paid with x402, the '
         "deep tier's price.",
     )
     action: Literal["run_deep", "get_checks", "donate"] | None = Field(

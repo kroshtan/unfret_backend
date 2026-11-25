@@ -126,7 +126,7 @@ jobs:
           UNFRET_E2E_KEY: ${{ secrets.DEV_E2E_KEY }}
           UNFRET_E2E_ADMIN_TOKEN: ${{ secrets.DEV_ADMIN_TOKEN }}
           UNFRET_E2E_FIAT_WEBHOOK_SECRET: ${{ secrets.DEV_FIAT_WEBHOOK_SECRET }}
-          UNFRET_E2E_POLAR_PRODUCTS: ${{ secrets.DEV_POLAR_PRODUCTS }}
+          UNFRET_E2E_POLAR_TOPUP_PRODUCT: ${{ secrets.DEV_POLAR_TOPUP_PRODUCT }}
           DEV_POLAR_ENVIRONMENT: ${{ secrets.DEV_POLAR_ENVIRONMENT }}
           # Search dev's logs and database for the run's marker (the deploy key loaded above); a skipped part fails.
           UNFRET_E2E_SSH: kamal@git.kroshtan.com
@@ -139,7 +139,7 @@ jobs:
           done
           ((${#missing[@]} == 0)) || { echo "::error::e2e settings not set (repo secrets DEV_E2E_PAYER_KEY, DEV_E2E_KEY, DEV_ADMIN_TOKEN): ${missing[*]}"; exit 1; }
           # Card top-ups are checked as dev has them: on (Polar, in DEV_POLAR_ENVIRONMENT) when their secrets are set.
-          if [[ -n "$UNFRET_E2E_POLAR_PRODUCTS" && -n "$UNFRET_E2E_FIAT_WEBHOOK_SECRET" ]]; then
+          if [[ -n "$UNFRET_E2E_POLAR_TOPUP_PRODUCT" && -n "$UNFRET_E2E_FIAT_WEBHOOK_SECRET" ]]; then
             export UNFRET_E2E_EXPECT_FIAT="polar:${DEV_POLAR_ENVIRONMENT:-sandbox}"
           else
             export UNFRET_E2E_EXPECT_FIAT=off

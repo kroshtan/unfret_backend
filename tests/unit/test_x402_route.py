@@ -359,10 +359,10 @@ async def test_discovery_and_llms_txt(client: httpx.AsyncClient) -> None:
     assert "lamports (SOL) for every option, USDC included" in discovery["feeCap"]
     assert discovery["pricing"] == "canonical in USD"
     assert discovery["tiers"]["quick"]["price_usd_micros"] == 10_000
-    assert discovery["tiers"]["deep"]["price_usd"] == "$0.20"
+    assert discovery["tiers"]["deep"]["price_usd"] == "$0.10"
     text = (await client.get("/llms.txt")).text
     assert "quick = $0.01" in text
-    assert "deep = $0.20" in text
+    assert "deep = $0.10" in text
     assert "| `SETTLEMENT_PENDING` | 402 | maybe |" in text
     assert "network solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1, i.e. solana-devnet" in text
     assert "re-fetch the 402 right before paying" in text
@@ -408,7 +408,7 @@ def test_the_openapi_document_marks_check_as_paid() -> None:
     # x402scan (the agentcash discovery spec) registers the paid calls an origin's openapi.json marks this way.
     operation = app.openapi()["paths"]["/v1/check"]["post"]
     assert operation["x-payment-info"] == {
-        "price": {"mode": "dynamic", "currency": "USD", "min": "0.01", "max": "0.2"},
+        "price": {"mode": "dynamic", "currency": "USD", "min": "0.01", "max": "0.1"},
         "protocols": [{"x402": {}}],
     }
     assert {"200", "402"} <= set(operation["responses"])

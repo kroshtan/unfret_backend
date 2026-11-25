@@ -27,7 +27,6 @@ from typing import Any, Literal
 
 from unfret import levels, scoring, shopper
 from unfret.config import settings
-from unfret.credits import packs
 from unfret.facts import PageFacts
 from unfret.graph import platforms
 from unfret.graph.skills import NOT_APPLICABLE, UNAVAILABLE, Skill
@@ -879,7 +878,7 @@ def deep_check_cost(
     What a deep check would cost the caller, in words, and whether they can run it now.
 
     Paid as a deep check is paid (``POST /v1/analyze``): a pass's free checks first while today's aren't all used,
-    then bought checks; otherwise the smallest pack's card price. With x402, the deep tier's price.
+    then bought checks; otherwise the price of a check and the least top-up. With x402, the deep tier's price.
 
     :param free_left: The pass's free checks left.
     :param paused: Whether today's free deep checks are all used.
@@ -894,9 +893,10 @@ def deep_check_cost(
         return (cost["free_last"] if free_left == 1 else cost["free"].format(count=free_left)), "run_deep"
     if bought > 0:
         return cost["bought"].format(count=bought), "run_deep"
-    smallest = packs.packs(settings)[0]
     text = cost["paused" if free_left > 0 else "packs"]
-    return text.format(price=_dollars(smallest.card_usd_micros), checks=smallest.checks), "get_checks"
+    return text.format(
+        price=_dollars(settings.analysis_price_usd_micros), least=_dollars(int(settings.topup_min_amount * 1_000_000))
+    ), "get_checks"
 
 
 def shopper_deep_check_cost(*, paused: bool, donate: bool = True) -> tuple[str, DeepAction | None]:

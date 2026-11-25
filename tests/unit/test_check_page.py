@@ -398,7 +398,10 @@ def test_a_pass_the_server_no_longer_knows_is_a_new_free_start(tmp_path: Path) -
     assert out[:5] == [True, False, False, False, False]  # a wallet's 401 stays an expired sign-in
     assert out[5:] == [
         "Unfret has a new free start: your old pass has ended. Your first 5 deep checks are free: tap Check.",
-        "Unfret has a new free start: your old pass has ended. Quick checks stay free; deep checks come in packs.",
+        (
+            "Unfret has a new free start: your old pass has ended. Quick checks stay free; deep checks are topped up "
+            "by the amount."
+        ),
     ]
 
 

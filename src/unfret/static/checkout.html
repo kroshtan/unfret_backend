@@ -28,20 +28,19 @@
         <p><button type="button" class="link back" id="crypto-back"><span class="i i-arrow"
           aria-hidden="true"></span> Back to card and iDEAL | Wero</button></p>
         <h2 id="crypto-heading">Pay with crypto</h2>
-        <p class="muted">USDC or SOL, from a wallet in this browser or on your phone. You pay the pack's value, VAT
-          included: never more than by card.</p>
+        <p class="muted">USDC or SOL, from a wallet in this browser or on your phone. You pay the amount plus the VAT for
+          your country.</p>
         <p id="network" class="muted"></p>
       </div>
 
       <section id="pack-section" aria-labelledby="amount-heading">
-        <h2 id="amount-heading" class="step">How many checks?</h2>
-        <p id="free-first" class="small muted" hidden>New here? A new pass comes with <span id="free-first-count">5</span>
-          free deep checks, and quick checks are always free: <a href="/check">check a link</a>. Need more? Pick a
-          pack.</p>
-        <fieldset class="packs">
-          <legend class="visually-hidden">Packs</legend>
-          <div id="packs" class="packs"></div>
-        </fieldset>
+        <h2 id="amount-heading" class="step">How much?</h2>
+        <p class="small muted">Any amount from <span id="topup-min">10</span>, before VAT: every
+          <span id="topup-price">0.10</span> buys a check, with <span id="topup-bonus">+10% checks from 50 and +15%
+          from 100</span>. VAT is added at checkout. Shoppers' checks are free: <a href="/check">check a link</a>.</p>
+        <label class="field" for="topup-amount">Amount before VAT</label>
+        <input id="topup-amount" class="wide-input" type="number" inputmode="decimal" min="10" step="0.01" value="10">
+        <p id="topup-line" class="summary" role="status" aria-live="polite"></p>
         <p id="pack-note" class="small" role="status" hidden></p>
       </section>
 
@@ -66,7 +65,7 @@
           for the receipt.</p>
         <p id="new-tax" class="tax-note"></p>
         <p class="crypto-way" hidden><button type="button" class="link" data-to-crypto>Prefer crypto? Pay with USDC or
-          SOL (a little cheaper for the small pack)</button></p>
+          SOL</button></p>
         <p class="reassure-line"><span class="i i-lock" aria-hidden="true"></span> Secure checkout. Your checks come
           on an Unfret pass, made for you: no account and no password.</p>
         <p id="new-status" class="small" role="status" aria-live="polite"></p>
@@ -100,7 +99,7 @@
           for the receipt.</p>
         <p id="topup-tax" class="tax-note"></p>
         <p class="crypto-way" hidden><button type="button" class="link" data-to-crypto>Prefer crypto? Pay with USDC or
-          SOL (a little cheaper for the small pack)</button></p>
+          SOL</button></p>
         <p class="small muted topup-lost">Lost your pass? Get a new one with your backup code on
           <a href="/my-checks">My checks</a>.</p>
       </section>

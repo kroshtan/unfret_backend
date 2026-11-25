@@ -1,10 +1,10 @@
 // /checkout: get checks, in two tabs so each visitor sees one short path, and crypto behind a quiet link.
 //
-//   Buy checks      pick a pack, pay by card (or iDEAL | Wero in the Netherlands), the price with the VAT the card
+//   Buy checks      name an amount, pay by card (or iDEAL | Wero in the Netherlands), the price with the VAT the card
 //                   provider adds (prices.js). The checks go to the pass this browser already uses, if any; otherwise
 //                   a pass (an API key) is made in this browser just before the card checkout and shown after paying,
 //                   so nobody has to understand passes before they've paid.
-//   Add to my pass  paste the pass you have (or type its ID), pick a pack, pay by card. A link from the extension,
+//   Add to my pass  paste the pass you have (or type its ID), name an amount, pay by card. A link from the extension,
 //                   /check or /my-checks names the pass's ID (?mode=topup&key_id=<id>): it is filled in.
 //   Crypto          "Prefer crypto?" under the card buttons (or ?mode=crypto): SOL or USDC to a wallet or a pass,
 //                   from a wallet in this browser or by QR code on a phone. The tabs step aside; "Back" returns.
@@ -31,7 +31,7 @@ import {
 import { awaitConfirmation, handOffKey, topupKeyId } from "./handoff.js";
 import { makePass } from "./new-pass.js";
 import { copyButton, readPassId, showPassId } from "./pass.js";
-import { cardPrice as cardPriceFor, countryPhrase, packFor, taxNote } from "./prices.js";
+import { countryPhrase, formatCents, taxNote, topupFor, topupLine, vatPct, withVat } from "./prices.js";
 
 const $ = (id) => document.getElementById(id);
 const main = document.querySelector("main.checkout");
@@ -39,7 +39,6 @@ const payPanel = $("pay-panel");
 const payMessage = $("pay-message");
 const payOptions = $("pay-options");
 const paySetup = $("pay-setup");
-const packs = $("packs");
 const summary = $("summary");
 const list = $("wallets");
 const empty = $("no-wallets");
@@ -65,7 +64,8 @@ const topupKey = $("topup-key");
 const MODES = ["new", "topup", "crypto"];
 let mode = "new";
 let pricing = null;
-let pack = null; // the chosen pack from /v1/pricing
+const amountField = $("topup-amount"); // the amount before VAT
+let pack = null; // the top-up as typed: { amount, cents, checks, bonus, pct } (prices.js topupFor), null below the least
 let currency = "SOL";
 // The country card payments are for: Cloudflare's hint as a suggestion, shown and changeable ("Paying from: … (change)").
 // It decides the card currency and the local method; it lives in this page only and is never stored.
@@ -383,18 +383,20 @@ function cryptoAvailable() {
 
 // Card prices are in euros for the euro area (/v1/pricing's euro_area), in dollars elsewhere, for the chosen country.
 function cardCurrency() {
-  const euros = (pricing?.euro_area ?? []).includes(payCountry);
-  return euros && pricing.packs.every((p) => p.price_eur) ? "eur" : "usd";
+  return (pricing?.euro_area ?? []).includes(payCountry) ? "eur" : "usd";
 }
 
-// A pack's card price as the buyer pays it: euro prices include VAT; a dollar price gets the chosen EU country's VAT,
-// which the provider adds (prices.js).
-function priceIn(currency, option) {
-  return cardPriceFor(pricing, option, currency, payCountry)?.text ?? (currency === "eur" ? option.price_eur : option.price_usd);
+// The top-up's price by card in `currency`, with the VAT the provider adds for the chosen EU country (prices.js); the
+// amount alone until a country is chosen or outside the EU (tax is then added at checkout where it applies).
+function priceIn(currency) {
+  const top = topupFor(pricing, amountField.value, currency);
+  if (!top) return "";
+  const pct = vatPct(pricing, payCountry);
+  return formatCents(pct === null ? top.cents : withVat(top.cents, pct), currency);
 }
 
-function cardPrice(option) {
-  return priceIn(cardCurrency(), option);
+function cardPrice() {
+  return priceIn(cardCurrency());
 }
 
 // The chosen country's local way to pay (/v1/pricing's local_payment_methods, e.g. iDEAL | Wero in the Netherlands),
@@ -402,7 +404,7 @@ function cardPrice(option) {
 function localMethod() {
   const method = payCountry ? pricing?.local_payment_methods?.[payCountry] : null;
   if (!method?.id || !method.label) return null;
-  return pricing.packs.every((p) => (method.currency === "eur" ? p.price_eur : p.price_usd)) ? method : null;
+  return method;
 }
 
 // method: a local method from localMethod(), or null for a card checkout (the buyer picks their country at Polar).
@@ -412,7 +414,7 @@ async function startCardCheckout(keyId, method = null) {
     : { currency: cardCurrency() };
   const started = await api("/v1/credits/fiat-checkout", {
     method: "POST",
-    body: JSON.stringify({ key_id: keyId, checks: pack.checks, ...choice }),
+    body: JSON.stringify({ key_id: keyId, amount: pack.amount.toFixed(2), ...choice }),
   });
   // Kept across the provider's checkout: back on /checkout?paid=1 it confirms the payment.
   rememberClaim("fiat", started.checkout_id, started.claim, pack.checks, keyId);
@@ -536,13 +538,11 @@ function refreshTarget() {
   // card one steps back to a plain button.
   const cardOn = cardAvailable();
   const local = cardOn ? localMethod() : null;
-  const label = `Pay${pack ? ` ${cardPrice(pack)}` : ""} by card`;
-  const localLabel = local ? `Pay${pack ? ` ${priceIn(local.currency, pack)}` : ""} with ${local.label}` : "";
+  pack = currentTopup();
+  const label = `Pay${pack ? ` ${cardPrice()}` : ""} by card`;
+  const localLabel = local ? `Pay${pack ? ` ${priceIn(local.currency)}` : ""} with ${local.label}` : "";
   for (const prefix of CARD_COUNTRY) $(`${prefix}-country-box`).parentElement.hidden = !cardOn;
-  for (const price of packs.querySelectorAll(".price.card-only")) {
-    const option = pricing?.packs.find((p) => String(p.checks) === price.dataset.checks);
-    if (option) price.textContent = cardPrice(option); // follows the chosen country's currency
-  }
+  renderTopupLine();
   const note = taxNote(pricing, payCountry, cardCurrency());
   for (const prefix of CARD_COUNTRY) $(`${prefix}-tax`).textContent = note;
   const topupId = keyIdOf(topupKey.value);
@@ -602,14 +602,13 @@ $("beneficiary").addEventListener("change", (event) => {
   refreshTarget();
 });
 
-// The VAT this page expects in the crypto price for the chosen country (the server's quote is what counts): EU
-// countries per /v1/pricing's vat.eu_rates_pct, others none. The price includes it: the VAT is worked out of the
-// price (net rounded down, as the server does), never added on top.
+// The VAT this page expects on a crypto top-up for the chosen country (the server's quote is what counts): EU countries
+// per /v1/pricing's vat.eu_rates_pct, others none. Added on top of the amount, rounded up as the server does.
 function vatFor(country) {
   const pct = Number(pricing.vat.eu_rates_pct[country] ?? 0);
-  const total = pack.crypto_usd_micros;
-  const net = Math.floor((total * 10000) / (10000 + Math.round(pct * 100)));
-  return { pct, net, vat: total - net, total };
+  const net = pack.cents * 10_000;
+  const vat = Math.ceil((net * Math.round(pct * 100)) / 10000);
+  return { pct, net, vat, total: net + vat };
 }
 
 // The amount to pay in the chosen currency's base units for a dollar value: USDC exactly, SOL at the live quote
@@ -626,10 +625,7 @@ function formatPay(amount) {
 function describe() {
   if (!pricing || !pack || watch || !cryptoAvailable()) return; // while a purchase is under way, it describes that one
   if (!countryField.value) {
-    // The price is the same for every country (VAT included); the country only decides how much of it is VAT.
-    const total = pack.crypto_usd_micros;
-    const sol = currency === "SOL" ? ` (≈ ${formatPay(payAmount(total))})` : "";
-    summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${formatUsd(total)}${sol}, VAT included.`;
+    summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${formatUsd(pack.cents * 10_000)} plus VAT.`;
     return;
   }
   const { pct, vat, total } = vatFor(countryField.value);
@@ -640,48 +636,47 @@ function describe() {
   summary.textContent = `${checksWord(pack.checks)} with ${currency}: ${price}${sol}.`;
 }
 
-// ?checks=<n> preselects a pack. A size that isn't sold any more (an old link to the 50-pack) gets the nearest pack
-// (prices.js packFor) and a note saying so; the visitor can pick another.
-function presetPack() {
-  const asked = Number(new URLSearchParams(window.location.search).get("checks")) || 0;
-  const found = packFor(pricing.packs, asked);
-  const note = $("pack-note");
-  note.hidden = !found?.replaced;
-  if (found?.replaced) {
-    const sizes = pricing.packs.map((p) => p.checks).join(" and ");
-    note.textContent =
-      `The ${asked}-check pack isn't sold any more, so we've picked ${checksWord(found.pack.checks)}. Packs now ` +
-      `come with ${sizes} checks: choose another above if you like. Checks you already have keep working.`;
+// ?amount=<n> presets the amount (before VAT); an older link's ?checks=<n> asks for that many checks at the price of a
+// check (at least the least top-up).
+function leastAmount() {
+  return Number(pricing?.topup?.min_amount ?? 10);
+}
+
+function presetAmount() {
+  const params = new URLSearchParams(window.location.search);
+  const perCheck = Number(pricing.topup?.price_per_check?.usd ?? 0.1);
+  const asked = Number(params.get("amount")) || Number(params.get("checks")) * perCheck || 0;
+  amountField.min = String(leastAmount());
+  amountField.value = String(asked >= leastAmount() ? Math.floor(asked * 100) / 100 : leastAmount());
+}
+
+// The top-up as typed, in the currency it is paid in (crypto: dollars), or null below the least top-up.
+function currentTopup() {
+  if (!pricing?.topup || !(Number(amountField.value) >= leastAmount())) return null;
+  return topupFor(pricing, amountField.value, mode === "crypto" ? "usd" : cardCurrency());
+}
+
+// "€100.00 → 1,150 checks (incl. 150 bonus) · €121.00 incl. 21% VAT (NL)", the VAT once the country is known.
+function renderTopupLine() {
+  const line = $("topup-line");
+  if (!pricing?.topup) return;
+  const crypto = mode === "crypto";
+  const cur = crypto ? "usd" : cardCurrency();
+  const top = currentTopup();
+  if (!top) {
+    line.textContent = `A top-up is at least ${formatCents(Math.round(leastAmount() * 100), cur)} before VAT.`;
+    return;
   }
-  return found?.pack ?? null;
+  line.textContent = topupLine(pricing, top, cur, crypto ? countryField.value : payCountry, { crypto });
 }
 
 function renderPacks() {
-  pack = presetPack() ?? pack ?? pricing.packs[0];
-  packs.replaceChildren(
-    ...pricing.packs.map((option) => {
-      const label = document.createElement("label");
-      label.className = "pack";
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = "pack";
-      input.value = String(option.checks);
-      input.checked = option.checks === pack.checks;
-      input.addEventListener("change", () => {
-        pack = option;
-        refreshTarget();
-      });
-      const name = element("strong", ` ${checksWord(option.checks)}`);
-      // The card price is the price; the crypto tab shows the crypto price (a discount, never a card surcharge).
-      const price = element("span", cardPrice(option), "price card-only");
-      price.dataset.checks = String(option.checks);
-      const cryptoPrice = element("span", option.crypto_usd, "price crypto-only");
-      const crypto = element("span", "VAT included", "muted crypto crypto-only");
-      // Spaces between the parts (a grid ignores them), so read as text the words don't run together.
-      label.append(input, name, " ", price, " ", cryptoPrice, " ", crypto);
-      return label;
-    }),
-  );
+  presetAmount();
+  const tiers = (pricing.topup?.bonus ?? []).map((t) => `+${t.pct}% checks from ${Number(t.from_amount)}`);
+  $("topup-min").textContent = String(leastAmount());
+  $("topup-price").textContent = String(pricing.topup?.price_per_check?.usd ?? "0.10");
+  $("topup-bonus").textContent = tiers.length ? tiers.join(" and ") : "no bonus";
+  amountField.addEventListener("input", refreshTarget);
   refreshTarget();
 }
 
@@ -929,6 +924,7 @@ document.addEventListener("visibilitychange", () => {
 function purchaseInfo(extra) {
   return {
     checks: pack.checks,
+    amount: pack.amount.toFixed(2),
     keyId: forKey ? keyId() : null,
     summary: summary.textContent,
     ...extra,
@@ -939,7 +935,7 @@ qrShow.addEventListener("click", async () => {
   if (!ready() || !pack) return refreshTarget();
   stopWatching();
   clearPanel();
-  const params = new URLSearchParams({ checks: String(pack.checks), country: countryField.value, currency });
+  const params = new URLSearchParams({ amount: pack.amount.toFixed(2), country: countryField.value, currency });
   for (const [name, value] of Object.entries(purchaseTarget())) params.set(name, value);
   const info = purchaseInfo({
     qr: true,
@@ -999,7 +995,7 @@ async function buy(wallet) {
       body: JSON.stringify({
         address: account.address,
         currency,
-        checks: info.checks,
+        amount: info.amount,
         country: countryField.value,
         ...target,
         ...(await codeField()),
@@ -1203,11 +1199,6 @@ async function start() {
     usdcRadio.checked = true;
     currency = "USDC";
     usdcNote.textContent = "SOL is unavailable right now (no fresh price); pay in USDC.";
-  }
-  const free = Number(pricing.free?.checks_per_pass) || 0;
-  if (free > 0) {
-    $("free-first-count").textContent = String(free);
-    $("free-first").hidden = false;
   }
   renderCountries();
   renderPacks();

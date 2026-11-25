@@ -109,7 +109,7 @@ export function passEndedHint(freeChecks) {
   const start = "Unfret has a new free start: your old pass has ended.";
   return freeChecks > 0
     ? `${start} Your first ${freeChecks} deep checks are free: tap Check.`
-    : `${start} Quick checks stay free; deep checks come in packs.`;
+    : `${start} Quick checks stay free; deep checks are topped up by the amount.`;
 }
 
 export const BAND_WORD = {

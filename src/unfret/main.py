@@ -20,6 +20,7 @@ from starlette.types import Scope
 from unfret import (
     __version__,
     ad_store,
+    crowd,
     fact_cache,
     image_store,
     log,
@@ -76,6 +77,7 @@ async def housekeeping(pool: asyncpg.Pool, interval_s: float = 3600.0) -> None:
             ("objections", objections.purge(pool, settings.objection_days)),
             ("oauth", oauth.purge(pool)),
             ("usage", usage.purge(pool, settings.usage_events_retention_days)),
+            ("crowd", crowd.purge(pool, settings)),
         ):
             try:
                 await job

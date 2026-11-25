@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Labels from the product
+
+* **`POST /v1/labels`**: a shopper disagrees with a result's findings and/or gives the page's overall risk level,
+  with the result's new `label_token` (every analysis result with a URL and a level; no sign-in). Optional
+  **contributor key** made on the device (sent only with labels, never with checks; kept as a keyed hash):
+  reputation per key, probation for new keys, a daily limit; anonymous labels weigh little, count only where another
+  agrees and are single-use per result. A page's answer settles (hourly housekeeping) only with enough weight, a
+  two-thirds majority, two labels and one trusted contributor; a burst that lowers the level is held for a person.
+  No IP address, time or page address is kept; the contributor link goes once the page settles or after 30 days.
+  Migration 39 (`contributors`, `crowd_labels`, `crowd_tokens_used`, `crowd_answers`).
+* **`POST /v1/contributors`** (profile: optional handle, opt-in public), **`POST /v1/contributors/forget`**,
+  **`GET /v1/contributors/leaderboard`** (opted-in, past probation, by agreed labels), and `GET /v1/admin/crowd`
+  (settled answers vs the level shown, findings people disagree with). The privacy page says what is kept.
+
 ### Risk levels
 
 * **One overall risk level per result** (`verdict.risk`, and `risk` on `POST /v1/check`): 1 may not arrive or may

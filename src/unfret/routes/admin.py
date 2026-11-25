@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from unfret import ad_store, objections, observations, recording, reports, shares, shop_store
+from unfret import ad_store, crowd, objections, observations, recording, reports, shares, shop_store
 from unfret.auth import require_admin
 from unfret.config import settings
 from unfret.credits import invites, keys, ledger, retire, vat
@@ -229,6 +229,20 @@ async def observed(request: Request) -> dict[str, Any]:
         "stores": {r["store"]: {k: r[k] for k in ("rows", "counting", "quick", "client", "fetched")} for r in rows},
         "quick_recording": dict(recording.stats),
     }
+
+
+@router.get("/crowd")
+async def crowd_labels(request: Request) -> dict[str, Any]:
+    """
+    Labels from the product, in numbers.
+
+    Settled answers against the level shown (held ones apart), the findings people disagree with against how often
+    they were shown, and the counts.
+
+    :param request: The incoming request.
+    :return: The numbers (no page, no contributor).
+    """
+    return await crowd.summary(_pool(request))
 
 
 @router.get("/reports")

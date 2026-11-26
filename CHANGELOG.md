@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### "Only 3 left" across visits
+
+* **A new check, `scarcity`** (shop pages, deep checks): the page's "only N left" count (`page_facts.stock_left`, read
+  from the whole page, the cart form included) is compared with the same product page's counts on earlier days. The
+  same count on 3+ days over 7+ days is `scarcity_static` ("Stock count never changes"); a count that went back up
+  twice or more is `scarcity_resets` ("Stock count keeps going back up"). Level 1 findings: they feed the level model,
+  no band rule. Quick checks record the count after their answer.
+* **Migration 47**, `scarcity_claims`: a hash of the shop's domain and the product, the day and the count, with
+  provenance and a source count (supplied pages count once corroborated). No URL, caller, pass or IP address; 90 days.
+  Off with `UNFRET_SCARCITY_OBSERVATIONS=false`.
+
 ### "Wrong result?" on /check, shorter on a phone
 
 * **"Which findings are wrong?"** groups the findings by level, worst first, under the level's words, and shows only

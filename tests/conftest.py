@@ -142,3 +142,14 @@ def no_claim_audit_calls(monkeypatch: pytest.MonkeyPatch) -> None:
 def no_variant_check_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     """No test asks the variant check's model about a page unless it turns the check on (with a fake model)."""
     monkeypatch.setattr(scoring.settings, "variant_check", False)
+
+
+@pytest.fixture(autouse=True)
+def fresh_scarcity_store() -> Iterator[None]:
+    """Stock claims are kept in memory by default: each test starts with none (a test may swap in Postgres)."""
+    from unfret import scarcity_store  # noqa: PLC0415 - keep the stores out of import time for unrelated tests
+
+    before = scarcity_store._store
+    scarcity_store.use_store(scarcity_store.MemoryScarcityStore())
+    yield
+    scarcity_store.use_store(before)

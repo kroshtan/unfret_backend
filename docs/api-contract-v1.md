@@ -1988,3 +1988,16 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
 - **`POST /v1/contributors`**: a `handle` with an offensive word is refused (`400 BAD_HANDLE`, as for other bad
   handles). A new or changed handle waits for the operator's review before `/live` shows it.
   **`GET /v1/contributors/leaderboard`** leaves out handles the operator rejected; otherwise unchanged.
+
+## Changes (stock claims across visits; backwards-compatible; migration 47)
+
+- **`page_facts.stock_left`** (optional, 1–999): the count the page's first low-stock claim names ("Only 3 left in
+  stock" → 3). A client that leaves it out gets the server's reading of `page_content`.
+- **Two new reason types** (level 1, `source` "This page's stock count on earlier days (Unfret's records)"), shop
+  pages only, deep checks: `scarcity_static` ("Stock count never changes": the same count on at least 3 days over at
+  least 7) and `scarcity_resets` ("Stock count keeps going back up": the count rose from one day seen to the next at
+  least twice). Only one of the two is shown. Both are in `GET /v1/catalogue/findings`, so a "Wrong result?" report
+  can mark them wrong or missing.
+- What is stored (`scarcity_claims`): a hash of the shop's domain and the product (public ID, else the page path and
+  a `variant` number), the day and the count, with provenance and a source count as for prices. No URL, caller, pass,
+  IP address or time of day; 90 days. Quick checks record the claim after their answer but don't compare.

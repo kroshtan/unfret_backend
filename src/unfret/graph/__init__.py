@@ -48,6 +48,7 @@ from unfret.graph.skills.reverse_image import ReverseImageSkill
 from unfret.graph.skills.review_copies import ReviewCopiesSkill
 from unfret.graph.skills.reviews import ReviewsSkill
 from unfret.graph.skills.safety_gate import SafetyGateSkill
+from unfret.graph.skills.scarcity import ScarcitySkill
 from unfret.graph.skills.seller_profile import SellerProfileSkill
 from unfret.graph.skills.service_identity import ServiceIdentitySkill
 from unfret.graph.skills.service_terms import ServiceTermsSkill
@@ -69,6 +70,8 @@ SKILLS: list[Skill] = [
     ReviewsSkill(),
     HtmlSourceSignalsSkill(),
     DarkPatternsSkill(),
+    # A shop's "only N left" against the same page's claims on earlier days (deep checks; quick ones only record).
+    ScarcitySkill(),
     InjectionSkill(),
     EuRegistrySkill(),
     UsIdentitySkill(),

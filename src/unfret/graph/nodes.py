@@ -63,6 +63,9 @@ async def preprocess_node(state: AnalysisState) -> dict:
         # A client's extractor that predates the "about" link (only the claim audit reads it): the server's reading.
         links = {**supplied.policy_links, "about": extracted.policy_links["about"]}
         supplied = supplied.model_copy(update={"policy_links": links})
+    if supplied is not None and supplied.stock_left is None and extracted.stock_left is not None:
+        # A client's extractor that predates the stock claim (only the scarcity check reads it): the server's reading.
+        supplied = supplied.model_copy(update={"stock_left": extracted.stock_left})
     if supplied is not None and not cleaned:
         cleaned = _facts_text(supplied)  # facts only: give the LLM steps their text from the facts
     return {

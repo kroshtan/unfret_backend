@@ -100,6 +100,8 @@ FINDING_LEVELS: dict[str, FindingLevel] = {
         "copied_reviews_elsewhere variants_grouped emergency_pressure copied_testimonials placeholder_names "
         "testimonial_dates all_five_testimonials",
     ),
+    # 1: an "only N left" that never changes, or keeps going back up, across days (Unfret's records of the page)
+    **_table(1, "scarcity_resets scarcity_static"),
     # Protection modifiers: payment you can't get back raises the level
     **_table(
         None,

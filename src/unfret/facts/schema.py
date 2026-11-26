@@ -265,6 +265,12 @@ class PageFacts(BaseModel):
     checkboxes: list[Checkbox] = Field(default_factory=list, max_length=100)
     timers: list[str] = Field(default_factory=list, max_length=50, description="Countdown elements or scripts.")
     fee_mentions: list[str] = Field(default_factory=list, max_length=50)
+    stock_left: int | None = Field(
+        default=None,
+        ge=1,
+        le=999,
+        description='The count an "only N left" stock claim on the page names (the first one), if any.',
+    )
     vat_ids: list[str] = Field(default_factory=list, max_length=10)
     legal_mentions: list[str] = Field(
         default_factory=list, max_length=50, description="Imprint, company register and withdrawal-right text."

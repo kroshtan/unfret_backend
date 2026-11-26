@@ -1118,6 +1118,24 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             CHECK (handle_review IN ('pending', 'approved', 'rejected'));
         """,
     ),
+    (
+        47,
+        "scarcity claims",
+        """
+        -- A shop page's "only N left" count per product and day (unfret.scarcity_store): a hash of the shop's domain
+        -- and the product, the day and the count, with where it was seen and how many sources reported it. No URL,
+        -- caller, pass, IP address or time of day. Kept 90 days.
+        CREATE TABLE scarcity_claims (
+            product_key BYTEA NOT NULL CHECK (length(product_key) = 32),
+            day         DATE NOT NULL,
+            count       SMALLINT NOT NULL CHECK (count BETWEEN 1 AND 99),
+            provenance  SMALLINT NOT NULL DEFAULT 9,
+            sources     SMALLINT NOT NULL DEFAULT 0 CHECK (sources >= 0),
+            PRIMARY KEY (product_key, day, count)
+        );
+        CREATE INDEX scarcity_claims_day_idx ON scarcity_claims (day);
+        """,
+    ),
 ]
 
 

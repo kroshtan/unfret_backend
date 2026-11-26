@@ -5,8 +5,9 @@ A quick check reads only the page and looks nothing up. After its answer (never 
 same rows a deep check would write from that page go into Unfret's own stores, through the stores' own record paths:
 the main product photo's fingerprints into the image index (:func:`unfret.graph.skills.reverse_image.record_photo`),
 today's price into the price history and the market prices (:func:`unfret.price_store.record`,
-:func:`unfret.market_prices.record`) and the review fingerprints (:func:`unfret.review_store.record`). Only product
-pages; never the test shop; off with ``price_observations`` and ``fingerprints`` as for deep checks.
+:func:`unfret.market_prices.record`), a shop page's "only N left" count (:func:`unfret.scarcity_store.record`)
+and the review fingerprints (:func:`unfret.review_store.record`). Only product pages; never the test shop; off with
+``price_observations``, ``scarcity_observations`` and ``fingerprints`` as for deep checks.
 
 Each row carries the check's provenance (:mod:`unfret.observations`): a quick check of a page Unfret fetched counts
 at once, client-supplied content only once corroborated. The work is bounded: at most ``quick_record_queue`` pages
@@ -24,7 +25,7 @@ from typing import Any
 
 import structlog
 
-from unfret import background, market_prices, observations, price_store, review_store
+from unfret import background, market_prices, observations, price_store, review_store, scarcity_store
 from unfret.config import settings
 from unfret.graph.state import PRODUCT_TYPES
 from unfret.test_shop import is_test_shop
@@ -60,6 +61,8 @@ async def record(state: dict[str, Any]) -> None:
             if settings.price_observations:
                 stats["prices"] += await price_store.record(url, facts)  # type: ignore[arg-type]
                 stats["market_prices"] += await market_prices.record(url, facts)  # type: ignore[arg-type]
+            if settings.scarcity_observations and page_type == "storefront":
+                stats["scarcity"] += await scarcity_store.record(url, facts)  # type: ignore[arg-type]
             if settings.fingerprints:
                 stats["reviews"] += await review_store.record(url, facts)  # type: ignore[arg-type]
                 async with _slots():

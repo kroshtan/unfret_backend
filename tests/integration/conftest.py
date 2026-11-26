@@ -28,7 +28,7 @@ DROP_ALL = (
     "affiliate_earnings, affiliate_reversals, affiliate_payouts, objections, report_opinion_days, oauth_codes, "
     "oauth_spent_refresh, oauth_grants, oauth_clients, usage_events, uptime_probes, crowd_answers, crowd_tokens_used, "
     "crowd_labels, report_answers, report_tokens_used, report_labels, contributors, llm_spend, llm_spend_days, "
-    "free_pool, free_pool_donations, schema_migrations "
+    "free_pool, free_pool_donations, scarcity_claims, schema_migrations "
     "CASCADE"
 )
 

@@ -17,6 +17,14 @@
       "title": "Fake countdown",
       "detail": "This countdown restarts when you reload the page: the deadline isn't real."
     },
+    "scarcity_resets": {
+      "title": "Stock count keeps going back up",
+      "detail": "This page says only {count} left, but on earlier days its count went back up more than once: the number may not be real stock."
+    },
+    "scarcity_static": {
+      "title": "Stock count never changes",
+      "detail": "This page has said only {count} left on every day we've seen it, for over a week: real stock goes down as people buy."
+    },
     "fake_urgency_app": {
       "title": "Urgency tricks",
       "detail": "The shop uses {app}, a tool for countdowns or 'someone just bought this' pop-ups that create pressure."
@@ -696,6 +704,9 @@
     "html_source_signals.timer_app": "Urgency tool",
     "dark_patterns.timer": "Countdown timer",
     "dark_patterns.timer_resets": "Fake countdown",
+    "scarcity.claim": "Says only a few left",
+    "scarcity.static": "Stock count never changes",
+    "scarcity.resets": "Stock count keeps going back up",
     "dark_patterns.preticked_addons": "Paid extra already ticked",
     "dark_patterns.fee_mentions": "Costs revealed later",
     "dark_patterns.checkout_markup_pct": "Price goes up at checkout",
@@ -892,6 +903,7 @@
     "archive_cc": "Earlier copies of the site (Common Crawl, commoncrawl.org)",
     "vies": "EU VAT register (VIES)",
     "price_history": "Unfret's price history",
+    "stock_history": "This page's stock count on earlier days (Unfret's records)",
     "market_prices": "Prices at other shops (Unfret's price records)",
     "image_index": "Unfret's image index",
     "photos": "The listing's photos (Unfret's AI read of them)",

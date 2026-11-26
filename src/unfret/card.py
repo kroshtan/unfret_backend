@@ -106,6 +106,8 @@ REASON_SOURCES: dict[str, str] = {
     "short_registration": "rdap",
     "founded_contradicted": "rdap",
     "was_never_charged": "price_history",
+    "scarcity_static": "stock_history",
+    "scarcity_resets": "stock_history",
     "far_below_market": "market_prices",
     "photo_reused": "image_index",
     "rebranded_photo": "image_index",
@@ -321,6 +323,8 @@ REASON_AREAS: dict[str, str] = {
     **dict.fromkeys(
         (
             "timer_resets",
+            "scarcity_resets",
+            "scarcity_static",
             "fake_urgency_app",
             "countdown",
             "pushy_copy",
@@ -449,7 +453,18 @@ STEP_FOR_REASON: dict[str, str] = {
         ),
         "compare_price",
     ),
-    **dict.fromkeys(("permanent_sale", "timer_resets", "fake_urgency_app", "countdown", "pushy_copy"), "take_time"),
+    **dict.fromkeys(
+        (
+            "permanent_sale",
+            "timer_resets",
+            "scarcity_resets",
+            "scarcity_static",
+            "fake_urgency_app",
+            "countdown",
+            "pushy_copy",
+        ),
+        "take_time",
+    ),
     **dict.fromkeys(("preticked_addon", "drip_pricing", "late_fees"), "check_basket"),
     **dict.fromkeys(
         (

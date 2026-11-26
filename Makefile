@@ -95,7 +95,7 @@ deep-check:  ## Deep-check the candidates, recording LLM answers in the corpus, 
 deep-queue:  ## Order the checked candidates for labelling: new finding + unsure scorer, then disagreements, then a random slice
 	uv run python -m evals.candidates queue $(DEEP_ARGS)
 
-deep-label:  ## Label the next batch: the page's overall risk level (0-4, higher is worse) and each new finding, one keypress each; 1 in 5 blind (BATCH=50)
+deep-label:  ## Label the next batch: the page's overall risk level (0-4, higher is worse) and each new finding, one keypress each, Enter accepts the LLM labeller's proposal; 1 in 5 blind (BATCH=50)
 	uv run python -m evals.candidates label --batch $(or $(BATCH),50)
 
 deep-review:  ## Check the LLM labeller's labels: its unsure pages, then a random audit sample (blind) (BATCH=50)
@@ -104,7 +104,7 @@ deep-review:  ## Check the LLM labeller's labels: its unsure pages, then a rando
 deep-label-test:  ## Label the human-only test set the LLM labeller never labels (BATCH=50)
 	uv run python -m evals.candidates label --test-set --batch $(or $(BATCH),50)
 
-llm-label:  ## LLM-label the deep-label queue after validating on the human labels (LLM_LABEL_ARGS="label --model glm-5.3 --pages 600")
+llm-label:  ## LLM-label the deep-label queue with overall levels after validating on the human labels (LLM_LABEL_ARGS="label --model glm-5.3 --pages 600 --relevel")
 	uv run python -m evals.llm_label $(or $(LLM_LABEL_ARGS),validate --model glm-5.3)
 
 levels:  ## Risk levels: the ordinal level classifier (LEVELS_ARGS="train --dry-run") or the level judge vs the labels ("compare --budget-eur 5")

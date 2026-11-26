@@ -26,6 +26,10 @@ claims, and the history, variation and cross-page checks as they land) should fi
    findings judged (``check --pin ID --why TEXT``, kept in ``deep_label_pins.json``); its label then becomes a
    human one. ``label --review`` serves the LLM labeller's review queue instead (:mod:`evals.llm_label`: the pages
    it was unsure of, then a random audit sample, those blind), ``label --test-set`` the human-only test set.
+   From the level batches on the page key is its overall level (``0``-``4``, higher is worse). A page the LLM
+   labeller gave a level stays in the queue until a person confirms it: its screen shows the proposed level, the
+   "because" list and the LLM's verdict per finding, and ``Enter`` (or ``a``) accepts the level, then each finding's
+   verdict; any other key corrects it. A blind page shows none of that.
 
 Usage: ``uv run python -m evals.candidates check [--limit N] [--budget-eur 55] [--concurrency 3] [--rerun]``,
 ``... queue [--seed 7]``, ``... label [--batch 50]`` (``make deep-check``, ``make deep-queue``, ``make deep-label``).
@@ -92,6 +96,7 @@ UNSURE = 0.4  # scorer confidence below this is "unsure"
 SURE_FINE = 35  # a score below this is the scorer saying the page is fine
 _EXCERPT_CHARS = 900
 FINDING_KEYS = {"c": "correct", "w": "wrong", "u": "unsure", "\r": "unsure", "\n": "unsure"}
+ACCEPT = frozenset({"a", "\r", "\n"})  # accept the LLM labeller's proposal, where the screen shows one
 # From the level batches on (Floris, 2026-11-25) a page gets its OVERALL risk level, not the most serious single
 # finding. Higher is worse: 0 none, 1 pressure and tricks, 2 overpaying, 3 doesn't work, 4 may not arrive / unsafe /
 # data theft.
@@ -654,7 +659,10 @@ def describe(
         lines.append(f"piece count: {json.dumps(piece, ensure_ascii=False)[:300]}")
     news = row.get("new_findings", [])
     shown = llm if llm and not hidden else None
-    if shown:
+    if shown and shown.get("level") is not None:
+        lines.append(f"LLM ({shown['model']}) proposes level {shown['level']} ({shown['confidence']:.2f}) because:")
+        lines += [f"  - {item[:200]}" for item in shown.get("because", [])[:6]]
+    elif shown:
         lines.append(f"LLM ({shown['model']}): {shown['label']} ({shown['confidence']:.2f}): {shown['reason'][:300]}")
     said = {f["evidence"]: f for f in shown["findings"]} if shown else {}
     lines.append(f"new findings ({len(news)}):" if news else "new findings: none")
@@ -665,11 +673,20 @@ def describe(
     others = [f for f in row.get("findings", []) if not is_new(f["skill"])][:4]
     if others:
         lines.append("other findings: " + "; ".join(f"{f['type']}" for f in others))
-    lines += ["", textwrap.fill(text, 110), "", LEVEL_HELP, "[r]eject  [o]pen  [k] skip  [q]uit"]
+    accept = "[Enter/a] accept the LLM's level  " if shown and shown.get("level") is not None else ""
+    lines += ["", textwrap.fill(text, 110), "", LEVEL_HELP, f"{accept}[r]eject  [o]pen  [k] skip  [q]uit"]
     return "\n".join(lines)
 
 
-def decide(corpus: Corpus, record: LabelRecord, label: str | None, *, hidden: bool, level: int | None = None) -> None:
+def decide(
+    corpus: Corpus,
+    record: LabelRecord,
+    label: str | None,
+    *,
+    hidden: bool,
+    level: int | None = None,
+    proposed: int | None = None,
+) -> None:
     """
     Log one decision: the page, its new label (``None``: rejected), the label before, and whether it was blind.
 
@@ -678,11 +695,13 @@ def decide(corpus: Corpus, record: LabelRecord, label: str | None, *, hidden: bo
     :param label: The decision (the legacy label; derived from ``level`` for a level decision).
     :param hidden: Whether the scorer's answer was hidden.
     :param level: The overall level decided (0–4), from the level batches on.
+    :param proposed: The LLM labeller's level, when the screen showed it (so anchoring can be measured).
     """
     row = {
         "id": record.id,
         "label": label,
         **({"level": level, "level_before": record.level} if level is not None else {}),
+        **({"proposed_level": proposed} if proposed is not None else {}),
         "before": record.label,
         "before_source": record.label_source,
         "blind": hidden,
@@ -718,18 +737,23 @@ def save_finding_labels(
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def ask_findings(findings: list[dict[str, Any]]) -> list[tuple[dict[str, Any], str]]:
+def ask_findings(
+    findings: list[dict[str, Any]], proposed: dict[str, str] | None = None
+) -> list[tuple[dict[str, Any], str]]:
     """
-    One key per finding: correct, wrong, or unsure (Enter).
+    One key per finding: correct, wrong, or unsure (Enter); with the LLM's verdicts shown, Enter accepts its verdict.
 
     :param findings: The page's new findings.
+    :param proposed: The LLM's verdict per finding evidence, when the screen showed them.
     :return: Each finding with its verdict.
     """
     verdicts = []
     for i, finding in enumerate(findings, start=1):
-        print(f"  finding {i}/{len(findings)} [{finding['type']}]: [c]orrect  [w]rong  [Enter/u] unsure")  # noqa: T201
+        theirs = (proposed or {}).get(finding.get("evidence", ""))
+        default = f"[Enter/a] {theirs} (LLM)  [u] unsure" if theirs else "[Enter/u] unsure"
+        print(f"  finding {i}/{len(findings)} [{finding['type']}]: [c]orrect  [w]rong  {default}")  # noqa: T201
         key = read_key().lower()
-        verdict = FINDING_KEYS.get(key, "unsure")
+        verdict = theirs if theirs and key in ACCEPT else FINDING_KEYS.get(key, "unsure")
         print(f"  → {verdict}")  # noqa: T201 - interactive tool
         verdicts.append((finding, verdict))
     return verdicts
@@ -739,7 +763,9 @@ def pages_to_label(corpus: Corpus, mode: str = "queue") -> list[QueueItem]:
     """
     The pages a labelling session serves, in order.
 
-    - ``queue``: the labelling queue's pages without a human or LLM label (the reserved test set's pages included).
+    - ``queue``: the labelling queue's pages without a human label or with only an LLM's level proposal to confirm
+      or correct (the reserved test set's pages included); pages an older LLM prompt labelled without a level wait
+      for ``evals.llm_label label --relevel``.
     - ``review``: the LLM labeller's review queue (:mod:`evals.llm_label`): its unsure pages, then a random audit
       sample; pages labelled by hand since drop out.
     - ``test``: the human-only test set (``deep_test_set.json``) pages not labelled by hand yet, in queue order.
@@ -769,12 +795,18 @@ def pages_to_label(corpus: Corpus, mode: str = "queue") -> list[QueueItem]:
         i
         for i in queue
         if known[i.id].label is None
+        or proposal(known[i.id])
         or (
             i.reason.startswith((PINNED, RELABEL))
             and known[i.id].label_source != "human"
             and not is_llm(known[i.id].label_source)
         )
     ]
+
+
+def proposal(record: LabelRecord) -> bool:
+    """Whether a page's level is an LLM labeller's proposal no person has confirmed yet."""
+    return record.level is not None and is_llm(record.level_source) and record.label_source != "human"
 
 
 def label(corpus: Corpus, batch: int, mode: str = "queue") -> None:
@@ -806,7 +838,9 @@ def label(corpus: Corpus, batch: int, mode: str = "queue") -> None:
         row = results[item.id]
         # An audit page of the LLM's review queue is blind (unanchored by the LLM's answer), as is one page in five.
         hidden = blind(record.id) or item.reason.startswith(llm_label.AUDIT)
-        llm = answers.get(record.id) if mode == "review" else None
+        llm = answers.get(record.id) if mode == "review" or proposal(record) else None
+        shown = llm if llm and not hidden else None
+        proposed = shown.get("level") if shown else None
         screen = describe(
             record, row, item, n=n, total=len(todo), html=corpus.read_page(record.id), hidden=hidden, llm=llm
         )
@@ -825,15 +859,18 @@ def label(corpus: Corpus, batch: int, mode: str = "queue") -> None:
             tally["rejected"] += 1
             print("→ rejected")  # noqa: T201 - interactive tool
             continue
+        if proposed is not None and key in ACCEPT:
+            key = str(proposed)
         if key not in LEVEL_KEYS:
             tally["skipped"] += 1
             continue
         level = LEVEL_KEYS[key]
         page_label = legacy_label(level)
-        print(f"→ level {level}")  # noqa: T201 - interactive tool
+        print(f"→ level {level}" + (" (LLM's)" if level == proposed else ""))  # noqa: T201 - interactive tool
         if row.get("new_findings"):
-            save_finding_labels(corpus, record, ask_findings(row["new_findings"]), hidden=hidden)
-        decide(corpus, record, page_label, hidden=hidden, level=level)
+            theirs = {f["evidence"]: f["verdict"] for f in shown["findings"] if f.get("verdict")} if shown else None
+            save_finding_labels(corpus, record, ask_findings(row["new_findings"], theirs), hidden=hidden)
+        decide(corpus, record, page_label, hidden=hidden, level=level, proposed=proposed)
         update = {"label": page_label, "label_source": "human", "confidence": 1.0, "level": level}
         corpus.update([record.model_copy(update=update | {"level_source": "human"})])
         tally[f"level {level}"] += 1

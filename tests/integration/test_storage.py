@@ -80,7 +80,16 @@ async def test_postgres_price_store_keeps_one_anonymous_row_per_day(pool: asyncp
     await store.purge(today - timedelta(days=90))
     history = await store.history(key, today, "EUR")
 
-    assert history == History(first_seen=today - timedelta(days=40), days=1, lowest=24.95)
+    assert history == History(
+        first_seen=today - timedelta(days=40),
+        days=1,
+        lowest=24.95,
+        # Every day kept, in this currency, oldest first, with its "was" price: the page's "was" price history.
+        observed=(
+            Observation(today - timedelta(days=40), 30.0, "EUR", 60.0),
+            Observation(today - timedelta(days=3), 24.95, "EUR", 59.95),
+        ),
+    )
     columns = {
         r["column_name"]
         for r in await pool.fetch(

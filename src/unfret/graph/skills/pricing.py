@@ -1,7 +1,9 @@
 """
 Fake discounts: implausible reductions, reference "was" prices, endless sales, and "was" prices never charged.
 
-The last needs the price store to have a month of observations for the product. Records the page's price in the
+The last needs the price store to have a month of observations for the product. The page's own "was" price history
+(:mod:`unfret.was_price`) adds a "was" price never seen as the price and a discount that never ends, once the page
+has been seen on enough days. Records the page's price in the
 anonymous price store (:mod:`unfret.price_store`) on the way.
 
 A marketplace's own reference-price label (Amazon's "List Price", "Adviesprijs", "UVP", "RRP", …) is a note
@@ -16,7 +18,7 @@ today's price at or below it (``disclosed_reference``). Any other web shop's lab
 
 import re
 
-from unfret import brands, price_store
+from unfret import brands, price_store, was_price
 from unfret.config import settings
 from unfret.facts._parse import parse_number
 from unfret.graph.skills import Observation, Skill, SkillOutput
@@ -159,7 +161,17 @@ class PricingSkill(Skill):
 
     name = "pricing"
     description = "Checks whether a discount is plausible and whether the 'was' price was ever charged."
-    features = ("implausible_discount", "reference_anchor", "permanent_sale", "history_days", "was_above_30d_low")
+    features = (
+        "implausible_discount",
+        "reference_anchor",
+        "permanent_sale",
+        "history_days",
+        "was_above_30d_low",
+        "was_price_unseen",
+        "discount_always_on",
+        "was_charged_share",
+        "discount_share",
+    )
 
     def __init__(self, *, history: bool = True) -> None:
         """
@@ -201,7 +213,7 @@ class PricingSkill(Skill):
             observations.append(Observation(type="permanent_sale", evidence=f'"{sale.group(1)}"'))
 
         if self.history and settings.price_observations:
-            seen = await price_store.observe(state.get("url", ""), facts)
+            seen = await price_store.observe(state.get("url", ""), facts, state.get("page_type"))
             if seen is not None:
                 _, history = seen
                 span = history.span_days(price_store.today())
@@ -221,6 +233,7 @@ class PricingSkill(Skill):
                             f"{facts.list_price:g}.",
                         )
                     )
+                _was_history(history, facts.price, facts.list_price, features, observations)
         if own_anchor:
             label = f'"{own_anchor.group(1)}"'
             if features.get("was_above_30d_low"):
@@ -230,6 +243,35 @@ class PricingSkill(Skill):
             else:
                 observations.append(Observation(type=note, evidence=label + suffix))
         return self.output(features, observations)
+
+
+def _was_history(
+    history: price_store.History,
+    price: float | None,
+    was: float | None,
+    features: dict[str, float | bool],
+    observations: list[Observation],
+) -> None:
+    """
+    Compare today's "was" price with the page's own days (:mod:`unfret.was_price`); silent on a short history.
+
+    :param history: The page's history.
+    :param price: Today's price (``None``: nothing to compare).
+    :param was: Today's "was" price.
+    :param features: The skill's features, added to.
+    :param observations: The skill's findings, added to.
+    """
+    if price is None:
+        return
+    today = price_store.today()
+    summary = was_price.summarise(history.observed, today, price, was)
+    if summary.charged_share is not None:
+        features["was_charged_share"] = summary.charged_share
+    if summary.discounted_share is not None:
+        features["discount_share"] = summary.discounted_share
+    for found in was_price.assess(history.observed, today, price, was):
+        features[found.type] = True
+        observations.append(Observation(type=found.type, evidence=found.evidence))
 
 
 def _notes(state: AnalysisState) -> tuple[frozenset[str], str, str]:

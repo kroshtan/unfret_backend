@@ -161,10 +161,16 @@ class Settings(BaseSettings):
     wayback_daily_cap: int = Field(default=100, ge=0)
     wayback_pause_s: float = Field(default=900.0, ge=0)
 
-    # Anonymous price observations (unfret.price_store): today's price of every analysed product page with a
-    # public product ID, kept 90 days. The "was price never charged" check needs this many days of observations.
+    # Anonymous price observations (unfret.price_store): today's price of every analysed product page (by its public
+    # product ID, or else by the page), kept 90 days. The "was price never charged" check needs this many days of
+    # observations.
     price_observations: bool = True
     price_history_min_days: int = Field(default=30, ge=1)
+    # The "was" price history (unfret.was_price): the distinct days a page must have been seen before it says the
+    # "was" price was never the price (over price_history_min_days or more), and the span a discount must have been
+    # shown on (nearly) every day seen before it counts as one that never ends.
+    was_price_min_days: int = Field(default=5, ge=2)
+    discount_always_on_days: int = Field(default=45, ge=1)
     # Shop fingerprints (unfret.shop_store): facts about web shops seen by analyses, to link shops of one operator.
     # Contacts are stored as keyed hashes with this key (derived from the session secret when empty; without
     # either, contacts aren't stored).

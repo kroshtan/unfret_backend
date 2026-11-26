@@ -321,6 +321,7 @@ async def test_a_recommended_price_on_the_brands_own_shop_is_a_note(url: str, se
 )
 async def test_a_recommended_price_elsewhere_is_still_the_reason(facts: PageFacts, url: str, page_type: str) -> None:
     out = await PricingSkill().run(state(facts, url=url, text=_OWN_SHOP_TEXT, page_type=page_type))
+    out["features"].pop("pricing.history_days", None)  # a product page has a (new, empty) page history
     assert out["features"] == {"pricing.reference_anchor": 1.0}
     assert [o.type for o in out["findings"]] == ["reference_anchor"]
 
@@ -369,6 +370,7 @@ async def test_a_30_day_low_that_doesnt_fit_keeps_the_reason(price: float, discl
     facts = PageFacts(brand="AcmeShoes", seller="Sneakerhut", price=price, list_price=109.95)
     text = f"{price} € UVP: 109,95 € {disclosure}"
     out = await PricingSkill().run(state(facts, url="https://sneakerhut.example/x", text=text))
+    out["features"].pop("pricing.history_days", None)  # a product page has a (new, empty) page history
     assert out["features"] == {"pricing.reference_anchor": 1.0}
 
 

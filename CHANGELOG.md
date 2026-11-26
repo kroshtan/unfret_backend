@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### "Wrong result?" on /check, shorter on a phone
+
+* **"Which findings are wrong?"** groups the findings by level, worst first, under the level's words, and shows only
+  those on the result card; the rest fold under "Show all N" (ticked boxes stay ticked). "Something Unfret missed?" is
+  grouped the same way. What a report sends is unchanged.
+
 ### The public count of free checks
 
 * `free.deep_checks_left_today` and `/live` are the euros left today ÷ `UNFRET_PUBLIC_COST_PER_CHECK_EUR` (€0.05): €3 shows 60.

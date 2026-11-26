@@ -1564,5 +1564,8 @@ h2 .count { font-weight: 400; color: var(--muted); font-size: 0.9em; }
 .leaderboard .count { margin-left: 0.5rem; color: var(--muted); font-size: 0.9rem; }
 .missing-list { max-height: 16rem; overflow-y: auto; }
 .checks-wrong label { display: block; margin: 0.3rem 0; }
+.checks-wrong .report-group + .report-group { margin-top: 0.6rem; }
+.checks-wrong .report-level { margin: 0 0 0.15rem; font-size: 0.85rem; font-weight: 650; color: var(--muted); }
+.checks-wrong .report-more { margin: 0.5rem 0 0; }
 .dev-terms { margin: 1rem 0 0; padding-left: 1.2rem; color: var(--ink-2); }
 .dev-terms li { margin: 0.25rem 0; }

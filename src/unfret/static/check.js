@@ -39,6 +39,7 @@ import {
   deepHintOf,
   el,
   newContributorKey,
+  reportGroups,
   reportableFindings,
   resultNodes,
 } from "./check-render.js";
@@ -798,17 +799,9 @@ function resetReport(result) {
   $("report").reset();
   $("report-status").hidden = true;
   $("report-send").disabled = true;
-  $("report-wrong").replaceChildren(
-    ...findings.map(({ type, title }) => {
-      const label = el("label");
-      const box = el("input");
-      box.type = "checkbox";
-      box.name = "wrong";
-      box.value = type;
-      label.append(box, ` ${title}`);
-      return label;
-    }),
-  );
+  // Only what the result card shows, unless the shopper asks for every finding behind the level ("Show all N").
+  const folded = findings.some((f) => f.shown) && findings.some((f) => !f.shown);
+  $("report-wrong").replaceChildren(...reportChecks("wrong", findings, folded));
   $("report-wrong-set").hidden = findings.length === 0;
   $("report-missing-box").open = false;
   $("report-forget-row").hidden = !contributorKey();
@@ -833,19 +826,56 @@ async function loadMissing() {
     return;
   }
   const shown = new Set(reportableFindings(last?.result).map((f) => f.type));
-  $("report-missing").replaceChildren(
-    ...catalogue
-      .filter((f) => f?.type && f.title && !shown.has(f.type))
-      .map(({ type, title }) => {
-        const label = el("label");
-        const box = el("input");
-        box.type = "checkbox";
-        box.name = "missing";
-        box.value = type;
-        label.append(box, ` ${title}`);
-        return label;
-      }),
-  );
+  const missing = catalogue
+    .filter((f) => f?.type && f.title && !shown.has(f.type))
+    .map(({ type, title, level }) => ({ type, title, level, shown: true }));
+  $("report-missing").replaceChildren(...reportChecks("missing", missing, false));
+}
+
+// A report's checkboxes, grouped by level (worst first) under the level's words. When `folded`, only the findings on
+// the result card show at first, the rest (and groups with none on the card) behind "Show all N"; a ticked box stays
+// ticked whether it shows or not, and the form sends what is ticked either way.
+function reportChecks(name, items, folded) {
+  const nodes = [];
+  const folds = []; // what "Show all" shows: the boxes off the card, and groups with none on it
+  for (const group of reportGroups(items)) {
+    const box = el("div", "report-group");
+    box.append(el("p", "report-level", group.words));
+    for (const { type, title, shown } of group.items) {
+      const label = el("label");
+      const input = el("input");
+      input.type = "checkbox";
+      input.name = name;
+      input.value = type;
+      label.append(input, ` ${title}`);
+      if (folded && !shown) {
+        label.hidden = true;
+        folds.push(label);
+      }
+      box.append(label);
+    }
+    if (folded && group.items.every((f) => !f.shown)) {
+      box.hidden = true;
+      folds.push(box);
+    }
+    nodes.push(box);
+  }
+  if (folded) {
+    const more = el("button", "link report-all", `Show all ${items.length}`);
+    more.type = "button";
+    more.setAttribute("aria-expanded", "false");
+    more.addEventListener("click", () => {
+      const open = more.getAttribute("aria-expanded") !== "true";
+      // A ticked box stays in sight when the list folds again (and stays ticked either way).
+      for (const node of folds) node.hidden = !open && !node.querySelector("input:checked");
+      more.setAttribute("aria-expanded", String(open));
+      more.textContent = open ? "Show fewer" : `Show all ${items.length}`;
+    });
+    const row = el("p", "report-more");
+    row.append(more);
+    nodes.push(row);
+  }
+  return nodes;
 }
 
 async function postJson(path, body) {

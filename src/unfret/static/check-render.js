@@ -395,13 +395,43 @@ export function deepHintNode(hint, { run, checkoutHref }) {
 
 // ── "Wrong result?" (check.js): what a report may name, and the contributor key ─────────────────────────────
 
-/** The findings a report can call wrong: those the result showed (its cards and the reasons behind its level). */
+/**
+ * The findings a report can call wrong: those the result showed (its cards and the reasons behind its level), each with
+ * its level (null when the result gives none) and whether the result card shows it (`shown`: one of its reasons).
+ */
 export function reportableFindings(result) {
   const seen = new Map();
-  for (const item of [...(result?.verdict?.reasons ?? []), ...(result?.verdict?.risk?.because ?? [])]) {
-    if (item?.type && item.title && item.type !== "overall" && !seen.has(item.type)) seen.set(item.type, item.title);
+  const card = new Set((result?.verdict?.reasons ?? []).map((r) => r?.type));
+  const levels = new Map();
+  for (const item of [...(result?.verdict?.risk?.because ?? []), ...(result?.verdict?.reasons ?? [])]) {
+    if (item?.type && Number.isInteger(item.level) && !levels.has(item.type)) levels.set(item.type, item.level);
   }
-  return [...seen].map(([type, title]) => ({ type, title }));
+  for (const item of [...(result?.verdict?.reasons ?? []), ...(result?.verdict?.risk?.because ?? [])]) {
+    if (item?.type && item.title && item.type !== "overall" && !seen.has(item.type)) {
+      const level = levels.get(item.type) ?? null;
+      seen.set(item.type, { type: item.type, title: item.title, level, shown: card.has(item.type) });
+    }
+  }
+  return [...seen.values()];
+}
+
+// The level's words over its group in the report form (the form's own level choices); a finding without a level last.
+const REPORT_GROUP_WORD = { ...LEVEL_WORD, 0: "No concerns" };
+
+/**
+ * Findings grouped by level for the report form, worst first, under the level's words: `[{ level, words, items }]`,
+ * the items in the order given. A finding without a level (or one outside 0–4) goes in a last group, "Other".
+ */
+export function reportGroups(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const level = Number.isInteger(item.level) && item.level in REPORT_GROUP_WORD ? item.level : null;
+    if (!groups.has(level)) groups.set(level, []);
+    groups.get(level).push(item);
+  }
+  return [...groups]
+    .sort(([a], [b]) => (b ?? -1) - (a ?? -1))
+    .map(([level, list]) => ({ level, words: level === null ? "Other" : REPORT_GROUP_WORD[level], items: list }));
 }
 
 /** 32 random bytes in base64url without padding (43 characters), as /v1/labels expects. */

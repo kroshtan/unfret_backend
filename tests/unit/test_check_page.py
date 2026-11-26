@@ -521,7 +521,10 @@ def test_a_report_names_only_findings_the_result_showed_and_a_key_is_43_characte
     verdict = {
         "reasons": [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "overall", "title": "Small signs"}],
         "risk": {
-            "because": [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "new_domain", "title": "New"}]
+            "because": [
+                {"type": "timer_resets", "title": "Fake countdown", "level": 1},
+                {"type": "new_domain", "title": "New"},
+            ]
         },
     }
     out = _render(
@@ -529,9 +532,39 @@ def test_a_report_names_only_findings_the_result_showed_and_a_key_is_43_characte
         f"[r.reportableFindings({{ verdict: {json.dumps(verdict)} }}), r.reportableFindings(null),"
         " r.newContributorKey(new Uint8Array(32).fill(255)), r.newContributorKey().length]",
     )
-    assert out[0] == [{"type": "timer_resets", "title": "Fake countdown"}, {"type": "new_domain", "title": "New"}]
+    assert out[0] == [
+        {"type": "timer_resets", "title": "Fake countdown", "level": 1, "shown": True},
+        {"type": "new_domain", "title": "New", "level": None, "shown": False},
+    ]
     assert out[1] == []
     assert out[2] == "_" * 42 + "8" and out[3] == 43
+
+
+@pytest.mark.usefixtures("node")
+def test_a_reports_findings_are_grouped_by_level_worst_first(tmp_path: Path) -> None:
+    items = [
+        {"type": "a", "title": "A", "level": 1},
+        {"type": "b", "title": "B", "level": 4},
+        {"type": "c", "title": "C", "level": None},
+        {"type": "d", "title": "D", "level": 1},
+        {"type": "e", "title": "E", "level": 3},
+    ]
+    out = _render(tmp_path, f"r.reportGroups({json.dumps(items)})")
+    assert [(g["level"], g["words"], [i["type"] for i in g["items"]]) for g in out] == [
+        (4, "May not arrive, or may not be safe", ["b"]),
+        (3, "May not work as described", ["e"]),
+        (1, "Pressure and tricks", ["a", "d"]),
+        (None, "Other", ["c"]),
+    ]
+
+
+def test_the_report_form_folds_findings_off_the_card_and_groups_both_lists() -> None:
+    script = (STATIC_DIR / "check.js").read_text()
+    checks = script.split("function reportChecks(", 1)[1].split("\n}\n", 1)[0]
+    assert "reportGroups(items)" in checks and "Show all ${items.length}" in checks
+    # Folding hides boxes; it never unticks or removes them, so what is sent doesn't change.
+    assert ".hidden = " in checks and "checked = false" not in checks and ".remove()" not in checks
+    assert 'reportChecks("wrong", findings, folded)' in script and 'reportChecks("missing", missing, false)' in script
 
 
 def test_wrong_result_is_one_flow_without_the_pass() -> None:

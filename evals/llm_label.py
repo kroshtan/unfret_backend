@@ -5,10 +5,15 @@ The labelling queue (:mod:`evals.candidates`, ``deep_label_queue.jsonl``) is far
 labeller reads each page as Floris's labelling screen shows it, minus the scorer: the title, price, seller, brand,
 where it is sold, every new finding with its evidence, the shop facts the other checks found (domain age, company
 identity, payment, policies), and the cleaned page text (bounded, wrapped as untrusted, with the backend's
-injection notice). No score, band or earlier label goes in, so nothing anchors it. It answers with a page label
-(``legit`` / ``junk`` / ``scam``, Floris's definitions verbatim), a verdict per finding (``correct`` / ``wrong``), a
-confidence and a short reason. A few of Floris's labelled pages are the prompt's examples; a page being scored is
-never its own example (leave-one-out).
+injection notice). No score, band or earlier label goes in, so nothing anchors it. It answers with a verdict per
+finding (``correct`` / ``wrong``), a confidence and, from prompt v4 on, the page's OVERALL risk level (0 none, 1
+manipulation, 2 overpaying or poor quality, 3 doesn't work, 4 won't arrive / unsafe / data theft; lower levels can
+combine upward, protection moves it) with a short "because" list (:mod:`unfret.levels`; the older prompts answer
+``legit`` / ``junk`` / ``scam``). The level is a proposal: it is stored as an LLM level label, Floris confirms or
+corrects it in ``make deep-label`` (Enter accepts), and the labels train the level classifier. No rule turns the
+findings into the level; the finding table (:data:`unfret.levels.FINDING_LEVELS`) only says what each finding is
+evidence for. A few of Floris's labelled pages are the prompt's examples (from v4: his level labels, one per level,
+the earliest he gave); a page being scored is never its own example (leave-one-out).
 
 Three commands:
 
@@ -17,19 +22,25 @@ Three commands:
    confusion. Per model and prompt version: ``reports/llm-label/validation-<model>-<prompt>.json``.
 2. ``label --model M --pages 600``: reserve the human-only test set first (``deep_test_set.json``, a seeded random
    ``--test-size`` pages of the queue the LLM never labels: the evaluation set for the decision models), then label
-   the next pages in queue order. Labels go to ``llm_labels.jsonl`` (model, version, prompt version, the finding
-   verdicts, the label before) and into ``labels.jsonl`` as ``label_source`` ``llm``; a human label is never
-   overwritten. Then the review queue for Floris (``llm_review_queue.jsonl``): every page the LLM is unsure of
-   (confidence below ``--unsure``) plus a seeded random ``--audit`` share of the rest, which ``make deep-review``
-   serves (the audit pages blind: without the LLM's answer, so they measure it without anchoring).
+   the next pages in queue order (``--relevel``: also the pages an older prompt labelled without a level). Labels go
+   to ``llm_labels.jsonl`` (model, version, prompt version, the level and its "because", the finding verdicts, the
+   label before) and into ``labels.jsonl`` with ``label_source`` and ``level_source`` ``llm:<model>:<prompt>`` (the
+   legacy label follows from the level); a human label is never overwritten. Then the review queue for Floris
+   (``llm_review_queue.jsonl``): every page the LLM is unsure of (confidence below ``--unsure``) plus a seeded random
+   ``--audit`` share of the rest, which ``make deep-review`` serves (the audit pages blind: without the LLM's answer,
+   so they measure it without anchoring). A level proposal also waits in ``make deep-label`` until a person
+   confirms or corrects it.
 3. ``review-queue``: rebuild that review queue only.
 
 Every call is recorded in ``reports/llm-label/calls.jsonl`` with its tokens and cost (per model at the list prices
 below; a model without a known price at the dearest), so a re-run replays instead of paying again, and the
 labeller stops before the whole ledger (validation included) passes ``--budget-eur``.
 
+Validation of a level prompt compares the level with Floris's level labels where he gave one (exact, within one) and
+with his older labels' range everywhere (:data:`evals.corpus.LEGACY_LEVELS`), plus "any concern" and the findings.
+
 Usage: ``uv run python -m evals.llm_label validate --model glm-5.3 --reasoning medium``,
-``... label --model glm-5.3 --reasoning medium --pages 600``, ``... review-queue``.
+``... label --model glm-5.3 --reasoning medium --pages 600 [--relevel]``, ``... review-queue``.
 """
 
 import argparse
@@ -51,7 +62,18 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from evals.candidates import DECISIONS, FINDING_LABELS, QUEUE, is_new, label_rows, notes_of, read_queue
-from evals.corpus import LLM_SOURCE, Corpus, LabelRecord, QueueItem, dump_json, is_llm, now_iso
+from evals.corpus import (
+    LEGACY_LEVELS,
+    LLM_SOURCE,
+    Corpus,
+    LabelRecord,
+    QueueItem,
+    dump_json,
+    is_llm,
+    legacy_label,
+    now_iso,
+)
+from unfret import levels
 from unfret.config import settings
 from unfret.facts import parse_page
 from unfret.html_cleaner import clean_html
@@ -59,7 +81,7 @@ from unfret.llm import UNTRUSTED_NOTICE, throttled, untrusted
 
 logger = structlog.get_logger("unfret.evals")
 
-PROMPT_VERSION = "llm-label-v3"  # the default; every version stays runnable (PROMPTS)
+PROMPT_VERSION = "llm-label-v4"  # the default; every version stays runnable (PROMPTS)
 REPORTS = Path("reports") / "llm-label"
 CALLS = REPORTS / "calls.jsonl"
 LLM_LABELS = "llm_labels.jsonl"
@@ -151,15 +173,80 @@ Per finding:
 - correct: the finding really is on the page (a real contradiction, even a harmless one).
 - wrong: the check misread something (the contradiction isn't really there)."""
 
+# v4 (Floris, 2026-11-25): the page's OVERALL risk level instead of legit / junk / scam (the consumer protection
+# pivot). The materiality test of v3 carries over to levels 2 and 3.
+LEVELS_V4 = """\
+The page's overall risk level, higher is worse:
+- 4 won't arrive or isn't safe: likely a fake shop or seller that won't deliver, a page made to take card or \
+personal details, or an unsafe product (recalled, banned, dangerous).
+- 3 doesn't work: the product likely won't do what the page says: false or impossible claims, specs that contradict \
+each other or the photos on a fact a buyer chooses by.
+- 2 overpaying or poor quality: real goods that likely cost much more than they are worth or are worse than \
+presented: generic goods sold as special or branded, dropship markup, hidden costs, costly or impossible returns, \
+padded counts, a listing so vague you can't tell what you'll get (key specs missing where they matter). The size \
+matters: a very large markup (five times or more) can count as level 3.
+- 1 manipulation: pressure and tricks: fake countdowns or scarcity, fake viewer or sales counts, misleading discounts \
+or reference prices, fake or inflated reviews.
+- 0 none: a real seller, honestly sold. Slips that don't matter to a buyer of this product are fine.
+
+The level is the page's OVERALL level, not simply its most serious single finding:
+- Lower levels combine: a product that doesn't work, costs too much and is pushed with tricks can count as level 4 \
+together. Manipulation is also evidence for the levels above it.
+- Protection moves the level, it is not a level: recourse (card payment with chargeback, a platform's buyer \
+protection, a real return address) lowers it by one; payment you can't get back (bank transfer, crypto, gift cards, \
+cash up front) raises it by one. Recourse doesn't lower level 4: a chargeback doesn't undo stolen card details or an \
+unsafe product.
+
+Materiality decides levels 2 and 3: does a wrong, contradictory or missing value affect how a buyer evaluates this \
+product, i.e. is it a fact a buyer of this kind of product chooses by (a dryer's size, a charger's wattage, a set's \
+piece count, a part's compatibility)? Then it counts, whether it looks like a data-entry slip, a lazy omission or a \
+claim. A wrong value in a field that plays no part in evaluating this product doesn't. Who sells it doesn't change \
+this: big brands and long-established shops get levels 1-3 too; the seller's standing matters for level 4.
+
+Per finding:
+- correct: the finding really is on the page (a real contradiction, even a harmless one).
+- wrong: the check misread something (the contradiction isn't really there)."""
+
+SYSTEM_V4 = f"""\
+You label e-commerce product pages for a consumer-protection corpus, the way its human labeller does.
+
+{LEVELS_V4}
+
+The findings come from automated checks. The ones numbered under "Findings to judge" read the page and report \
+where it contradicts itself; they can misread: a unit (fl oz versus weight), a per-pack versus total count, a field \
+it took for another. Judge each on its own: is it really there? A finding can be correct and still harmless: how \
+much it matters is the level's question, not the finding's. A finding may quote text you can't see below (the page \
+text is cut short, or the quote is from the shop's other pages): then take the quote as given. "(evidence for level \
+N)" says what a finding of that type would point at if it is right and material; it is not the answer.
+
+The shop facts are what other checks looked up (domain age, company identity, payment methods, policies). They \
+matter most for level 4 and for protection: a page from a long-established shop or a known marketplace seller is \
+rarely a fake shop.
+
+{UNTRUSTED_NOTICE}
+
+Because: one to four short items, most serious first, each saying what on the page drove the level and the level \
+it points at ("3: capacity given as 5000 mAh and 3000 mAh"), plus the combining or protection step when one \
+applied ("raised: bank transfer only"). For level 0, one item saying why nothing concerns a buyer. Never write \
+that a shop is a scam: say what was found.
+Confidence: how likely the human labeller gives the same level (0-1). Use below 0.7 when the page is a close call \
+between two levels."""
+
 PROMPTS: dict[str, str] = {
     "llm-label-v1": SYSTEM,
     "llm-label-v2": SYSTEM.replace(f"\n\n{UNTRUSTED_NOTICE}", f"\n\n{APPLYING}\n\n{UNTRUSTED_NOTICE}"),
     "llm-label-v3": SYSTEM.replace(DEFINITIONS, DEFINITIONS_V3),
+    "llm-label-v4": SYSTEM_V4,
 }
+# The prompt versions that answer with a level (:class:`LevelLabel`); the others answer legit / junk / scam.
+LEVEL_PROMPTS: frozenset[str] = frozenset({"llm-label-v4"})
+LEVEL_EXAMPLES_PER_LEVEL = 1
 
 # The prompt's examples: some of Floris's labelled pages (none blind), per prompt version. Kept in the private corpus
 # (no corpus ids in this repository): ``{version: {"per_class": n, "legit": [ids], "junk": [ids]}}``; n of each class
-# go in a prompt, never the page being scored.
+# go in a prompt, never the page being scored. A level prompt may list ``{"ids": [ids]}`` (pages with a human level);
+# without it, it takes his earliest non-blind level label per level, and before he has given any, the newest
+# legacy version's pages with their finding verdicts only.
 EXAMPLES = REPORTS / "examples.json"
 
 
@@ -181,6 +268,49 @@ class PageLabel(BaseModel):
     reason: str = Field(description="One or two sentences: what decided the page label.")
     label: Literal["legit", "junk", "scam"]
     confidence: float = Field(ge=0, le=1, description="How likely the human labeller gives the same label (0-1).")
+
+
+class LevelLabel(BaseModel):
+    """The labeller's answer for one page, from prompt v4 on: the overall risk level."""
+
+    findings: list[FindingVerdict] = Field(description="One verdict per numbered finding; empty when none listed.")
+    because: list[str] = Field(
+        min_length=1,
+        max_length=6,
+        description="One to four short items, most serious first: what drove the level and the level each points "
+        "at, plus the combining or protection step when one applied.",
+    )
+    level: int = Field(
+        ge=0,
+        le=4,
+        description="The page's OVERALL risk level, higher is worse: 0 none, 1 manipulation, 2 overpaying or poor "
+        "quality, 3 doesn't work, 4 won't arrive / unsafe / data theft.",
+    )
+    confidence: float = Field(ge=0, le=1, description="How likely the human labeller gives the same level (0-1).")
+
+
+def level_of(answer: dict[str, Any]) -> int | None:
+    """An answer's level (``None`` for an older prompt's answer)."""
+    level = answer.get("level")
+    return int(level) if level is not None else None
+
+
+def label_of(answer: dict[str, Any]) -> str:
+    """An answer's legacy label: given by an older prompt, else following from the level."""
+    if label := answer.get("label"):
+        return str(label)
+    return legacy_label(int(answer["level"]))
+
+
+def reason_of(answer: dict[str, Any]) -> str:
+    """An answer's reason: an older prompt's sentence, else the "because" items."""
+    return str(answer.get("reason") or "; ".join(answer.get("because", [])))
+
+
+def answer_text(answer: dict[str, Any]) -> str:
+    """An answer in a few words: ``level 3`` or the legacy label."""
+    level = level_of(answer)
+    return f"level {level}" if level is not None else label_of(answer)
 
 
 def price(model: str) -> tuple[Decimal, Decimal]:
@@ -232,30 +362,45 @@ def human_findings(corpus: Corpus) -> dict[tuple[str, str], str]:
     return {(r["id"], r["evidence"]): r["verdict"] for r in read_jsonl(corpus.root / FINDING_LABELS)}
 
 
-def shop_facts(row: dict[str, Any]) -> list[str]:
+def points_at(finding_type: str) -> str:
+    """What a finding type is evidence for, as the level prompt shows it (empty when the table doesn't know it)."""
+    level = levels.level_of(finding_type)
+    if level is not None:
+        return f" (evidence for level {level})"
+    entry = levels.FINDING_LEVELS.get(finding_type)
+    return " (raises the level: payment you can't get back)" if entry and entry.modifier == "raised" else ""
+
+
+def shop_facts(row: dict[str, Any], *, with_levels: bool = False) -> list[str]:
     """
     The facts the other checks found about a page's shop: their findings' evidence, opinions left out.
 
     :param row: The page's deep-check (or replay) row.
+    :param with_levels: Name each finding's type and what it is evidence for (the level prompts).
     :return: Up to :data:`SHOP_FACTS` distinct lines.
     """
     facts: list[str] = []
     for finding in row.get("findings", []):
         if is_new(finding["skill"]) or finding["skill"] in OPINION_SKILLS:
             continue
-        line = f"[{finding['skill']}] {finding['evidence'][:200]}"
+        kind = f" {finding['type']}{points_at(finding['type'])}:" if with_levels and finding.get("type") else ""
+        line = f"[{finding['skill']}]{kind} {finding['evidence'][:200]}"
         if line not in facts:
             facts.append(line)
     return facts[:SHOP_FACTS]
 
 
-def page_brief(corpus: Corpus, record: LabelRecord, row: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+def page_brief(
+    corpus: Corpus, record: LabelRecord, row: dict[str, Any], *, with_levels: bool = False
+) -> tuple[str, str, list[dict[str, Any]]]:
     """
     The facts block and the bounded page text the labeller reads, and the findings it judges.
 
     :param corpus: The corpus.
     :param record: The page's record.
     :param row: Its deep-check (or replay) row.
+    :param with_levels: Say what each finding is evidence for (the level prompts; the older prompts' text is kept
+        byte for byte, so their recorded answers replay).
     :return: The facts (trusted framing, page-derived values), the page text, the new findings in order.
     """
     html = corpus.read_page(record.id)
@@ -275,8 +420,11 @@ def page_brief(corpus: Corpus, record: LabelRecord, row: dict[str, Any]) -> tupl
     if row.get("piece_count"):
         lines.append(f"Piece count the check read: {json.dumps(row['piece_count'], ensure_ascii=False)[:300]}")
     lines.append(f"Findings to judge ({len(findings)}):" if findings else "Findings to judge: none")
-    lines += [f"  {i}. [{f['skill']}] {f['type']}: {f['evidence'][:500]}" for i, f in enumerate(findings, start=1)]
-    shop = shop_facts(row)
+    lines += [
+        f"  {i}. [{f['skill']}] {f['type']}{points_at(f['type']) if with_levels else ''}: {f['evidence'][:500]}"
+        for i, f in enumerate(findings, start=1)
+    ]
+    shop = shop_facts(row, with_levels=with_levels)
     lines.append("Shop facts:" if shop else "Shop facts: none found")
     lines += [f"  - {line}" for line in shop]
     text = " ".join(clean_html(html).split())[:PAGE_CHARS]
@@ -295,6 +443,8 @@ def example_block(corpus: Corpus, page: str, rows: dict[str, dict[str, Any]], pr
     :param prompt: The prompt version.
     :return: The examples as text.
     """
+    if prompt in LEVEL_PROMPTS:
+        return level_example_block(corpus, page, rows, prompt)
     chosen = json.loads((corpus.root / EXAMPLES).read_text())[prompt]
     left_out = page if page in (*chosen["legit"], *chosen["junk"]) else ""
     key = (str(corpus.root), prompt, left_out)
@@ -304,6 +454,84 @@ def example_block(corpus: Corpus, page: str, rows: dict[str, dict[str, Any]], pr
 
 
 _EXAMPLE_TEXT: dict[tuple[str, str, str], str] = {}
+
+
+def level_examples(corpus: Corpus, rows: dict[str, dict[str, Any]], prompt: str) -> list[str]:
+    """
+    The pages a level prompt shows as examples: the corpus's list for it, else Floris's earliest level label per level.
+
+    Only pages he gave a level, not blind, with a deep-check row; :data:`LEVEL_EXAMPLES_PER_LEVEL` per level, the
+    earliest decided (so the examples don't change as he labels more).
+
+    :param corpus: The corpus.
+    :param rows: Every page's row.
+    :param prompt: The level prompt version.
+    :return: The page ids (empty before he has given a level).
+    """
+    path = corpus.root / EXAMPLES
+    configured = json.loads(path.read_text()).get(prompt) if path.exists() else None
+    if configured and configured.get("ids"):
+        return [str(p) for p in configured["ids"]]
+    first: dict[str, dict[str, Any]] = {}
+    for decision in read_jsonl(corpus.root / DECISIONS):
+        if decision.get("level") is not None and decision["id"] not in first:
+            first[decision["id"]] = decision
+    latest = human_decisions(corpus)
+    chosen: list[str] = []
+    for level in range(5):
+        pages = [
+            p
+            for p, d in first.items()
+            if d["level"] == level
+            and not d.get("blind")
+            and latest.get(p, {}).get("level") == level  # still his answer
+            and p in rows
+        ]
+        chosen += pages[:LEVEL_EXAMPLES_PER_LEVEL]
+    return chosen
+
+
+def level_example_block(corpus: Corpus, page: str, rows: dict[str, dict[str, Any]], prompt: str) -> str:
+    """
+    A level prompt's examples, never ``page`` itself.
+
+    Floris's level labels when he has given some (:func:`level_examples`); before that, the newest legacy prompt's
+    examples with their finding verdicts only (no level: his old labels only bound it).
+
+    :param corpus: The corpus.
+    :param page: The page being labelled.
+    :param rows: Every page's row.
+    :param prompt: The level prompt version.
+    :return: The examples as text.
+    """
+    chosen = level_examples(corpus, rows, prompt)
+    with_level = bool(chosen)
+    if not chosen:
+        path = corpus.root / EXAMPLES
+        legacy = json.loads(path.read_text()) if path.exists() else {}
+        older = [v for v in sorted(PROMPTS) if v not in LEVEL_PROMPTS and v in legacy]
+        if older:
+            entry = legacy[older[-1]]
+            chosen = [*entry["legit"][: entry["per_class"]], *entry["junk"][: entry["per_class"]]]
+    left_out = page if page in chosen else ""
+    key = (str(corpus.root), prompt, left_out)
+    if key not in _EXAMPLE_TEXT:
+        known = corpus.labels()
+        verdicts = human_findings(corpus)
+        decided = human_decisions(corpus)
+        parts = []
+        for example in [p for p in chosen if p != page and p in rows and p in known]:
+            facts, _, _ = page_brief(corpus, known[example], rows[example], with_levels=True)
+            judged = [
+                f"  finding {i}: {verdicts.get((example, f['evidence']), 'unsure')}"
+                for i, f in enumerate(rows[example].get("new_findings", []), start=1)
+            ]
+            if with_level:
+                judged.append(f"  overall level: {decided[example]['level']}")
+            parts.append(f"{facts}\nThe human labeller's answer:\n" + "\n".join(judged))
+        intro = "" if with_level or not parts else "(finding verdicts only: these pages have no level label yet)\n\n"
+        _EXAMPLE_TEXT[key] = intro + "\n\n---\n\n".join(parts)
+    return _EXAMPLE_TEXT[key]
 
 
 def _examples(corpus: Corpus, chosen: dict[str, Any], page: str, rows: dict[str, dict[str, Any]]) -> str:
@@ -335,7 +563,7 @@ def messages(
     :param prompt: The prompt version (:data:`PROMPTS`).
     :return: The system and user messages.
     """
-    facts, text, _ = page_brief(corpus, record, rows[record.id])
+    facts, text, _ = page_brief(corpus, record, rows[record.id], with_levels=prompt in LEVEL_PROMPTS)
     examples = example_block(corpus, record.id, rows, prompt)
     system = f"{PROMPTS[prompt]}\n\nExamples labelled by the human labeller (page text left out):\n\n{examples}"
     user = f"{facts}\n\nPage text (cleaned, cut at {PAGE_CHARS} characters):\n{untrusted(text)}"
@@ -382,7 +610,8 @@ class Labeller:
             timeout=300,
             max_retries=0,  # retried by throttled()
         )
-        self.structured = client.with_structured_output(PageLabel, method="function_calling", include_raw=True)
+        schema = LevelLabel if prompt in LEVEL_PROMPTS else PageLabel
+        self.structured = client.with_structured_output(schema, method="function_calling", include_raw=True)
 
     @property
     def name(self) -> str:
@@ -420,7 +649,7 @@ class Labeller:
         tokens_in, tokens_out = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
         cost = call_cost(self.model, tokens_in, tokens_out)
         self.spent += cost
-        parsed: PageLabel | None = result.get("parsed")
+        parsed: PageLabel | LevelLabel | None = result.get("parsed")
         row = {
             "key": key,
             "id": record.id,
@@ -477,7 +706,8 @@ def compare(corpus: Corpus, answers: dict[str, dict[str, Any]], rows: dict[str, 
     :param corpus: The corpus.
     :param answers: The LLM's ledger rows by page.
     :param rows: Every page's row.
-    :return: Page agreement (overall, per human label, blind pages), finding agreement, confusions, disagreements.
+    :return: Page agreement (overall, per human label, blind pages), finding agreement, confusions, disagreements;
+        for level answers also the level's agreement (:func:`level_agreement`).
     """
     decided = human_decisions(corpus)
     verdicts = human_findings(corpus)
@@ -491,7 +721,7 @@ def compare(corpus: Corpus, answers: dict[str, dict[str, Any]], rows: dict[str, 
             pages["missing"] += 1
             continue
         answer = call["answer"]
-        human, llm = decision["label"], answer["label"]
+        human, llm = decision["label"], label_of(answer)
         confusion[f"{human}->{llm}"] += 1
         for key in ("all", f"human_{human}", *(["blind"] if decision["blind"] else [])):
             pages[f"{key}_n"] += 1
@@ -502,8 +732,10 @@ def compare(corpus: Corpus, answers: dict[str, dict[str, Any]], rows: dict[str, 
                     "id": page,
                     "human": human,
                     "llm": llm,
+                    "human_level": decision.get("level"),
+                    "llm_level": level_of(answer),
                     "confidence": answer["confidence"],
-                    "reason": answer["reason"],
+                    "reason": reason_of(answer),
                 }
             )
         findings = rows[page].get("new_findings", [])
@@ -534,6 +766,46 @@ def compare(corpus: Corpus, answers: dict[str, dict[str, Any]], rows: dict[str, 
         "finding_confusion": dict(sorted(finding_confusion.items())),
         "disagreements": disagreements,
         "finding_disagreements": finding_disagreements,
+    } | level_agreement(decided, answers)
+
+
+def level_agreement(decided: dict[str, dict[str, Any]], answers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """
+    How the LLM's levels agree with Floris's labels: his level where he gave one, his older label's range everywhere.
+
+    :param decided: His latest decision per page.
+    :param answers: The LLM's ledger rows by page.
+    :return: Nothing for answers without a level; else exact and within-one agreement on his level labels, how
+        often the level falls in his older label's range (:data:`evals.corpus.LEGACY_LEVELS`), "any concern" (level
+        above 0) agreement, and the confusion (his level or label -> the LLM's level).
+    """
+    tally: Counter[str] = Counter()
+    confusion: Counter[str] = Counter()
+    for page, decision in decided.items():
+        if (call := answers.get(page)) is None or (llm := level_of(call["answer"])) is None:
+            continue
+        human = decision.get("level")
+        low, high = (human, human) if human is not None else LEGACY_LEVELS[decision["label"]]
+        confusion[f"{human if human is not None else decision['label']}->{llm}"] += 1
+        tally["n"] += 1
+        tally["in_range"] += low <= llm <= high
+        if (low > 0) or (high == 0):  # his label settles "any concern" (an old legit label doesn't: 0 to 2)
+            tally["concern_n"] += 1
+            tally["concern_agree"] += (llm > 0) == (low > 0)
+        if human is not None:
+            tally["level_n"] += 1
+            tally["exact"] += llm == human
+            tally["within_one"] += abs(llm - human) <= 1
+    if not tally["n"]:
+        return {}
+    return {
+        "level_pages": tally["n"],
+        "level_in_human_range": rate(tally["in_range"], tally["n"]),
+        "human_level_pages": tally["level_n"],
+        "level_exact": rate(tally["exact"], tally["level_n"]),
+        "level_within_one": rate(tally["within_one"], tally["level_n"]),
+        "any_concern_agreement": rate(tally["concern_agree"], tally["concern_n"]),
+        "level_confusion": dict(sorted(confusion.items())),
     }
 
 
@@ -593,28 +865,31 @@ def reserve_test_set(corpus: Corpus, size: int) -> list[str]:
     return ids
 
 
-def to_label(corpus: Corpus, pages: int) -> list[LabelRecord]:
+def to_label(corpus: Corpus, pages: int, *, relevel: bool = False) -> list[LabelRecord]:
     """
     The next ``pages`` pages to label in queue order: no human or LLM label yet, not reserved, not rejected.
 
     :param corpus: The corpus.
     :param pages: How many.
+    :param relevel: Also the pages an LLM labelled without a level (an older prompt), to give them one.
     :return: Their records.
     """
     known = corpus.labels()
     rows = label_rows(corpus)
     reserved = set(reserve_test_set(corpus, 0)) if (corpus.root / TEST_SET).exists() else set()
-    labelled = {r["id"] for r in read_jsonl(corpus.root / LLM_LABELS)}
+    latest = {r["id"]: r for r in read_jsonl(corpus.root / LLM_LABELS)}
     out = []
     for item in read_queue(corpus):
         record = known.get(item.id)
+        if record is None:
+            continue
+        unlevelled = relevel and is_llm(record.label_source) and record.level is None
         if (
-            record is None
-            or item.id not in rows
+            item.id not in rows
             or item.id in reserved
-            or item.id in labelled
+            or (item.id in latest and not unlevelled)
             or record.label_source == "human"
-            or is_llm(record.label_source)
+            or (is_llm(record.label_source) and not unlevelled)
             or notes_of(record).get("rejected")
         ):
             continue
@@ -633,7 +908,8 @@ def store(corpus: Corpus, done: list[dict[str, Any]], rows: dict[str, dict[str, 
     """
     Write LLM labels: ``llm_labels.jsonl`` in full, ``labels.jsonl`` with ``label_source`` ``source``.
 
-    A human label is never overwritten.
+    A level answer also sets ``level`` and ``level_source`` (``source``), and the legacy label follows from the
+    level (:func:`evals.corpus.legacy_label`), as for Floris's own level labels. A human label is never overwritten.
 
     :param corpus: The corpus.
     :param done: The ledger rows to store.
@@ -650,16 +926,18 @@ def store(corpus: Corpus, done: list[dict[str, Any]], rows: dict[str, dict[str, 
             if record.label_source == "human":
                 continue
             answer = call["answer"]
+            level = level_of(answer)
             findings = rows[call["id"]].get("new_findings", [])
             why = {v["n"]: v["why"] for v in answer.get("findings", [])}
             sure = {v["n"]: v.get("confidence") for v in answer.get("findings", [])}
             lines.append(
                 {
                     "id": record.id,
-                    "label": answer["label"],
+                    "label": label_of(answer),
+                    **({"level": level, "because": list(answer.get("because", []))} if level is not None else {}),
                     "label_source": source,
                     "confidence": answer["confidence"],
-                    "reason": answer["reason"],
+                    "reason": reason_of(answer),
                     "findings": [
                         {
                             "skill": f["skill"],
@@ -677,10 +955,14 @@ def store(corpus: Corpus, done: list[dict[str, Any]], rows: dict[str, dict[str, 
                     "prompt_version": call["prompt_version"],
                     "before": record.label,
                     "before_source": record.label_source,
+                    **({"level_before": record.level} if level is not None else {}),
                     "labelled_at": now_iso(),
                 }
             )
-            update = {"label": answer["label"], "label_source": source, "confidence": answer["confidence"]}
+            update: dict[str, Any] = {"label": label_of(answer), "label_source": source}
+            update["confidence"] = answer["confidence"]
+            if level is not None:
+                update |= {"level": level, "level_source": source}
             updated.append(record.model_copy(update=update))
         known.update((r.id, r) for r in updated)
         corpus.write_labels(known.values())
@@ -712,7 +994,7 @@ def build_review_queue(corpus: Corpus, unsure: float, audit: float) -> list[Queu
     items = [
         QueueItem(
             id=r["id"],
-            reason=f"{UNSURE}: LLM says {r['label']} ({r['confidence']:.2f}, least sure {least_sure(r):.2f})",
+            reason=f"{UNSURE}: LLM says {answer_text(r)} ({r['confidence']:.2f}, least sure {least_sure(r):.2f})",
             priority=2 - least_sure(r),
         )
         for r in open_
@@ -747,6 +1029,7 @@ def main() -> None:
     lab.add_argument("--pages", type=int, default=600)
     lab.add_argument("--test-size", type=int, default=150)
     lab.add_argument("--source", default=None, help="the label source (default llm:<model>:<prompt>)")
+    lab.add_argument("--relevel", action="store_true", help="also give the older prompts' LLM labels a level")
     for cmd in (lab, sub.add_parser("review-queue")):
         cmd.add_argument("--unsure", type=float, default=0.7, help="a confidence below this goes to review")
         cmd.add_argument("--audit", type=float, default=0.05, help="random share of the rest, reviewed blind")
@@ -771,7 +1054,9 @@ def main() -> None:
         return
     labeller = labellers[0]
     reserved = reserve_test_set(corpus, args.test_size)
-    records = to_label(corpus, args.pages)
+    if args.relevel and args.prompt not in LEVEL_PROMPTS:
+        parser.error("--relevel needs a level prompt")
+    records = to_label(corpus, args.pages, relevel=args.relevel)
     rows = label_rows(corpus)
     done = asyncio.run(labeller.label_all(records, rows))
     source = args.source or source_of(labeller.model, labeller.prompt)
@@ -787,6 +1072,7 @@ def main() -> None:
         "labelled_now": written,
         "labelled_total": len(mine),
         "labels": dict(Counter(r["label"] for r in mine)),
+        "levels": dict(Counter(str(r["level"]) for r in mine if r.get("level") is not None)),
         "finding_verdicts": dict(Counter(str(f["verdict"]) for r in mine for f in r["findings"])),
         "cost_eur": round(sum(r["cost_eur"] for r in done), 4),
         "ledger_eur": round(float(spent(corpus)), 2),

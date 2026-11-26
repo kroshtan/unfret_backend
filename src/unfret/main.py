@@ -32,6 +32,7 @@ from unfret import (
     recording,
     reports,
     review_store,
+    scarcity_store,
     scoring,
     shares,
     shop_store,
@@ -96,6 +97,7 @@ def use_postgres_stores(pool: asyncpg.Pool) -> None:
     """
     fact_cache.use_store(PostgresFactStore(pool))
     price_store.use_store(price_store.PostgresPriceStore(pool))
+    scarcity_store.use_store(scarcity_store.PostgresScarcityStore(pool))
     market_prices.use_store(market_prices.PostgresMarketStore(pool))
     review_store.use_store(review_store.PostgresReviewStore(pool))
     ad_store.use_store(ad_store.PostgresAdStore(pool))

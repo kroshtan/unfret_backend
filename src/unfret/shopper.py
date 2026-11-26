@@ -33,6 +33,8 @@ COPY_DIR = Path(__file__).with_name("copy")
 # Severity per reason; the order is also the tie-break between reasons of equal severity.
 REASON_SEVERITY: dict[str, Severity] = {
     "timer_resets": "high",
+    "scarcity_resets": "high",
+    "scarcity_static": "high",
     "fake_urgency_app": "medium",
     "countdown": "low",
     "preticked_addon": "high",
@@ -194,6 +196,7 @@ _QUICK_NOT_ENOUGH_ALONE = frozenset((*ABSENCE_REASONS, "countdown"))
 # Reasons that tell the same story; only the first (strongest) of each group is shown.
 _GROUPS = (
     ("timer_resets", "fake_urgency_app", "countdown"),
+    ("scarcity_resets", "scarcity_static"),
     ("brand_no_presence", "generic_brand", "generic_product"),
     ("seller_lookalike", "seller_not_brand"),
     ("brand_photo_reused", "rebranded_photo", "photo_reused"),
@@ -538,6 +541,8 @@ SIGN_REASONS: dict[str, str] = {
     "html_source_signals.dropship_app": "dropshipping_tools",
     "dark_patterns.timer": "countdown",
     "dark_patterns.timer_resets": "timer_resets",
+    "scarcity.static": "scarcity_static",
+    "scarcity.resets": "scarcity_resets",
     "dark_patterns.preticked_addons": "preticked_addon",
     "dark_patterns.fee_mentions": "late_fees",
     "dark_patterns.checkout_markup_pct": "drip_pricing",
@@ -698,10 +703,24 @@ def _quoted(finding: Finding | None) -> str:
     return _quote(m.group(1)) if m else ""
 
 
+def _stock_count(finding: Finding | None) -> str:
+    """The count an "only N left" finding quotes ('"Only 3 left" on 4 days …' → "3")."""
+    m = _NUMBERS_RE.search(finding.evidence) if finding else None
+    return m.group(0) if m else "a few"
+
+
+def _scarcity(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """An "only N left" that never changes, or keeps going back up, across the days Unfret saw the page."""
+    for kind in ("resets", "static"):
+        if e.f(f"scarcity.{kind}") >= 1:
+            fired[f"scarcity_{kind}"] = {"count": _stock_count(e.first(f"scarcity_{kind}"))}
+
+
 def _pressure(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
     """Countdowns, pre-ticked extras and prices that change at checkout."""
     if e.f("dark_patterns.timer_resets") >= 1:
         fired["timer_resets"] = {}
+    _scarcity(e, fired)
     if e.storefront and e.f("html_source_signals.timer_app") >= 1:
         app = e.first("timer_app")
         fired["fake_urgency_app"] = {"app": app.evidence[:60] if app else e.phrase("an_urgency_tool")}

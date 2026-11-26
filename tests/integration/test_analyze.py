@@ -92,11 +92,12 @@ async def test_nothing_about_the_page_is_stored(client: httpx.AsyncClient, pool:
         "report_labels",
         "report_tokens_used",
         "report_answers",
+        "scarcity_claims",  # "only N left" counts per product page and day: hashes, days and counts
         "schema_migrations",
     }
     for table in ("contributors", "report_labels", "report_tokens_used", "report_answers"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608 - a check stores no label
-    for table in ("vat_quotes", "crypto_sales", "objections"):
+    for table in ("vat_quotes", "crypto_sales", "objections", "scarcity_claims"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608
     for table in ("oauth_clients", "oauth_codes", "oauth_grants", "oauth_spent_refresh"):
         assert await pool.fetchval(f"SELECT COUNT(*) FROM {table}") == 0  # noqa: S608

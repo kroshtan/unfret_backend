@@ -166,6 +166,9 @@ class Settings(BaseSettings):
     # observations.
     price_observations: bool = True
     price_history_min_days: int = Field(default=30, ge=1)
+    # Anonymous low-stock claims (unfret.scarcity_store): the "only N left" count of every analysed shop page that
+    # makes one, per product page and day, kept 90 days, to see whether it ever changes.
+    scarcity_observations: bool = True
     # The "was" price history (unfret.was_price): the distinct days a page must have been seen before it says the
     # "was" price was never the price (over price_history_min_days or more), and the span a discount must have been
     # shown on (nearly) every day seen before it counts as one that never ends.

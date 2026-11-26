@@ -51,6 +51,16 @@ _FEE_RE = re.compile(
     r"|frais de (?:service|dossier|traitement)|gastos de (?:gestión|envío)|spese di (?:gestione|spedizione))",
     re.IGNORECASE,
 )
+# A low-stock claim with its count: "Only 3 left", "just 2 items remaining", "5 left in stock", "Nur noch 3 auf
+# Lager", "Nog maar 2 op voorraad", "Plus que 3 en stock". A bare "3 left" isn't one (it needs "only" or "in stock").
+_STOCK_LEFT_RE = re.compile(
+    r"\b(?:only|just)\s+(\d{1,3})\s+(?:items?\s+|pieces?\s+|units?\s+|pcs\.?\s+)?(?:left|remaining|in stock)\b"
+    r"|\b(\d{1,3})\s+(?:items?\s+|pieces?\s+|units?\s+)?(?:left|remaining) in stock\b"
+    r"|\bnur noch\s+(\d{1,3})\s+(?:stück\s+)?(?:auf lager|verfügbar|vorrätig|übrig)"
+    r"|\bnog (?:maar|slechts)\s+(\d{1,3})\s+(?:stuks?\s+)?(?:op voorraad|beschikbaar|over)\b"
+    r"|\bplus que\s+(\d{1,3})\s+(?:articles?\s+|pièces?\s+)?(?:en stock|disponibles?|restants?)",
+    re.IGNORECASE,
+)
 # EU VAT numbers per country (VIES formats), matched against a candidate with its separators removed.
 _VAT_RE = re.compile(
     r"ATU\d{8}|BE0?\d{9}|BG\d{9,10}|CY\d{8}[A-Z]|CZ\d{8,10}|DE\d{9}|DK\d{8}|EE\d{9}|EL\d{9}|ES[A-Z0-9]\d{7}[A-Z0-9]"
@@ -292,9 +302,24 @@ def _timers(soup: BeautifulSoup, facts: PageFacts) -> None:
     facts.timers = _dedupe(timers)[:50]
 
 
+def stock_left(text: str) -> int | None:
+    """
+    The count the page's first low-stock claim names ("Only 3 left" → 3).
+
+    :param text: The page's visible text.
+    :return: 1–999, or ``None`` without a claim (or one of 0).
+    """
+    for m in _STOCK_LEFT_RE.finditer(text):
+        count = int(next(g for g in m.groups() if g))
+        if count >= 1:
+            return count
+    return None
+
+
 def _text_signals(soup: BeautifulSoup, facts: PageFacts) -> None:
     text = _squash(soup.get_text(" "))
     facts.fee_mentions = _dedupe(_snippets(_FEE_RE, text, 80, 80))[:_MAX_SNIPPETS]
+    facts.stock_left = stock_left(text)
     facts.vat_ids = _dedupe(_vat_ids(text))[:10]
     facts.legal_mentions = _dedupe(_snippets(_LEGAL_RE, text, 60, 100))[:_MAX_SNIPPETS]
     # Not cut at the first full stop like the legal snippets: "Co. LLC" and "L.L.C." have them inside the name.

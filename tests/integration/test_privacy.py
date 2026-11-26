@@ -115,7 +115,7 @@ def outside(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(scoring, "load_model", _LOAD_MODEL)
     for module in (shop_store, reverse_image):
         monkeypatch.setattr(module, "_store", module._store)
-    for module_name in ("ad_store", "fact_cache", "price_store", "verdict_store"):
+    for module_name in ("ad_store", "fact_cache", "price_store", "scarcity_store", "verdict_store"):
         module = sys.modules[f"unfret.{module_name}"]
         monkeypatch.setattr(module, "_store", module._store)
     monkeypatch.setattr(settings, "fingerprints", True)

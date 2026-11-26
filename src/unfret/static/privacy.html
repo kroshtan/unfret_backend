@@ -96,6 +96,9 @@
         ID, a barcode), the day, the price and the claimed "was" price, under a one-way hash of the shop's domain and
         that number. No address, wallet, IP address or time of day. Kept 90 days, to show whether a "was" price was
         ever really charged.</li>
+      <li><strong>Stock claims</strong>: when a shop's product page says "only N left", the day and that number under
+        a one-way hash of the shop's domain and the product (its product number, else the page's path). No address,
+        wallet, pass, IP address or time of day. Kept 90 days, to show whether the number ever changes.</li>
       <li><strong>Prices across shops</strong>: for product pages with a barcode, the day and the price under a one-way
         hash of the barcode and another of the shop's domain (a marketplace counts as one shop), to see whether a price
         is far below what other shops ask for the same product. No address, wallet, IP address or time of day. Kept 90

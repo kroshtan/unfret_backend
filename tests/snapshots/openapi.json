@@ -2344,6 +2344,20 @@
       "title": "Ships From",
       "type": "string"
      },
+     "stock_left": {
+      "anyOf": [
+       {
+        "maximum": 999.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The count an \"only N left\" stock claim on the page names (the first one), if any.",
+      "title": "Stock Left"
+     },
      "testimonials": {
       "description": "Testimonials on a service company's own site.",
       "items": {

@@ -59,7 +59,7 @@ async def record(state: dict[str, Any]) -> None:
     try:
         async with asyncio.timeout(TIMEOUT_S):
             if settings.price_observations:
-                stats["prices"] += await price_store.record(url, facts)  # type: ignore[arg-type]
+                stats["prices"] += await price_store.record(url, facts, page_type)  # type: ignore[arg-type]
                 stats["market_prices"] += await market_prices.record(url, facts)  # type: ignore[arg-type]
             if settings.scarcity_observations and page_type == "storefront":
                 stats["scarcity"] += await scarcity_store.record(url, facts)  # type: ignore[arg-type]

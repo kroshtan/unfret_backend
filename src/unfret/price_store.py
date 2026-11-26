@@ -7,8 +7,10 @@ for 90 days, those observations show whether the "was" price was ever charged.
 
 What is stored, and nothing else: a SHA-256 of the shop's registrable domain and the product's public identifier
 (ASIN, bol.com ID or EAN/GTIN), the day, the price, its currency and the claimed "was" price. One row per product per
-day. No URL, no caller, no wallet, no IP address, no time of day. Rows older than 90 days are deleted. Pages
-without a public product identifier aren't recorded.
+day. No URL, no caller, no wallet, no IP address, no time of day. Rows older than 90 days are deleted. A product page
+without a public product identifier is keyed by its page instead (:func:`listing_key`: the SHA-256 of the domain and
+the page's path, the same way the image index keys a listing), so a web shop's own "was" prices have a history too;
+other pages aren't recorded.
 
 Each row also keeps where it was seen and how many independent sources reported that price
 (:mod:`unfret.observations`): the history counts only rows seen on a page Unfret fetched itself, or corroborated, so
@@ -48,6 +50,10 @@ _ASIN_RE = re.compile(r"/(?:dp|gp/product|gp/aw/d|exec/obidos/asin)/([A-Z0-9]{10
 _BOL_RE = re.compile(r"/p/[^/]+/(\d{10,20})(?:/|$)")
 _WALMART_RE = re.compile(r"/ip/(?:[^/]+/)?(\d{6,15})(?:[/?]|$)")
 _GTIN_KEYS = ("gtin14", "gtin13", "gtin", "gtin12", "gtin8", "ean")
+# The product page classes (:data:`unfret.graph.state.PRODUCT_TYPES`; not imported: the graph imports this module).
+_PRODUCT_PAGES = frozenset({"storefront", "aggregate_listing"})
+# The one query parameter a page key keeps: a web shop's variant ("?variant=…"), which has its own price.
+_VARIANT_RE = re.compile(r"(?:^|&)variant=(\d{1,20})(?:&|$)")
 
 
 def registrable_domain(host: str) -> str:
@@ -130,6 +136,31 @@ def product_key(url: str, facts: PageFacts) -> bytes | None:
     return hashlib.sha256(f"{registrable_domain(host)}|{pid}".encode()).digest()
 
 
+def listing_key(url: str, facts: PageFacts, page_type: str | None = None) -> bytes | None:
+    """
+    The stored key for a product page: by its public product ID, or else by the page itself.
+
+    The page key is the SHA-256 of the registrable domain and ``path:`` with the page's path (lower case, no trailing
+    slash), as the image index keys a listing, plus the variant a web shop's address names. No other part of the
+    address: no query, no fragment, no tracking parameters.
+
+    :param url: The page URL.
+    :param facts: The page facts.
+    :param page_type: The page's class; only a product page (``storefront``, ``aggregate_listing``) gets a page key.
+    :return: 32 bytes, or ``None`` without a host, or without a public product ID on a page that isn't a product page.
+    """
+    if (key := product_key(url, facts)) is not None or page_type not in _PRODUCT_PAGES:
+        return key
+    parts = urlsplit(url)
+    host, path = parts.hostname or "", parts.path.rstrip("/").lower()
+    if not host or "." not in host or not path:
+        return None
+    pid = f"path:{path}"
+    if m := _VARIANT_RE.search(parts.query):
+        pid += f"?variant={m.group(1)}"
+    return hashlib.sha256(f"{registrable_domain(host)}|{pid}".encode()).digest()
+
+
 @dataclass(frozen=True)
 class Observation:
     """One product's price on one day."""
@@ -147,6 +178,8 @@ class History:
     first_seen: date | None
     days: int  # distinct days observed in the reference period
     lowest: float | None  # lowest price in the reference period (same currency as today's)
+    # Every day kept (the last 90, today excluded) in today's currency, oldest first: for the "was" price history.
+    observed: tuple[Observation, ...] = ()
 
     def span_days(self, today: date) -> int:
         """
@@ -250,6 +283,7 @@ class MemoryPriceStore:
             first_seen=min((o.day for o in mine), default=None),
             days=len({o.day for o in window}),
             lowest=min((o.price for o in window), default=None),
+            observed=tuple(sorted((o for o in mine if o.currency == currency), key=lambda o: o.day)),
         )
 
     async def latest(self, key: bytes) -> Observation | None:
@@ -357,10 +391,27 @@ class PostgresPriceStore:
             currency,
             *observations.trusted_params(),
         )
+        rows: Any = await self.pool.fetch(
+            "SELECT day, price, currency, was_price FROM price_observations WHERE product_key = $1 AND day < $2"
+            " AND currency = $3 AND (provenance & $4 <> 0 OR sources >= $5) ORDER BY day",
+            key,
+            today,
+            currency,
+            *observations.trusted_params(),
+        )
         return History(
             first_seen=row["first_seen"],
             days=int(row["days"] or 0),
             lowest=float(row["lowest"]) if row["lowest"] is not None else None,
+            observed=tuple(
+                Observation(
+                    r["day"],
+                    float(r["price"]),
+                    r["currency"],
+                    float(r["was_price"]) if r["was_price"] is not None else None,
+                )
+                for r in rows
+            ),
         )
 
     async def latest(self, key: bytes) -> Observation | None:
@@ -413,7 +464,7 @@ def today() -> date:
     return datetime.now(tz=UTC).date()
 
 
-async def observe(url: str, facts: PageFacts) -> tuple[bytes, History] | None:
+async def observe(url: str, facts: PageFacts, page_type: str | None = None) -> tuple[bytes, History] | None:
     """
     Record today's price of a product page and return its history (before today).
 
@@ -423,10 +474,12 @@ async def observe(url: str, facts: PageFacts) -> tuple[bytes, History] | None:
 
     :param url: The page URL.
     :param facts: The page facts.
-    :return: The product key and its history, or ``None`` for pages without a price or a public product ID, and
-        for the test shop (:mod:`unfret.test_shop`), whose prices are made up and never recorded.
+    :param page_type: The page's class: a product page without a public product ID is keyed by its page
+        (:func:`listing_key`).
+    :return: The product key and its history, or ``None`` for pages without a price or a key, and for the test
+        shop (:mod:`unfret.test_shop`), whose prices are made up and never recorded.
     """
-    key = product_key(url, facts)
+    key = listing_key(url, facts, page_type)
     if key is None or facts.price is None or is_test_shop(url):
         return None
     day = today()
@@ -452,7 +505,7 @@ async def _record(key: bytes, observation: Observation) -> None:
         await _store.purge(observation.day - timedelta(days=RETENTION_DAYS))
 
 
-async def record(url: str, facts: PageFacts) -> bool:
+async def record(url: str, facts: PageFacts, page_type: str | None = None) -> bool:
     """
     Record today's price of a product page without looking anything up (a quick check, after its answer).
 
@@ -460,9 +513,10 @@ async def record(url: str, facts: PageFacts) -> bool:
 
     :param url: The page URL.
     :param facts: The page facts.
-    :return: Whether a price was recorded (not for pages without one or a public product ID, nor the test shop).
+    :param page_type: The page's class (:func:`listing_key`).
+    :return: Whether a price was recorded (not for pages without one or a key, nor the test shop).
     """
-    key = product_key(url, facts)
+    key = listing_key(url, facts, page_type)
     if key is None or facts.price is None or is_test_shop(url):
         return False
     currency = (facts.currency or "").upper()[:3]
@@ -478,7 +532,8 @@ async def seen_price(key: bytes) -> Observation | None:
     """
     The last price Unfret saw for a listing (by its stored key), for "sold elsewhere for $X".
 
-    The image index keys a shop's listing the same way as this store (registrable domain and public product ID), so
+    The image index keys a shop's listing the same way as this store (registrable domain and public product ID, or
+    the page's path; :func:`listing_key`), so
     a photo match on another shop can name that shop's price when Unfret has seen it. Never raises.
 
     :param key: The listing's key.

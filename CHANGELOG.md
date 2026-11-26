@@ -13,6 +13,20 @@
   provenance and a source count (supplied pages count once corroborated). No URL, caller, pass or IP address; 90 days.
   Off with `UNFRET_SCARCITY_OBSERVATIONS=false`.
 
+### "Was" price against the page's own price history
+
+* **Two new findings (level 1, manipulation), from Unfret's price history:** `was_price_unseen` (the "was" price shown
+  today was the price on none, or barely any, of the days the page was seen over a month or more) and
+  `discount_always_on` (a "was" price above the price on nearly every day seen over 45 days or more). Each says what
+  it saw ("We saw this page on 10 days over 7 weeks, priced $39.99: it sold for its 'was' price of $79.99 on none of
+  them."). A short history gives no finding: at least `UNFRET_WAS_PRICE_MIN_DAYS` (5) distinct days, over
+  `UNFRET_PRICE_HISTORY_MIN_DAYS` (30) or `UNFRET_DISCOUNT_ALWAYS_ON_DAYS` (45). Both are in
+  `GET /v1/catalogue/findings`, so "Wrong result?" can mark them wrong or missing. New features
+  `pricing.was_price_unseen`, `pricing.discount_always_on`, `pricing.was_charged_share`, `pricing.discount_share`.
+* **A web shop's product page without a public product ID now has a price history**, keyed by the SHA-256 of its
+  domain and path (plus `?variant=`), as the image index keys a listing: same row as before (day, price, currency,
+  "was" price, provenance), no address, caller or time. Only product pages. No migration.
+
 ### The LLM labeller proposes risk levels
 
 * **`evals.llm_label` prompt v4 (the default)** answers with the page's overall risk level (0-4, higher is worse;

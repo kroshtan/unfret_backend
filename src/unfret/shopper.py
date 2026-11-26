@@ -57,12 +57,14 @@ REASON_SEVERITY: dict[str, Severity] = {
     "variants_grouped": "low",
     "pushy_copy": "medium",
     "big_discount": "medium",
+    "was_price_unseen": "high",
     "was_never_charged": "high",
     "implausible_discount": "high",
     "reference_anchor": "medium",
     "marketplace_reference": "low",
     "brand_reference": "low",
     "disclosed_reference": "low",
+    "discount_always_on": "medium",
     "permanent_sale": "medium",
     "seller_lookalike": "medium",
     "seller_not_brand": "low",
@@ -200,7 +202,8 @@ _GROUPS = (
     ("brand_photo_reused", "rebranded_photo", "photo_reused"),
     ABSENCE_REASONS,
     ("hidden_ai_text", "ai_text"),
-    ("was_never_charged", "implausible_discount", "big_discount"),
+    ("was_price_unseen", "was_never_charged", "implausible_discount", "big_discount"),
+    ("discount_always_on", "permanent_sale"),
     ("returns_abroad", "return_address_withheld"),
     # The claim audit's quoted contradiction says what the content read's impression of "hard to believe" says, better.
     ("claim_contradicted", "implausible_claims"),
@@ -746,6 +749,7 @@ def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         # "Lowest price in the last 30 days: 19.95; 'was' price: 79.95.": the prices are the last two numbers.
         low, was = _NUMBERS_RE.findall(seen.evidence)[-2:] or ("?", "?")
         fired["was_never_charged"] = {"low": e.money(low), "was": e.money(was)}
+    _history_discounts(e, fired)
     if e.f("pricing.implausible_discount") >= 1:
         fired["implausible_discount"] = {"pct": _pct(e.f("listing.discount_pct"))}
     if e.f("pricing.reference_anchor") >= 1:
@@ -762,6 +766,31 @@ def _discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
         fired["disclosed_reference"] = {"anchor": _quoted(disclosed) or "…", "low": e.money(low)}
     if e.storefront and e.f("pricing.permanent_sale") >= 1:
         fired["permanent_sale"] = {"phrase": _quoted(e.first("permanent_sale")) or "…"}
+
+
+def _history_discounts(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:
+    """The page's own "was" price history (:mod:`unfret.was_price`): a "was" price never charged, endless discounts."""
+    if e.f("pricing.was_price_unseen") >= 1 and (unseen := e.first("was_price_unseen")):
+        # "Seen on 12 days over 41 days: price 39.99 to 44.99; the 'was' price 79.99 was the price on 0 of them. …"
+        numbers = _NUMBERS_RE.findall(unseen.evidence)
+        if len(numbers) >= 6:
+            days, span, low, high, was, charged = numbers[:6]
+            fired["was_price_unseen"] = {
+                "days": days,
+                "span": e.age(int(span)),
+                "range": e.money(low) if low == high else f"{e.money(low)} to {e.money(high)}",
+                "was": e.money(was),
+                "charged": e.phrase("charged_none") if charged == "0" else e.phrase("charged_some").format(n=charged),
+            }
+    if e.f("pricing.discount_always_on") >= 1 and (always := e.first("discount_always_on")):
+        # "A 'was' price above the price on 14 of 15 days seen over 52 days, and today: 50% off."
+        numbers = _NUMBERS_RE.findall(always.evidence)
+        if len(numbers) >= 3:
+            fired["discount_always_on"] = {
+                "discounted": numbers[0],
+                "days": numbers[1],
+                "span": e.age(int(numbers[2])),
+            }
 
 
 def _reviews(e: _Evidence, fired: dict[str, dict[str, str]]) -> None:

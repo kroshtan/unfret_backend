@@ -27,18 +27,20 @@ COUNT = {"value", "fewer_than_5"}
 # Exactly these fields, nested. Anything else in the answer fails here.
 SHAPE: dict[str, Any] = {
     "generated_at": str,
-    "checks": {"today": COUNT, "this_month": COUNT, "all_time": COUNT},
+    "checks": {"today": COUNT, "this_month": COUNT, "all_time": COUNT, "daily": [COUNT | {"date"}]},
     "free_checks_left_today": COUNT | {"available"},
+    "free_checks_today": COUNT,
+    "free_checks_given": {"today": COUNT, "this_month": COUNT},
     "funding": {
         "goal_eur": float,
-        "raised_eur": float,
+        "raised_eur": float | None,
         "check_cost_eur": float,
         "free_checks": COUNT,
         "supporters": COUNT,
     },
     "database": {"product_photos": COUNT, "prices": COUNT, "shops": COUNT, "pages_checked": COUNT},
     "verified_reports": COUNT,
-    "leaderboard": [{"rank", "nickname", "verified_reports"}],
+    "leaderboard": [{"rank": float, "nickname": str, "verified_reports": COUNT}],
 }
 TODAY = datetime.now(UTC).strftime("%Y-%m-%d")
 
@@ -54,8 +56,8 @@ def fresh(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def assert_shape(value: Any, shape: Any, where: str = "stats") -> None:
     if shape is str:
         assert isinstance(value, str), where
-    elif shape is float:
-        assert isinstance(value, (int, float)), where
+    elif shape in (float, float | None):
+        assert isinstance(value, (int, float)) or (value is None and shape is not float), where
     elif isinstance(shape, set):
         assert isinstance(value, dict) and set(value) == shape, f"{where}: {sorted(value)} != {sorted(shape)}"
         if shape >= COUNT:
@@ -65,8 +67,7 @@ def assert_shape(value: Any, shape: Any, where: str = "stats") -> None:
     elif isinstance(shape, list):
         assert isinstance(value, list), where
         for i, item in enumerate(value):
-            assert isinstance(item, dict) and set(item) == shape[0], f"{where}[{i}]: {sorted(item)}"
-            assert set(item["verified_reports"]) == COUNT
+            assert_shape(item, shape[0], f"{where}[{i}]")
     else:
         assert isinstance(value, dict) and set(value) == set(shape), f"{where}: {sorted(value)} != {sorted(shape)}"
         for key, sub in shape.items():
@@ -104,7 +105,8 @@ async def test_the_answer_is_exactly_the_allow_list(client: httpx.AsyncClient, p
     assert response.status_code == 200
     stats = response.json()
     assert_shape(stats, SHAPE)
-    assert stats["checks"] == {
+    assert stats["checks"]["daily"][-1] == {"date": TODAY, "value": 42, "fewer_than_5": False}
+    assert {k: v for k, v in stats["checks"].items() if k != "daily"} == {
         "today": {"value": 42, "fewer_than_5": False},
         "this_month": {"value": 42, "fewer_than_5": False},
         "all_time": {"value": 51, "fewer_than_5": False},
@@ -124,7 +126,9 @@ async def test_counts_below_five_say_only_fewer_than_five(
     assert stats["checks"]["today"] == small
     assert stats["checks"]["all_time"] == small
     assert stats["funding"]["supporters"] == small
-    assert stats["funding"]["free_checks"] == small  # €0.15 at €0.05 a check
+    # Fewer than 5 donations this month: neither the amount nor the checks it funds (no single gift readable).
+    assert stats["funding"]["raised_eur"] is None
+    assert stats["funding"]["free_checks"] == {"value": None, "fewer_than_5": False}
     assert stats["verified_reports"] == small
     assert stats["database"]["shops"] == small
 
@@ -249,10 +253,15 @@ async def test_the_page_loads_nothing_from_another_origin(client: httpx.AsyncCli
     assert not re.search(r"<(link|img|iframe|object|embed)\b", page)
     assert not re.search(r"<script\b[^>]*\bsrc=", page)
     assert "@import" not in page
-    assert "url(" not in page
+    # The one url(): the site's own font (Figtree, /static/fonts), same origin.
+    assert set(re.findall(r"url\(([^)]*)\)", page)) == {
+        '"/static/fonts/figtree-latin-wght-normal.woff2"',
+        '"/static/fonts/figtree-latin-ext-wght-normal.woff2"',
+    }
     policy = response.headers["content-security-policy"]
     assert "default-src 'none'" in policy
     assert "connect-src 'self'" in policy
+    assert "font-src 'self'" in policy
     assert "unsafe-inline" not in policy
     assert policy.count("'sha256-") == 2  # the one script and the one style
 
@@ -260,9 +269,9 @@ async def test_the_page_loads_nothing_from_another_origin(client: httpx.AsyncCli
 async def test_stream_mode_has_no_navigation(client: httpx.AsyncClient) -> None:
     page = (await client.get("/live")).text
     stream = (await client.get("/live?stream=1")).text
-    assert "<nav>" in page
+    assert "<nav " in page
     assert '<html lang="en" class="page">' in page
-    assert "<nav>" not in stream
+    assert "<nav" not in stream
     assert '<html lang="en" class="stream">' in stream
     data = re.search(r'<script type="application/json" id="live-data">(.*?)</script>', stream, re.DOTALL)
     assert data is not None
@@ -341,7 +350,7 @@ async def test_funding_is_this_months_donations_from_the_ledger(client: httpx.As
         "raised_eur": 60.0,
         "check_cost_eur": 0.05,
         "free_checks": {"value": 1200, "fewer_than_5": False},
-        "supporters": {"value": 5, "fewer_than_5": False},
+        "supporters": {"value": 6, "fewer_than_5": False},  # every donation so far, last month's too
     }
     assert "note" not in json.dumps(stats)
 
@@ -350,10 +359,120 @@ async def test_a_donation_shows_within_a_cache_period(
     client: httpx.AsyncClient, pool: asyncpg.Pool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     before = (await client.get("/v1/stats/live")).json()
-    await spend.add_donation(pool, Decimal(25), "by hand")
+    assert before["funding"]["raised_eur"] == 0
+    await spend.add_donations(pool, [Decimal(5)] * 5, "by hand")
     monkeypatch.setattr(live_stats._cache, "at", live_stats._cache.at - live_stats.TTL_S)
     after = (await client.get("/v1/stats/live")).json()
-    assert after["funding"]["raised_eur"] == before["funding"]["raised_eur"] + 25
+    assert after["funding"]["raised_eur"] == 25
     left_before = before["free_checks_left_today"]["value"] or 0
     assert after["free_checks_left_today"]["available"]
     assert after["free_checks_left_today"]["value"] > left_before
+
+
+async def test_one_donation_shows_no_amount_until_there_are_five(
+    client: httpx.AsyncClient, pool: asyncpg.Pool
+) -> None:
+    none = (await client.get("/v1/stats/live")).json()["funding"]
+    assert none["raised_eur"] == 0  # none at all: the page says so
+    assert none["supporters"] == {"value": None, "fewer_than_5": True}
+    for n in range(1, 6):
+        await donate(pool, [37_000_000 + n])
+        live_stats.clear()
+        stats = await client.get("/v1/stats/live")
+        funding = stats.json()["funding"]
+        if n < 5:
+            assert funding["raised_eur"] is None, n
+            assert funding["free_checks"] == {"value": None, "fewer_than_5": False}, n
+            assert "37.0" not in stats.text and "740" not in stats.text
+        else:
+            assert funding["raised_eur"] == 185.0
+            assert funding["free_checks"]["value"] == 3700
+    # The supporters: all donations so far, last month's too.
+    await donate(pool, [1_000_000], datetime.now(UTC).date().replace(day=1) - timedelta(days=1))
+    live_stats.clear()
+    assert (await client.get("/v1/stats/live")).json()["funding"]["supporters"] == {"value": 6, "fewer_than_5": False}
+
+
+async def test_checks_a_day_for_thirty_days_small_days_hidden(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    today = datetime.now(UTC).date()
+
+    def ago(days: int) -> str:
+        return (today - timedelta(days=days)).isoformat()
+
+    await counters(
+        pool,
+        [
+            ("checks_quick", ago(0), 5),
+            ("checks_deep", ago(0), 2),
+            ("checks_quick", ago(1), 3),
+            ("checks_quick", ago(29), 12),
+            ("checks_quick", ago(30), 50),
+        ],
+    )
+    daily = (await client.get("/v1/stats/live")).json()["checks"]["daily"]
+    assert len(daily) == live_stats.DAILY_DAYS == 30
+    assert [d["date"] for d in daily] == [ago(i) for i in range(29, -1, -1)]
+    assert daily[-1] == {"date": ago(0), "value": 7, "fewer_than_5": False}
+    assert daily[-2] == {"date": ago(1), "value": None, "fewer_than_5": True}
+    assert daily[0] == {"date": ago(29), "value": 12, "fewer_than_5": False}
+    assert daily[5] == {"date": ago(24), "value": None, "fewer_than_5": True}  # none: also "fewer than 5"
+    assert all(d["value"] is None or d["value"] >= 5 for d in daily)
+
+
+async def test_free_checks_given_today_and_this_month(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    today = datetime.now(UTC).date()
+    first = today.replace(day=1)
+    rows = [(today, 6), (first - timedelta(days=1), 99)] + ([(first, 10)] if first != today else [])
+    await pool.executemany("INSERT INTO llm_spend_days (day, free_checks) VALUES ($1, $2)", rows)
+    given = (await client.get("/v1/stats/live")).json()["free_checks_given"]
+    assert given == {
+        "today": {"value": 6, "fewer_than_5": False},
+        "this_month": {"value": 16 if first != today else 6, "fewer_than_5": False},
+    }
+    await pool.execute("UPDATE llm_spend_days SET free_checks = 2 WHERE day = $1", today)
+    live_stats.clear()
+    assert (await client.get("/v1/stats/live")).json()["free_checks_given"]["today"] == {
+        "value": None,
+        "fewer_than_5": True,
+    }
+
+
+async def test_free_checks_today_is_the_whole_day_in_checks(client: httpx.AsyncClient, pool: asyncpg.Pool) -> None:
+    stats = (await client.get("/v1/stats/live")).json()
+    assert stats["free_checks_today"]["value"] >= stats["free_checks_left_today"]["value"]
+    assert stats["free_checks_today"] == {"value": 60, "fewer_than_5": False}  # €3 today at €0.05
+
+
+def _visible(page: str) -> str:
+    # The page without its scripts (the data's and the code's field names are not text anyone reads).
+    return re.sub(r"<script\b.*?</script>", "", page, flags=re.DOTALL)
+
+
+async def test_the_page_asks_for_support_and_the_stream_has_a_qr_code(client: httpx.AsyncClient) -> None:
+    page = (await client.get("/live")).text
+    assert page.count('href="/support"') >= 2  # high on the page, and by the donations
+    assert '<a class="wordmark" href="/"' in page
+    assert "<svg viewBox" in page and 'aria-label="QR code"' not in page
+    stream = (await client.get("/live?stream=1")).text
+    assert 'aria-label="QR code"' in stream
+    assert "Keep checks free" in stream
+    assert "/support</span>" in stream
+
+
+@pytest.mark.parametrize("path", ["/live?app=play", "/live?stream=1&app=play"])
+async def test_the_play_variant_says_nothing_about_support_or_donations(client: httpx.AsyncClient, path: str) -> None:
+    response = await client.get(path)
+    assert response.status_code == 200
+    assert response.headers["x-robots-tag"] == "noindex"
+    text = _visible(response.text)
+    assert "/support" not in text
+    assert not re.search(r"support|donat", text, re.IGNORECASE)
+    assert "<!-- play:" not in text
+    assert 'class="page play"' in text or 'class="stream play"' in text
+    if "stream" in path:
+        assert 'aria-label="QR code"' in text
+        assert "Check a shop free" in text
+    else:
+        assert 'href="/?app=play"' in text
+    web = _visible((await client.get(path.replace("app=play", "app=web"))).text)
+    assert re.search(r"donat", web, re.IGNORECASE)

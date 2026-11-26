@@ -2,15 +2,19 @@
 The public live stats behind ``/live`` and ``GET /v1/stats/live``: counts only, nothing about anyone.
 
 **What it reads.** Checks that answered, a number a UTC day and tier (``usage_counters``, ``checks_quick`` and
-``checks_deep``, written by :mod:`unfret.usage`); the stores' row counts (product photos, prices, shops, listings);
+``checks_deep``, written by :mod:`unfret.usage`), also as a series of the last :data:`DAILY_DAYS` days; the free deep
+checks that ran, a number a UTC day (``llm_spend_days.free_checks``); the stores' row counts (product photos, prices,
+shops, listings);
 "Wrong result?" reports that settled and agreed with the settled answer (``report_labels`` joined to
 ``report_answers``, held answers left out); and the contributors who opted in to the leaderboard with a nickname the
 operator approved (:mod:`unfret.nicknames`), by their verified reports.
 
 **What it never shows.** No IP address, pass, checked page, shop, report text or anything else about a person: the
 answer is built field by field (:func:`compute`), an allow-list the tests pin down. A count below
-:data:`SMALL` is ``{"value": null, "fewer_than_5": true}``; a leaderboard entry below it is left out. The free
-budget is shown as checks, never euros.
+:data:`SMALL` is ``{"value": null, "fewer_than_5": true}``, a day of the series too; a leaderboard entry below it is
+left out. The free budget is shown as checks, never euros. This month's donated amount (and the checks it funds) shows
+only from :data:`SMALL` donations on, so no single gift can be read from it: before that it is ``null`` (none at all
+is ``0``).
 
 **Caching.** Computed at most once every :data:`TTL_S` seconds per process (:func:`cached`), served with
 ``Cache-Control: public, max-age=60``.
@@ -19,7 +23,7 @@ budget is shown as checks, never euros.
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -30,6 +34,7 @@ from unfret.config import Settings
 TTL_S = 60.0
 SMALL = 5
 LEADERBOARD_SIZE = 10
+DAILY_DAYS = 30
 
 
 def count(n: int | None) -> dict[str, Any]:
@@ -59,6 +64,17 @@ async def free_budget_left_micro_eur(pool: asyncpg.Pool) -> int | None:
     return (await spend.standing(pool)).left_micro_eur
 
 
+async def free_budget_today_micro_eur(pool: asyncpg.Pool) -> int:
+    """
+    Today's whole free amount, in micro-euros: what is left plus what free checks spent today (for the ring on /live).
+
+    :param pool: The database pool.
+    :return: The amount.
+    """
+    standing = await spend.standing(pool)
+    return standing.left_micro_eur + min(standing.spent_today_micro_eur, standing.day_limit_micro_eur)
+
+
 async def donations_this_month(pool: asyncpg.Pool, now: datetime) -> tuple[float, int]:
     """
     The donations this calendar month (UTC), from the free pool's ledger: the euros and how many (never who).
@@ -86,6 +102,31 @@ async def _checks(pool: asyncpg.Pool, now: datetime) -> tuple[int, int, int]:
     )
     assert row is not None  # noqa: S101 - an aggregate always has a row
     return int(row["today"]), int(row["month"]), int(row["total"])
+
+
+async def _daily(pool: asyncpg.Pool, now: datetime) -> list[dict[str, Any]]:
+    # Checks that answered, a UTC day, the last DAILY_DAYS days up to today (a day without any is 0).
+    days = [now.date() - timedelta(days=i) for i in range(DAILY_DAYS - 1, -1, -1)]
+    rows = await pool.fetch(
+        "SELECT period, SUM(count) AS n FROM usage_counters WHERE name IN ('checks_quick', 'checks_deep') "
+        "AND period >= $1 GROUP BY period",
+        days[0].isoformat(),
+    )
+    by_day = {str(r["period"]): int(r["n"]) for r in rows}
+    return [{"date": d.isoformat(), **count(by_day.get(d.isoformat(), 0))} for d in days]
+
+
+async def _free_given(pool: asyncpg.Pool, now: datetime) -> tuple[int, int]:
+    # Free deep checks that ran (a shopper's or a developer pass's): today and this calendar month (UTC).
+    day: date = now.date()
+    row = await pool.fetchrow(
+        "SELECT COALESCE(SUM(free_checks) FILTER (WHERE day = $1), 0) AS today, "
+        "COALESCE(SUM(free_checks), 0) AS month FROM llm_spend_days WHERE day >= $2 AND day <= $1",
+        day,
+        day.replace(day=1),
+    )
+    assert row is not None  # noqa: S101 - an aggregate always has a row
+    return int(row["today"]), int(row["month"])
 
 
 async def _database(pool: asyncpg.Pool) -> dict[str, int]:
@@ -135,18 +176,28 @@ async def compute(pool: asyncpg.Pool, config: Settings, now: datetime | None = N
     cost = float(config.public_cost_per_check_eur)
     left = await free_budget_left_micro_eur(pool)
     free_left = None if left is None else spend.public_checks(left, config)  # the count /v1/pricing shows
-    raised, supporters = await donations_this_month(pool, now)
+    whole = max(await free_budget_today_micro_eur(pool), left or 0)
+    given_today, given_month = await _free_given(pool, now)
+    raised, donations = await donations_this_month(pool, now)
+    shown = donations == 0 or donations >= SMALL  # no single gift readable from the amount
     db = await _database(pool)
     return {
         "generated_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "checks": {"today": count(today), "this_month": count(month), "all_time": count(total)},
+        "checks": {
+            "today": count(today),
+            "this_month": count(month),
+            "all_time": count(total),
+            "daily": await _daily(pool, now),
+        },
         "free_checks_left_today": {**count(free_left), "available": left is not None},
+        "free_checks_today": count(spend.public_checks(whole, config)),
+        "free_checks_given": {"today": count(given_today), "this_month": count(given_month)},
         "funding": {
             "goal_eur": round(config.live_funding_goal_eur, 2),
-            "raised_eur": round(raised, 2),
+            "raised_eur": round(raised, 2) if shown else None,
             "check_cost_eur": round(cost, 2),
-            "free_checks": count(spend.public_checks(round(raised * 1_000_000), config)),
-            "supporters": count(supporters),
+            "free_checks": count(spend.public_checks(round(raised * 1_000_000), config) if shown else None),
+            "supporters": count(await spend.donation_count(pool)),
         },
         "database": {
             "product_photos": count(db["photos"]),

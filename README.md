@@ -719,7 +719,12 @@ endpoint, `GET /v1/stats/live` (`unfret.live_stats`), computed at most once a mi
 filled them from the events already recorded), free checks left today (the free pool's remainder at
 `UNFRET_PUBLIC_COST_PER_CHECK_EUR`, €0.05, a check, as `/v1/pricing` counts it; never euros), funding this month against `UNFRET_LIVE_FUNDING_GOAL_EUR`
 (€90; this month's rows in the free pool's ledger of donations, `free_pool_donations`: a donation added with
-`make free-pool` shows within a minute), the stores' row counts, verified "Wrong result?" reports and the top ten nicknames.
+`make free-pool` shows within a minute), the stores' row counts, verified "Wrong result?" reports and the top ten nicknames. It also has checks a day for the
+last 30 days, free deep checks given today and this month (`llm_spend_days.free_checks`) and today's whole free amount
+in checks (the ring on the page). This month's donated amount shows from 5 donations on (before that `null`), so no
+single gift can be read; `supporters` counts every donation so far. The page is in the site's look (Figtree from
+`/static/fonts`, allowed by `font-src 'self'`); the stream has a QR code to `/support`, drawn as inline SVG. The Play
+app's variant, `/live?app=play`, says nothing about support or donations and its QR code goes to the home page.
 
 The answer is an allow-list of counts (`tests/integration/test_live.py` fails on any other field): no IP address,
 pass, page, shop, report text or anything else about a person. A count under 5 is `{"value": null, "fewer_than_5":

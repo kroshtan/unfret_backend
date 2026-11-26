@@ -1947,6 +1947,18 @@ makes a developer pass (its challenge: `GET /v1/keys/challenge?developer=true`).
 - `/r/{id}` and the link checker show the level, its words, the explanation and the reasons worst first, instead of
   the band, when the result has one.
 
+## Changes (live stats: daily checks, free checks given, donations hidden under 5; backwards-compatible)
+
+- **`GET /v1/stats/live`** adds three fields (still exactly the allow-list):
+  `checks.daily`: the last 30 UTC days, oldest first, each `{"date": "2026-11-26", "value": <int>|null,
+  "fewer_than_5": <bool>}` (a day under 5, none included, says only "fewer than 5");
+  `free_checks_given`: `{"today": <count>, "this_month": <count>}`, free deep checks that ran;
+  `free_checks_today`: `<count>`, today's whole free amount in checks (what is left plus what ran), never euros.
+- **`funding.raised_eur`** is `null`, and `funding.free_checks` `{"value": null, "fewer_than_5": false}`, while this
+  month has 1 to 4 donations, so no single gift can be read; `0` with none. **`funding.supporters`** counts every
+  donation so far (it was this month's).
+- **`/live?app=play`** (and with `stream=1`): the Google Play app's variant, without support or donations.
+
 ## Changes (live stats, `/live`; nicknames reviewed; backwards-compatible; migration 46)
 
 - **`GET /v1/stats/live`** (public, no auth, `Cache-Control: public, max-age=60`, computed at most once a minute):

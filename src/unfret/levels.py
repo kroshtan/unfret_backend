@@ -95,8 +95,9 @@ FINDING_LEVELS: dict[str, FindingLevel] = {
     **_table(
         1,
         "timer_resets fake_urgency_app countdown preticked_addon pushy_copy big_discount was_never_charged "
-        "implausible_discount reference_anchor marketplace_reference brand_reference disclosed_reference "
-        "permanent_sale review_velocity review_shape duplicate_reviews off_topic_reviews review_import_app "
+        "was_price_unseen discount_always_on implausible_discount reference_anchor marketplace_reference "
+        "brand_reference disclosed_reference permanent_sale review_velocity review_shape duplicate_reviews "
+        "off_topic_reviews review_import_app "
         "copied_reviews_elsewhere variants_grouped emergency_pressure copied_testimonials placeholder_names "
         "testimonial_dates all_five_testimonials",
     ),

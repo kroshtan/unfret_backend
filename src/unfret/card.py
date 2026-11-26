@@ -106,6 +106,8 @@ REASON_SOURCES: dict[str, str] = {
     "short_registration": "rdap",
     "founded_contradicted": "rdap",
     "was_never_charged": "price_history",
+    "was_price_unseen": "price_history",
+    "discount_always_on": "price_history",
     "far_below_market": "market_prices",
     "photo_reused": "image_index",
     "rebranded_photo": "image_index",
@@ -300,6 +302,7 @@ REASON_AREAS: dict[str, str] = {
             "drip_pricing",
             "late_fees",
             "big_discount",
+            "was_price_unseen",
             "was_never_charged",
             "implausible_discount",
             "reference_anchor",
@@ -307,6 +310,7 @@ REASON_AREAS: dict[str, str] = {
             "brand_reference",
             "disclosed_reference",
             "variant_bait_price",
+            "discount_always_on",
             "permanent_sale",
             "far_below_market",
             "long_delivery",
@@ -438,6 +442,7 @@ STEP_FOR_REASON: dict[str, str] = {
     **dict.fromkeys(("return_address_withheld", "long_delivery", "ships_from_far", "origin_doubt"), "returns"),
     **dict.fromkeys(
         (
+            "was_price_unseen",
             "was_never_charged",
             "implausible_discount",
             "big_discount",
@@ -449,7 +454,10 @@ STEP_FOR_REASON: dict[str, str] = {
         ),
         "compare_price",
     ),
-    **dict.fromkeys(("permanent_sale", "timer_resets", "fake_urgency_app", "countdown", "pushy_copy"), "take_time"),
+    **dict.fromkeys(
+        ("discount_always_on", "permanent_sale", "timer_resets", "fake_urgency_app", "countdown", "pushy_copy"),
+        "take_time",
+    ),
     **dict.fromkeys(("preticked_addon", "drip_pricing", "late_fees"), "check_basket"),
     **dict.fromkeys(
         (

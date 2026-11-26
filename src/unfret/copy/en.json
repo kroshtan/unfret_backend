@@ -97,6 +97,10 @@
       "title": "Too-good discount",
       "detail": "A {pct} discount on a 'was' price that may never have been charged."
     },
+    "was_price_unseen": {
+      "title": "'Was' price we never saw charged",
+      "detail": "We saw this page on {days} days over {span}, priced {range}: it sold for its 'was' price of {was} {charged}."
+    },
     "was_never_charged": {
       "title": "'Was' price not charged recently",
       "detail": "This product sold for {low} in the past 30 days, yet the 'was' price is {was}."
@@ -120,6 +124,10 @@
     "disclosed_reference": {
       "title": "Discount on a recommended price, below the 30-day low",
       "detail": "The 'was' price is labelled {anchor}, and the page gives the lowest price of the last 30 days, {low}: today's price is at or below it."
+    },
+    "discount_always_on": {
+      "title": "Discount that never ends",
+      "detail": "The page showed a 'was' price above its price on {discounted} of the {days} days we saw it over {span}: the discount looks like the normal price."
     },
     "permanent_sale": {
       "title": "Never-ending sale",
@@ -598,6 +606,8 @@
   "imprint_where_legal_pages": "on the page or on the shop's contact and terms pages",
   "this_brand": "This brand",
   "an_urgency_tool": "an urgency tool",
+  "charged_none": "on none of them",
+  "charged_some": "on only {n} of them",
   "small_signs": {
     "numbers": ["one", "two", "three", "four", "five", "six"],
     "title_small": {"one": "One small sign", "many": "{count} small signs"},
@@ -668,6 +678,10 @@
     "pricing.permanent_sale": "Never-ending sale",
     "pricing.history_days": "How long we've seen this price",
     "pricing.was_above_30d_low": "'Was' price above the recent low",
+    "pricing.was_price_unseen": "'Was' price never seen charged",
+    "pricing.discount_always_on": "Discount shown on nearly every day",
+    "pricing.was_charged_share": "Share of days at the 'was' price",
+    "pricing.discount_share": "Share of days with a discount",
     "listing.keyword_stuffed": "Long title with many terms",
     "listing.title_length": "Title length",
     "listing.seller_not_brand": "Sold by another company than the brand",

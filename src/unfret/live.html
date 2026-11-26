@@ -128,12 +128,14 @@
            color: var(--brand-ink); font-size: 0.72rem; font-weight: 750; letter-spacing: 0.08em; }
     .big { font-size: clamp(2.6rem, 2rem + 2vw, 3.5rem); font-weight: 750; line-height: 1.05; letter-spacing: -0.03em;
            white-space: nowrap; }
-    .big.words { font-size: clamp(1.6rem, 1.3rem + 1vw, 2rem); letter-spacing: -0.01em; padding: 0.35rem 0 0.25rem; }
+    .big.words { font-size: clamp(1.6rem, 1.3rem + 1vw, 2rem); letter-spacing: -0.01em; padding: 0.35rem 0 0.25rem;
+                 white-space: normal; }
     .big .pre { font-size: 0.45em; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-right: 0.2em; }
     .unit { color: var(--muted); margin: 0.15rem 0 0; }
     .note { color: var(--muted); font-size: 0.9rem; margin: 0.75rem 0 0; }
     .num { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
     .rows { display: grid; gap: 0.4rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
+    .row span:first-child { white-space: nowrap; }
     .row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; color: var(--muted); }
 
     /* In and out: what comes in, the free checks that go out. */
@@ -165,6 +167,8 @@
     .card-foot small { color: var(--muted); }
 
     .out { display: flex; gap: 1.25rem; align-items: center; justify-content: space-between; }
+    .out > div:first-child { flex: 1; min-width: 0; }
+    .out .row { flex-wrap: wrap; justify-content: flex-start; column-gap: 0.5rem; }
     .ring { position: relative; width: 9.5rem; height: 9.5rem; flex: none; }
     .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
     .ring circle { fill: none; stroke-width: 11; }
@@ -285,6 +289,11 @@
     html.stream .checks-top .side span { font-size: 22px; }
     html.stream .checks-top .side .num { font-size: 40px; }
     html.stream .checks .big { font-size: 88px; }
+    html.stream .big.words { font-size: 52px; line-height: 1.1; }
+    html.stream .checks .big.words, html.stream .flow-out .big.words { font-size: 42px; padding-top: 26px; }
+    html.stream .flow-out .ring { width: 220px; height: 220px; }
+    html.stream .checks-top { flex-wrap: nowrap; }
+    html.stream .checks-top .side { gap: 24px; }
     html.stream .spark { margin-top: 10px; }
     html.stream .spark svg { height: 110px; }
     html.stream .spark-axis { font-size: 20px; margin-top: 6px; }

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### The LLM labeller proposes risk levels
+
+* **`evals.llm_label` prompt v4 (the default)** answers with the page's overall risk level (0-4, higher is worse;
+  lower levels can combine upward, protection moves it), a short "because" list and a verdict per finding. Each
+  finding shows what it is evidence for (`FINDING_LEVELS`); older prompts read the same text as before, so their
+  recorded answers still replay. Examples: the earliest non-blind level label per level, finding verdicts only until
+  there are any.
+* **Level answers go to the level label store**: `level` and `level_source` `llm:<model>:<prompt>` in `labels.jsonl`
+  (the legacy label follows from the level), `level` and `because` in `llm_labels.jsonl`; human labels are never
+  overwritten. `label --relevel` gives the older prompts' LLM labels a level.
+* **`make deep-label` serves each level proposal until a person confirms it**: the screen shows the proposed level,
+  the "because" list and the LLM's finding verdicts; Enter accepts the level, then each finding's verdict, any other
+  key corrects it. Blind pages show none of it. Decisions log `proposed_level`.
+* **`validate`** compares levels with Floris's level labels (exact, within one) and with his older labels' range,
+  plus "any concern".
+
 ### "Wrong result?" on /check, shorter on a phone
 
 * **"Which findings are wrong?"** groups the findings by level, worst first, under the level's words, and shows only

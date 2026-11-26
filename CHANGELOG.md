@@ -15,6 +15,16 @@
   say "fewer than 5". No cookies, no third-party requests, inline CSS and JS allowed by hash.
 * **Checks that answered are counted a UTC day and tier** in `usage_counters`, kept for good (migration 46 fills them
   from the usage events).
+* **`/live` redesigned** in the site's look (logo, Figtree from `/static/fonts`, the site's colours, light and dark):
+  donations in → free checks out, side by side, with a "Support Unfret" button at the top and by the donations;
+  numbers count up (not with reduced motion); a ring for free checks left of today's amount; a bar towards the €90
+  goal, "No donations yet this month" when there are none; checks a day for 30 days; icons for the database; ranked
+  leaderboard rows. Stream mode adds a QR code to `/support` (drawn here as inline SVG with `segno`).
+  `?app=play`: no support button, nothing about donations, a QR code to the home page, noindex.
+* **`GET /v1/stats/live` adds** `checks.daily` (30 days; a day under 5 says only "fewer than 5"),
+  `free_checks_given` (free deep checks today and this month), `free_checks_today` (today's whole free amount, in
+  checks). `funding.raised_eur` and `funding.free_checks` stay hidden (`null`) until this month has 5 donations, so no
+  single gift can be read; `funding.supporters` is every donation so far.
 * **Leaderboard nicknames**: an offensive one is refused; a new one waits for the operator's review before `/live`
   shows it (`make nicknames`); rejected ones leave the apps' leaderboard too (migration 46).
 

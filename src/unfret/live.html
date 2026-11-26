@@ -4,128 +4,469 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Unfret live</title>
-  <meta name="description" content="Unfret's live numbers: checks run, free checks left today, funding, the database and verified reports.">
+  <meta name="description" content="Unfret's live numbers: checks run, free checks given and left today, the database and verified reports.">
   <style>
+    @font-face {
+      font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap;
+      src: url("/static/fonts/figtree-latin-wght-normal.woff2") format("woff2");
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+        U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: "Figtree"; font-style: normal; font-weight: 300 900; font-display: swap;
+      src: url("/static/fonts/figtree-latin-ext-wght-normal.woff2") format("woff2");
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F,
+        U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+
+    /* The site's tokens (static/site.css), light and dark; stream mode is always dark. */
     :root {
-      --bg: #f7f7f4; --card: #ffffff; --text: #1d1f1c; --muted: #5d625a; --line: #e2e3dd;
-      --accent: #1f7a4d; --track: #e4ece6;
       color-scheme: light dark;
+      --bg: #f3f8f5; --bg-glow: #e3f1ea; --surface: #ffffff; --surface-2: #f6faf8;
+      --ink: #12302a; --ink-2: #3c5a52; --muted: #5e776f; --line: #d9e6df; --line-strong: #c3d6cc;
+      --brand: #1f8a70; --brand-strong: #17705b; --brand-ink: #0f5c4a; --brand-soft: #e1f1ea; --on-brand: #ffffff;
+      --bar-past: #5fae98; --stub: #c3d6cc; --stale: #9a6510;
+      --shadow-sm: 0 1px 2px rgb(18 48 42 / 6%);
+      --shadow: 0 1px 2px rgb(18 48 42 / 5%), 0 10px 30px -8px rgb(18 48 42 / 14%);
+      --font: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Arial, sans-serif;
     }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #121412; --card: #1b1e1b; --text: #eef0ec; --muted: #a3a99f; --line: #2c312c;
-              --accent: #4cc38a; --track: #26332b; }
+      :root {
+        --bg: #0c1613; --bg-glow: #12261f; --surface: #13201c; --surface-2: #172823;
+        --ink: #e5f1ec; --ink-2: #b9cec6; --muted: #8ea89f; --line: #22372f; --line-strong: #2e473e;
+        --brand: #34b08f; --brand-strong: #49c4a2; --brand-ink: #7fdcbf; --brand-soft: #173a30; --on-brand: #06231b;
+        --bar-past: #2f8f75; --stub: #36524a; --stale: #e8b45e;
+        --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+        --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -10px rgb(0 0 0 / 55%);
+      }
     }
-    html.stream { --bg: #0b0d0b; --card: #151815; --text: #f2f4f0; --muted: #a6ada3; --line: #262b26;
-                  --accent: #4cc38a; --track: #213027; color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text);
-           font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    a { color: var(--accent); }
-    .top { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
-           max-width: 1100px; margin: 0 auto; padding: 16px; }
-    .top .brand { font-weight: 700; font-size: 20px; color: var(--text); text-decoration: none; }
-    .top nav a { margin-left: 16px; }
-    main { max-width: 1100px; margin: 0 auto; padding: 0 16px 32px; }
-    h1 { font-size: 28px; margin: 8px 0 4px; }
-    .status { color: var(--muted); margin: 0 0 20px; }
-    .status .stale { color: #c9822b; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
-    .card h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
-               color: var(--muted); margin: 0 0 10px; }
-    .wide { grid-column: 1 / -1; }
-    .rows { display: grid; gap: 6px; }
-    .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-    .row span:first-child { color: var(--muted); }
-    .num { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .big { font-size: 40px; font-weight: 750; font-variant-numeric: tabular-nums; line-height: 1.1; }
-    .big.words { font-size: 26px; padding: 8px 0 7px; }
-    .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
-    .bar { height: 14px; background: var(--track); border-radius: 7px; overflow: hidden; margin: 10px 0 8px; }
-    .bar div { height: 100%; width: 0; background: var(--accent); transition: width .6s ease; }
-    ol.board { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-    ol.board li { display: flex; justify-content: space-between; gap: 12px; }
-    ol.board .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .soon { color: var(--muted); font-size: 18px; }
-    footer { max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; color: var(--muted); font-size: 14px; }
+    html.stream {
+      color-scheme: dark;
+      --bg: #0a1310; --bg-glow: #11271f; --surface: #12201b; --surface-2: #172823;
+      --ink: #eef7f3; --ink-2: #c4d8d0; --muted: #9ab3aa; --line: #213830; --line-strong: #2e473e;
+      --brand: #34b08f; --brand-strong: #49c4a2; --brand-ink: #7fdcbf; --brand-soft: #173a30; --on-brand: #06231b;
+      --bar-past: #2f8f75; --stub: #3a574e; --stale: #e8b45e;
+      --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%);
+      --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -10px rgb(0 0 0 / 55%);
+    }
 
-    /* Stream mode: 1920×1080, no navigation, large type. */
-    html.stream body { width: 1920px; height: 1080px; overflow: hidden; font-size: 28px; }
-    html.stream main { max-width: none; height: 100%; padding: 48px 64px; display: flex; flex-direction: column; }
-    html.stream .head { display: flex; justify-content: space-between; align-items: baseline; }
-    html.stream h1 { font-size: 64px; margin: 0; }
-    html.stream .status { font-size: 28px; margin: 0 0 32px; }
-    html.stream .grid { flex: 1; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 28px; }
-    html.stream .wide { grid-column: span 2; }
-    html.stream .card { padding: 28px 34px; border-radius: 20px; }
-    html.stream .card h2 { font-size: 24px; margin-bottom: 18px; }
-    html.stream .big { font-size: 96px; }
-    html.stream .big.words { font-size: 56px; padding: 18px 0 17px; }
-    html.stream .note { font-size: 24px; }
-    html.stream .bar { height: 28px; border-radius: 14px; margin: 20px 0 16px; }
-    html.stream .rows { gap: 12px; }
-    html.stream .soon { font-size: 36px; }
-    html.stream ol.board { grid-template-columns: 1fr 1fr; column-gap: 48px; row-gap: 8px; }
+    *, *::before, *::after { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--ink); font: 1rem/1.5 var(--font); -webkit-font-smoothing: antialiased;
+      background:
+        radial-gradient(60rem 30rem at 15% -10%, var(--bg-glow), transparent 70%),
+        radial-gradient(50rem 28rem at 100% 0%, var(--bg-glow), transparent 65%), var(--bg);
+      background-repeat: no-repeat;
+    }
+    a { color: var(--brand-ink); }
+    svg.i { width: 1.25em; height: 1.25em; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Header, as on every page of the site. */
+    .site-header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 82%, transparent);
+                   backdrop-filter: saturate(1.4) blur(10px); -webkit-backdrop-filter: saturate(1.4) blur(10px);
+                   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+    .site-header .inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+                          max-width: 70rem; margin: 0 auto; padding: 0.7rem 1rem; }
+    .wordmark { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--ink); font-weight: 700;
+                font-size: 1.15rem; letter-spacing: -0.01em; text-decoration: none; }
+    .wordmark svg { flex: none; border-radius: 9px; }
+    .site-nav { display: flex; align-items: center; gap: 0.25rem; }
+    .site-nav a { padding: 0.45rem 0.7rem; border-radius: 999px; color: var(--ink-2); font-size: 0.95rem;
+                  text-decoration: none; }
+    .site-nav a:hover { background: var(--brand-soft); color: var(--brand-ink); }
+    .site-nav .cta { margin-left: 0.35rem; background: var(--brand); color: var(--on-brand); font-weight: 600; }
+    .site-nav .cta:hover { background: var(--brand-strong); color: var(--on-brand); }
+    @media (max-width: 34rem) { .site-nav .optional { display: none; } }
+
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem;
+              padding: 0.6rem 1.15rem; border: 1px solid var(--brand); border-radius: 12px; background: var(--brand);
+              color: var(--on-brand); font: inherit; font-weight: 650; line-height: 1.2; text-decoration: none;
+              box-shadow: var(--shadow-sm); transition: background-color .15s, transform .15s, box-shadow .15s; }
+    .button:hover { background: var(--brand-strong); border-color: var(--brand-strong); }
+    .button.large { min-height: 3.25rem; padding: 0.8rem 1.4rem; font-size: 1.05rem; border-radius: 14px; }
+    .button.ghost { background: transparent; color: var(--brand-ink); box-shadow: none; }
+    .button.ghost:hover { background: var(--brand-soft); }
+    @media (prefers-reduced-motion: no-preference) {
+      .button:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+    }
+
+    main { max-width: 70rem; margin: 0 auto; padding: 0 1rem 2rem; }
+
+    /* Hero: title, live status, the call to action (or, streaming, the QR code). */
+    .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1.25rem;
+            padding: 2.25rem 0 1.5rem; }
+    .hero h1 { margin: 0; font-size: clamp(2rem, 1.4rem + 2.4vw, 2.9rem); line-height: 1.1; letter-spacing: -0.025em; }
+    .hero .lead { margin: 0.5rem 0 0.75rem; color: var(--ink-2); font-size: 1.1rem; max-width: 34rem; }
+    .stream-brand, .live-pill { display: none; }
+    .status { display: inline-flex; align-items: center; gap: 0.55rem; margin: 0; color: var(--muted);
+              font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+    .pulse { position: relative; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--brand); flex: none; }
+    .pulse.stale { background: var(--stale); }
+    .stale-note { color: var(--stale); }
+    @media (prefers-reduced-motion: no-preference) {
+      .pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--brand);
+                      animation: pulse 2.4s ease-out infinite; }
+      .pulse.stale::after { animation: none; }
+      @keyframes pulse { 0% { transform: scale(1); opacity: .55; } 80%, 100% { transform: scale(2.8); opacity: 0; } }
+    }
+    .hero-cta { display: grid; justify-items: end; gap: 0.4rem; }
+    .hero-cta small { color: var(--muted); font-size: 0.85rem; }
+    @media (max-width: 40rem) { .hero-cta { justify-items: start; } }
+    .qr { display: none; }
+
+    /* Cards. */
+    .card { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 18px;
+            padding: 1.25rem 1.35rem 1.35rem; box-shadow: var(--shadow-sm); min-width: 0; }
+    .card-head { display: flex; align-items: center; gap: 0.6rem; margin: 0 0 0.9rem; }
+    .card-head h2 { margin: 0; font-size: 1rem; font-weight: 650; color: var(--ink-2); letter-spacing: -0.005em; }
+    .chip { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 10px;
+            background: var(--brand-soft); color: var(--brand-ink); flex: none; }
+    .chip svg.i { width: 1.1rem; height: 1.1rem; }
+    .tag { margin-left: auto; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--brand-soft);
+           color: var(--brand-ink); font-size: 0.72rem; font-weight: 750; letter-spacing: 0.08em; }
+    .big { font-size: clamp(2.6rem, 2rem + 2vw, 3.5rem); font-weight: 750; line-height: 1.05; letter-spacing: -0.03em;
+           white-space: nowrap; }
+    .big.words { font-size: clamp(1.6rem, 1.3rem + 1vw, 2rem); letter-spacing: -0.01em; padding: 0.35rem 0 0.25rem; }
+    .big .pre { font-size: 0.45em; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-right: 0.2em; }
+    .unit { color: var(--muted); margin: 0.15rem 0 0; }
+    .note { color: var(--muted); font-size: 0.9rem; margin: 0.75rem 0 0; }
+    .num { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+    .rows { display: grid; gap: 0.4rem; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
+    .row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; color: var(--muted); }
+
+    /* In and out: what comes in, the free checks that go out. */
+    .flow { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
+    html.play .flow { grid-template-columns: 1fr; }
+    .flow-arrow { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2;
+                  display: grid; place-items: center; width: 2.6rem; height: 2.6rem; border-radius: 50%;
+                  background: var(--brand); color: var(--on-brand); box-shadow: 0 0 0 6px var(--bg); }
+    @media (max-width: 44rem) {
+      .flow { grid-template-columns: 1fr; }
+      .flow-arrow { transform: translate(-50%, -50%) rotate(90deg); }
+    }
+    .meter { height: 0.9rem; margin: 1rem 0 0.55rem; border-radius: 999px; background: var(--brand-soft); overflow: hidden; }
+    .meter div { width: 0; height: 100%; border-radius: 999px; background: var(--brand); }
+    @media (prefers-reduced-motion: no-preference) { .meter div { transition: width 1s cubic-bezier(.2, .7, .2, 1); } }
+    .meter-label { display: flex; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.92rem; }
+    .funded { display: flex; align-items: center; gap: 0.5rem; margin: 0.9rem 0 0; padding: 0.65rem 0.8rem;
+              border-radius: 12px; background: var(--surface-2); color: var(--ink-2); }
+    .funded .num { color: var(--brand-ink); }
+    .empty { display: flex; gap: 0.9rem; align-items: center; padding: 0.4rem 0 0.2rem; }
+    .empty .heart { display: grid; place-items: center; width: 3.4rem; height: 3.4rem; border-radius: 50%; flex: none;
+                    background: var(--brand-soft); color: var(--brand); }
+    .empty .heart svg.i { width: 1.7rem; height: 1.7rem; }
+    .empty strong { display: block; font-size: 1.3rem; line-height: 1.25; }
+    .empty span { color: var(--muted); }
+    .flow-in { display: flex; flex-direction: column; }
+    .card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+                 margin-top: auto; padding-top: 1rem; }
+    .card-foot small { color: var(--muted); }
+
+    .out { display: flex; gap: 1.25rem; align-items: center; justify-content: space-between; }
+    .ring { position: relative; width: 9.5rem; height: 9.5rem; flex: none; }
+    .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+    .ring circle { fill: none; stroke-width: 11; }
+    .ring .track { stroke: var(--brand-soft); }
+    .ring .fill { stroke: var(--brand); stroke-linecap: round; }
+    @media (prefers-reduced-motion: no-preference) { .ring .fill { transition: stroke-dashoffset 1s cubic-bezier(.2, .7, .2, 1); } }
+    .ring .center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+    .ring .center b { font-size: 2rem; font-weight: 750; line-height: 1; letter-spacing: -0.02em; }
+    .ring .center b.words { font-size: 1rem; line-height: 1.2; max-width: 6rem; }
+    .ring .center span { color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem; }
+
+    /* The rest. */
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+    .grid .checks, .grid .board-card { grid-column: span 2; }
+    @media (max-width: 56rem) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 40rem) { .grid { grid-template-columns: 1fr; } .grid .checks, .grid .board-card { grid-column: auto; } }
+    .checks-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; align-items: flex-end; }
+    .checks-top .side { display: flex; gap: 1.5rem; }
+    .checks-top .side div { display: grid; }
+    .checks-top .side span { color: var(--muted); font-size: 0.85rem; }
+    .checks-top .side .num { font-size: 1.35rem; }
+    .spark { margin-top: 1rem; }
+    .spark svg { display: block; width: 100%; height: 6rem; overflow: visible; }
+    .spark .base { stroke: var(--line-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+    .spark .bar { fill: var(--bar-past); }
+    .spark .bar.now { fill: var(--brand); }
+    .spark .bar.few { fill: var(--stub); }
+    .spark .hit { fill: transparent; }
+    .spark g:hover .bar, .spark g:focus .bar { fill: var(--brand-strong); }
+    .spark g:hover .bar.few, .spark g:focus .bar.few { fill: var(--muted); }
+    .spark g:focus { outline: none; }
+    .spark-axis { display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.4rem; color: var(--muted);
+                  font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+    .spark-read { color: var(--ink-2); font-weight: 600; }
+    .key { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .stream-key { display: none; }
+    .key i { width: 0.7rem; height: 0.7rem; border-radius: 3px; background: var(--stub); }
+
+    .db { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .db div { display: grid; grid-template-columns: auto 1fr; column-gap: 0.6rem; align-content: start;
+              padding: 0.75rem 0.8rem; border-radius: 12px; background: var(--surface-2); }
+    .db svg.i { grid-row: span 2; color: var(--brand); margin-top: 0.2rem; }
+    .db .num { font-size: 1.35rem; letter-spacing: -0.01em; }
+    .db span { color: var(--muted); font-size: 0.85rem; line-height: 1.3; }
+
+    ol.board { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.4rem; }
+    ol.board li { display: flex; align-items: center; gap: 0.7rem; padding: 0.45rem 0.6rem; border-radius: 12px;
+                  background: var(--surface-2); }
+    .rank { display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; flex: none;
+            background: var(--brand-soft); color: var(--brand-ink); font-weight: 750; font-size: 0.85rem; }
+    li:first-child .rank { background: var(--brand); color: var(--on-brand); }
+    ol.board .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .soon { display: grid; gap: 0.4rem; }
+    .soon .ghost { height: 2.6rem; border-radius: 12px; border: 1.5px dashed var(--line-strong); display: flex;
+                   align-items: center; gap: 0.7rem; padding: 0 0.6rem; }
+    .soon .ghost i { width: 1.75rem; height: 1.75rem; border-radius: 50%; background: var(--brand-soft); }
+    .soon .ghost b { height: 0.6rem; width: 40%; border-radius: 999px; background: var(--line); }
+    .soon strong { display: inline-flex; align-items: center; gap: 0.45rem; margin-top: 0.35rem; color: var(--brand-ink); }
+    .soon p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+    footer { max-width: 70rem; margin: 0 auto; padding: 0 1rem 2rem; color: var(--muted); font-size: 0.88rem; }
+    footer a { color: var(--ink-2); }
+
+    /* Stream mode: 1920×1080, no navigation, readable from across the room. */
+    html.stream body { width: 1920px; height: 1080px; overflow: hidden; font-size: 26px; }
+    html.stream main { max-width: none; height: 100%; padding: 40px 60px 48px; display: flex; flex-direction: column; }
+    html.stream .hero { flex-wrap: nowrap; align-items: center; padding: 0 0 32px; }
+    html.stream .hero h1, html.stream .hero .lead, html.stream .hero-cta { display: none; }
+    html.stream .stream-brand { display: flex; align-items: center; gap: 22px; }
+    html.stream .stream-brand .wordmark { font-size: 76px; gap: 22px; letter-spacing: -0.03em; }
+    html.stream .stream-brand .wordmark svg { width: 92px; height: 92px; border-radius: 24px; }
+    html.stream .live-pill { display: inline-flex; align-items: center; gap: 14px; padding: 8px 22px; border-radius: 999px;
+                             background: var(--brand-soft); color: var(--brand-ink); font-size: 28px; font-weight: 750;
+                             letter-spacing: 0.12em; }
+    html.stream .live-pill .pulse { width: 16px; height: 16px; }
+    html.stream .status { font-size: 26px; margin-top: 12px; gap: 0; }
+    html.stream .status .pulse { display: none; }
+    html.stream .qr { display: flex; align-items: center; gap: 26px; padding: 14px 30px 14px 14px; border-radius: 22px;
+                      background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .qr svg { display: block; width: 150px; height: 150px; border-radius: 12px; }
+    .qr strong { display: block; font-size: 36px; line-height: 1.15; letter-spacing: -0.01em; }
+    .qr .mark { display: inline-flex; margin-top: 8px; font-size: 28px; font-weight: 700; color: var(--brand-ink); }
+    .qr .mark span { color: var(--muted); font-weight: 600; }
+    html.stream .layout { flex: 1; min-height: 0; display: grid; gap: 28px;
+                          grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    html.stream .flow, html.stream .grid { display: contents; }
+    html.stream .layout { position: relative; }
+    html.stream .flow-arrow { left: calc((100% - 56px) / 3 + 14px); top: calc((100% - 28px) / 4);
+                              width: 64px; height: 64px; box-shadow: 0 0 0 8px var(--bg); }
+    html.stream .flow-arrow svg.i { width: 34px; height: 34px; }
+    html.stream .grid .checks, html.stream .grid .board-card { grid-column: auto; }
+    html.play.stream .grid .checks { grid-column: span 2; }
+    html.stream .card { padding: 28px 32px; border-radius: 24px; overflow: hidden; }
+    html.stream .card-head { margin-bottom: 18px; gap: 16px; }
+    html.stream .card-head h2 { font-size: 28px; }
+    html.stream .chip { width: 48px; height: 48px; border-radius: 14px; }
+    html.stream .chip svg.i { width: 26px; height: 26px; }
+    html.stream .tag { font-size: 18px; padding: 4px 14px; }
+    html.stream .big { font-size: 104px; }
+    html.stream .big.words { font-size: 54px; padding: 18px 0 12px; }
+    html.stream .unit { font-size: 24px; }
+    html.stream .note { font-size: 22px; margin-top: 14px; }
+    html.stream .rows { margin-top: 16px; padding-top: 16px; gap: 6px; }
+    html.stream .meter { height: 26px; margin: 18px 0 12px; }
+    html.stream .meter-label { font-size: 24px; }
+    html.stream .funded { margin-top: 18px; padding: 12px 16px; font-size: 24px; border-radius: 14px; }
+    html.stream .empty .heart { width: 88px; height: 88px; }
+    html.stream .empty .heart svg.i { width: 44px; height: 44px; }
+    html.stream .empty strong { font-size: 40px; }
+    html.stream .empty span { font-size: 24px; }
+    html.stream .card-foot .button { display: none; }
+    html.stream .card-foot small { font-size: 24px; }
+    html.stream .ring { width: 250px; height: 250px; }
+    html.stream .ring .center b { font-size: 68px; }
+    html.stream .ring .center b.words { font-size: 30px; max-width: 170px; }
+    html.stream .ring .center span { font-size: 22px; }
+    html.stream .checks-top .side { gap: 32px; }
+    html.stream .checks-top .side span { font-size: 22px; }
+    html.stream .checks-top .side .num { font-size: 40px; }
+    html.stream .checks .big { font-size: 88px; }
+    html.stream .spark { margin-top: 10px; }
+    html.stream .spark svg { height: 110px; }
+    html.stream .spark-axis { font-size: 20px; margin-top: 6px; }
+    html.stream .spark-read { display: none; }
+    html.stream .stream-key { display: inline-flex; }
+    html.stream .key i { width: 18px; height: 18px; border-radius: 5px; }
+    html.stream .spark-key { display: none; }
+    html.stream .checks .unit { margin: 0; }
+    html.stream .flow-out .note { display: none; }
+    html.stream .db { gap: 16px; }
+    html.stream .db div { padding: 14px 18px; border-radius: 16px; column-gap: 14px; }
+    html.stream .db .num { font-size: 40px; line-height: 1.15; }
+    html.stream .db span { font-size: 21px; }
+    html.stream .db svg.i { width: 32px; height: 32px; margin-top: 8px; }
+    html.stream ol.board { grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    html.stream ol.board li { padding: 8px 12px; font-size: 24px; }
+    html.stream .rank { width: 40px; height: 40px; font-size: 20px; }
+    html.stream .soon .ghost { height: 58px; }
+    html.stream .soon .ghost i { width: 38px; height: 38px; }
+    html.stream .soon strong { font-size: 32px; }
+    html.stream .soon p { font-size: 22px; }
     html.stream footer { display: none; }
-    .url { display: none; }
-    html.stream .url { display: block; color: var(--muted); font-size: 32px; }
   </style>
 </head>
 <body>
   <!-- nav -->
-  <header class="top">
-    <a class="brand" href="/">Unfret</a>
-    <nav><a href="/">Home</a><a href="/support">Support Unfret</a><a href="/privacy">Privacy</a></nav>
+  <header class="site-header">
+    <div class="inner">
+      <a class="wordmark" href="{{home}}" aria-label="Unfret home">
+        <svg viewBox="0 0 128 128" width="30" height="30" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Unfret</span>
+      </a>
+      <!-- play:off -->
+      <nav class="site-nav" aria-label="Main">
+        <a href="/check">Check a link</a>
+        <a href="/about">About</a>
+      </nav>
+      <!-- /play:off -->
+    </div>
   </header>
   <!-- /nav -->
   <main>
-    <div class="head">
-      <h1>Unfret live</h1>
-      <span class="url">unfret.net/live</span>
-    </div>
-    <p class="status" id="status">Loading…</p>
-    <div class="grid">
-      <section class="card">
-        <h2>Checks run</h2>
-        <div class="big" id="checks-today">—</div>
-        <p class="note">today</p>
-        <div class="rows">
-          <div class="row"><span>This month</span><span class="num" id="checks-month">—</span></div>
-          <div class="row"><span>All time</span><span class="num" id="checks-all">—</span></div>
+    <section class="hero">
+      <div>
+        <!-- stream -->
+        <div class="stream-brand">
+          <span class="wordmark"><svg viewBox="0 0 128 128" width="92" height="92" aria-hidden="true"><rect width="128" height="128" rx="32" fill="#1f8a70"/><circle cx="45" cy="44" r="7.5" fill="#fff"/><circle cx="79" cy="44" r="7.5" fill="#fff"/><path d="M31 70 L50 89 Q58 96 66 89 L99 57" fill="none" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unfret</span></span>
+          <span class="live-pill"><span class="pulse" id="pulse-stream"></span>LIVE</span>
         </div>
-      </section>
-      <section class="card">
-        <h2>Free checks left today</h2>
-        <div class="big" id="free-left">—</div>
-        <p class="note">Free checks run on donations.</p>
-      </section>
-      <section class="card">
-        <h2>Funding this month</h2>
-        <div class="bar" role="progressbar" aria-label="Funding this month" id="bar"><div id="bar-fill"></div></div>
-        <p id="funding">—</p>
-      </section>
-      <section class="card">
-        <h2>The database</h2>
-        <div class="rows">
-          <div class="row"><span>Product photos indexed</span><span class="num" id="db-photos">—</span></div>
-          <div class="row"><span>Prices recorded</span><span class="num" id="db-prices">—</span></div>
-          <div class="row"><span>Shops known</span><span class="num" id="db-shops">—</span></div>
-          <div class="row"><span>Pages checked</span><span class="num" id="db-pages">—</span></div>
-        </div>
-      </section>
-      <section class="card">
-        <h2>Verified reports</h2>
-        <div class="big" id="verified">—</div>
-        <p class="note">"Wrong result?" reports confirmed by other reports or by a reviewer.</p>
-      </section>
-      <section class="card">
-        <h2>Top reporters</h2>
-        <ol class="board" id="board"></ol>
-        <p class="soon" id="board-soon" hidden>Opens soon</p>
-      </section>
+        <!-- /stream -->
+        <h1>Unfret live</h1>
+        <!-- play:off -->
+        <p class="lead">Every check, every donation and every free check it pays for, as it happens.</p>
+        <!-- /play:off -->
+        <!-- play:on <p class="lead">Every check Unfret runs, as it happens.</p> -->
+        <p class="status"><span class="pulse" id="pulse"></span><span id="status">Loading…</span></p>
+      </div>
+      <!-- play:off -->
+      <div class="hero-cta">
+        <a class="button large" href="/support"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>Support Unfret</a>
+        <small>Donations keep checks free for everyone.</small>
+      </div>
+      <!-- /play:off -->
+      <!-- stream -->
+      <div class="qr">
+        {{qr}}
+        <div><strong>{{qr_caption}}</strong><span class="mark">{{qr_host}}<span>{{qr_path}}</span></span></div>
+      </div>
+      <!-- /stream -->
+    </section>
+
+    <div class="layout">
+      <div class="flow">
+        <!-- play:off -->
+        <section class="card flow-in" aria-labelledby="h-in">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></span>
+            <h2 id="h-in">Donations this month</h2><span class="tag">IN</span>
+          </div>
+          <div id="fund-amount" hidden>
+            <div class="big" id="raised">€0</div>
+            <div class="meter" role="progressbar" aria-label="Donations this month against the goal" aria-valuemin="0" aria-valuemax="100" id="meter"><div id="meter-fill"></div></div>
+            <div class="meter-label"><span><b class="num" id="pct">0%</b> of the €<span id="goal">90</span> goal</span><span><span class="num" id="supporters">—</span> donations since launch</span></div>
+            <p class="funded"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>≈ <b class="num" id="funded">—</b> free checks funded</span></p>
+          </div>
+          <div class="empty" id="fund-empty" hidden>
+            <span class="heart"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></span>
+            <div><strong>No donations yet this month</strong><span>Be the first: the goal is €<span class="goal-again">90</span> a month.</span></div>
+          </div>
+          <div class="empty" id="fund-few" hidden>
+            <span class="heart"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg></span>
+            <div><strong>The first donations are in</strong><span>The amount shows from 5 donations on, so no single gift can be read from it.</span></div>
+          </div>
+          <div class="card-foot">
+            <small>€1 pays for <b class="per-euro">20</b> free checks.</small>
+            <a class="button" href="/support">Support Unfret</a>
+          </div>
+        </section>
+        <span class="flow-arrow" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        <!-- /play:off -->
+        <section class="card flow-out" aria-labelledby="h-out">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.3-3 7.8-7 9.5-4-1.7-7-5.2-7-9.5V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg></span>
+            <h2 id="h-out">Free checks given</h2><span class="tag">OUT</span>
+          </div>
+          <div class="out">
+            <div>
+              <div class="big" id="given-today">—</div>
+              <p class="unit">today</p>
+              <div class="rows"><div class="row"><span>This month</span><span class="num" id="given-month">—</span></div></div>
+            </div>
+            <div class="ring" role="img" aria-label="Free checks left today" id="ring">
+              <svg viewBox="0 0 120 120" aria-hidden="true"><circle class="track" cx="60" cy="60" r="52"/><circle class="fill" id="ring-fill" cx="60" cy="60" r="52"/></svg>
+              <div class="center"><b id="free-left">—</b><span id="free-of">left today</span></div>
+            </div>
+          </div>
+          <!-- play:off -->
+          <p class="note">Free deep checks run on donations: the ring shows what is left of today's amount.</p>
+          <!-- /play:off -->
+          <!-- play:on <p class="note">The ring shows how many free checks are left today.</p> -->
+        </section>
+      </div>
+
+      <div class="grid">
+        <section class="card checks" aria-labelledby="h-checks">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.4-4.4"/></svg></span>
+            <h2 id="h-checks">Checks run</h2>
+          </div>
+          <div class="checks-top">
+            <div><div class="big" id="checks-today">—</div><p class="unit">today</p></div>
+            <div class="side">
+              <div><span>This month</span><b class="num" id="checks-month">—</b></div>
+              <div><span>All time</span><b class="num" id="checks-all">—</b></div>
+            </div>
+          </div>
+          <div class="spark">
+            <svg id="spark" viewBox="0 0 300 64" role="img" aria-label="Checks a day, the last 30 days"></svg>
+            <div class="spark-axis"><span id="spark-from">30 days ago</span><span class="spark-read" id="spark-read" aria-live="polite">Checks a day, last 30 days</span><span class="key stream-key"><i></i>fewer than 5</span><span>Today</span></div>
+            <div class="spark-axis spark-key"><span class="key"><i></i>fewer than 5, not shown exactly</span></div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="h-db">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg></span>
+            <h2 id="h-db">The database</h2>
+          </div>
+          <div class="db">
+            <div><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/></svg><b class="num" id="db-photos">—</b><span>Product photos indexed</span></div>
+            <div><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.5 1.5 0 0 1 0 2.1l-6.9 6.9a1.5 1.5 0 0 1-2.1 0z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg><b class="num" id="db-prices">—</b><span>Prices recorded</span></div>
+            <div><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5l1.5-5h13l1.5 5M4 9.5h16M4 9.5c0 1.4 1.1 2.5 2.7 2.5s2.6-1.1 2.6-2.5c0 1.4 1.1 2.5 2.7 2.5s2.7-1.1 2.7-2.5c0 1.4 1 2.5 2.6 2.5S20 10.9 20 9.5M5.5 12v8h13v-8M10 20v-4.5h4V20"/></svg><b class="num" id="db-shops">—</b><span>Shops known</span></div>
+            <div><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3.5V8h4.5M9 12.5h6M9 16h4"/></svg><b class="num" id="db-pages">—</b><span>Pages checked</span></div>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="h-verified">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.4 1.8 3-.1.9 2.9 2.4 1.8-1 2.8 1 2.8-2.4 1.8-.9 2.9-3-.1L12 21l-2.4-1.8-3 .1-.9-2.9-2.4-1.8 1-2.8-1-2.8 2.4-1.8.9-2.9 3 .1z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/></svg></span>
+            <h2 id="h-verified">Verified reports</h2>
+          </div>
+          <div class="big" id="verified">—</div>
+          <p class="note">"Wrong result?" reports confirmed by other reports or by a reviewer.</p>
+        </section>
+
+        <section class="card board-card" aria-labelledby="h-board">
+          <div class="card-head">
+            <span class="chip"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 4.5h9v5a4.5 4.5 0 0 1-9 0zM7.5 6.5H4.5v1a3 3 0 0 0 3 3M16.5 6.5h3v1a3 3 0 0 1-3 3M12 14v3.5M8.5 20.5h7l-.8-3h-5.4z"/></svg></span>
+            <h2 id="h-board">Top reporters</h2>
+          </div>
+          <ol class="board" id="board"></ol>
+          <div class="soon" id="board-soon" hidden>
+            <div class="ghost"><i></i><b></b></div>
+            <div class="ghost"><i></i><b></b></div>
+            <strong><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Opens soon</strong>
+            <p>Reporters who pick a nickname show here once 5 of their reports are verified.</p>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
-  <footer>Counts only: nothing here is about any person. Counts under 5 show as "fewer than 5".</footer>
+  <footer>Counts only: nothing here is about any person. Counts under 5 show as "fewer than 5". <a href="/privacy">Privacy</a></footer>
   <script type="application/json" id="live-data">{{data}}</script>
   <script>
     (function () {
@@ -133,67 +474,176 @@
       var STREAM = document.documentElement.classList.contains("stream");
       var POLL_MS = 60000;
       var DAY_MS = 24 * 60 * 60 * 1000;
+      var RING = 2 * Math.PI * 52;
       var lastOk = null;
       var nf = new Intl.NumberFormat("en-US");
+      var nfc = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+      var day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+      var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
 
       function $(id) { return document.getElementById(id); }
-      function set(id, text) { $(id).textContent = text; }
-      function setBig(id, text) {
-        var el = $(id);
+      function each(sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); }
+      function fmt(x) { x = Math.round(x); return x >= 1000000 ? nfc.format(x) : nf.format(x); }
+      function eur(x) { return "€" + (x >= 100 || Math.round(x) === x ? nf.format(Math.round(x)) : x.toFixed(2)); }
+
+      // Counts up from where the number was to where it is now (at once when motion is reduced).
+      function tween(el, to, show) {
+        var from = typeof el.liveValue === "number" ? el.liveValue : 0;
+        el.liveValue = to;
+        if (el.liveFrame) cancelAnimationFrame(el.liveFrame);
+        if (calm.matches || from === to || document.hidden) { el.textContent = show(to); return; }
+        var start = null;
+        function step(t) {
+          if (start === null) start = t;
+          var p = Math.min(1, (t - start) / 1100);
+          el.textContent = show(from + (to - from) * (1 - Math.pow(1 - p, 3)));
+          if (p < 1) el.liveFrame = requestAnimationFrame(step);
+        }
+        el.liveFrame = requestAnimationFrame(step);
+      }
+      function words(el, text) {
+        if (el.liveFrame) cancelAnimationFrame(el.liveFrame);
+        el.liveValue = null;
         el.textContent = text;
-        el.classList.toggle("words", !/^(about )?[0-9,]+$/.test(text));
       }
-      function n(c) {
-        if (!c) return "—";
-        if (c.fewer_than_5) return "fewer than 5";
-        return c.value === null ? "—" : nf.format(c.value);
+      // A public count: a number, "fewer than 5", or a dash when unknown.
+      function count(id, c, big) {
+        var el = $(id);
+        if (!el) return;
+        var known = c && !c.fewer_than_5 && c.value !== null;
+        if (known) tween(el, c.value, fmt);
+        else words(el, c && c.fewer_than_5 ? "fewer than 5" : "—");
+        if (big) el.classList.toggle("words", !known);
       }
-      function euros(x) { return "€" + (Math.round(x) === x ? nf.format(x) : x.toFixed(2)); }
-      function clock(d) {
-        return d.toISOString().slice(11, 19) + " UTC";
+
+      function spark(series) {
+        var svg = $("spark");
+        var ns = "http://" + "www.w3.org/2000/svg";
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        // As wide as the box is (its height is fixed), bars at most 24px wide.
+        var box = svg.getBoundingClientRect(), H = 64;
+        var W = box.width && box.height ? Math.max(120, H * box.width / box.height) : 300;
+        var px = box.height ? H / box.height : 0.25;
+        var slot = W / Math.max(series.length, 1), w = Math.min(24 * px, slot - 2 * px), max = 5, busiest = null;
+        svg.setAttribute("viewBox", "0 0 " + W.toFixed(1) + " " + H);
+        series.forEach(function (d) { if (d.value !== null && d.value > max) max = d.value; });
+        series.forEach(function (d) { if (d.value !== null && (!busiest || d.value > busiest.value)) busiest = d; });
+        var base = document.createElementNS(ns, "line");
+        base.setAttribute("class", "base");
+        base.setAttribute("x1", "0"); base.setAttribute("x2", W.toFixed(1));
+        base.setAttribute("y1", String(H)); base.setAttribute("y2", String(H));
+        svg.appendChild(base);
+        series.forEach(function (d, i) {
+          var few = d.value === null;
+          var h = few ? 4 * px : Math.max(d.value / max * (H - 2 * px), 2 * px);
+          var x = i * slot + (slot - w) / 2, y = H - h, r = Math.min(4 * px, h, w / 2);
+          var g = document.createElementNS(ns, "g");
+          g.setAttribute("tabindex", "0");
+          var label = day.format(new Date(d.date + "T00:00:00Z")) + ": " +
+            (few ? (d.fewer_than_5 ? "fewer than 5 checks" : "no count") : fmt(d.value) + " checks");
+          var title = document.createElementNS(ns, "title");
+          title.textContent = label;
+          var hit = document.createElementNS(ns, "rect");
+          hit.setAttribute("class", "hit");
+          hit.setAttribute("x", String(i * slot)); hit.setAttribute("y", "0");
+          hit.setAttribute("width", String(slot)); hit.setAttribute("height", String(H + 4));
+          var bar = document.createElementNS(ns, "path");
+          bar.setAttribute("class", "bar" + (few ? " few" : "") + (i === series.length - 1 ? " now" : ""));
+          bar.setAttribute("d", "M" + x + "," + H + "V" + (y + r) + "Q" + x + "," + y + " " + (x + r) + "," + y +
+            "H" + (x + w - r) + "Q" + (x + w) + "," + y + " " + (x + w) + "," + (y + r) + "V" + H + "Z");
+          g.appendChild(title); g.appendChild(hit); g.appendChild(bar);
+          g.addEventListener("mouseenter", function () { $("spark-read").textContent = label; });
+          g.addEventListener("focus", function () { $("spark-read").textContent = label; });
+          svg.appendChild(g);
+        });
+        var rest = busiest ? "busiest day " + fmt(busiest.value) : "Checks a day, last 30 days";
+        svg.onmouseleave = function () { $("spark-read").textContent = rest; };
+        $("spark-read").textContent = rest;
+        if (series.length) $("spark-from").textContent = day.format(new Date(series[0].date + "T00:00:00Z"));
+      }
+
+      function inflow(f) {
+        if (!$("fund-amount")) return;
+        var perEuro = f.check_cost_eur ? Math.round(1 / f.check_cost_eur) : 0;
+        each(".per-euro", function (el) { el.textContent = fmt(perEuro); });
+        each(".goal-again", function (el) { el.textContent = nf.format(f.goal_eur); });
+        $("goal").textContent = nf.format(f.goal_eur);
+        var none = f.raised_eur === 0, few = f.raised_eur === null;
+        $("fund-amount").hidden = none || few;
+        $("fund-empty").hidden = !none;
+        $("fund-few").hidden = !few;
+        if (none || few) return;
+        var pct = f.goal_eur ? 100 * f.raised_eur / f.goal_eur : 0;
+        tween($("raised"), f.raised_eur, eur);
+        tween($("pct"), pct, function (x) { return Math.round(x) + "%"; });
+        $("meter-fill").style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
+        $("meter").setAttribute("aria-valuenow", String(Math.round(Math.min(100, pct))));
+        count("funded", f.free_checks);
+        count("supporters", f.supporters);
+      }
+
+      function ring(left, whole) {
+        var el = $("free-left"), part = 0;
+        if (!left.available) {
+          words(el, "—");
+          el.classList.add("words");
+          $("free-of").textContent = "unavailable";
+        } else {
+          count("free-left", left, true);
+          var of = whole && whole.value ? "left of " + fmt(whole.value) : "left today";
+          $("free-of").textContent = of;
+          if (whole && whole.value) part = left.value !== null ? left.value / whole.value : 0.02;
+        }
+        part = Math.max(0, Math.min(1, part));
+        $("ring-fill").style.strokeDasharray = RING.toFixed(2);
+        $("ring-fill").style.strokeDashoffset = (RING * (1 - part)).toFixed(2);
+        $("ring").setAttribute("aria-label", "Free checks left today: " + el.textContent + " " + $("free-of").textContent);
+      }
+
+      function board(list) {
+        var ol = $("board");
+        ol.textContent = "";
+        list.forEach(function (e) {
+          var li = document.createElement("li");
+          var rank = document.createElement("span");
+          rank.className = "rank";
+          rank.textContent = String(e.rank);
+          var who = document.createElement("span");
+          who.className = "who";
+          who.textContent = e.nickname;
+          var c = document.createElement("span");
+          c.className = "num";
+          c.textContent = e.verified_reports.value === null ? "fewer than 5" : fmt(e.verified_reports.value);
+          li.appendChild(rank); li.appendChild(who); li.appendChild(c);
+          ol.appendChild(li);
+        });
+        $("board-soon").hidden = list.length > 0;
       }
 
       function render(s) {
-        setBig("checks-today", n(s.checks.today));
-        set("checks-month", n(s.checks.this_month));
-        set("checks-all", n(s.checks.all_time));
-        var free = s.free_checks_left_today;
-        setBig("free-left", !free.available ? "Unavailable"
-          : free.fewer_than_5 ? "fewer than 5" : "about " + nf.format(free.value));
-        var f = s.funding;
-        var pct = Math.max(0, Math.min(100, f.goal_eur ? 100 * f.raised_eur / f.goal_eur : 0));
-        $("bar-fill").style.width = pct.toFixed(1) + "%";
-        $("bar").setAttribute("aria-valuenow", pct.toFixed(0));
-        set("funding", euros(f.raised_eur) + " of " + euros(f.goal_eur) + " this month ≈ " + n(f.free_checks) +
-          " free checks (" + euros(f.check_cost_eur) + " each) · by " + n(f.supporters) + " supporters");
-        set("db-photos", n(s.database.product_photos));
-        set("db-prices", n(s.database.prices));
-        set("db-shops", n(s.database.shops));
-        set("db-pages", n(s.database.pages_checked));
-        setBig("verified", n(s.verified_reports));
-        var board = $("board");
-        board.textContent = "";
-        s.leaderboard.forEach(function (e) {
-          var li = document.createElement("li");
-          var who = document.createElement("span");
-          who.className = "who";
-          who.textContent = e.rank + ". " + e.nickname;
-          var c = document.createElement("span");
-          c.className = "num";
-          c.textContent = n(e.verified_reports);
-          li.appendChild(who);
-          li.appendChild(c);
-          board.appendChild(li);
-        });
-        $("board-soon").hidden = s.leaderboard.length > 0;
+        count("checks-today", s.checks.today, true);
+        count("checks-month", s.checks.this_month);
+        count("checks-all", s.checks.all_time);
+        spark(s.checks.daily || []);
+        count("given-today", s.free_checks_given.today, true);
+        count("given-month", s.free_checks_given.this_month);
+        ring(s.free_checks_left_today, s.free_checks_today);
+        inflow(s.funding);
+        count("db-photos", s.database.product_photos);
+        count("db-prices", s.database.prices);
+        count("db-shops", s.database.shops);
+        count("db-pages", s.database.pages_checked);
+        count("verified", s.verified_reports, true);
+        board(s.leaderboard);
       }
 
       function status(failed) {
         var el = $("status");
-        el.textContent = lastOk ? "Last updated " + clock(lastOk) : "Waiting for the numbers…";
+        el.textContent = lastOk ? "Updated " + lastOk.toISOString().slice(11, 16) + " UTC" : "Waiting for the numbers…";
+        ["pulse", "pulse-stream"].forEach(function (id) { if ($(id)) $(id).classList.toggle("stale", !!failed); });
         if (failed) {
           var stale = document.createElement("span");
-          stale.className = "stale";
+          stale.className = "stale-note";
           stale.textContent = " · couldn't refresh, showing the last numbers";
           el.appendChild(stale);
         }
